@@ -63,6 +63,7 @@ Main functions:
 
 - Keep changes minimal and preserve the single-file CLI structure unless a refactor is clearly necessary.
 - Preserve the current interactive behavior unless the task explicitly changes UX.
+- Ensure every script in the repository supports `-h` and `--help` with accurate command-line usage text.
 - Be careful with performance changes inside `save_pi_to_file`, since that function handles the main large-number bottleneck.
 - Avoid committing regenerated large output files unless the task explicitly requires updating them.
 
