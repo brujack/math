@@ -4,10 +4,59 @@
 Calculate π to a user-specified number of decimal places using the mpmath library.
 """
 
+import argparse
 import mpmath
-import time
 import sys
 import threading
+import time
+
+
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Calculate pi to a specified number of decimal places.",
+        epilog=(
+            "Run without arguments to use the interactive prompts, or provide "
+            "the number of digits directly."
+        ),
+    )
+    parser.add_argument(
+        "digits",
+        nargs="?",
+        type=int,
+        help="number of decimal places to calculate",
+    )
+    return parser.parse_args()
+
+
+def get_target_digits(args):
+    """Get the requested digit count from CLI args or interactive input."""
+    if args.digits is not None:
+        if args.digits < 1:
+            raise ValueError("Please enter a positive number of decimal places.")
+
+        if args.digits > 1000000:
+            print("Warning: Very large numbers may take a long time to calculate.")
+
+        return args.digits
+
+    while True:
+        try:
+            user_input = input("Enter the number of decimal places to calculate π (1-1000000): ")
+            target_digits = int(user_input)
+
+            if target_digits < 1:
+                print("Please enter a positive number.")
+                continue
+            if target_digits > 1000000:
+                print("Warning: Very large numbers may take a long time to calculate.")
+                confirm = input(f"Continue with {target_digits} digits? (y/n): ").lower().strip()
+                if confirm not in ['y', 'yes']:
+                    continue
+
+            return target_digits
+        except ValueError:
+            print("Please enter a valid integer.")
 
 def calculate_pi_high_precision(digits=1000):
     """
@@ -200,29 +249,12 @@ def save_pi_to_file(pi_value, digits, filename):
 def main():
     """Main function to execute π calculation."""
     try:
+        args = parse_args()
+
         print("High-Precision π Calculator")
         print("=" * 40)
-        
-        # Get number of digits from user
-        while True:
-            try:
-                user_input = input("Enter the number of decimal places to calculate π (1-1000000): ")
-                target_digits = int(user_input)
-                
-                if target_digits < 1:
-                    print("Please enter a positive number.")
-                    continue
-                elif target_digits > 1000000:
-                    print("Warning: Very large numbers may take a long time to calculate.")
-                    confirm = input(f"Continue with {target_digits} digits? (y/n): ").lower().strip()
-                    if confirm not in ['y', 'yes']:
-                        continue
-                
-                break
-                
-            except ValueError:
-                print("Please enter a valid integer.")
-                continue
+
+        target_digits = get_target_digits(args)
 
         # Calculate π
         pi_result = calculate_pi_high_precision(target_digits)
@@ -258,6 +290,9 @@ def main():
 
     except KeyboardInterrupt:
         print("\n\nCalculation interrupted by user.")
+        sys.exit(1)
+    except ValueError as error:
+        print(f"\nError: {error}")
         sys.exit(1)
     except Exception as e:
         print(f"\nError occurred during calculation: {e}")
