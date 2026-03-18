@@ -90,33 +90,33 @@ def calculate_pi_high_precision(digits=1000):
 def show_pi_preview(pi_value, preview_digits=100):
     """
     Show a preview of π with specified number of digits.
-    
+
     Args:
         pi_value: The calculated π value
         preview_digits (int): Number of decimal places to show
     """
     # Limit preview for very large numbers to avoid slowdown
     actual_preview = min(preview_digits, 200)  # Maximum 200 digits in preview
-    
+
     print(f"Generating preview of π ({actual_preview} digits)...")
-    
+
     # Convert only the preview portion to string
     pi_str = mpmath.nstr(pi_value, actual_preview + 1, strip_zeros=False)
-    
+
     # Split into integer and decimal parts
     if '.' in pi_str:
         integer_part, decimal_part = pi_str.split('.', 1)
     else:
         integer_part = pi_str
         decimal_part = ""
-    
+
     print(f"\nπ = {integer_part}.{decimal_part}...")
     print(f"(Showing first {len(decimal_part)} decimal places)")
 
 def save_pi_to_file(pi_value, digits, filename):
     """
     Efficiently save π to file with progress indication and countdown timer.
-    
+
     Args:
         pi_value: The calculated π value
         digits (int): Number of decimal places
@@ -135,64 +135,64 @@ def save_pi_to_file(pi_value, digits, filename):
         else:
             # Over 10M gets increasingly slow
             return max(60.0, digits * 0.0001)
-    
+
     class ProgressIndicator:
         def __init__(self, estimated_duration):
             self.running = False
             self.start_time = None
             self.estimated_duration = estimated_duration
-            
+
         def start(self):
             self.running = True
             self.start_time = time.time()
-            
+
         def stop(self):
             self.running = False
-            
+
         def show_progress(self):
             while self.running:
                 elapsed = time.time() - self.start_time
-                
+
                 if elapsed <= self.estimated_duration:
                     # Show progress bar based on estimate
                     remaining = max(0, self.estimated_duration - elapsed)
                     progress_percent = (elapsed / self.estimated_duration) * 100
-                    
+
                     # Create a simple progress bar
                     bar_length = 30
                     filled_length = int(bar_length * progress_percent / 100)
                     bar = '█' * filled_length + '░' * (bar_length - filled_length)
-                    
+
                     dots = "." * (int(elapsed * 2) % 4)
                     print(f"\rConverting {digits:,} digits{dots:<3} "
                           f"[{bar}] {progress_percent:.1f}% "
-                          f"Elapsed: {elapsed:.1f}s | ETA: {remaining:.1f}s", 
+                          f"Elapsed: {elapsed:.1f}s | ETA: {remaining:.1f}s",
                           end="", flush=True)
                 else:
                     # Estimate was too low - show spinner with elapsed time
                     dots = "." * (int(elapsed * 2) % 4)
                     print(f"\rConverting {digits:,} digits{dots:<3} "
                           f"[Still converting...] "
-                          f"Elapsed: {elapsed:.1f}s (longer than estimated)", 
+                          f"Elapsed: {elapsed:.1f}s (longer than estimated)",
                           end="", flush=True)
-                
+
                 time.sleep(0.25)
-    
+
     print(f"Starting conversion of {digits:,} digits...")
     estimated_time = estimate_conversion_time(digits)
     print(f"Estimated conversion time: {estimated_time:.1f} seconds")
-    
+
     conversion_start = time.time()
-    
+
     # Create and start progress indicator
     progress = ProgressIndicator(estimated_time)
     progress.start()
     progress_thread = threading.Thread(target=progress.show_progress, daemon=True)
     progress_thread.start()
-    
+
     # Give the progress thread a moment to start
     time.sleep(0.1)
-    
+
     try:
         # Convert to string - this is the slow operation
         pi_str = mpmath.nstr(pi_value, digits + 1, strip_zeros=False)
@@ -200,47 +200,47 @@ def save_pi_to_file(pi_value, digits, filename):
         # Stop progress indicator
         progress.stop()
         progress_thread.join(timeout=1.0)
-    
+
     conversion_time = time.time() - conversion_start
     print(f"\rString conversion completed in {conversion_time:.2f} seconds" + " " * 50)
-    
+
     print(f"Writing to {filename}...")
     write_start = time.time()
-    
+
     # Calculate chunk size for progress tracking (write in chunks)
     total_length = len(pi_str)
     chunk_size = max(1024 * 1024, total_length // 100)  # 1MB chunks or 1% of total
-    
+
     with open(filename, 'w', buffering=8192*16) as f:  # Larger buffer for better performance
         f.write(f"π calculated to {digits:,} decimal places using mpmath\n")
         f.write("=" * 60 + "\n\n")
-        
+
         # Write the main content in chunks with progress
         written = 0
         total_data = len(pi_str)
-        
+
         for i in range(0, total_data, chunk_size):
             chunk = pi_str[i:i + chunk_size]
             f.write(chunk)
             written += len(chunk)
-            
+
             # Calculate and display progress
             progress = (written / total_data) * 100
             elapsed = time.time() - write_start
-            
+
             if elapsed > 0:
                 rate = written / elapsed  # bytes per second
                 remaining_bytes = total_data - written
                 eta = remaining_bytes / rate if rate > 0 else 0
-                
+
                 # Display progress with countdown
                 print(f"\rFile write progress: {progress:.1f}% | "
                       f"Written: {written:,}/{total_data:,} chars | "
                       f"ETA: {eta:.1f}s | "
                       f"Rate: {rate/1024/1024:.1f} MB/s", end="", flush=True)
-        
+
         f.write(f"\n\nTotal decimal places: {digits:,}")
-    
+
     print()  # New line after progress
     write_time = time.time() - write_start
     print(f"File write completed in {write_time:.2f} seconds")
@@ -258,14 +258,14 @@ def main():
 
         # Calculate π
         pi_result = calculate_pi_high_precision(target_digits)
-        
+
         # Show preview for calculations <= 1 million digits
         if target_digits <= 1000000:
             preview_digits = min(100, target_digits)
             show_pi_preview(pi_result, preview_digits)
         else:
             print(f"\nSkipping preview for {target_digits:,} digits (too large for quick preview)")
-        
+
         # For large numbers (>10000 digits), always save to file
         if target_digits > 10000:
             filename = f"pi_{target_digits}_digits.txt"
@@ -276,7 +276,7 @@ def main():
             # For smaller numbers, ask if user wants full display
             print(f"\nWould you like to display all {target_digits:,} digits? (y/n): ", end="")
             response = input().lower().strip()
-            
+
             if response in ['y', 'yes']:
                 # Convert to string and display
                 pi_str = mpmath.nstr(pi_result, target_digits + 1, strip_zeros=False)
