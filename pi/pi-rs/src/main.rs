@@ -25,7 +25,10 @@ Key difference from the Python version:
 
 use std::fs::File;
 use std::io::{self, BufRead, Write};
-use std::time::Instant;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use std::os::unix::fs::FileExt;
@@ -64,6 +67,9 @@ const CHU_C3_24: u64 = 10_939_058_860_032_000;
 /// Each serial leaf does ~512 terms; overhead of spawning smaller tasks exceeds
 /// the computation.  Rayon's work-stealing handles load-balancing automatically.
 const BS_PAR_THRESHOLD: u64 = 512;
+
+/// Counts completed leaf nodes during binary splitting; read by the progress thread.
+static BS_LEAF_COUNT: AtomicU64 = AtomicU64::new(0);
 
 // ---------------------------------------------------------------------------
 // Binary splitting — the core of the Chudnovsky algorithm
@@ -107,31 +113,34 @@ fn bs(a: u64, b: u64) -> Pqt {
 }
 
 fn bs_leaf(a: u64) -> Pqt {
-    if a == 0 {
-        return Pqt {
+    let result = if a == 0 {
+        Pqt {
             p: Integer::from(1u32),
             q: Integer::from(1u32),
             t: Integer::from(CHU_A),
-        };
-    }
+        }
+    } else {
+        // P = (6a−5)(2a−1)(6a−1)
+        // These factors fit in u64 for all practical a values (a ≤ ~7 M for 100 M digits).
+        let p = Integer::from(6 * a - 5)
+            * Integer::from(2 * a - 1)
+            * Integer::from(6 * a - 1);
 
-    // P = (6a−5)(2a−1)(6a−1)
-    // These factors fit in u64 for all practical a values (a ≤ ~7 M for 100 M digits).
-    let p = Integer::from(6 * a - 5)
-        * Integer::from(2 * a - 1)
-        * Integer::from(6 * a - 1);
+        // Q = a³ × C³/24
+        // a³ overflows u64 for a > ~2.6 M, so use Integer arithmetic.
+        let ai = Integer::from(a);
+        let q = Integer::from(&ai * &ai) * &ai * CHU_C3_24;
 
-    // Q = a³ × C³/24
-    // a³ overflows u64 for a > ~2.6 M, so use Integer arithmetic.
-    let ai = Integer::from(a);
-    let q = Integer::from(&ai * &ai) * &ai * CHU_C3_24;
+        // T = (−1)^a × P × (A + B×a)
+        let t_abs =
+            Integer::from(&p) * (Integer::from(CHU_A) + Integer::from(CHU_B) * &ai);
+        let t = if a & 1 == 1 { -t_abs } else { t_abs };
 
-    // T = (−1)^a × P × (A + B×a)
-    let t_abs =
-        Integer::from(&p) * (Integer::from(CHU_A) + Integer::from(CHU_B) * &ai);
-    let t = if a & 1 == 1 { -t_abs } else { t_abs };
+        Pqt { p, q, t }
+    };
 
-    Pqt { p, q, t }
+    BS_LEAF_COUNT.fetch_add(1, Ordering::Relaxed);
+    result
 }
 
 /// Combine two adjacent ranges [a,m) and [m,b):
@@ -163,8 +172,36 @@ fn compute_pi(digits: usize) -> String {
         BS_PAR_THRESHOLD
     );
 
+    // Reset leaf counter and spawn a progress-reporting thread.
+    BS_LEAF_COUNT.store(0, Ordering::Relaxed);
+    let series_done = Arc::new(AtomicBool::new(false));
+    let series_done_c = Arc::clone(&series_done);
+    let series_thread = thread::spawn(move || {
+        loop {
+            thread::sleep(Duration::from_millis(200));
+            if series_done_c.load(Ordering::Relaxed) {
+                break;
+            }
+            let completed = BS_LEAF_COUNT.load(Ordering::Relaxed);
+            let pct = completed * 100 / n;
+            eprint!(
+                "\r  Computing series:  {:3}%  ({} / {} terms)   ",
+                pct,
+                fmt_int(completed as usize),
+                fmt_int(n as usize),
+            );
+            let _ = io::stderr().flush();
+        }
+    });
+
     let t0 = Instant::now();
     let pqt = bs(0, n);
+    series_done.store(true, Ordering::Relaxed);
+    series_thread.join().unwrap();
+    eprintln!(
+        "\r  Computing series:  100%  ({} terms)   ",
+        fmt_int(n as usize)
+    );
     eprintln!("  Series done in {:.2}s", t0.elapsed().as_secs_f64());
 
     // π = 426_880 × √10_005 × Q / T
@@ -221,7 +258,8 @@ fn pi_to_string(pi: Float, digits: usize) -> String {
 // File output
 // ---------------------------------------------------------------------------
 
-/// Write π to a file using parallel pwrite(2) chunks.
+/// Write π to a file using parallel pwrite(2) chunks, reporting progress and
+/// write speed.
 ///
 /// The file is pre-allocated to its final size, then the header and footer are
 /// written sequentially (they are small) and the π digit string is written
@@ -242,6 +280,7 @@ fn write_pi_file(filename: &str, pi_str: &str, digits: usize) -> io::Result<()> 
 
     let total     = (hdr.len() + pi.len() + ftr.len()) as u64;
     let pi_offset = hdr.len() as u64;
+    let pi_total  = pi.len() as u64;
 
     // Pre-allocate file; pwrite does not extend a file past its current size.
     let file = File::create(filename)?;
@@ -249,14 +288,46 @@ fn write_pi_file(filename: &str, pi_str: &str, digits: usize) -> io::Result<()> 
 
     // Header and footer are small — write sequentially.
     file.write_at(hdr, 0)?;
-    file.write_at(ftr, pi_offset + pi.len() as u64)?;
+    file.write_at(ftr, pi_offset + pi_total)?;
+
+    // Set up progress tracking for the parallel write.
+    let n_threads  = rayon::current_num_threads();
+    let chunk_size = ((4 * 1024 * 1024) as usize).max(pi.len() / n_threads);
+
+    let bytes_written = Arc::new(AtomicU64::new(0));
+    let bytes_written_c = Arc::clone(&bytes_written);
+    let write_done = Arc::new(AtomicBool::new(false));
+    let write_done_c = Arc::clone(&write_done);
+    let t_write = Instant::now();
+
+    let progress_thread = thread::spawn(move || {
+        loop {
+            thread::sleep(Duration::from_millis(200));
+            if write_done_c.load(Ordering::Relaxed) {
+                break;
+            }
+            let written = bytes_written_c.load(Ordering::Relaxed);
+            let elapsed = t_write.elapsed().as_secs_f64();
+            let speed = if elapsed > 0.001 {
+                written as f64 / elapsed / 1_048_576.0
+            } else {
+                0.0
+            };
+            let pct = if pi_total > 0 { written * 100 / pi_total } else { 100 };
+            eprint!(
+                "\r  Writing: {:3}%  ({:.1} / {:.1} MB)  {:.1} MB/s   ",
+                pct,
+                written as f64 / 1_048_576.0,
+                pi_total as f64 / 1_048_576.0,
+                speed,
+            );
+            let _ = io::stderr().flush();
+        }
+    });
 
     // π digit bytes: parallel pwrite chunks.
     // File: Sync on Unix (wraps OwnedFd which is Send + Sync). pwrite is
     // thread-safe — it does not move the file pointer. ✓
-    let n_threads  = rayon::current_num_threads();
-    let chunk_size = ((4 * 1024 * 1024) as usize).max(pi.len() / n_threads);
-
     pi.par_chunks(chunk_size)
         .enumerate()
         .try_for_each(|(i, chunk)| -> io::Result<()> {
@@ -266,8 +337,24 @@ fn write_pi_file(filename: &str, pi_str: &str, digits: usize) -> io::Result<()> 
                 written +=
                     file.write_at(&chunk[written..], base + written as u64)?;
             }
+            bytes_written.fetch_add(chunk.len() as u64, Ordering::Relaxed);
             Ok(())
         })?;
+
+    write_done.store(true, Ordering::Relaxed);
+    progress_thread.join().unwrap();
+
+    let elapsed = t_write.elapsed().as_secs_f64();
+    let speed = if elapsed > 0.001 {
+        pi_total as f64 / elapsed / 1_048_576.0
+    } else {
+        0.0
+    };
+    eprintln!(
+        "\r  Writing: 100%  ({:.1} MB)  {:.1} MB/s              ",
+        pi_total as f64 / 1_048_576.0,
+        speed,
+    );
 
     Ok(())
 }
@@ -367,11 +454,9 @@ fn main() {
     if digits > 10_000 {
         let filename = format!("pi_{}_digits.txt", digits);
         println!("\nSaving to {}…", filename);
-        let t_write = Instant::now();
         #[cfg(unix)]
         write_pi_file(&filename, &pi_str, digits).expect("file write failed");
-        println!("Written in {:.2}s", t_write.elapsed().as_secs_f64());
-        println!("\nFull precision π saved to {}", filename);
+        println!("Full precision π saved to {}", filename);
     } else {
         print!("\nDisplay all {} digits? (y/n): ", fmt_int(digits));
         io::stdout().flush().unwrap();
