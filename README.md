@@ -1,11 +1,13 @@
 # math
 
+![Build](https://github.com/brujack/math/actions/workflows/build.yml/badge.svg)
+
 High-performance mathematical computation tools.
 
-| Project | Description | Implementation |
-|---------|-------------|----------------|
-| [`pi/`](pi/README.md) | Calculate π to N decimal places | Python + Rust |
-| [`prime/`](prime/README.md) | Find all primes up to 10^N | Rust |
+| Project | Description | Implementation | CI |
+|---------|-------------|----------------|----|
+| [`pi/`](pi/README.md) | Calculate π to N decimal places | Python + Rust | ✓ |
+| [`prime/`](prime/README.md) | Find all primes up to 10^N | Rust | ✓ |
 
 ---
 
