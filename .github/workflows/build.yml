@@ -1,0 +1,47 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build-pi-rs:
+    name: Build pi-rs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pi/pi-rs
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GMP and MPFR
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: pi/pi-rs
+
+      - name: Build
+        run: cargo build --release
+
+  build-prime-rs:
+    name: Build prime-rs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: prime/prime-rs
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: prime/prime-rs
+
+      - name: Build
+        run: cargo build --release
