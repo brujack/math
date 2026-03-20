@@ -28,9 +28,13 @@ Build (requires GMP + MPFR — run `install_deps.sh` first):
 
 ```bash
 cd pi-rs
-cargo build --release
+make pi          # builds release binary and copies it to ~/Downloads/pi
 ./target/release/pi [digits]
 ```
+
+A `Makefile` is provided in `pi-rs/`:
+- `make pi` — runs `cargo build --release` and copies the binary to `~/Downloads/pi`
+- `make clean` — runs `cargo clean` and removes `~/Downloads/pi`
 
 ### Rust Code Layout (`pi-rs/src/main.rs`)
 
