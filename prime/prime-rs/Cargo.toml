@@ -1,0 +1,21 @@
+[package]
+name = "prime"
+version = "0.1.0"
+edition = "2021"
+description = "Find all primes up to 10^N — parallel segmented sieve + rayon"
+
+[[bin]]
+name = "prime"
+path = "src/main.rs"
+
+[dependencies]
+# Work-stealing thread pool for parallel segment processing.
+rayon = "1"
+
+# CLI argument parsing.
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+opt-level   = 3
+lto         = "thin"
+codegen-units = 1

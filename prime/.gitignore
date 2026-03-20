@@ -1,0 +1,5 @@
+# Rust build artifacts
+prime-rs/target/
+
+# Generated prime output files
+primes_*.txt
