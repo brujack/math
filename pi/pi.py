@@ -20,6 +20,7 @@ import multiprocessing
 import mpmath
 import os
 import sys
+import threading
 import time
 
 # ---------------------------------------------------------------------------
@@ -468,6 +469,7 @@ def save_pi_to_file(pi_value, digits, filename):
     chunk_starts = list(range(0, len(pi_bytes), _PWRITE_CHUNK))
     total_chunks = len(chunk_starts)
     completed_chunks = 0
+    _progress_lock = threading.Lock()
 
     fd = os.open(filename, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
     try:
@@ -481,20 +483,21 @@ def save_pi_to_file(pi_value, digits, filename):
             nonlocal completed_chunks
             end = min(start + _PWRITE_CHUNK, len(pi_bytes))
             _pwrite_all(fd, pi_bytes[start:end], pi_offset + start)
-            completed_chunks += 1
-            elapsed = time.time() - write_start
-            pct = completed_chunks / total_chunks * 100
-            bytes_done = min(completed_chunks * _PWRITE_CHUNK, len(pi_bytes))
-            rate = bytes_done / elapsed / 1024 / 1024 if elapsed > 0 else 0
-            remaining = total_chunks - completed_chunks
-            eta = (remaining / completed_chunks * elapsed) if completed_chunks > 0 else 0
-            print(
-                f"\rFile write progress: {pct:.1f}% | "
-                f"Written: {bytes_done:,}/{len(pi_bytes):,} chars | "
-                f"ETA: {eta:.1f}s | "
-                f"Rate: {rate:.1f} MB/s",
-                end="", flush=True,
-            )
+            with _progress_lock:
+                completed_chunks += 1
+                elapsed = time.time() - write_start
+                pct = completed_chunks / total_chunks * 100
+                bytes_done = min(completed_chunks * _PWRITE_CHUNK, len(pi_bytes))
+                rate = bytes_done / elapsed / 1024 / 1024 if elapsed > 0 else 0
+                remaining = total_chunks - completed_chunks
+                eta = (remaining / completed_chunks * elapsed) if completed_chunks > 0 else 0
+                print(
+                    f"\rFile write progress: {pct:.1f}% | "
+                    f"Written: {bytes_done:,}/{len(pi_bytes):,} chars | "
+                    f"ETA: {eta:.1f}s | "
+                    f"Rate: {rate:.1f} MB/s",
+                    end="", flush=True,
+                )
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=_IO_WORKERS) as io_pool:
             futures_list = [io_pool.submit(write_chunk, cs) for cs in chunk_starts]

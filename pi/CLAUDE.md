@@ -72,6 +72,7 @@ Module-level worker functions (must stay at module level for multiprocessing pic
 - `_convert_gmpy2_worker(Q_int, T_int, digits)`: subprocess worker for the gmpy2 path; receives plain Python ints (always picklable).
 - `_convert_mpmath_worker(pi_value, digits)`: subprocess worker for the mpmath fallback path.
 - `_pwrite_all(fd, data, offset)`: writes bytes to a file descriptor at an absolute offset using `os.pwrite(2)`; thread-safe.
+- `_progress_lock` (inside `save_pi_to_file`): `threading.Lock` that serialises `completed_chunks` updates and the progress `print` across the I/O worker threads.
 
 String conversion:
 
@@ -99,7 +100,7 @@ Module-level constants / state:
 - **mpmath fallback**: sets precision to `digits + 50` and uses `mpmath.pi`.  Large runs are dominated by converting the `mpmath` value to a string, not by the calculation itself.
 - **gmpy2.mpfr is a C extension type** and does not support arbitrary attribute assignment.  The `(Q_int, T_int)` accumulator ints are stored in `_gmpy2_QT_cache` (module-level) and passed as plain Python ints to the subprocess worker, avoiding any gmpy2 pickling uncertainty.
 - String conversion runs in a `ProcessPoolExecutor` subprocess (1 worker) to bypass the GIL; the main thread polls `future.done()` to drive the progress display — no background thread is used.
-- File writing uses `ThreadPoolExecutor` (`_IO_WORKERS` threads) with `os.pwrite(2)` so multiple threads can write non-overlapping chunks concurrently. The file is pre-allocated with `os.ftruncate()` before any writes.
+- File writing uses `ThreadPoolExecutor` (`_IO_WORKERS` threads) with `os.pwrite(2)` so multiple threads can write non-overlapping chunks concurrently. The file is pre-allocated with `os.ftruncate()` before any writes.  A `threading.Lock` (`_progress_lock`) guards `completed_chunks` increments and the progress print inside `write_chunk` to prevent data races on the shared counter and interleaved terminal output.
 - On macOS the `spawn` multiprocessing context is used; on Linux `fork` is used.
 - The `if __name__ == "__main__":` guard checks `multiprocessing.current_process().name == "MainProcess"` to prevent `main()` from running in worker subprocesses (required on macOS where `spawn` re-executes the script in each worker).
 - Very large output files can be slow to generate and should not be casually regenerated during routine edits.
