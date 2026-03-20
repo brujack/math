@@ -1,6 +1,6 @@
 # math
 
-![Build](https://github.com/brujack/math/actions/workflows/build.yml/badge.svg)
+[![Build](https://img.shields.io/github/actions/workflow/status/brujack/math/build.yml?branch=master&style=flat-square&label=build)](https://github.com/brujack/math/actions/workflows/build.yml)
 
 High-performance mathematical computation tools.
 
