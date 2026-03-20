@@ -39,13 +39,14 @@ A `Makefile` is provided in `pi-rs/`:
 ### Rust Code Layout (`pi-rs/src/main.rs`)
 
 - `BS_PAR_THRESHOLD`: switch from `rayon::join()` to serial recursion below this range size (512 terms); rayon work-stealing handles load-balancing
+- `BS_LEAF_COUNT` (`static AtomicU64`): counts completed leaf nodes during `bs()`; read every 200 ms by the series progress thread to display percentage
 - `struct Pqt { p, q, t: Integer }`: accumulator for a Chudnovsky range `[a, b)`
 - `fn bs(a, b)`: recursive binary splitting; uses `rayon::join()` above threshold, serial recursion below
-- `fn bs_leaf(a)`: leaf computation with `rug::Integer`
+- `fn bs_leaf(a)`: leaf computation with `rug::Integer`; increments `BS_LEAF_COUNT` on every call
 - `fn bs_merge(l, r)`: combines two adjacent ranges
-- `fn compute_pi(digits)`: runs `bs(0, n)`, builds `rug::Float`, calls `pi_to_string`
+- `fn compute_pi(digits)`: resets `BS_LEAF_COUNT`, spawns a progress thread that prints series completion % every 200 ms, runs `bs(0, n)`, joins the thread, then builds `rug::Float` and calls `pi_to_string`
 - `fn pi_to_string(pi, digits)`: uses `pi.to_string_radix(10, Some(digits+5))`, trims to exact decimal places
-- `fn write_pi_file`: `#[cfg(unix)]` — pre-allocates with `file.set_len()`, parallel pwrite via rayon `par_chunks`
+- `fn write_pi_file`: `#[cfg(unix)]` — pre-allocates with `file.set_len()`, spawns a progress thread reporting write % and MB/s every 200 ms, parallel pwrite via rayon `par_chunks` (each chunk updates an `Arc<AtomicU64>` byte counter), joins thread and prints final MB/s
 - `fn fmt_int(n)`: formats with thousands separators
 
 ### rug Arithmetic Note

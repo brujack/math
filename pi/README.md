@@ -88,10 +88,24 @@ Requires Rust 1.85+ and GMP + MPFR (run `install_deps.sh` first):
 
 ```bash
 cd pi-rs
+make pi          # cargo build --release, copies binary to ~/Downloads/pi
+```
+
+Or manually:
+
+```bash
+cd pi-rs
 cargo build --release
 ```
 
 The binary is at `pi-rs/target/release/pi`.
+
+### Makefile targets
+
+| Target | Description |
+|--------|-------------|
+| `make pi` | Build release binary and copy to `~/Downloads/pi` |
+| `make clean` | Remove build artifacts and `~/Downloads/pi` |
 
 ### Usage
 
@@ -128,6 +142,7 @@ High-Precision π Calculator (Rust/Rayon)
 Calculating π to 50,000,000 decimal places…
 Backend: Chudnovsky / rug+GMP+MPFR / rayon (20 threads)
   Series: 3,524,288 terms, 20 threads, threshold 512
+  Computing series:  100%  (3,524,288 terms)
   Series done in 12.34s
   Computing final value (166,097,310 bits)…
   Value done in 8.21s
@@ -137,8 +152,7 @@ Backend: Chudnovsky / rug+GMP+MPFR / rayon (20 threads)
 Done in 25.11s
 
 Saving to pi_50000000_digits.txt…
-Written in 1.23s
-
+  Writing: 100%  (47.7 MB)  38.5 MB/s
 Full precision π saved to pi_50000000_digits.txt
 ```
 
