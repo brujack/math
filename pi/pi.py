@@ -83,17 +83,106 @@ def _chudnovsky_bs(a, b):
     return Pl * Pr, Ql * Qr, Qr * Tl + Pl * Tr
 
 
+def _bs_chunk_worker(a, b):
+    """
+    Subprocess worker: compute Chudnovsky binary splitting for range [a, b).
+
+    Returns (P, Q, T) as plain Python ints so they are always picklable,
+    regardless of the gmpy2 version or platform.
+    """
+    P, Q, T = _chudnovsky_bs(a, b)
+    return int(P), int(Q), int(T)
+
+
+def _tree_combine(pqt_list):
+    """
+    Reduce a list of (P, Q, T) tuples using pairwise tree combination.
+
+    Tree reduction keeps intermediate sizes balanced — each merge combines
+    two chunks of similar magnitude, which is better for GMP's asymptotically
+    fast multiplication algorithms than a sequential left fold.
+
+    Combination rule for adjacent ranges [a,m) and [m,b):
+        P(a,b) = P(a,m) * P(m,b)
+        Q(a,b) = Q(a,m) * Q(m,b)
+        T(a,b) = Q(m,b) * T(a,m)  +  P(a,m) * T(m,b)
+    """
+    while len(pqt_list) > 1:
+        next_level = []
+        for i in range(0, len(pqt_list), 2):
+            if i + 1 < len(pqt_list):
+                Pl, Ql, Tl = pqt_list[i]
+                Pr, Qr, Tr = pqt_list[i + 1]
+                next_level.append((Pl * Pr, Ql * Qr, Qr * Tl + Pl * Tr))
+            else:
+                next_level.append(pqt_list[i])
+        pqt_list = next_level
+    return pqt_list[0]
+
+
 def _calculate_pi_gmpy2(digits):
     """
     Compute π using Chudnovsky binary splitting + gmpy2/GMP.
 
-    Returns a tuple (pi_mpfr, Q_int, T_int) where:
+    When _CPU_COUNT > 1 and N is large enough to justify subprocess overhead,
+    splits [0, N) into _CPU_COUNT equal chunks and computes them in parallel
+    using ProcessPoolExecutor.  Results are merged via tree reduction in the
+    main process using gmpy2.mpz arithmetic.
+
+    Returns (pi_mpfr, Q_int, T_int) where:
     - pi_mpfr  is a gmpy2.mpfr value (used for preview)
     - Q_int, T_int are plain Python ints (picklable; used in subprocess
       for full-precision string conversion)
     """
     N = digits // 14 + 10  # terms needed; each gives ≈14.18 decimal digits
-    _, Q, T = _chudnovsky_bs(0, N)
+
+    # Divide [0, N) into at most _CPU_COUNT chunks.
+    # Minimum 100 terms per chunk so each worker does meaningful work.
+    chunk_size = max(100, (N + _CPU_COUNT - 1) // _CPU_COUNT)
+    ranges = []
+    start = 0
+    while start < N:
+        ranges.append((start, min(start + chunk_size, N)))
+        start += chunk_size
+    n_workers = len(ranges)
+
+    if n_workers > 1:
+        mp_context = multiprocessing.get_context(
+            'fork' if sys.platform == 'linux' else 'spawn'
+        )
+        print(
+            f"  Parallel series: {n_workers} workers "
+            f"× ~{chunk_size:,} terms each"
+        )
+        bar_width = 30
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=n_workers, mp_context=mp_context
+        ) as pool:
+            futures = [pool.submit(_bs_chunk_worker, a, b) for a, b in ranges]
+            completed = 0
+            for _ in concurrent.futures.as_completed(futures):
+                completed += 1
+                filled = completed * bar_width // n_workers
+                bar = '█' * filled + '░' * (bar_width - filled)
+                print(
+                    f"\r  [{bar}] {completed}/{n_workers} chunks",
+                    end="", flush=True,
+                )
+        print()
+
+        # Collect results in submission order (all done; .result() is instant).
+        int_results = [f.result() for f in futures]
+
+        # Convert to gmpy2.mpz and merge via tree reduction.
+        print("  Combining chunks...", end="", flush=True)
+        pqt_list = [
+            (_gmpy2.mpz(P), _gmpy2.mpz(Q), _gmpy2.mpz(T))
+            for P, Q, T in int_results
+        ]
+        _, Q, T = _tree_combine(pqt_list)
+        print("\r  Combination complete.   ")
+    else:
+        _, Q, T = _chudnovsky_bs(0, N)
 
     # Compute π = 426880 √10005 · Q / T in MPFR with enough binary precision.
     prec = int(digits * 3.3219280948873626) + 100  # bits ≈ digits·log₂(10) + margin

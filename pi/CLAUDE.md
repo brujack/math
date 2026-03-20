@@ -63,7 +63,9 @@ The project is intentionally simple and centered in `pi.py`.
 Chudnovsky / gmpy2 functions (used when gmpy2 is installed):
 
 - `_chudnovsky_bs(a, b)`: recursive binary splitting; returns `(P, Q, T)` as `gmpy2.mpz`.
-- `_calculate_pi_gmpy2(digits)`: runs binary splitting then computes π as `gmpy2.mpfr`; returns `(pi_mpfr, Q_int, T_int)`.
+- `_bs_chunk_worker(a, b)`: module-level subprocess worker that computes `_chudnovsky_bs(a, b)` and returns plain Python ints for pickling safety.
+- `_tree_combine(pqt_list)`: merges a list of `(P, Q, T)` results via pairwise tree reduction (more GMP-efficient than a linear fold for equal-sized chunks).
+- `_calculate_pi_gmpy2(digits)`: splits `[0, N)` into `_CPU_COUNT` chunks, dispatches them to a `ProcessPoolExecutor`, tree-combines the results, then computes the final π as `gmpy2.mpfr`; returns `(pi_mpfr, Q_int, T_int)`.
 - `_gmpy2_str_from_QT(Q_int, T_int, digits)`: recomputes π from integer accumulators and converts to decimal string (used in subprocess).
 - `_gmpy2_mpfr_to_str(pi_mpfr, digits)`: fast in-process string conversion for preview.
 
@@ -96,7 +98,7 @@ Module-level constants / state:
 
 ## Important Behavior
 
-- **gmpy2 path (fast)**: uses the Chudnovsky binary-splitting algorithm with GMP big-integer arithmetic (`gmpy2.mpz`), then MPFR for the final floating-point value.  Each Chudnovsky term contributes ≈14.18 decimal digits; recursion depth is O(log N), well within Python's stack limit.
+- **gmpy2 path (fast)**: uses the Chudnovsky binary-splitting algorithm with GMP big-integer arithmetic (`gmpy2.mpz`), then MPFR for the final floating-point value.  Each Chudnovsky term contributes ≈14.18 decimal digits; recursion depth is O(log N), well within Python's stack limit.  The series computation is parallelised across all available CPU cores: `[0, N)` is split into `_CPU_COUNT` equal chunks (minimum 100 terms each), each chunk is computed in a subprocess, and the results are merged in the main process via `_tree_combine` (pairwise tree reduction keeps intermediate GMP multiply sizes balanced).
 - **mpmath fallback**: sets precision to `digits + 50` and uses `mpmath.pi`.  Large runs are dominated by converting the `mpmath` value to a string, not by the calculation itself.
 - **gmpy2.mpfr is a C extension type** and does not support arbitrary attribute assignment.  The `(Q_int, T_int)` accumulator ints are stored in `_gmpy2_QT_cache` (module-level) and passed as plain Python ints to the subprocess worker, avoiding any gmpy2 pickling uncertainty.
 - String conversion runs in a `ProcessPoolExecutor` subprocess (1 worker) to bypass the GIL; the main thread polls `future.done()` to drive the progress display — no background thread is used.
@@ -111,7 +113,7 @@ Module-level constants / state:
 - Preserve the current interactive behavior unless the task explicitly changes UX.
 - Ensure every script in the repository supports `-h` and `--help` with accurate command-line usage text.
 - Be careful with performance changes inside `save_pi_to_file`, since that function handles the main large-number bottleneck.
-- `_convert_gmpy2_worker`, `_convert_mpmath_worker`, and `_pwrite_all` must remain at module level — moving them inside a function or class will break multiprocessing pickling.
+- `_convert_gmpy2_worker`, `_convert_mpmath_worker`, `_bs_chunk_worker`, and `_pwrite_all` must remain at module level — moving them inside a function or class will break multiprocessing pickling.
 - Do not remove the `current_process().name == "MainProcess"` check from the `if __name__ == "__main__":` block — it is required to prevent infinite subprocess spawning on macOS (where `spawn` re-executes the script in each worker).
 - Do not attempt to set arbitrary attributes on `gmpy2.mpfr` objects — they are C extension types with fixed slots.  Use `_gmpy2_QT_cache` to pass data between the calculation and the subprocess worker.
 - Avoid committing regenerated large output files unless the task explicitly requires updating them.
