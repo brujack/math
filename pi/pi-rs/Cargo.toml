@@ -1,0 +1,27 @@
+[package]
+name = "pi"
+version = "0.1.0"
+edition = "2021"
+description = "High-precision π calculator — Chudnovsky + Rayon + GMP"
+
+[[bin]]
+name = "pi"
+path = "src/main.rs"
+
+[dependencies]
+# rug wraps GMP (big integers) and MPFR (arbitrary-precision floats).
+# Same C libraries as Python's gmpy2, but zero Python overhead and
+# true shared-memory parallelism instead of process-per-chunk.
+rug = { version = "1", features = ["integer", "float"] }
+
+# Work-stealing thread pool.  rayon::join() recursively splits the
+# Chudnovsky binary splitting tree across all cores with zero IPC cost.
+rayon = "1"
+
+# CLI argument parsing.
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+opt-level   = 3
+lto         = "thin"   # link-time optimisation across crates
+codegen-units = 1      # single CGU for best inlining

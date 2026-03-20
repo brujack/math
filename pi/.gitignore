@@ -1,0 +1,5 @@
+# Rust build artifacts
+pi-rs/target/
+
+# Generated π digit files
+pi_*_digits.txt

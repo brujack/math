@@ -8,11 +8,53 @@ This repository contains a small Python CLI for calculating π to high precision
 
 Current structure:
 
-- `pi.py`: interactive calculator script
+- `pi.py`: interactive calculator script (Python, gmpy2/GMP + mpmath fallback)
+- `pi-rs/`: Rust implementation — Chudnovsky + Rayon + rug/GMP/MPFR (best for >50M digits)
 - `install_deps.sh`: installs GMP, MPFR, and gmpy2 on macOS and Linux
 - `pi_1000000_digits.txt`: sample/generated output file
 - `pi_10000000_digits.txt`: sample/generated output file
 - `WARP.md`: similar repository guidance for Warp
+
+## Rust Implementation (`pi-rs/`)
+
+The Rust binary targets >50M digit workloads where the Python subprocess IPC overhead becomes significant.
+
+Key differences from Python:
+- Uses `rayon::join()` for recursive parallel binary splitting — threads share memory, zero IPC/serialisation cost
+- `rug` wraps GMP (`Integer`) and MPFR (`Float`) directly — same C libraries as Python's gmpy2
+- Parallel file I/O via `FileExt::write_at` (POSIX pwrite equivalent) dispatched by rayon
+
+Build (requires GMP + MPFR — run `install_deps.sh` first):
+
+```bash
+cd pi-rs
+cargo build --release
+./target/release/pi [digits]
+```
+
+### Rust Code Layout (`pi-rs/src/main.rs`)
+
+- `BS_PAR_THRESHOLD`: switch from `rayon::join()` to serial recursion below this range size (512 terms); rayon work-stealing handles load-balancing
+- `struct Pqt { p, q, t: Integer }`: accumulator for a Chudnovsky range `[a, b)`
+- `fn bs(a, b)`: recursive binary splitting; uses `rayon::join()` above threshold, serial recursion below
+- `fn bs_leaf(a)`: leaf computation with `rug::Integer`
+- `fn bs_merge(l, r)`: combines two adjacent ranges
+- `fn compute_pi(digits)`: runs `bs(0, n)`, builds `rug::Float`, calls `pi_to_string`
+- `fn pi_to_string(pi, digits)`: uses `pi.to_string_radix(10, Some(digits+5))`, trims to exact decimal places
+- `fn write_pi_file`: `#[cfg(unix)]` — pre-allocates with `file.set_len()`, parallel pwrite via rayon `par_chunks`
+- `fn fmt_int(n)`: formats with thousands separators
+
+### rug Arithmetic Note
+
+`rug::Integer` operator overloading uses lazy "incomplete" types: `&Integer * &Integer` returns `MulIncomplete<'_>`, not `Integer`. Always wrap with `Integer::from(...)` before using the result in further operations:
+
+```rust
+// Correct:
+Integer::from(&l.p * &r.p)
+Integer::from(&r.q * &l.t) + Integer::from(&l.p * &r.t)
+// Wrong (will not compile):
+&l.p * &r.p + &l.q * &r.q
+```
 
 ## Environment
 
