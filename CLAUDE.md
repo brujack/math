@@ -68,11 +68,11 @@ The workflow also sets `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` as a belt-and-
 
 Do **not** add `actions/setup-node` to jobs — these are Rust/Python projects that don't need Node.js at the user-code level, and older versions of `setup-node` are themselves Node.js 20 actions.
 
-**Every Rust build job must upload its release binary as an artifact** using `actions/upload-artifact@v4` with 7-day retention:
+**Every Rust build job must upload its release binary as an artifact** using `actions/upload-artifact@v5` with 7-day retention:
 
 ```yaml
 - name: Upload artifact
-  uses: actions/upload-artifact@v4
+  uses: actions/upload-artifact@v5
   with:
     name: <binary-name>
     path: <project>/target/release/<binary-name>
@@ -111,7 +111,7 @@ What to update and when:
 | New test class or change in coverage % | Project `CLAUDE.md` + `README.md` → Testing section |
 | New project added to the repo | Top-level `CLAUDE.md` → Repository Overview table |
 | Behaviour or algorithm change | Project `CLAUDE.md` → Important Behavior / Implementation Details |
-| New Rust CI build job added | `CLAUDE.md` → CI section; use `actions/checkout@v5`, upload artifact with `actions/upload-artifact@v4`, 7-day retention |
+| New Rust CI build job added | `CLAUDE.md` → CI section; use `actions/checkout@v5`, upload artifact with `actions/upload-artifact@v5`, 7-day retention |
 | Editing rule or policy change | All affected `CLAUDE.md` → Editing Guidance section |
 
 The sub-project files (`pi/CLAUDE.md`, `prime/CLAUDE.md`) are the source of truth for implementation detail.  This top-level file is the entry point and quick reference — keep both in sync.
