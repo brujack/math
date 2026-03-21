@@ -15,6 +15,7 @@ import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from contextlib import redirect_stdout
 
 # Ensure the pi module is importable from this directory.
@@ -29,6 +30,14 @@ from pi import (
     _tree_combine,
     _pwrite_all,
     _pi_to_str,
+    _gmpy2_str_from_QT,
+    _gmpy2_mpfr_to_str,
+    _convert_gmpy2_worker,
+    _convert_mpmath_worker,
+    show_pi_preview,
+    save_pi_to_file,
+    get_target_digits,
+    parse_args,
     calculate_pi_high_precision,
 )
 
@@ -328,6 +337,319 @@ class TestPiAccuracy(unittest.TestCase):
     def test_result_is_not_none(self):
         result = _quiet_pi(10)
         self.assertIsNotNone(result)
+
+
+# ---------------------------------------------------------------------------
+# _pwrite_all — stall error branch
+# ---------------------------------------------------------------------------
+
+class TestPwriteAllStall(unittest.TestCase):
+    """_pwrite_all must raise OSError when os.pwrite returns 0."""
+
+    def test_raises_on_stall(self):
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            path = f.name
+        try:
+            fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+            try:
+                os.ftruncate(fd, 10)
+                with unittest.mock.patch("pi.os.pwrite", return_value=0):
+                    with self.assertRaises(OSError):
+                        _pwrite_all(fd, b"hello", 0)
+            finally:
+                os.close(fd)
+        finally:
+            os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# _gmpy2_str_from_QT and _gmpy2_mpfr_to_str — requires gmpy2
+# ---------------------------------------------------------------------------
+
+@unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
+class TestGmpy2Conversions(unittest.TestCase):
+    """Tests for _gmpy2_str_from_QT and _gmpy2_mpfr_to_str."""
+
+    @classmethod
+    def setUpClass(cls):
+        # Compute Q and T once for all tests in this class.
+        from pi import _chudnovsky_bs
+        _, Q, T = _chudnovsky_bs(0, 50)
+        cls._Q = int(Q)
+        cls._T = int(T)
+
+    def test_str_from_qt_starts_with_3_dot(self):
+        result = _gmpy2_str_from_QT(self._Q, self._T, 10)
+        self.assertTrue(result.startswith("3."))
+
+    def test_str_from_qt_correct_digits(self):
+        result = _gmpy2_str_from_QT(self._Q, self._T, 20)
+        self.assertEqual(result, PI_REF[:22])
+
+    def test_str_from_qt_decimal_place_count(self):
+        for digits in (10, 20, 50):
+            with self.subTest(digits=digits):
+                result = _gmpy2_str_from_QT(self._Q, self._T, digits)
+                _, dec = result.split(".")
+                self.assertEqual(len(dec), digits)
+
+    def test_mpfr_to_str_correct_digits(self):
+        import gmpy2
+        prec = int(20 * 3.3219280948873626) + 100
+        ctx = gmpy2.get_context()
+        ctx.precision = prec
+        sqrt_10005 = gmpy2.sqrt(gmpy2.mpfr(10005))
+        pi_mpfr = (gmpy2.mpfr(426880) * sqrt_10005
+                   * gmpy2.mpfr(self._Q) / gmpy2.mpfr(self._T))
+        result = _gmpy2_mpfr_to_str(pi_mpfr, 20)
+        self.assertEqual(result, PI_REF[:22])
+
+    def test_mpfr_to_str_decimal_count(self):
+        import gmpy2
+        prec = int(10 * 3.3219280948873626) + 100
+        ctx = gmpy2.get_context()
+        ctx.precision = prec
+        sqrt_10005 = gmpy2.sqrt(gmpy2.mpfr(10005))
+        pi_mpfr = (gmpy2.mpfr(426880) * sqrt_10005
+                   * gmpy2.mpfr(self._Q) / gmpy2.mpfr(self._T))
+        result = _gmpy2_mpfr_to_str(pi_mpfr, 10)
+        _, dec = result.split(".")
+        self.assertEqual(len(dec), 10)
+
+
+# ---------------------------------------------------------------------------
+# _convert_gmpy2_worker and _convert_mpmath_worker
+# ---------------------------------------------------------------------------
+
+@unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
+class TestConvertGmpy2Worker(unittest.TestCase):
+    """_convert_gmpy2_worker returns the same string as _gmpy2_str_from_QT."""
+
+    @classmethod
+    def setUpClass(cls):
+        from pi import _chudnovsky_bs
+        _, Q, T = _chudnovsky_bs(0, 50)
+        cls._Q = int(Q)
+        cls._T = int(T)
+
+    def test_returns_string(self):
+        result = _convert_gmpy2_worker(self._Q, self._T, 10)
+        self.assertIsInstance(result, str)
+
+    def test_matches_str_from_qt(self):
+        result = _convert_gmpy2_worker(self._Q, self._T, 20)
+        expected = _gmpy2_str_from_QT(self._Q, self._T, 20)
+        self.assertEqual(result, expected)
+
+
+class TestConvertMpmathWorker(unittest.TestCase):
+    """_convert_mpmath_worker returns a correctly formatted string."""
+
+    @classmethod
+    def setUpClass(cls):
+        import mpmath
+        mpmath.mp.dps = 60
+        cls._pi_mpf = mpmath.pi
+
+    def test_returns_string(self):
+        result = _convert_mpmath_worker(self._pi_mpf, 10)
+        self.assertIsInstance(result, str)
+
+    def test_starts_with_3_dot(self):
+        result = _convert_mpmath_worker(self._pi_mpf, 10)
+        self.assertTrue(result.startswith("3."))
+
+    def test_correct_leading_digits(self):
+        result = _convert_mpmath_worker(self._pi_mpf, 10)
+        # mpmath.nstr rounds to nearest — compare only the first 9 digits
+        # (digit 10 is ambiguous due to rounding of the trailing digits).
+        self.assertEqual(result[:10], PI_REF[:10])
+
+
+# ---------------------------------------------------------------------------
+# mpmath fallback path in calculate_pi_high_precision
+# ---------------------------------------------------------------------------
+
+class TestMpmathFallback(unittest.TestCase):
+    """When gmpy2 is unavailable, calculate_pi_high_precision uses mpmath."""
+
+    def test_fallback_returns_correct_digits(self):
+        import mpmath
+        with unittest.mock.patch.object(pi_module, "_HAS_GMPY2", False):
+            pi_val = _quiet_pi(20)
+        # mpmath.mpf — _pi_to_str dispatches to mpmath.nstr
+        with unittest.mock.patch.object(pi_module, "_HAS_GMPY2", False):
+            result = _pi_to_str(pi_val, 20)
+        self.assertEqual(result[:22], PI_REF[:22])
+
+    def test_fallback_result_is_mpmath_type(self):
+        with unittest.mock.patch.object(pi_module, "_HAS_GMPY2", False):
+            pi_val = _quiet_pi(10)
+        # mpmath constants are a subtype of mpf; check the module rather than
+        # the exact class since mpmath.pi is not a plain mpmath.mpf instance.
+        self.assertIn("mpmath", type(pi_val).__module__)
+
+
+# ---------------------------------------------------------------------------
+# show_pi_preview
+# ---------------------------------------------------------------------------
+
+class TestShowPiPreview(unittest.TestCase):
+    """show_pi_preview prints a correctly formatted π preview."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._pi = _quiet_pi(50)
+
+    def _capture(self, digits):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            show_pi_preview(self._pi, digits)
+        return buf.getvalue()
+
+    def test_output_contains_pi_equals(self):
+        out = self._capture(10)
+        self.assertIn("π =", out)
+
+    def test_output_starts_with_3_dot(self):
+        out = self._capture(10)
+        self.assertIn("3.", out)
+
+    def test_output_mentions_decimal_places(self):
+        out = self._capture(10)
+        self.assertIn("decimal places", out)
+
+    def test_preview_capped_at_200(self):
+        """Requesting >200 preview digits is silently capped at 200."""
+        out = self._capture(500)
+        self.assertIn("200", out)
+
+
+# ---------------------------------------------------------------------------
+# save_pi_to_file
+# ---------------------------------------------------------------------------
+
+class TestSavePiToFile(unittest.TestCase):
+    """save_pi_to_file writes a correctly structured output file."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._pi = _quiet_pi(50)
+
+    def setUp(self):
+        self._tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
+        self._path = self._tmp.name
+        self._tmp.close()
+
+    def tearDown(self):
+        os.unlink(self._path)
+
+    def _save(self, digits=50):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            save_pi_to_file(self._pi, digits, self._path)
+
+    def test_file_is_created(self):
+        self._save()
+        self.assertTrue(os.path.exists(self._path))
+
+    def test_file_contains_header(self):
+        self._save()
+        with open(self._path) as f:
+            content = f.read()
+        self.assertIn("π calculated to", content)
+
+    def test_file_contains_pi_digits(self):
+        self._save()
+        with open(self._path) as f:
+            content = f.read()
+        self.assertIn("3.14159265358979", content)
+
+    def test_file_contains_footer(self):
+        self._save()
+        with open(self._path) as f:
+            content = f.read()
+        self.assertIn("Total decimal places", content)
+
+    def test_file_size_is_nonzero(self):
+        self._save()
+        self.assertGreater(os.path.getsize(self._path), 0)
+
+
+# ---------------------------------------------------------------------------
+# _calculate_pi_gmpy2 parallel path — requires gmpy2
+# ---------------------------------------------------------------------------
+
+@unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
+class TestCalculatePiParallel(unittest.TestCase):
+    """_calculate_pi_gmpy2 parallel path (n_workers > 1)."""
+
+    def test_parallel_result_matches_serial(self):
+        """With _CPU_COUNT=4 and enough terms, result matches single-worker."""
+        # Force multi-worker path.
+        with unittest.mock.patch.object(pi_module, "_CPU_COUNT", 4):
+            pi_parallel = _quiet_pi(2000)
+        # Compare to single-worker result (normal call with small digit count).
+        pi_serial = _quiet_pi(20)
+        # Both must agree on the first 20 known digits.
+        from pi import _pi_to_str
+        s_par = _pi_to_str(pi_parallel, 20)
+        s_ser = _pi_to_str(pi_serial, 20)
+        self.assertEqual(s_par[:22], PI_REF[:22])
+        self.assertEqual(s_ser[:22], s_par[:22])
+
+
+# ---------------------------------------------------------------------------
+# get_target_digits — non-interactive paths
+# ---------------------------------------------------------------------------
+
+class TestGetTargetDigits(unittest.TestCase):
+    """get_target_digits with CLI args (non-interactive paths only)."""
+
+    class _Args:
+        def __init__(self, digits):
+            self.digits = digits
+
+    def test_returns_digits_from_args(self):
+        self.assertEqual(get_target_digits(self._Args(50)), 50)
+
+    def test_raises_on_zero(self):
+        with self.assertRaises(ValueError):
+            get_target_digits(self._Args(0))
+
+    def test_raises_on_negative(self):
+        with self.assertRaises(ValueError):
+            get_target_digits(self._Args(-1))
+
+    def test_large_digits_prints_warning_and_returns(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = get_target_digits(self._Args(2_000_000))
+        self.assertEqual(result, 2_000_000)
+        self.assertIn("Warning", buf.getvalue())
+
+
+# ---------------------------------------------------------------------------
+# parse_args
+# ---------------------------------------------------------------------------
+
+class TestParseArgs(unittest.TestCase):
+    """parse_args correctly handles CLI arguments."""
+
+    def test_no_args_gives_none(self):
+        with unittest.mock.patch("sys.argv", ["pi.py"]):
+            args = parse_args()
+        self.assertIsNone(args.digits)
+
+    def test_positional_digit_arg(self):
+        with unittest.mock.patch("sys.argv", ["pi.py", "100"]):
+            args = parse_args()
+        self.assertEqual(args.digits, 100)
+
+    def test_invalid_arg_exits(self):
+        with unittest.mock.patch("sys.argv", ["pi.py", "abc"]):
+            with self.assertRaises(SystemExit):
+                parse_args()
 
 
 if __name__ == "__main__":
