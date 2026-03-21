@@ -66,6 +66,13 @@ Three workflow files, one per project, each running on every push and pull reque
 | pi-rs | `.github/workflows/pi-rs.yml` | test → build + artifact |
 | prime-rs | `.github/workflows/prime-rs.yml` | test → build + artifact |
 
+**When adding a new project**, create a dedicated workflow file `.github/workflows/<project>.yml` following the same pattern:
+- One `test` job running the project's test suite
+- One `build` job with `needs: [test]` that builds the release binary and uploads it as an artifact
+- A badge for the new workflow added to the top of `README.md` and to the CI column of the project table
+
+This gives a per-project badge in the README and keeps each project's CI self-contained.
+
 **All jobs must run on Node.js 24.**  Use action versions that natively support Node.js 24:
 
 - `actions/checkout@v5` — natively runs on Node.js 24 (v4 used Node.js 20 and is deprecated)
@@ -117,7 +124,7 @@ What to update and when:
 | New test class or change in coverage % | Project `CLAUDE.md` + `README.md` → Testing section |
 | New project added to the repo | Top-level `CLAUDE.md` → Repository Overview table |
 | Behaviour or algorithm change | Project `CLAUDE.md` → Important Behavior / Implementation Details |
-| New Rust CI build job added | `CLAUDE.md` → CI section; use `actions/checkout@v5`, upload artifact with `actions/upload-artifact@v5`, 7-day retention |
+| New project added | Create `.github/workflows/<project>.yml` (test → build + artifact); add badge to `README.md` top and CI column; update `CLAUDE.md` CI table |
 | Editing rule or policy change | All affected `CLAUDE.md` → Editing Guidance section |
 
 The sub-project files (`pi/CLAUDE.md`, `prime/CLAUDE.md`) are the source of truth for implementation detail.  This top-level file is the entry point and quick reference — keep both in sync.
