@@ -471,3 +471,164 @@ fn main() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Unit tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// First 50 decimal places of π — used as a reference for accuracy tests.
+    const PI_REF: &str = "3.14159265358979323846264338327950288419716939937510";
+
+    // --- fmt_int ---
+
+    #[test]
+    fn test_fmt_int_zero() {
+        assert_eq!(fmt_int(0), "0");
+    }
+
+    #[test]
+    fn test_fmt_int_below_thousand() {
+        assert_eq!(fmt_int(999), "999");
+    }
+
+    #[test]
+    fn test_fmt_int_thousands() {
+        assert_eq!(fmt_int(1_000), "1,000");
+        assert_eq!(fmt_int(10_000), "10,000");
+    }
+
+    #[test]
+    fn test_fmt_int_millions() {
+        assert_eq!(fmt_int(1_234_567), "1,234,567");
+    }
+
+    #[test]
+    fn test_fmt_int_billions() {
+        assert_eq!(fmt_int(1_000_000_000), "1,000,000,000");
+    }
+
+    // --- bs_leaf ---
+
+    #[test]
+    fn test_bs_leaf_zero() {
+        // Base case: P=1, Q=1, T=CHU_A
+        let pqt = bs_leaf(0);
+        assert_eq!(pqt.p, Integer::from(1u32));
+        assert_eq!(pqt.q, Integer::from(1u32));
+        assert_eq!(pqt.t, Integer::from(CHU_A));
+    }
+
+    #[test]
+    fn test_bs_leaf_one_formulas() {
+        // a=1: P=(6−5)(2−1)(6−1)=1·1·5=5; Q=1³×C³/24=CHU_C3_24;
+        //       T=−P×(A+B·1)=−5×558_731_543 (odd index → negative)
+        let pqt = bs_leaf(1);
+        assert_eq!(pqt.p, Integer::from(5u32));
+        assert_eq!(pqt.q, Integer::from(CHU_C3_24));
+        assert!(pqt.t < 0, "T should be negative for odd index");
+        let expected_abs =
+            Integer::from(5u32) * (Integer::from(CHU_A) + Integer::from(CHU_B));
+        assert_eq!(-pqt.t, expected_abs);
+    }
+
+    #[test]
+    fn test_bs_leaf_even_index_positive_t() {
+        // Even index → T is positive.
+        let pqt = bs_leaf(2);
+        assert!(pqt.t > 0, "T should be positive for even index > 0");
+    }
+
+    #[test]
+    fn test_bs_leaf_increments_counter() {
+        // Tests run in parallel, so check the delta rather than the absolute value.
+        let before = BS_LEAF_COUNT.load(Ordering::Relaxed);
+        bs_leaf(0);
+        bs_leaf(1);
+        let after = BS_LEAF_COUNT.load(Ordering::Relaxed);
+        assert!(after >= before + 2, "expected counter to increase by at least 2");
+    }
+
+    // --- bs_merge ---
+
+    #[test]
+    fn test_bs_merge_matches_two_leaves() {
+        // bs(0,2) must equal merge(bs_leaf(0), bs_leaf(1))
+        let merged = bs_merge(bs_leaf(0), bs_leaf(1));
+        let full = bs(0, 2);
+        assert_eq!(merged.p, full.p);
+        assert_eq!(merged.q, full.q);
+        assert_eq!(merged.t, full.t);
+    }
+
+    // --- bs (split consistency) ---
+
+    #[test]
+    fn test_bs_split_consistency_4() {
+        // bs(0,4) == merge(bs(0,2), bs(2,4))
+        let full = bs(0, 4);
+        let merged = bs_merge(bs(0, 2), bs(2, 4));
+        assert_eq!(full.p, merged.p);
+        assert_eq!(full.q, merged.q);
+        assert_eq!(full.t, merged.t);
+    }
+
+    #[test]
+    fn test_bs_split_consistency_8() {
+        // bs(0,8) == merge(bs(0,4), bs(4,8))
+        let full = bs(0, 8);
+        let merged = bs_merge(bs(0, 4), bs(4, 8));
+        assert_eq!(full.p, merged.p);
+        assert_eq!(full.q, merged.q);
+        assert_eq!(full.t, merged.t);
+    }
+
+    // --- pi_to_string ---
+
+    #[test]
+    fn test_pi_to_string_starts_with_3_dot() {
+        let pi = Float::with_val(200, rug::float::Constant::Pi);
+        let s = pi_to_string(pi, 10);
+        assert!(s.starts_with("3."));
+    }
+
+    #[test]
+    fn test_pi_to_string_exact_decimal_count() {
+        let pi = Float::with_val(200, rug::float::Constant::Pi);
+        let s = pi_to_string(pi, 20);
+        // "3." + 20 decimal digits = 22 chars
+        assert_eq!(s.len(), 22);
+    }
+
+    #[test]
+    fn test_pi_to_string_no_exponent_notation() {
+        let pi = Float::with_val(200, rug::float::Constant::Pi);
+        let s = pi_to_string(pi, 15);
+        assert!(!s.contains('e') && !s.contains('E'));
+    }
+
+    #[test]
+    fn test_pi_to_string_known_digits() {
+        // 200-bit MPFR pi is accurate to ~60 decimal places.
+        let pi = Float::with_val(200, rug::float::Constant::Pi);
+        let s = pi_to_string(pi, 15);
+        assert_eq!(&s[..17], &PI_REF[..17]);
+    }
+
+    // --- compute_pi (end-to-end accuracy) ---
+
+    #[test]
+    fn test_compute_pi_10_digits() {
+        let s = compute_pi(10);
+        assert_eq!(&s[..12], &PI_REF[..12]);
+    }
+
+    #[test]
+    fn test_compute_pi_50_digits() {
+        let s = compute_pi(50);
+        assert_eq!(s, PI_REF);
+    }
+}
