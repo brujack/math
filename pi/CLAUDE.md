@@ -168,7 +168,9 @@ Module-level constants / state:
 
 ## Testing
 
-The test suite lives in `test_pi.py`.  **Unit tests must be written for all new code added to this project.**
+**Unit tests must be written for all new code added to this project** — both Python and Rust.
+
+### Python (`test_pi.py`)
 
 Run the full suite:
 
@@ -182,25 +184,78 @@ Or with pytest if installed:
 python3 -m pytest test_pi.py -v
 ```
 
+Check coverage:
+
+```bash
+python3 -m coverage run -m unittest test_pi && python3 -m coverage report
+```
+
 gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 
-### Test coverage
+#### Test coverage (78% line coverage, 61 tests)
 
 | Class | Tests | Notes |
 |-------|-------|-------|
 | `TestTreeCombine` | 6 | Pure Python — always runs |
 | `TestPwriteAll` | 4 | POSIX pwrite — always runs |
+| `TestPwriteAllStall` | 1 | Error path — always runs |
 | `TestChudnovskyBS` | 7 | Skipped without gmpy2 |
 | `TestBsChunkWorker` | 3 | Skipped without gmpy2 |
+| `TestGmpy2Conversions` | 5 | Skipped without gmpy2 |
+| `TestConvertGmpy2Worker` | 2 | Skipped without gmpy2 |
+| `TestConvertMpmathWorker` | 3 | Always runs |
+| `TestMpmathFallback` | 2 | Always runs |
 | `TestPiToStr` | 6 | Format + known-digit checks |
 | `TestPiAccuracy` | 4 | End-to-end vs reference π |
+| `TestShowPiPreview` | 4 | stdout capture |
+| `TestSavePiToFile` | 5 | File write + content checks |
+| `TestCalculatePiParallel` | 1 | Skipped without gmpy2 |
+| `TestGetTargetDigits` | 4 | Argument parsing |
+| `TestParseArgs` | 3 | CLI flag parsing |
 
-### Adding new tests
+#### Adding new tests
 
 - Add tests to `test_pi.py` alongside any new or changed function.
 - Use `@unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")` on classes that require gmpy2.
 - Accuracy tests should verify against the `PI_REF` constant (first 50 known decimal places of π).
 - Use `_quiet_pi(digits)` (defined in the test file) to suppress stdout when calling `calculate_pi_high_precision` inside tests.
+
+### Rust (`pi-rs/`)
+
+Tests live in a `#[cfg(test)] mod tests` block at the bottom of `src/main.rs`.
+
+Run the full suite:
+
+```bash
+cd pi-rs
+cargo test
+```
+
+Check coverage (requires `cargo-tarpaulin`):
+
+```bash
+cargo install cargo-tarpaulin   # one-time install
+cargo tarpaulin --out Stdout
+```
+
+#### Test coverage (39% line coverage, 18 tests)
+
+| Area | Tests | Notes |
+|------|-------|-------|
+| `fmt_int` | 5 | zero, sub-thousand, thousands, millions, billions |
+| `bs_leaf` | 4 | base case, index-1 formulas, even/odd sign, counter delta |
+| `bs_merge` | 1 | result matches manual merge of two leaves |
+| `bs` split consistency | 2 | n=4 and n=8 split/merge round-trip |
+| `pi_to_string` | 4 | format, exact length, no exponent notation, known digits |
+| `compute_pi` | 2 | end-to-end accuracy at 10 and 50 decimal places |
+
+Uncovered lines: `write_pi_file` (parallel pwrite I/O), `prompt_digits` / `read_line` (interactive stdin), `main()` — all integration-level only.
+
+#### Adding new tests
+
+- Add tests to the `#[cfg(test)] mod tests` block in `src/main.rs`.
+- Use `const PI_REF: &str = "3.14159265358979323846264338327950288419716939937510"` for accuracy assertions.
+- `BS_LEAF_COUNT` is a global atomic — check deltas, not absolute values, since tests run in parallel threads.
 
 ## Notes
 
