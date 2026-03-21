@@ -1,13 +1,15 @@
 # math
 
-[![Build](https://github.com/brujack/math/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/build.yml)
+[![pi.py](https://github.com/brujack/math/actions/workflows/pi-py.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/pi-py.yml)
+[![pi-rs](https://github.com/brujack/math/actions/workflows/pi-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/pi-rs.yml)
+[![prime-rs](https://github.com/brujack/math/actions/workflows/prime-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/prime-rs.yml)
 
 High-performance mathematical computation tools.
 
 | Project | Description | Implementation | CI |
 |---------|-------------|----------------|----|
-| [`pi/`](pi/README.md) | Calculate π to N decimal places | Python + Rust | ✓ |
-| [`prime/`](prime/README.md) | Find all primes up to 10^N | Rust | ✓ |
+| [`pi/`](pi/README.md) | Calculate π to N decimal places | Python + Rust | [![pi.py](https://github.com/brujack/math/actions/workflows/pi-py.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/pi-py.yml) [![pi-rs](https://github.com/brujack/math/actions/workflows/pi-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/pi-rs.yml) |
+| [`prime/`](prime/README.md) | Find all primes up to 10^N | Rust | [![prime-rs](https://github.com/brujack/math/actions/workflows/prime-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/prime-rs.yml) |
 
 ---
 

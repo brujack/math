@@ -58,7 +58,13 @@ make test      # cargo test
 
 ## CI
 
-GitHub Actions (`.github/workflows/build.yml`) runs tests then builds for all projects on every push and pull request to `master`.  The build jobs depend on their test jobs — a build will not run if its tests fail.
+Three workflow files, one per project, each running on every push and pull request to `master`.  Build jobs depend on their test job — a build will not run if tests fail.
+
+| Workflow | File | Jobs |
+|----------|------|------|
+| pi.py | `.github/workflows/pi-py.yml` | test |
+| pi-rs | `.github/workflows/pi-rs.yml` | test → build + artifact |
+| prime-rs | `.github/workflows/prime-rs.yml` | test → build + artifact |
 
 **All jobs must run on Node.js 24.**  Use action versions that natively support Node.js 24:
 

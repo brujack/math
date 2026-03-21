@@ -1,0 +1,61 @@
+name: pi-rs
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    name: Test pi-rs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pi/pi-rs
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GMP and MPFR
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: pi/pi-rs
+
+      - name: Run tests
+        run: cargo test
+
+  build:
+    name: Build pi-rs
+    runs-on: ubuntu-latest
+    needs: [test]
+    defaults:
+      run:
+        working-directory: pi/pi-rs
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GMP and MPFR
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: pi/pi-rs
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: pi
+          path: pi/pi-rs/target/release/pi
+          retention-days: 7
