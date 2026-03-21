@@ -58,7 +58,33 @@ make test      # cargo test
 
 ## CI
 
-GitHub Actions (`.github/workflows/build.yml`) runs `cargo build --release` for both `pi-rs` and `prime-rs` on every push and pull request to `master`.
+GitHub Actions (`.github/workflows/build.yml`) runs tests then builds for all projects on every push and pull request to `master`.  The build jobs depend on their test jobs — a build will not run if its tests fail.
+
+**All jobs must use Node.js 24.**  Every job in the workflow must include:
+
+```yaml
+- uses: actions/setup-node@v4
+  with:
+    node-version: '24'
+```
+
+When adding a new job, include this step immediately after `actions/checkout@v4`.
+
+## Committing Work
+
+**Create a git commit at the end of each logical unit of work.**  A unit of work is a self-contained change: a new feature, a bug fix, a docs update, a refactor, or any combination that belongs together.  Do not batch unrelated changes into one commit and do not leave work uncommitted.
+
+Commit message format:
+
+```
+<type>: <short summary>
+
+<optional body explaining why, not what>
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+```
+
+Common types: `feat`, `fix`, `docs`, `ci`, `refactor`, `test`, `chore`.
 
 ## Keeping CLAUDE.md Up To Date
 
@@ -74,6 +100,7 @@ What to update and when:
 | New test class or change in coverage % | Project `CLAUDE.md` + `README.md` → Testing section |
 | New project added to the repo | Top-level `CLAUDE.md` → Repository Overview table |
 | Behaviour or algorithm change | Project `CLAUDE.md` → Important Behavior / Implementation Details |
+| New CI job added | `CLAUDE.md` → CI section; ensure `setup-node@v4 / node-version: '24'` is included |
 | Editing rule or policy change | All affected `CLAUDE.md` → Editing Guidance section |
 
 The sub-project files (`pi/CLAUDE.md`, `prime/CLAUDE.md`) are the source of truth for implementation detail.  This top-level file is the entry point and quick reference — keep both in sync.
