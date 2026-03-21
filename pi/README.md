@@ -73,6 +73,14 @@ python3 pi.py 1000000
 - Digits > 10,000: saves automatically to `pi_<digits>_digits.txt`.
 - Falls back to `mpmath` if `gmpy2` is not installed (slower).
 
+### Tests
+
+```bash
+python3 -m unittest test_pi -v
+```
+
+31 tests covering `_tree_combine`, `_pwrite_all`, `_chudnovsky_bs`, `_bs_chunk_worker`, `_pi_to_str`, and end-to-end accuracy against the known decimal expansion of π.  gmpy2-dependent tests are skipped automatically when gmpy2 is not installed.
+
 ---
 
 ## Rust (`pi-rs/`)

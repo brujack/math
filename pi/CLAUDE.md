@@ -156,6 +156,7 @@ Module-level constants / state:
 
 ## Editing Guidance
 
+- **Write unit tests for all new or changed functions** and add them to `test_pi.py`.
 - Keep changes minimal and preserve the single-file CLI structure unless a refactor is clearly necessary.
 - Preserve the current interactive behavior unless the task explicitly changes UX.
 - Ensure every script in the repository supports `-h` and `--help` with accurate command-line usage text.
@@ -165,19 +166,42 @@ Module-level constants / state:
 - Do not attempt to set arbitrary attributes on `gmpy2.mpfr` objects — they are C extension types with fixed slots.  Use `_gmpy2_QT_cache` to pass data between the calculation and the subprocess worker.
 - Avoid committing regenerated large output files unless the task explicitly requires updating them.
 
-## Validation
+## Testing
 
-There is no formal test suite in this repository.
+The test suite lives in `test_pi.py`.  **Unit tests must be written for all new code added to this project.**
 
-Useful validation steps:
+Run the full suite:
 
 ```bash
-python3 pi.py
+python3 -m unittest test_pi -v
 ```
 
-For quick manual verification, use a small value such as `10` or `50` digits.
+Or with pytest if installed:
+
+```bash
+python3 -m pytest test_pi.py -v
+```
+
+gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
+
+### Test coverage
+
+| Class | Tests | Notes |
+|-------|-------|-------|
+| `TestTreeCombine` | 6 | Pure Python — always runs |
+| `TestPwriteAll` | 4 | POSIX pwrite — always runs |
+| `TestChudnovskyBS` | 7 | Skipped without gmpy2 |
+| `TestBsChunkWorker` | 3 | Skipped without gmpy2 |
+| `TestPiToStr` | 6 | Format + known-digit checks |
+| `TestPiAccuracy` | 4 | End-to-end vs reference π |
+
+### Adding new tests
+
+- Add tests to `test_pi.py` alongside any new or changed function.
+- Use `@unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")` on classes that require gmpy2.
+- Accuracy tests should verify against the `PI_REF` constant (first 50 known decimal places of π).
+- Use `_quiet_pi(digits)` (defined in the test file) to suppress stdout when calling `calculate_pi_high_precision` inside tests.
 
 ## Notes
 
-- There is no build system, packaging setup, or lint configuration in the repository.
 - Existing `.txt` files are generated artifacts and may be large.
