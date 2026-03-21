@@ -60,15 +60,14 @@ make test      # cargo test
 
 GitHub Actions (`.github/workflows/build.yml`) runs tests then builds for all projects on every push and pull request to `master`.  The build jobs depend on their test jobs — a build will not run if its tests fail.
 
-**All jobs must use Node.js 24.**  Every job in the workflow must include:
+**All jobs must run on Node.js 24.**  This is handled by the workflow-level env var:
 
 ```yaml
-- uses: actions/setup-node@v4
-  with:
-    node-version: '24'
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 ```
 
-When adding a new job, include this step immediately after `actions/checkout@v4`.
+This forces all JavaScript-based actions (`actions/checkout`, `dtolnay/rust-toolchain`, `Swatinem/rust-cache`, etc.) to use the Node.js 24 runtime instead of the deprecated Node.js 20 runtime.  Do **not** add `actions/setup-node` to jobs — these are Rust/Python projects and `setup-node` is itself a Node.js 20 action that adds unnecessary warnings.
 
 ## Committing Work
 

@@ -6,6 +6,8 @@ on:
   pull_request:
     branches: [master]
 
+# Force all JavaScript-based actions (checkout, rust-toolchain, rust-cache, etc.)
+# to run on Node.js 24 instead of the deprecated Node.js 20 runtime.
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -18,10 +20,6 @@ jobs:
         working-directory: pi
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
 
       - name: Install GMP and MPFR
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
@@ -40,10 +38,6 @@ jobs:
         working-directory: pi/pi-rs
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
 
       - name: Install GMP and MPFR
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
@@ -66,10 +60,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
@@ -88,10 +78,6 @@ jobs:
         working-directory: pi/pi-rs
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
 
       - name: Install GMP and MPFR
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
@@ -114,10 +100,6 @@ jobs:
         working-directory: prime/prime-rs
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
 
       - uses: dtolnay/rust-toolchain@stable
 
