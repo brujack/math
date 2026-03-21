@@ -10,9 +10,67 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  test-pi-py:
+    name: Test pi.py
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pi
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GMP and MPFR
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
+
+      - name: Install Python dependencies
+        run: pip install mpmath gmpy2 coverage
+
+      - name: Run tests
+        run: python3 -m unittest test_pi -v
+
+  test-pi-rs:
+    name: Test pi-rs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pi/pi-rs
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GMP and MPFR
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: pi/pi-rs
+
+      - name: Run tests
+        run: cargo test
+
+  test-prime-rs:
+    name: Test prime-rs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: prime/prime-rs
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: prime/prime-rs
+
+      - name: Run tests
+        run: cargo test
+
   build-pi-rs:
     name: Build pi-rs
     runs-on: ubuntu-latest
+    needs: [test-pi-rs]
     defaults:
       run:
         working-directory: pi/pi-rs
@@ -34,6 +92,7 @@ jobs:
   build-prime-rs:
     name: Build prime-rs
     runs-on: ubuntu-latest
+    needs: [test-prime-rs]
     defaults:
       run:
         working-directory: prime/prime-rs
