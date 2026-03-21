@@ -67,10 +67,10 @@ Integer::from(&r.q * &l.t) + Integer::from(&l.p * &r.t)
 Install all dependencies (macOS and Linux):
 
 ```bash
-bash install_deps.sh
+bash pi/install_deps.sh
 ```
 
-Installs: GMP + MPFR (C libs), `mpmath`, `gmpy2`, `coverage` (Python), Rust toolchain via rustup, `cargo-tarpaulin`.
+`install_deps.sh` is located in `pi/` but installs dependencies for **both** the pi and prime projects (GMP + MPFR C libs, Python packages, Rust toolchain, cargo-tarpaulin).  Installs: GMP + MPFR (C libs), `mpmath`, `gmpy2`, `coverage` (Python), Rust toolchain via rustup, `cargo-tarpaulin`.
 
 Requirements summary:
 
@@ -131,12 +131,17 @@ String conversion:
 
 - `_pi_to_str(pi_value, digits)`: unified dispatch — uses `_gmpy2_mpfr_to_str` for `gmpy2.mpfr`, otherwise `mpmath.nstr`.
 
+CLI:
+
+- `parse_args()`: parses command-line arguments via `argparse`; returns a namespace with an optional `digits` positional int.
+- `get_target_digits(args)`: returns the digit count from CLI args if provided, otherwise loops on interactive stdin input; validates that the value is a positive integer.
+
 Main functions:
 
-- `calculate_pi_high_precision(digits)`: tries gmpy2 Chudnovsky first, falls back to mpmath; caches `(Q_int, T_int)` in `_gmpy2_QT_cache` for the subprocess.
+- `calculate_pi_high_precision(digits)`: tries gmpy2 Chudnovsky first, falls back to mpmath; caches `(Q_int, T_int)` in `_gmpy2_QT_cache` for the subprocess.  Returns a `gmpy2.mpfr` (fast path) or `mpmath.mpf` (fallback path).
 - `show_pi_preview(pi_value, preview_digits)`: prints a short preview of the computed digits.
 - `save_pi_to_file(pi_value, digits, filename)`: two-phase save — subprocess conversion then parallel pwrite file write.
-- `main()`: interactive entry point and control flow.
+- `main()`: top-level entry point; calls `parse_args()`, `get_target_digits()`, `calculate_pi_high_precision()`, and either `show_pi_preview()` or `save_pi_to_file()` based on digit count.
 
 Module-level constants / state:
 

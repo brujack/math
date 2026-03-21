@@ -43,6 +43,8 @@ A `Makefile` is provided in `prime-rs/`:
 
 No external C libraries required (unlike the pi project); only `rayon` and `clap`.
 
+Install the Rust toolchain and `cargo-tarpaulin` by running `pi/install_deps.sh` from the repo root — it installs dependencies for both pi and prime projects.
+
 ### Code Layout (`prime-rs/src/main.rs`)
 
 Constants:
