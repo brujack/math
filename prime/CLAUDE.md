@@ -38,6 +38,7 @@ make prime       # cargo build --release, copies binary to ~/Downloads/prime
 
 A `Makefile` is provided in `prime-rs/`:
 - `make prime` — runs `cargo build --release` and copies the binary to `~/Downloads/prime`
+- `make test` — runs `cargo test`
 - `make clean` — runs `cargo clean` and removes `~/Downloads/prime`
 
 No external C libraries required (unlike the pi project); only `rayon` and `clap`.

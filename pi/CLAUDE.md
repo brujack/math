@@ -34,6 +34,7 @@ make pi          # builds release binary and copies it to ~/Downloads/pi
 
 A `Makefile` is provided in `pi-rs/`:
 - `make pi` — runs `cargo build --release` and copies the binary to `~/Downloads/pi`
+- `make test` — runs `cargo test`
 - `make clean` — runs `cargo clean` and removes `~/Downloads/pi`
 
 ### Rust Code Layout (`pi-rs/src/main.rs`)

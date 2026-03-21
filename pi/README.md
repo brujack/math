@@ -119,6 +119,7 @@ The binary is at `pi-rs/target/release/pi`.
 | Target | Description |
 |--------|-------------|
 | `make pi` | Build release binary and copy to `~/Downloads/pi` |
+| `make test` | Run unit tests (`cargo test`) |
 | `make clean` | Remove build artifacts and `~/Downloads/pi` |
 
 ### Tests
