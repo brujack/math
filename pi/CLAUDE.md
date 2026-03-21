@@ -91,9 +91,17 @@ sudo dnf install gmp-devel mpfr-devel && pip install mpmath gmpy2
 
 ## Running The Script
 
+A `Makefile` is provided in `pi/`:
+- `make run` — runs `python3 pi.py`
+- `make test` — runs `python3 -m unittest test_pi -v`
+- `make coverage` — runs tests and prints a line coverage report
+- `make clean` — removes `__pycache__` and `.coverage`
+
 Run the calculator with:
 
 ```bash
+make run
+# or directly:
 python3 pi.py
 ```
 
@@ -176,19 +184,15 @@ Module-level constants / state:
 Run the full suite:
 
 ```bash
+make test      # python3 -m unittest test_pi -v
+make coverage  # run tests + print coverage report
+```
+
+Or directly:
+
+```bash
 python3 -m unittest test_pi -v
-```
-
-Or with pytest if installed:
-
-```bash
-python3 -m pytest test_pi.py -v
-```
-
-Check coverage:
-
-```bash
-python3 -m coverage run -m unittest test_pi && python3 -m coverage report
+python3 -m pytest test_pi.py -v   # if pytest is installed
 ```
 
 gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
