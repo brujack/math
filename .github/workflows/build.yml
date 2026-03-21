@@ -91,6 +91,13 @@ jobs:
       - name: Build
         run: cargo build --release
 
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pi
+          path: pi/pi-rs/target/release/pi
+          retention-days: 7
+
   build-prime-rs:
     name: Build prime-rs
     runs-on: ubuntu-latest
@@ -109,3 +116,10 @@ jobs:
 
       - name: Build
         run: cargo build --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: prime
+          path: prime/prime-rs/target/release/prime
+          retention-days: 7
