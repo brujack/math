@@ -48,6 +48,24 @@ cargo build --release
 | `make prime` | Build release binary and copy to `~/Downloads/prime` |
 | `make clean` | Remove build artifacts and `~/Downloads/prime` |
 
+### Tests
+
+```bash
+cd prime-rs
+cargo test
+```
+
+22 tests, 56% line coverage.  Covers `fmt_int`, `small_sieve` (empty, known lists, π(100)=25, π(1000)=168), `sieve_segment` (known range, no even numbers, empty-when-lo-exceeds-limit), and `find_primes` end-to-end (exact output for small inputs, π(10^6)=78,498, last prime = 999,983, no even non-2 primes).
+
+Uncovered lines are the progress thread, interactive `prompt_digits` / `read_line`, and `main()` — all integration-level only.
+
+Check coverage (requires `cargo-tarpaulin`):
+
+```bash
+cargo install cargo-tarpaulin   # one-time install
+cargo tarpaulin --out Stdout
+```
+
 ---
 
 ## Usage

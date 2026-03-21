@@ -92,29 +92,42 @@ Uses `\r` to overwrite in place; a final line is printed after the thread is joi
 - `block_lo` is always kept odd: after advancing `block_lo = block_hi + 1`, add 1 if even.
 - The `find_primes` function is generic over `W: Write`, allowing output to either `Vec<u8>` (small N) or `BufWriter<File>` (large N) without duplication.
 
-## Validation
+## Testing
 
-No formal test suite.  Quick manual checks:
+**Unit tests must be written for all new code added to this project.**
+
+Tests live in a `#[cfg(test)] mod tests` block at the bottom of `src/main.rs`.
+
+Run the full suite:
 
 ```bash
-# Known counts:
-# π(10^6)  =     78,498
-# π(10^7)  =    664,579
-# π(10^8)  =  5,761,455
-# π(10^9)  = 50,847,534
-
-./target/release/prime 6   # expect 78,498 primes, last = 999,983
-./target/release/prime 7   # expect 664,579 primes
+cd prime-rs
+cargo test
 ```
 
-Sanity checks on output:
+Check coverage (requires `cargo-tarpaulin`):
+
 ```bash
-# No even numbers (except 2):
-grep -c "[02468]$" primes_1e6.txt   # should print 1
-
-# Last prime before 10^6:
-tail -1 primes_1e6.txt              # should print 999983
+cargo install cargo-tarpaulin   # one-time install
+cargo tarpaulin --out Stdout
 ```
+
+### Test coverage (56% line coverage, 22 tests)
+
+| Area | Tests | Notes |
+|------|-------|-------|
+| `fmt_int` | 5 | zero, sub-thousand, thousands, millions, large |
+| `small_sieve` | 6 | empty, single prime, known lists, π(100)=25, π(1000)=168 |
+| `sieve_segment` | 4 | known range, no even numbers, empty when lo > limit |
+| `find_primes` | 7 | below-2, up-to-10 exact output, π(100), π(1000), π(10^6)=78498, last prime, no even non-2 |
+
+Uncovered lines: progress thread, `prompt_digits` / `read_line` (interactive stdin), `main()` — all integration-level only.
+
+### Adding new tests
+
+- Add tests to the `#[cfg(test)] mod tests` block in `src/main.rs`.
+- Use known prime counts (π(10^6)=78,498; π(10^7)=664,579; π(10^8)=5,761,455; π(10^9)=50,847,534) for accuracy assertions.
+- `sieve_segment` requires `lo` to be odd — always pass an odd `lo` in tests.
 
 ## Editing Guidance
 
@@ -123,3 +136,4 @@ tail -1 primes_1e6.txt              # should print 999983
 - The `phase2_start` formula is subtle — see the important details note above before changing it.
 - `sieve_segment` assumes `lo` is odd; callers must ensure this invariant.
 - Generated output files (`primes_1eN.txt`) can be very large — do not commit them.
+- **Write unit tests for all new or changed functions** and add them to the `#[cfg(test)]` module.

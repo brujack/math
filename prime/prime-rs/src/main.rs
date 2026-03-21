@@ -368,3 +368,178 @@ fn main() {
 
     println!("Total time: {:.2}s", t_total.elapsed().as_secs_f64());
 }
+
+// ---------------------------------------------------------------------------
+// Unit tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- fmt_int ---
+
+    #[test]
+    fn test_fmt_int_zero() {
+        assert_eq!(fmt_int(0), "0");
+    }
+
+    #[test]
+    fn test_fmt_int_below_thousand() {
+        assert_eq!(fmt_int(999), "999");
+    }
+
+    #[test]
+    fn test_fmt_int_thousands() {
+        assert_eq!(fmt_int(1_000), "1,000");
+        assert_eq!(fmt_int(10_000), "10,000");
+    }
+
+    #[test]
+    fn test_fmt_int_millions() {
+        assert_eq!(fmt_int(1_234_567), "1,234,567");
+    }
+
+    #[test]
+    fn test_fmt_int_large() {
+        assert_eq!(fmt_int(50_847_534), "50,847,534");
+    }
+
+    // --- small_sieve ---
+
+    #[test]
+    fn test_small_sieve_empty() {
+        assert!(small_sieve(0).is_empty());
+        assert!(small_sieve(1).is_empty());
+    }
+
+    #[test]
+    fn test_small_sieve_two() {
+        assert_eq!(small_sieve(2), vec![2u64]);
+    }
+
+    #[test]
+    fn test_small_sieve_ten() {
+        assert_eq!(small_sieve(10), vec![2u64, 3, 5, 7]);
+    }
+
+    #[test]
+    fn test_small_sieve_thirty() {
+        assert_eq!(
+            small_sieve(30),
+            vec![2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29]
+        );
+    }
+
+    #[test]
+    fn test_small_sieve_count_100() {
+        // π(100) = 25
+        assert_eq!(small_sieve(100).len(), 25);
+    }
+
+    #[test]
+    fn test_small_sieve_count_1000() {
+        // π(1000) = 168
+        assert_eq!(small_sieve(1000).len(), 168);
+    }
+
+    // --- sieve_segment ---
+
+    #[test]
+    fn test_sieve_segment_small() {
+        // Primes in [11, 30] given small primes up to 7.
+        let sp = vec![2u64, 3, 5, 7];
+        let result = sieve_segment(11, 30, &sp);
+        assert_eq!(result, vec![11u64, 13, 17, 19, 23, 29]);
+    }
+
+    #[test]
+    fn test_sieve_segment_known_range() {
+        // Primes in [101, 200]; sqrt(200) < 15 so sieve with primes up to 14.
+        let sp = small_sieve(14);
+        let result = sieve_segment(101, 200, &sp);
+        let expected = vec![
+            101u64, 103, 107, 109, 113, 127, 131, 137, 139, 149,
+            151, 157, 163, 167, 173, 179, 181, 191, 193, 197, 199,
+        ];
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_sieve_segment_no_even_numbers() {
+        // All results must be odd (segment lo is odd, 2 is not included).
+        let sp = small_sieve(32);
+        let result = sieve_segment(101, 200, &sp);
+        assert!(result.iter().all(|&p| p % 2 == 1));
+    }
+
+    #[test]
+    fn test_sieve_segment_empty_when_lo_exceeds_limit() {
+        // lo > limit → empty.
+        let sp = vec![2u64, 3, 5];
+        let result = sieve_segment(101, 100, &sp);
+        assert!(result.is_empty());
+    }
+
+    // --- find_primes (end-to-end) ---
+
+    #[test]
+    fn test_find_primes_below_2() {
+        let mut buf: Vec<u8> = Vec::new();
+        let count = find_primes(1, &mut buf).unwrap();
+        assert_eq!(count, 0);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn test_find_primes_up_to_10() {
+        let mut buf: Vec<u8> = Vec::new();
+        let count = find_primes(10, &mut buf).unwrap();
+        assert_eq!(count, 4);
+        assert_eq!(String::from_utf8(buf).unwrap(), "2\n3\n5\n7\n");
+    }
+
+    #[test]
+    fn test_find_primes_count_100() {
+        // π(100) = 25
+        let mut buf: Vec<u8> = Vec::new();
+        let count = find_primes(100, &mut buf).unwrap();
+        assert_eq!(count, 25);
+    }
+
+    #[test]
+    fn test_find_primes_count_1000() {
+        // π(1000) = 168
+        let mut buf: Vec<u8> = Vec::new();
+        let count = find_primes(1_000, &mut buf).unwrap();
+        assert_eq!(count, 168);
+    }
+
+    #[test]
+    fn test_find_primes_count_1_million() {
+        // π(10^6) = 78,498
+        let mut buf: Vec<u8> = Vec::new();
+        let count = find_primes(1_000_000, &mut buf).unwrap();
+        assert_eq!(count, 78_498);
+    }
+
+    #[test]
+    fn test_find_primes_last_prime_before_million() {
+        let mut buf: Vec<u8> = Vec::new();
+        find_primes(1_000_000, &mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert_eq!(output.lines().last().unwrap(), "999983");
+    }
+
+    #[test]
+    fn test_find_primes_no_even_numbers_except_2() {
+        let mut buf: Vec<u8> = Vec::new();
+        find_primes(10_000, &mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        let bad: Vec<&str> = output
+            .lines()
+            .filter(|&l| l != "2" && l.parse::<u64>().map(|n| n % 2 == 0).unwrap_or(false))
+            .collect();
+        assert!(bad.is_empty(), "unexpected even primes: {:?}", bad);
+    }
+}
