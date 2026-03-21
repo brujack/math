@@ -15,11 +15,22 @@ Both implementations use the same underlying C libraries (GMP and MPFR) and prod
 
 ## Dependencies
 
-Both implementations require GMP and MPFR.  Run the installer:
+Run the installer to get everything in one step:
 
 ```bash
 bash install_deps.sh
 ```
+
+This installs:
+
+| Dependency | Used by | Notes |
+|---|---|---|
+| GMP + MPFR (C libs) | `pi.py`, `pi-rs` | Required for GMP big-integer arithmetic |
+| `mpmath` (Python) | `pi.py` | Required fallback path |
+| `gmpy2` (Python) | `pi.py` | Optional but gives 5–50× speedup |
+| `coverage` (Python) | `make coverage` | Line coverage for `test_pi.py` |
+| Rust toolchain | `pi-rs`, `prime-rs` | Installed via rustup; updated if already present |
+| `cargo-tarpaulin` | `cargo tarpaulin` | Rust line coverage tool |
 
 Supported platforms: macOS (Homebrew), Debian/Ubuntu (apt), RHEL/Fedora (dnf).
 
@@ -28,21 +39,20 @@ Or install manually:
 ```bash
 # macOS
 brew install gmp mpfr
+pip install mpmath gmpy2 coverage
 
 # Debian / Ubuntu
 sudo apt install libgmp-dev libmpfr-dev
+pip install mpmath gmpy2 coverage
 
 # RHEL / Fedora
 sudo dnf install gmp-devel mpfr-devel
+pip install mpmath gmpy2 coverage
+
+# Rust (all platforms)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+cargo install cargo-tarpaulin
 ```
-
-The Python implementation also requires:
-
-```bash
-pip install mpmath gmpy2
-```
-
-(`mpmath` is required; `gmpy2` is optional but gives a 5–50× speedup.)
 
 ---
 

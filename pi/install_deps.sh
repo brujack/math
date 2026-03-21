@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# install_deps.sh — install system libraries and Python packages for fast π
+# install_deps.sh — install all dependencies for the pi and prime projects
 #
-# Installs GMP + MPFR (C libraries used by gmpy2) and then installs
-# gmpy2 + mpmath via pip.  Supported platforms:
+# Installs:
+#   C libraries  — GMP + MPFR (required by pi.py via gmpy2, and by pi-rs via rug)
+#   Python       — mpmath, gmpy2, coverage  (pi.py + test suite)
+#   Rust         — rustup toolchain + cargo-tarpaulin  (pi-rs, prime-rs + coverage)
+#
+# Supported platforms:
 #   macOS (Apple Silicon & x86_64) — uses Homebrew
 #   Debian / Ubuntu                — uses apt
 #   RHEL / Fedora / CentOS         — uses dnf (falls back to yum)
@@ -47,12 +51,42 @@ install_rhel() {
 }
 
 # ---------------------------------------------------------------------------
+# Rust toolchain
+# ---------------------------------------------------------------------------
+
+install_rust() {
+    if command -v cargo >/dev/null 2>&1; then
+        echo "==> Rust already installed: $(rustc --version)"
+        echo "==> Updating toolchain..."
+        rustup update stable
+    else
+        echo "==> Installing Rust via rustup..."
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+        # Source the env so cargo is available for the rest of this script.
+        # shellcheck source=/dev/null
+        source "${HOME}/.cargo/env"
+        echo "==> Rust installed: $(rustc --version)"
+    fi
+}
+
+install_cargo_tarpaulin() {
+    if cargo tarpaulin --version >/dev/null 2>&1; then
+        echo "==> cargo-tarpaulin already installed: $(cargo tarpaulin --version)"
+    else
+        echo "==> Installing cargo-tarpaulin (Rust coverage tool)..."
+        echo "    This compiles from source and may take a few minutes."
+        cargo install cargo-tarpaulin
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
-echo "=== π calculator dependency installer ==="
+echo "=== π / prime dependency installer ==="
 echo ""
 
+# ---- C libraries (GMP + MPFR, needed by pi.py and pi-rs) ----
 case "$OS" in
     Darwin)
         install_macos
@@ -75,31 +109,62 @@ case "$OS" in
         ;;
 esac
 
+# ---- Python packages (pi.py runtime + test coverage) ----
 echo ""
 echo "==> Installing Python packages..."
-python3 -m pip install --upgrade mpmath gmpy2
+python3 -m pip install --upgrade mpmath gmpy2 coverage
+
+# ---- Rust toolchain (pi-rs, prime-rs) ----
+echo ""
+install_rust
+
+# ---- cargo-tarpaulin (Rust coverage) ----
+echo ""
+install_cargo_tarpaulin
+
+# ---------------------------------------------------------------------------
+# Verification
+# ---------------------------------------------------------------------------
 
 echo ""
 echo "==> Verifying installation..."
+
 python3 - <<'PYEOF'
 import sys
 
 try:
     import mpmath
-    print(f"  mpmath  {mpmath.__version__}  OK")
+    print(f"  mpmath    {mpmath.__version__}  OK")
 except ImportError as e:
-    print(f"  mpmath  FAILED: {e}", file=sys.stderr)
+    print(f"  mpmath    FAILED: {e}", file=sys.stderr)
     sys.exit(1)
 
 try:
     import gmpy2
-    print(f"  gmpy2   {gmpy2.version()}  (GMP {gmpy2.mp_version()}, MPFR {gmpy2.mpfr_version()})  OK")
+    print(f"  gmpy2     {gmpy2.version()}  (GMP {gmpy2.mp_version()}, MPFR {gmpy2.mpfr_version()})  OK")
 except ImportError as e:
-    print(f"  gmpy2   FAILED: {e}", file=sys.stderr)
+    print(f"  gmpy2     FAILED: {e}", file=sys.stderr)
+    sys.exit(1)
+
+try:
+    import coverage
+    print(f"  coverage  {coverage.__version__}  OK")
+except ImportError as e:
+    print(f"  coverage  FAILED: {e}", file=sys.stderr)
     sys.exit(1)
 PYEOF
+
+echo "  rustc     $(rustc --version)  OK"
+echo "  cargo     $(cargo --version)  OK"
+echo "  tarpaulin $(cargo tarpaulin --version)  OK"
 
 echo ""
 echo "All dependencies installed successfully."
 echo ""
-echo "Run: python3 pi.py"
+echo "Python (pi.py):"
+echo "  make run       — run the calculator"
+echo "  make test      — run unit tests"
+echo "  make coverage  — run tests with coverage report"
+echo ""
+echo "Rust (pi-rs):    cd pi/pi-rs  && make pi | make test"
+echo "Rust (prime-rs): cd prime/prime-rs && make prime | make test"

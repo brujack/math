@@ -64,30 +64,25 @@ Integer::from(&r.q * &l.t) + Integer::from(&l.p * &r.t)
 
 ## Environment
 
-Requirements:
-
-- Python 3
-- `mpmath` (required)
-- `gmpy2` (optional but strongly recommended — 5–50x faster)
-
 Install all dependencies (macOS and Linux):
 
 ```bash
 bash install_deps.sh
 ```
 
-Or manually:
+Installs: GMP + MPFR (C libs), `mpmath`, `gmpy2`, `coverage` (Python), Rust toolchain via rustup, `cargo-tarpaulin`.
 
-```bash
-# macOS
-brew install gmp mpfr && pip install mpmath gmpy2
+Requirements summary:
 
-# Debian / Ubuntu
-sudo apt install libgmp-dev libmpfr-dev && pip install mpmath gmpy2
-
-# RHEL / Fedora
-sudo dnf install gmp-devel mpfr-devel && pip install mpmath gmpy2
-```
+| Dependency | Required for |
+|---|---|
+| Python 3 | `pi.py`, tests |
+| `mpmath` | `pi.py` fallback path (required) |
+| `gmpy2` | `pi.py` fast path (optional, 5–50× speedup) |
+| `coverage` | `make coverage` |
+| GMP + MPFR (C libs) | `gmpy2`, `pi-rs` via rug |
+| Rust 1.85+ | `pi-rs` |
+| `cargo-tarpaulin` | `cargo tarpaulin` (Rust coverage) |
 
 ## Running The Script
 
