@@ -163,6 +163,18 @@ Module-level constants / state:
 - The `if __name__ == "__main__":` guard checks `multiprocessing.current_process().name == "MainProcess"` to prevent `main()` from running in worker subprocesses (required on macOS where `spawn` re-executes the script in each worker).
 - Very large output files can be slow to generate and should not be casually regenerated during routine edits.
 
+## Keeping This File Up To Date
+
+**Update this file whenever you change the code.**  Future Claude sessions rely on it — stale docs are worse than none.  Specifically:
+
+- New or renamed function / constant → update Code Layout
+- Makefile target added or removed → update the Makefile bullet list here and in `README.md`
+- Dependency added → update Environment section and `install_deps.sh`
+- Test class added or coverage % changes → update the Testing coverage table here and in `README.md`
+- Behaviour or algorithm change → update Important Behavior
+
+Also update the top-level `CLAUDE.md` if the change affects the repository overview or quick-reference targets.
+
 ## Editing Guidance
 
 - **Write unit tests for all new or changed functions** and add them to `test_pi.py`.

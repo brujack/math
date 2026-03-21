@@ -60,6 +60,24 @@ make test      # cargo test
 
 GitHub Actions (`.github/workflows/build.yml`) runs `cargo build --release` for both `pi-rs` and `prime-rs` on every push and pull request to `master`.
 
+## Keeping CLAUDE.md Up To Date
+
+**When making any change to this repository, update the relevant CLAUDE.md file(s) before finishing.**  These files are the primary reference for future sessions — stale documentation is worse than none.
+
+What to update and when:
+
+| Change | Files to update |
+|--------|----------------|
+| New or renamed function / constant | Project `CLAUDE.md` → Code Layout section |
+| New or removed Makefile target | Project `CLAUDE.md` + `README.md` → Makefile targets table |
+| New dependency or install step | `pi/install_deps.sh` + project `CLAUDE.md` + `README.md` |
+| New test class or change in coverage % | Project `CLAUDE.md` + `README.md` → Testing section |
+| New project added to the repo | Top-level `CLAUDE.md` → Repository Overview table |
+| Behaviour or algorithm change | Project `CLAUDE.md` → Important Behavior / Implementation Details |
+| Editing rule or policy change | All affected `CLAUDE.md` → Editing Guidance section |
+
+The sub-project files (`pi/CLAUDE.md`, `prime/CLAUDE.md`) are the source of truth for implementation detail.  This top-level file is the entry point and quick reference — keep both in sync.
+
 ## Notes
 
 - Generated output files (`pi_*_digits.txt`, `primes_1e*.txt`) are large artifacts — do not commit them.

@@ -132,6 +132,18 @@ Uncovered lines: progress thread, `prompt_digits` / `read_line` (interactive std
 - Use known prime counts (π(10^6)=78,498; π(10^7)=664,579; π(10^8)=5,761,455; π(10^9)=50,847,534) for accuracy assertions.
 - `sieve_segment` requires `lo` to be odd — always pass an odd `lo` in tests.
 
+## Keeping This File Up To Date
+
+**Update this file whenever you change the code.**  Future Claude sessions rely on it — stale docs are worse than none.  Specifically:
+
+- New or renamed function / constant → update Code Layout
+- Makefile target added or removed → update the Makefile bullet list here and in `README.md`
+- Dependency added → update `pi/install_deps.sh` and note it here
+- Test class added or coverage % changes → update the Testing coverage table here and in `README.md`
+- Behaviour or algorithm change → update Important Implementation Details
+
+Also update the top-level `CLAUDE.md` if the change affects the repository overview or quick-reference targets.
+
 ## Editing Guidance
 
 - Do not change `SEG_SIZE` without profiling — 2^19 is chosen to keep the 32 KB bitset in L2 cache.
