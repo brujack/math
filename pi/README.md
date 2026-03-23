@@ -15,13 +15,14 @@ Both implementations use the same underlying C libraries (GMP and MPFR) and prod
 
 ## Dependencies
 
-Run the installer to get everything in one step:
+Each implementation has its own installer:
 
 ```bash
-bash install_deps.sh
+bash pi/install_deps.sh        # pi.py — GMP + MPFR, mpmath, gmpy2, coverage
+bash pi/pi-rs/install_deps.sh  # pi-rs — GMP + MPFR, Rust toolchain, cargo-tarpaulin
 ```
 
-This installs:
+Supported platforms: macOS (Homebrew), Debian/Ubuntu (apt), RHEL/Fedora (dnf).
 
 | Dependency | Used by | Notes |
 |---|---|---|
@@ -29,30 +30,8 @@ This installs:
 | `mpmath` (Python) | `pi.py` | Required fallback path |
 | `gmpy2` (Python) | `pi.py` | Optional but gives 5–50× speedup |
 | `coverage` (Python) | `make coverage` | Line coverage for `test_pi.py` |
-| Rust toolchain | `pi-rs`, `prime-rs` | Installed via rustup; updated if already present |
+| Rust 1.85+ | `pi-rs` | Installed via rustup |
 | `cargo-tarpaulin` | `cargo tarpaulin` | Rust line coverage tool |
-
-Supported platforms: macOS (Homebrew), Debian/Ubuntu (apt), RHEL/Fedora (dnf).
-
-Or install manually:
-
-```bash
-# macOS
-brew install gmp mpfr
-pip install mpmath gmpy2 coverage
-
-# Debian / Ubuntu
-sudo apt install libgmp-dev libmpfr-dev
-pip install mpmath gmpy2 coverage
-
-# RHEL / Fedora
-sudo dnf install gmp-devel mpfr-devel
-pip install mpmath gmpy2 coverage
-
-# Rust (all platforms)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-cargo install cargo-tarpaulin
-```
 
 ---
 
@@ -118,7 +97,7 @@ memory with zero IPC cost, giving near-linear scaling across all cores.
 
 ### Build
 
-Requires Rust 1.85+ and GMP + MPFR (run `install_deps.sh` first):
+Requires Rust 1.85+ and GMP + MPFR (run `pi/pi-rs/install_deps.sh` first):
 
 ```bash
 cd pi-rs

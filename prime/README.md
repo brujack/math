@@ -14,15 +14,15 @@ Find every prime number up to 10^N using a **parallel segmented Sieve of Eratost
 
 ## Dependencies
 
-Only Rust is required (no external C libraries).  Requires **Rust 1.74+** (driven by clap 4; install via rustup for the latest stable):
+Only Rust is required (no external C libraries).  Requires **Rust 1.74+** (driven by clap 4).
+
+Run the installer:
 
 ```bash
-# Via rustup (recommended, all platforms)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# macOS (Homebrew alternative)
-brew install rust
+bash prime/prime-rs/install_deps.sh
 ```
+
+This installs the Rust toolchain via rustup and `cargo-tarpaulin` for coverage.
 
 ---
 

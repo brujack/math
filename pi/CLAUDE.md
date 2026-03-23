@@ -64,13 +64,12 @@ Integer::from(&r.q * &l.t) + Integer::from(&l.p * &r.t)
 
 ## Environment
 
-Install all dependencies (macOS and Linux):
+Each implementation has its own installer:
 
 ```bash
-bash pi/install_deps.sh
+bash pi/install_deps.sh        # pi.py — GMP + MPFR, mpmath, gmpy2, coverage
+bash pi/pi-rs/install_deps.sh  # pi-rs — GMP + MPFR, Rust toolchain, cargo-tarpaulin
 ```
-
-`install_deps.sh` is located in `pi/` but installs dependencies for **both** the pi and prime projects (GMP + MPFR C libs, Python packages, Rust toolchain, cargo-tarpaulin).  Installs: GMP + MPFR (C libs), `mpmath`, `gmpy2`, `coverage` (Python), Rust toolchain via rustup, `cargo-tarpaulin`.
 
 Requirements summary:
 

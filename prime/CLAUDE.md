@@ -43,7 +43,7 @@ A `Makefile` is provided in `prime-rs/`:
 
 No external C libraries required (unlike the pi project); only `rayon` and `clap`.
 
-Install the Rust toolchain and `cargo-tarpaulin` by running `pi/install_deps.sh` from the repo root — it installs dependencies for both pi and prime projects.
+Install the Rust toolchain and `cargo-tarpaulin` by running `prime/prime-rs/install_deps.sh`.
 
 ### Code Layout (`prime-rs/src/main.rs`)
 
@@ -138,7 +138,7 @@ Uncovered lines: progress thread, `prompt_digits` / `read_line` (interactive std
 
 - New or renamed function / constant → update Code Layout
 - Makefile target added or removed → update the Makefile bullet list here and in `README.md`
-- Dependency added → update `pi/install_deps.sh` and note it here
+- Dependency added → update `prime/prime-rs/install_deps.sh` and note it here
 - Test class added or coverage % changes → update the Testing coverage table here and in `README.md`
 - Behaviour or algorithm change → update Important Implementation Details
 

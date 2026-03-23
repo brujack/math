@@ -13,13 +13,13 @@ High-performance mathematical computation tools.
 
 ## Dependency Installation
 
-A single installer covers all projects (Python packages, C libs, Rust toolchain, test tools):
+Each project has its own installer:
 
-```bash
-bash pi/install_deps.sh
-```
-
-Installs: GMP + MPFR, `mpmath`, `gmpy2`, `coverage`, Rust toolchain (via rustup), `cargo-tarpaulin`.
+| Script | Installs |
+|--------|----------|
+| `pi/install_deps.sh` | GMP + MPFR, `mpmath`, `gmpy2`, `coverage` |
+| `pi/pi-rs/install_deps.sh` | GMP + MPFR, Rust toolchain, `cargo-tarpaulin` |
+| `prime/prime-rs/install_deps.sh` | Rust toolchain, `cargo-tarpaulin` |
 
 ## Quick Reference
 

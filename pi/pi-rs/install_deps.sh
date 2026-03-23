@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
-# install_deps.sh — install dependencies for pi.py
+# install_deps.sh — install dependencies for pi-rs
 #
 # Installs:
-#   C libraries  — GMP + MPFR (required by gmpy2)
-#   Python       — mpmath, gmpy2, coverage  (runtime + test suite)
-#
-# For the Rust pi-rs implementation, run pi/pi-rs/install_deps.sh instead.
+#   C libraries  — GMP + MPFR (required by rug crate)
+#   Rust         — rustup toolchain + cargo-tarpaulin (build, test, coverage)
 #
 # Supported platforms:
 #   macOS (Apple Silicon & x86_64) — uses Homebrew
@@ -35,16 +33,16 @@ install_debian() {
     echo "==> Detected Debian / Ubuntu"
     echo "==> Installing GMP and MPFR via apt..."
     sudo apt-get update -qq
-    sudo apt-get install -y libgmp-dev libmpfr-dev libmpc-dev python3-dev
+    sudo apt-get install -y libgmp-dev libmpfr-dev libmpc-dev
 }
 
 install_rhel() {
     echo "==> Detected RHEL / Fedora / CentOS"
     echo "==> Installing GMP and MPFR via dnf (or yum)..."
     if command -v dnf >/dev/null 2>&1; then
-        sudo dnf install -y gmp-devel mpfr-devel libmpc-devel python3-devel
+        sudo dnf install -y gmp-devel mpfr-devel libmpc-devel
     elif command -v yum >/dev/null 2>&1; then
-        sudo yum install -y gmp-devel mpfr-devel libmpc-devel python3-devel
+        sudo yum install -y gmp-devel mpfr-devel libmpc-devel
     else
         echo "Error: neither dnf nor yum found." >&2
         exit 1
@@ -52,13 +50,41 @@ install_rhel() {
 }
 
 # ---------------------------------------------------------------------------
+# Rust toolchain
+# ---------------------------------------------------------------------------
+
+install_rust() {
+    if command -v cargo >/dev/null 2>&1; then
+        echo "==> Rust already installed: $(rustc --version)"
+        echo "==> Updating toolchain..."
+        rustup update stable
+    else
+        echo "==> Installing Rust via rustup..."
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+        # shellcheck source=/dev/null
+        source "${HOME}/.cargo/env"
+        echo "==> Rust installed: $(rustc --version)"
+    fi
+}
+
+install_cargo_tarpaulin() {
+    if cargo tarpaulin --version >/dev/null 2>&1; then
+        echo "==> cargo-tarpaulin already installed: $(cargo tarpaulin --version)"
+    else
+        echo "==> Installing cargo-tarpaulin (Rust coverage tool)..."
+        echo "    This compiles from source and may take a few minutes."
+        cargo install cargo-tarpaulin
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
-echo "=== pi.py dependency installer ==="
+echo "=== pi-rs dependency installer ==="
 echo ""
 
-# ---- C libraries (GMP + MPFR) ----
+# ---- C libraries (GMP + MPFR, required by rug) ----
 case "$OS" in
     Darwin)
         install_macos
@@ -81,10 +107,13 @@ case "$OS" in
         ;;
 esac
 
-# ---- Python packages ----
+# ---- Rust toolchain ----
 echo ""
-echo "==> Installing Python packages..."
-python3 -m pip install --upgrade mpmath gmpy2 coverage
+install_rust
+
+# ---- cargo-tarpaulin ----
+echo ""
+install_cargo_tarpaulin
 
 # ---------------------------------------------------------------------------
 # Verification
@@ -92,35 +121,12 @@ python3 -m pip install --upgrade mpmath gmpy2 coverage
 
 echo ""
 echo "==> Verifying installation..."
-
-python3 - <<'PYEOF'
-import sys
-
-try:
-    import mpmath
-    print(f"  mpmath    {mpmath.__version__}  OK")
-except ImportError as e:
-    print(f"  mpmath    FAILED: {e}", file=sys.stderr)
-    sys.exit(1)
-
-try:
-    import gmpy2
-    print(f"  gmpy2     {gmpy2.version()}  (GMP {gmpy2.mp_version()}, MPFR {gmpy2.mpfr_version()})  OK")
-except ImportError as e:
-    print(f"  gmpy2     FAILED: {e}", file=sys.stderr)
-    sys.exit(1)
-
-try:
-    import coverage
-    print(f"  coverage  {coverage.__version__}  OK")
-except ImportError as e:
-    print(f"  coverage  FAILED: {e}", file=sys.stderr)
-    sys.exit(1)
-PYEOF
+echo "  rustc     $(rustc --version)  OK"
+echo "  cargo     $(cargo --version)  OK"
+echo "  tarpaulin $(cargo tarpaulin --version)  OK"
 
 echo ""
 echo "All dependencies installed successfully."
 echo ""
-echo "  make run       — run the calculator"
-echo "  make test      — run unit tests"
-echo "  make coverage  — run tests with coverage report"
+echo "  make pi    — build release binary"
+echo "  make test  — run unit tests"
