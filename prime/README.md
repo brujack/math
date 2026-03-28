@@ -46,7 +46,8 @@ cargo build --release
 | Target | Description |
 |--------|-------------|
 | `make prime` | Build release binary and copy to `~/Downloads/prime` |
-| `make test` | Run unit tests (`cargo test`) |
+| `make lint` | Lint with `cargo clippy -- -D warnings` |
+| `make test` | Run lint then unit tests (`cargo test`) |
 | `make clean` | Remove build artifacts and `~/Downloads/prime` |
 
 ### Tests

@@ -1,10 +1,13 @@
-.PHONY: prime test clean
+.PHONY: prime lint test clean
 
 prime:
 	cargo build --release
 	cp target/release/prime ~/Downloads/prime
 
-test:
+lint:
+	cargo clippy -- -D warnings
+
+test: lint
 	cargo test
 
 clean:

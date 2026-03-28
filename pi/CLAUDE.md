@@ -34,7 +34,8 @@ make pi          # builds release binary and copies it to ~/Downloads/pi
 
 A `Makefile` is provided in `pi-rs/`:
 - `make pi` — runs `cargo build --release` and copies the binary to `~/Downloads/pi`
-- `make test` — runs `cargo test`
+- `make lint` — runs `cargo clippy -- -D warnings`
+- `make test` — runs lint then `cargo test`
 - `make clean` — runs `cargo clean` and removes `~/Downloads/pi`
 
 ### Rust Code Layout (`pi-rs/src/main.rs`)
@@ -87,7 +88,8 @@ Requirements summary:
 
 A `Makefile` is provided in `pi/`:
 - `make run` — runs `python3 pi.py`
-- `make test` — runs `python3 -m unittest test_pi -v`
+- `make lint` — runs `ruff check .`
+- `make test` — runs lint then `python3 -m unittest test_pi -v`
 - `make coverage` — runs tests and prints a line coverage report
 - `make clean` — removes `__pycache__` and `.coverage`
 

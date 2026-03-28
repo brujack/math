@@ -1,9 +1,12 @@
-.PHONY: run test coverage clean
+.PHONY: run lint test coverage clean
 
 run:
 	python3 pi.py
 
-test:
+lint:
+	ruff check .
+
+test: lint
 	python3 -m unittest test_pi -v
 
 coverage:

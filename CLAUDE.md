@@ -28,7 +28,8 @@ Each project has its own installer:
 ```bash
 cd pi
 make run       # python3 pi.py
-make test      # python3 -m unittest test_pi -v
+make lint      # ruff check .
+make test      # lint, then python3 -m unittest test_pi -v
 make coverage  # coverage run + report
 ```
 
@@ -37,7 +38,8 @@ make coverage  # coverage run + report
 ```bash
 cd pi/pi-rs
 make pi        # cargo build --release
-make test      # cargo test
+make lint      # cargo clippy -- -D warnings
+make test      # lint, then cargo test
 ```
 
 ### Rust (`prime/prime-rs/`)
@@ -45,7 +47,8 @@ make test      # cargo test
 ```bash
 cd prime/prime-rs
 make prime     # cargo build --release
-make test      # cargo test
+make lint      # cargo clippy -- -D warnings
+make test      # lint, then cargo test
 ```
 
 ## Testing Policy

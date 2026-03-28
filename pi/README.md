@@ -42,7 +42,8 @@ Supported platforms: macOS (Homebrew), Debian/Ubuntu (apt), RHEL/Fedora (dnf).
 | Target | Description |
 |--------|-------------|
 | `make run` | Run the calculator interactively (`python3 pi.py`) |
-| `make test` | Run unit tests (`python3 -m unittest test_pi -v`) |
+| `make lint` | Lint with `ruff check .` |
+| `make test` | Run lint then unit tests (`python3 -m unittest test_pi -v`) |
 | `make coverage` | Run tests and print line coverage report |
 | `make clean` | Remove `__pycache__` and `.coverage` |
 
@@ -118,7 +119,8 @@ The binary is at `pi-rs/target/release/pi`.
 | Target | Description |
 |--------|-------------|
 | `make pi` | Build release binary and copy to `~/Downloads/pi` |
-| `make test` | Run unit tests (`cargo test`) |
+| `make lint` | Lint with `cargo clippy -- -D warnings` |
+| `make test` | Run lint then unit tests (`cargo test`) |
 | `make clean` | Remove build artifacts and `~/Downloads/pi` |
 
 ### Tests
