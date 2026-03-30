@@ -21,6 +21,8 @@ Each project has its own installer:
 | `pi/install_deps.sh` | GMP + MPFR, `mpmath`, `gmpy2`, `coverage` |
 | `pi/pi-rs/install_deps.sh` | GMP + MPFR, Rust toolchain, `cargo-tarpaulin` |
 | `prime/prime-rs/install_deps.sh` | Rust toolchain, `cargo-tarpaulin` |
+| `fib/install_deps.sh` | `ruff`, `coverage` |
+| `fib/fib-rs/install_deps.sh` | GMP, Rust toolchain, `cargo-tarpaulin` |
 
 ## Quick Reference
 
