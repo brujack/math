@@ -3,6 +3,8 @@
 [![pi.py](https://github.com/brujack/math/actions/workflows/pi-py.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/pi-py.yml)
 [![pi-rs](https://github.com/brujack/math/actions/workflows/pi-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/pi-rs.yml)
 [![prime-rs](https://github.com/brujack/math/actions/workflows/prime-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/prime-rs.yml)
+[![fib.py](https://github.com/brujack/math/actions/workflows/fib-py.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/fib-py.yml)
+[![fib-rs](https://github.com/brujack/math/actions/workflows/fib-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/fib-rs.yml)
 
 High-performance mathematical computation tools.
 
@@ -10,6 +12,7 @@ High-performance mathematical computation tools.
 |---------|-------------|----------------|----|
 | [`pi/`](pi/README.md) | Calculate π to N decimal places | Python + Rust | [![pi.py](https://github.com/brujack/math/actions/workflows/pi-py.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/pi-py.yml) [![pi-rs](https://github.com/brujack/math/actions/workflows/pi-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/pi-rs.yml) |
 | [`prime/`](prime/README.md) | Find all primes up to 10^N | Rust | [![prime-rs](https://github.com/brujack/math/actions/workflows/prime-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/prime-rs.yml) |
+| [`fib/`](fib/README.md) | Generate all Fibonacci numbers with up to 10^X digits | Python + Rust | [![fib.py](https://github.com/brujack/math/actions/workflows/fib-py.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/fib-py.yml) [![fib-rs](https://github.com/brujack/math/actions/workflows/fib-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/fib-rs.yml) |
 
 ---
 
@@ -31,3 +34,14 @@ Finds every prime number up to 10^N using a **parallel segmented Sieve of Eratos
 - Rust implementation (`prime/prime-rs/`) — packed bitset segments (32 KB each, fits in L2 cache), rayon-parallelised across all cores, streams output to file to keep peak RAM ≤ ~50 MB
 
 See [`prime/README.md`](prime/README.md) for full details.
+
+---
+
+## fib
+
+Generates every Fibonacci number with at most 10^X decimal digits.
+
+- Python implementation (`fib/fib.py`) — uses Python's built-in arbitrary-precision `int`; no external dependencies
+- Rust implementation (`fib/fib-rs/`) — uses `rug`/GMP for best performance at large digit counts
+
+See [`fib/README.md`](fib/README.md) for full details.

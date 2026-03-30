@@ -10,6 +10,7 @@ High-performance mathematical computation tools.
 |---------|----------|-------------|-----------|
 | [`pi/`](pi/) | Python + Rust | Calculate π to N decimal places (Chudnovsky algorithm) | [`pi/CLAUDE.md`](pi/CLAUDE.md) |
 | [`prime/`](prime/) | Rust | Find all primes up to 10^N (segmented sieve) | [`prime/CLAUDE.md`](prime/CLAUDE.md) |
+| [`fib/`](fib/) | Python + Rust | Generate all Fibonacci numbers with up to 10^X digits | [`fib/CLAUDE.md`](fib/CLAUDE.md) |
 
 ## Dependency Installation
 
@@ -51,6 +52,25 @@ make lint      # cargo clippy -- -D warnings
 make test      # lint, then cargo test
 ```
 
+### Python (`fib/`)
+
+```bash
+cd fib
+make run       # python3 fib.py
+make lint      # ruff check .
+make test      # lint, then python3 -m unittest test_fib -v
+make coverage  # coverage run + report
+```
+
+### Rust (`fib/fib-rs/`)
+
+```bash
+cd fib/fib-rs
+make fib       # cargo build --release
+make lint      # cargo clippy -- -D warnings
+make test      # lint, then cargo test
+```
+
 ## Testing Policy
 
 **Unit tests must be written for all new code added to any project in this repository.**
@@ -68,6 +88,8 @@ Three workflow files, one per project, each running on every push and pull reque
 | pi.py | `.github/workflows/pi-py.yml` | test |
 | pi-rs | `.github/workflows/pi-rs.yml` | test → build + artifact |
 | prime-rs | `.github/workflows/prime-rs.yml` | test → build + artifact |
+| fib.py | `.github/workflows/fib-py.yml` | test |
+| fib-rs | `.github/workflows/fib-rs.yml` | test → build + artifact |
 
 **When adding a new project**, create a dedicated workflow file `.github/workflows/<project>.yml` following the same pattern:
 - One `test` job running the project's test suite
