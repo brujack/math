@@ -1,0 +1,61 @@
+name: fib-rs
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    name: Test fib-rs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fib/fib-rs
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GMP
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fib/fib-rs
+
+      - name: Run tests
+        run: cargo test
+
+  build:
+    name: Build fib-rs
+    runs-on: ubuntu-latest
+    needs: [test]
+    defaults:
+      run:
+        working-directory: fib/fib-rs
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GMP
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fib/fib-rs
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: fib
+          path: fib/fib-rs/target/release/fib
+          retention-days: 7

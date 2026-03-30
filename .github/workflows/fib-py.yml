@@ -1,0 +1,26 @@
+name: fib.py
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    name: Test fib.py
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fib
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Python dependencies
+        run: pip install ruff coverage
+
+      - name: Run tests
+        run: python3 -m unittest test_fib -v
