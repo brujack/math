@@ -1,3 +1,6 @@
+# Rust build artifacts
+target/
+
 # Generated output files — can be very large
 pi_*_digits.txt
 primes_1e*.txt
