@@ -3,6 +3,7 @@ use std::fs::File;
 use std::time::Instant;
 
 use clap::Parser;
+use rug::ops::PowAssign;
 use rug::Integer;
 
 #[derive(Parser)]
@@ -17,14 +18,42 @@ struct Cli {
     exponent: Option<u32>,
 }
 
-/// Stub: always returns 0 (tests will fail).
-fn generate_fibonacci<W: Write>(_max_digits: usize, _out: &mut W) -> io::Result<u64> {
-    Ok(0)
+/// Generate all Fibonacci numbers with at most max_digits decimal digits,
+/// writing one number per line to `out`. Returns the total count.
+///
+/// Uses b < 10^max_digits as the stopping criterion. The limit is computed
+/// once with GMP — cheaper than converting b to a decimal string each iteration.
+fn generate_fibonacci<W: Write>(max_digits: usize, out: &mut W) -> io::Result<u64> {
+    // limit = 10^max_digits; stop when b >= limit (b would have > max_digits digits)
+    let mut limit = Integer::from(10u32);
+    limit.pow_assign(max_digits as u32);
+
+    let mut a = Integer::from(0u32);
+    let mut b = Integer::from(1u32);
+    let mut count = 0u64;
+
+    while b < limit {
+        writeln!(out, "{}", b)?;
+        count += 1;
+        // rug lazy arithmetic: wrap Integer::from() around incomplete expressions
+        let next = Integer::from(&a + &b);
+        a = b;
+        b = next;
+    }
+
+    Ok(count)
 }
 
-/// Stub: no comma formatting (tests will fail).
 fn fmt_int(n: u64) -> String {
-    n.to_string()
+    let s = n.to_string();
+    let mut out = String::with_capacity(s.len() + s.len() / 3);
+    for (i, ch) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out.chars().rev().collect()
 }
 
 fn read_line() -> String {
@@ -39,7 +68,7 @@ fn prompt_exponent() -> u32 {
         print!("Enter X (finds all Fibonacci numbers with up to 10^X digits, max 5): ");
         io::stdout().flush().unwrap();
         match read_line().parse::<u32>() {
-            Ok(x) if x >= 1 && x <= 5 => return x,
+            Ok(x) if (1..=5).contains(&x) => return x,
             Ok(_) => eprintln!("X must be between 1 and 5."),
             _ => eprintln!("Please enter a positive integer."),
         }
@@ -54,7 +83,7 @@ fn main() {
 
     let exponent = match cli.exponent {
         Some(x) => {
-            if x < 1 || x > 5 {
+            if !(1..=5).contains(&x) {
                 eprintln!("Error: X must be between 1 and 5.");
                 std::process::exit(1);
             }
