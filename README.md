@@ -45,3 +45,9 @@ Generates every Fibonacci number with at most 10^X decimal digits.
 - Rust implementation (`fib/fib-rs/`) — uses `rug`/GMP for best performance at large digit counts
 
 See [`fib/README.md`](fib/README.md) for full details.
+
+---
+
+## Architectural Decisions
+
+Key decisions are recorded in [`docs/adr/`](docs/adr/README.md): algorithm choices (Chudnovsky, segmented sieve), language strategy (Python vs Rust), library choices (GMP/rug, rayon), and CI structure.
