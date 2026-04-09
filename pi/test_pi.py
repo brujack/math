@@ -59,8 +59,8 @@ class TestTreeCombine(unittest.TestCase):
     """Tests for _tree_combine (pure Python, no gmpy2 dependency)."""
 
     @staticmethod
-    def _merge(l, r):
-        Pl, Ql, Tl = l
+    def _merge(left, r):
+        Pl, Ql, Tl = left
         Pr, Qr, Tr = r
         return Pl * Pr, Ql * Qr, Qr * Tl + Pl * Tr
 
@@ -474,7 +474,6 @@ class TestMpmathFallback(unittest.TestCase):
     """When gmpy2 is unavailable, calculate_pi_high_precision uses mpmath."""
 
     def test_fallback_returns_correct_digits(self):
-        import mpmath
         with unittest.mock.patch.object(pi_module, "_HAS_GMPY2", False):
             pi_val = _quiet_pi(20)
         # mpmath.mpf — _pi_to_str dispatches to mpmath.nstr

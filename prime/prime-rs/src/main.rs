@@ -105,8 +105,8 @@ fn sieve_segment(lo: u64, limit: u64, small_primes: &[u64]) -> Vec<u64> {
     }
 
     // Number of odd integers in [lo, hi): lo, lo+2, …
-    let n = ((hi - lo + 1) / 2) as usize;
-    let n_bytes = (n + 7) / 8;
+    let n = (hi - lo + 1).div_ceil(2) as usize;
+    let n_bytes = n.div_ceil(8);
     let mut composite = vec![0u8; n_bytes]; // 0 = prime candidate
 
     for &p in small_primes {
@@ -235,7 +235,7 @@ fn find_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
 
         // Advance to the next odd number after block_hi.
         block_lo = block_hi + 1;
-        if block_lo % 2 == 0 {
+        if block_lo.is_multiple_of(2) {
             block_lo += 1;
         }
     }
@@ -282,7 +282,7 @@ fn prompt_digits() -> u32 {
         print!("Enter N (finds all primes up to 10^N, max 18): ");
         io::stdout().flush().unwrap();
         match read_line().parse::<u32>() {
-            Ok(n) if n >= 1 && n <= 18 => return n,
+            Ok(n) if (1..=18).contains(&n) => return n,
             Ok(_) => eprintln!("N must be between 1 and 18."),
             _ => eprintln!("Please enter a positive integer."),
         }
@@ -301,7 +301,7 @@ fn main() {
 
     let digits = match cli.digits {
         Some(d) => {
-            if d < 1 || d > 18 {
+            if !(1..=18).contains(&d) {
                 eprintln!("Error: N must be between 1 and 18.");
                 std::process::exit(1);
             }

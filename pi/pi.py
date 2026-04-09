@@ -449,14 +449,20 @@ def save_pi_to_file(pi_value, digits, filename):
     def estimate_conversion_time(d):
         if using_gmpy2:
             # MPFR string conversion is ~10x faster than mpmath
-            if d <= 100_000:    return max(0.05, d * 5e-8)
-            if d <= 1_000_000:  return max(0.1,  d * 2e-7)
-            if d <= 10_000_000: return max(1.0,  d * 5e-6)
+            if d <= 100_000:
+                return max(0.05, d * 5e-8)
+            if d <= 1_000_000:
+                return max(0.1, d * 2e-7)
+            if d <= 10_000_000:
+                return max(1.0, d * 5e-6)
             return max(10.0, d * 1e-5)
         else:
-            if d <= 100_000:    return max(1.0,  0.1 + d * 5e-6)
-            if d <= 1_000_000:  return max(2.0,  0.5 + d * 2e-6)
-            if d <= 10_000_000: return max(30.0, d * 5e-5)
+            if d <= 100_000:
+                return max(1.0, 0.1 + d * 5e-6)
+            if d <= 1_000_000:
+                return max(2.0, 0.5 + d * 2e-6)
+            if d <= 10_000_000:
+                return max(30.0, d * 5e-5)
             return max(60.0, d * 1e-4)
 
     class ProgressIndicator:

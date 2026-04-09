@@ -3,7 +3,7 @@ Calculate π to a user-specified number of decimal places.
 
 Uses the Chudnovsky algorithm with:
   - rayon::join()     — recursive parallel binary splitting across all cores
-                        (shared-memory threads; zero IPC / serialisation cost)
+    (shared-memory threads; zero IPC / serialisation cost)
   - rug::Integer      — GMP big-integer arithmetic for the series accumulation
   - rug::Float        — MPFR arbitrary-precision float for the final value
   - pwrite(2)         — parallel file I/O (os::unix::fs::FileExt::write_at)
