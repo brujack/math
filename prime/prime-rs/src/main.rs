@@ -105,7 +105,7 @@ fn sieve_segment(lo: u64, limit: u64, small_primes: &[u64]) -> Vec<u64> {
     }
 
     // Number of odd integers in [lo, hi): lo, lo+2, …
-    let n = (hi - lo + 1).div_ceil(2) as usize;
+    let n = (hi - lo).div_ceil(2) as usize;
     let n_bytes = n.div_ceil(8);
     let mut composite = vec![0u8; n_bytes]; // 0 = prime candidate
 
