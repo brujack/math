@@ -81,13 +81,13 @@ make test      # lint, then cargo test
 
 **Unit tests must be written for all new code added to any project in this repository.**
 
-- Python tests: add to `pi/test_pi.py`, run with `make test` from `pi/`
+- Python tests: add to `pi/test_pi.py` (pi) or `fib/test_fib.py` (fib), run with `make test` from the project directory
 - Rust tests: add to the `#[cfg(test)] mod tests` block in `src/main.rs`, run with `make test`
 - Coverage tools: `make coverage` (Python), `cargo tarpaulin` (Rust)
 
 ## CI
 
-Three workflow files, one per project, each running on every push and pull request to `master`.  Build jobs depend on their test job — a build will not run if tests fail.
+Five workflow files, one per project, each running on every push and pull request to `master`.  Build jobs depend on their test job — a build will not run if tests fail.
 
 | Workflow | File | Jobs |
 |----------|------|------|
