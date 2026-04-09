@@ -23,7 +23,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
 
       - name: Install Python dependencies
-        run: pip install mpmath gmpy2 coverage
+        run: pip install mpmath gmpy2 coverage ruff
 
       - name: Run tests
-        run: python3 -m unittest test_pi -v
+        run: make test

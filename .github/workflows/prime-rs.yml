@@ -26,7 +26,7 @@ jobs:
           workspaces: prime/prime-rs
 
       - name: Run tests
-        run: cargo test
+        run: make test
 
   build:
     name: Build prime-rs

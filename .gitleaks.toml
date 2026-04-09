@@ -1,0 +1,5 @@
+[allowlist]
+description = "Allowlist for math repo"
+paths = [
+  '''.gitleaks.toml''',
+]

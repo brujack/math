@@ -9,3 +9,14 @@ target/
 pi_*_digits.txt
 primes_1e*.txt
 fib_1e*.txt
+
+# Credential files — never commit
+.aws/
+.azure_creds/
+.gcloud_creds/
+.tf_creds/
+.tsh/
+*.pem
+*.key
+*_rsa
+*_ed25519
