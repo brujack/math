@@ -98,7 +98,13 @@ Uses `\r` to overwrite in place; a final line is printed after the thread is joi
 
 ## Testing
 
-**Unit tests must be written for all new code added to this project.**
+**TDD is required.** Write the failing test first, then write the minimum implementation to make it pass. Never write implementation before the test. Tests must be added in the same commit as the code they cover.
+
+Every test must cover more than the happy path. Three categories are required for every function:
+
+- **Boundary value tests** — empty/zero/null input, single vs multiple elements, min/max valid values, one above/below valid range
+- **Error path tests** — what happens on failure, dependency failure, partial failure
+- **State transition tests** — before/after assertions, no unintended side effects, idempotency
 
 Tests live in a `#[cfg(test)] mod tests` block at the bottom of `src/main.rs`.
 
@@ -152,4 +158,4 @@ Also update the top-level `CLAUDE.md` if the change affects the repository overv
 - The `phase2_start` formula is subtle — see the important details note above before changing it.
 - `sieve_segment` assumes `lo` is odd; callers must ensure this invariant.
 - Generated output files (`primes_1eN.txt`) can be very large — do not commit them.
-- **Write unit tests for all new or changed functions** and add them to the `#[cfg(test)]` module.
+- **Write the failing test first** for all new or changed functions, then add the minimum implementation. Tests go in the `#[cfg(test)]` module.

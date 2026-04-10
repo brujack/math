@@ -178,7 +178,7 @@ Also update the top-level `CLAUDE.md` if the change affects the repository overv
 
 ## Editing Guidance
 
-- **Write unit tests for all new or changed functions** and add them to `test_pi.py`.
+- **Write the failing test first** for all new or changed functions, then add the minimum implementation. Tests go in `test_pi.py`.
 - Keep changes minimal and preserve the single-file CLI structure unless a refactor is clearly necessary.
 - Preserve the current interactive behavior unless the task explicitly changes UX.
 - Ensure every script in the repository supports `-h` and `--help` with accurate command-line usage text.
@@ -190,7 +190,13 @@ Also update the top-level `CLAUDE.md` if the change affects the repository overv
 
 ## Testing
 
-**Unit tests must be written for all new code added to this project** — both Python and Rust.
+**TDD is required.** Write the failing test first, then write the minimum implementation to make it pass. Never write implementation before the test. Tests must be added in the same commit as the code they cover — both Python and Rust.
+
+Every test must cover more than the happy path. Three categories are required for every function:
+
+- **Boundary value tests** — empty/zero/null input, single vs multiple elements, min/max valid values, one above/below valid range
+- **Error path tests** — what happens on failure, dependency failure, partial failure
+- **State transition tests** — before/after assertions, no unintended side effects, idempotency
 
 ### Python (`test_pi.py`)
 
