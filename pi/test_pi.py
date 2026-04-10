@@ -96,6 +96,11 @@ class TestTreeCombine(unittest.TestCase):
         result_b = _tree_combine(list(chunks))
         self.assertEqual(result_a, result_b)
 
+    def test_empty_list_raises(self):
+        # No elements to combine: pqt_list[0] raises IndexError.
+        with self.assertRaises(IndexError):
+            _tree_combine([])
+
     def test_identity_with_known_values(self):
         """Combine formula: T(a,b) = Qr*Tl + Pl*Tr."""
         # Pl=2, Ql=3, Tl=5, Pr=7, Qr=11, Tr=13
@@ -626,6 +631,10 @@ class TestGetTargetDigits(unittest.TestCase):
             result = get_target_digits(self._Args(2_000_000))
         self.assertEqual(result, 2_000_000)
         self.assertIn("Warning", buf.getvalue())
+
+    def test_minimum_valid_value(self):
+        # digits=1 is the smallest positive value; no warning, returns 1.
+        self.assertEqual(get_target_digits(self._Args(1)), 1)
 
 
 # ---------------------------------------------------------------------------

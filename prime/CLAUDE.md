@@ -122,14 +122,14 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-### Test coverage (56% line coverage, 22 tests)
+### Test coverage (56% line coverage, 25 tests)
 
 | Area | Tests | Notes |
 |------|-------|-------|
 | `fmt_int` | 5 | zero, sub-thousand, thousands, millions, large |
 | `small_sieve` | 6 | empty, single prime, known lists, π(100)=25, π(1000)=168 |
-| `sieve_segment` | 4 | known range, no even numbers, empty when lo > limit |
-| `find_primes` | 7 | below-2, up-to-10 exact output, π(100), π(1000), π(10^6)=78498, last prime, no even non-2 |
+| `sieve_segment` | 5 | known range, no even numbers, empty when lo > limit, lo == limit (prime) |
+| `find_primes` | 9 | below-2, limit=2 exactly, up-to-10 exact output, π(100), π(1000), π(10^6)=78498, last prime, no even non-2, write error propagates |
 
 Uncovered lines: progress thread, `prompt_digits` / `read_line` (interactive stdin), `main()` — all integration-level only.
 
