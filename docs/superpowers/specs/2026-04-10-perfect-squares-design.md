@@ -127,12 +127,6 @@ Two new CI badges added to `README.md`.
 
 ---
 
-## Output Files
-
-`sq_1e1.txt` is a generated artifact and must not be committed. Add `sq_1e*.txt` to `.gitignore` (matching the pattern used by `fib_1e*.txt` and `primes_1e*.txt`).
-
----
-
 ## Documentation Updates
 
 | File | Update |
