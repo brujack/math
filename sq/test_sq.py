@@ -15,29 +15,28 @@ class TestGenerateSquares(unittest.TestCase):
         self.assertEqual(list(generate_squares(0)), [])
 
     def test_one_digit_squares(self):
-        # max_digits=1: limit=10, yields 1, 4, 9 then 16 >= 10 stops
-        self.assertEqual(list(generate_squares(1)), [1, 4, 9])
+        # max_digits=1: limit=10, yields (1,1), (4,2), (9,3)
+        self.assertEqual(list(generate_squares(1)), [(1, 1), (4, 2), (9, 3)])
 
     def test_two_digit_count(self):
-        # max_digits=2: limit=100, k=1..9 (9^2=81 < 100, 10^2=100 >= 100)
+        # max_digits=2: limit=100, k=1..9
         self.assertEqual(len(list(generate_squares(2))), 9)
 
     def test_two_digit_last_value(self):
-        result = list(generate_squares(2))
-        self.assertEqual(result[-1], 81)
+        sq, root = list(generate_squares(2))[-1]
+        self.assertEqual(sq, 81)
+        self.assertEqual(root, 9)
 
     def test_two_digit_excludes_100(self):
-        result = list(generate_squares(2))
-        self.assertNotIn(100, result)
+        squares = [sq for sq, _ in generate_squares(2)]
+        self.assertNotIn(100, squares)
 
     def test_each_is_perfect_square(self):
-        import math
-        for sq in generate_squares(3):
-            root = math.isqrt(sq)
+        for sq, root in generate_squares(3):
             self.assertEqual(root * root, sq)
 
     def test_strictly_increasing(self):
-        result = list(generate_squares(3))
+        result = [sq for sq, _ in generate_squares(3)]
         for i in range(1, len(result)):
             self.assertGreater(result[i], result[i - 1])
 
@@ -46,13 +45,13 @@ class TestGenerateSquares(unittest.TestCase):
         self.assertEqual(sum(1 for _ in generate_squares(10)), 99_999)
 
     def test_ten_digit_last_value(self):
-        # Last square: 99999^2 = 9,999,800,001
-        result = list(generate_squares(10))
-        self.assertEqual(result[-1], 99_999 * 99_999)
+        sq, root = list(generate_squares(10))[-1]
+        self.assertEqual(sq, 99_999 * 99_999)
+        self.assertEqual(root, 99_999)
 
     def test_ten_digit_excludes_100000_squared(self):
-        result = list(generate_squares(10))
-        self.assertNotIn(100_000 * 100_000, result)
+        squares = [sq for sq, _ in generate_squares(10)]
+        self.assertNotIn(100_000 * 100_000, squares)
 
     def test_idempotent_same_input(self):
         result1 = list(generate_squares(2))
