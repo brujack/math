@@ -15,7 +15,7 @@ def generate_squares(max_digits: int):
     limit = 10 ** max_digits
     k = 1
     while k * k < limit:
-        yield k * k
+        yield k * k, k
         k += 1
 
 
@@ -67,9 +67,8 @@ def main() -> None:
 
     buf = io.StringIO()
     count = 0
-    for sq in generate_squares(max_digits):
-        buf.write(str(sq))
-        buf.write("\n")
+    for sq, root in generate_squares(max_digits):
+        buf.write(f"{sq} | {root}\n")
         count += 1
 
     filename = f"sq_1e{x}.txt"

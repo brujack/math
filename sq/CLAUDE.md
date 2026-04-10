@@ -31,7 +31,7 @@ python3 sq.py 1    # generate all perfect squares with up to 10 digits
 
 ## Code Layout
 
-- `generate_squares(max_digits)` — generator that yields every perfect square with at most `max_digits` decimal digits. Uses `k*k < 10^max_digits` stopping criterion; limit precomputed once before the loop.
+- `generate_squares(max_digits)` — generator that yields `(sq, root)` tuples for every perfect square with at most `max_digits` decimal digits. Uses `k*k < 10^max_digits` stopping criterion; limit precomputed once before the loop.
 - `parse_args()` — parses CLI via `argparse`; returns `Namespace` with optional `exponent` int.
 - `get_exponent(args)` — returns validated exponent from args, or prompts interactively. Valid value: 1 only. Calls `sys.exit(1)` for any other value.
 - `main()` — top-level entry: parses args, validates, buffers output, prompts to display or save to `sq_1e1.txt`.

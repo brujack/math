@@ -33,7 +33,7 @@ Or directly:
 ## Code Layout (`src/main.rs`)
 
 - `struct Cli` — clap derive struct; `exponent: Option<u32>` optional positional arg.
-- `fn generate_squares<W: Write>(max_digits, out)` — iterates k=1,2,... writing k² per line until k²≥10^max_digits. Uses `checked_mul` for clarity. Returns total count.
+- `fn generate_squares<W: Write>(max_digits, out)` — iterates k=1,2,... writing `"k² | k"` per line until k²≥10^max_digits. Uses `checked_mul` for clarity. Returns total count.
 - `fn fmt_int(n)` — formats `u64` with thousands separators.
 - `fn read_line()` — reads one trimmed line from stdin.
 - `fn prompt_exponent()` — interactive prompt loop; validates N=1 only.

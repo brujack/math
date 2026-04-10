@@ -27,7 +27,7 @@ fn generate_squares<W: Write>(max_digits: u32, out: &mut W) -> io::Result<u64> {
         if sq >= limit {
             break;
         }
-        writeln!(out, "{}", sq)?;
+        writeln!(out, "{} | {}", sq, k)?;
         count += 1;
         k += 1;
     }
@@ -155,11 +155,11 @@ mod tests {
 
     #[test]
     fn test_one_digit_squares() {
-        // max_digits=1: limit=10, yields 1, 4, 9
+        // max_digits=1: limit=10, yields "1 | 1", "4 | 2", "9 | 3"
         let mut buf: Vec<u8> = Vec::new();
         let count = generate_squares(1, &mut buf).unwrap();
         assert_eq!(count, 3);
-        assert_eq!(String::from_utf8(buf).unwrap(), "1\n4\n9\n");
+        assert_eq!(String::from_utf8(buf).unwrap(), "1 | 1\n4 | 2\n9 | 3\n");
     }
 
     #[test]
@@ -175,7 +175,7 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
         generate_squares(2, &mut buf).unwrap();
         let output = String::from_utf8(buf).unwrap();
-        assert_eq!(output.lines().last().unwrap(), "81");
+        assert_eq!(output.lines().last().unwrap(), "81 | 9");
     }
 
     #[test]
@@ -183,7 +183,7 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
         generate_squares(2, &mut buf).unwrap();
         let output = String::from_utf8(buf).unwrap();
-        assert!(!output.lines().any(|l| l == "100"));
+        assert!(!output.lines().any(|l| l.starts_with("100 |")));
     }
 
     #[test]
@@ -192,9 +192,10 @@ mod tests {
         generate_squares(3, &mut buf).unwrap();
         let output = String::from_utf8(buf).unwrap();
         for line in output.lines() {
-            let n: u64 = line.parse().unwrap();
-            let root = (n as f64).sqrt() as u64;
-            assert_eq!(root * root, n, "{n} is not a perfect square");
+            let mut parts = line.split(" | ");
+            let sq: u64 = parts.next().unwrap().parse().unwrap();
+            let root: u64 = parts.next().unwrap().parse().unwrap();
+            assert_eq!(root * root, sq, "{sq} is not a perfect square");
         }
     }
 
@@ -203,7 +204,10 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
         generate_squares(3, &mut buf).unwrap();
         let output = String::from_utf8(buf).unwrap();
-        let nums: Vec<u64> = output.lines().map(|l| l.parse().unwrap()).collect();
+        let nums: Vec<u64> = output
+            .lines()
+            .map(|l| l.split(" | ").next().unwrap().parse().unwrap())
+            .collect();
         for i in 1..nums.len() {
             assert!(nums[i] > nums[i - 1]);
         }
@@ -222,7 +226,7 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
         generate_squares(10, &mut buf).unwrap();
         let output = String::from_utf8(buf).unwrap();
-        assert_eq!(output.lines().last().unwrap(), "9999800001");
+        assert_eq!(output.lines().last().unwrap(), "9999800001 | 99999");
     }
 
     #[test]
@@ -230,7 +234,7 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
         generate_squares(10, &mut buf).unwrap();
         let output = String::from_utf8(buf).unwrap();
-        assert!(!output.lines().any(|l| l == "10000000000"));
+        assert!(!output.lines().any(|l| l.starts_with("10000000000 |")));
     }
 
     #[test]
