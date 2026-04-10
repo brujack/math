@@ -1,0 +1,28 @@
+name: sq.py
+
+on:
+  push:
+    branches-ignore:
+      - master
+  pull_request:
+    branches:
+      - master
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    name: Test sq.py
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sq
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Python dependencies
+        run: pip install ruff coverage
+
+      - name: Run tests
+        run: make test
