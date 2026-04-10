@@ -104,7 +104,7 @@ Six workflow files.  Project workflows run on feature branch pushes and on PRs t
 | prime-rs | `.github/workflows/prime-rs.yml` | test → build + artifact |
 | fib.py | `.github/workflows/fib-py.yml` | test |
 | fib-rs | `.github/workflows/fib-rs.yml` | test → build + artifact |
-| auto-merge | `.github/workflows/auto-merge.yml` | enables GitHub auto-merge on PR open |
+| auto-merge | `.github/workflows/auto-merge.yml` | secret-scan → auto-merge (secret-scan is a hard gate) |
 
 **When adding a new project**, create a dedicated workflow file `.github/workflows/<project>.yml` following the same pattern:
 - Trigger: `push: branches-ignore: [master]` and `pull_request: branches: [master]`
