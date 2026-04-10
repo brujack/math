@@ -55,7 +55,34 @@ def get_exponent(args: argparse.Namespace) -> int:
 
 
 def main() -> None:
-    pass
+    args = parse_args()
+    x = get_exponent(args)
+    max_digits = 10 ** x
+
+    print("Perfect Square Generator (Python)")
+    print("=" * 40)
+    print(
+        f"Generating all perfect squares with up to 10^{x} = {max_digits:,} digits"
+    )
+
+    buf = io.StringIO()
+    count = 0
+    for sq in generate_squares(max_digits):
+        buf.write(str(sq))
+        buf.write("\n")
+        count += 1
+
+    print(f"\nFound {count:,} perfect squares with up to 10^{x} digits")
+    answer = input(
+        f"Display all {count:,} perfect squares? (y/n): "
+    ).strip().lower()
+    if answer in ("y", "yes"):
+        print(buf.getvalue(), end="")
+    else:
+        filename = f"sq_1e{x}.txt"
+        with open(filename, "w") as f:
+            f.write(buf.getvalue())
+        print(f"Saved to {filename}")
 
 
 if __name__ == "__main__":
