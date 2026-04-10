@@ -20,11 +20,38 @@ def generate_squares(max_digits: int):
 
 
 def parse_args() -> argparse.Namespace:
-    pass
+    parser = argparse.ArgumentParser(
+        description="Generate all perfect squares with up to 10^N digits",
+        epilog="Run without arguments for an interactive prompt.",
+    )
+    parser.add_argument(
+        "exponent",
+        type=int,
+        nargs="?",
+        help="N: generates perfect squares with up to 10^N digits (max 1)",
+    )
+    return parser.parse_args()
 
 
 def get_exponent(args: argparse.Namespace) -> int:
-    pass
+    """Return validated exponent from CLI args, or prompt interactively."""
+    if args.exponent is not None:
+        x = args.exponent
+        if x != 1:
+            print("Error: N must be 1.", file=sys.stderr)
+            sys.exit(1)
+        return x
+    while True:
+        try:
+            raw = input(
+                "Enter N (finds all perfect squares with up to 10^N digits, max 1): "
+            )
+            x = int(raw)
+            if x == 1:
+                return x
+            print("N must be 1.")
+        except ValueError:
+            print("Please enter a positive integer.")
 
 
 def main() -> None:

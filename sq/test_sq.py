@@ -55,5 +55,52 @@ class TestGenerateSquares(unittest.TestCase):
         self.assertNotIn(100_000 * 100_000, result)
 
 
+class TestParseArgs(unittest.TestCase):
+
+    def test_no_args(self):
+        old_argv = sys.argv
+        sys.argv = ["sq.py"]
+        args = parse_args()
+        sys.argv = old_argv
+        self.assertIsNone(args.exponent)
+
+    def test_with_valid_arg(self):
+        old_argv = sys.argv
+        sys.argv = ["sq.py", "1"]
+        args = parse_args()
+        sys.argv = old_argv
+        self.assertEqual(args.exponent, 1)
+
+    def test_invalid_non_integer_exits(self):
+        old_argv = sys.argv
+        sys.argv = ["sq.py", "abc"]
+        try:
+            with self.assertRaises(SystemExit):
+                parse_args()
+        finally:
+            sys.argv = old_argv
+
+
+class TestGetExponent(unittest.TestCase):
+
+    def _args(self, exponent):
+        return argparse.Namespace(exponent=exponent)
+
+    def test_valid_value(self):
+        self.assertEqual(get_exponent(self._args(1)), 1)
+
+    def test_zero_exits(self):
+        with self.assertRaises(SystemExit):
+            get_exponent(self._args(0))
+
+    def test_too_high_exits(self):
+        with self.assertRaises(SystemExit):
+            get_exponent(self._args(2))
+
+    def test_negative_exits(self):
+        with self.assertRaises(SystemExit):
+            get_exponent(self._args(-1))
+
+
 if __name__ == "__main__":
     unittest.main()
