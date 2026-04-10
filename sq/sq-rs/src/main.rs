@@ -19,7 +19,6 @@ struct Cli {
 ///
 /// Uses k*k < 10^max_digits as the stopping criterion. All values fit
 /// in u64 for max_digits ≤ 10 (the maximum supported input).
-#[allow(dead_code)]
 fn generate_squares<W: Write>(max_digits: u32, out: &mut W) -> io::Result<u64> {
     let limit: u64 = 10u64.pow(max_digits);
     let mut k: u64 = 1;
@@ -35,7 +34,6 @@ fn generate_squares<W: Write>(max_digits: u32, out: &mut W) -> io::Result<u64> {
     Ok(count)
 }
 
-#[allow(dead_code)]
 fn fmt_int(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
@@ -48,7 +46,6 @@ fn fmt_int(n: u64) -> String {
     out.chars().rev().collect()
 }
 
-#[allow(dead_code)]
 fn read_line() -> String {
     let stdin = io::stdin();
     let mut line = String::new();
@@ -56,12 +53,56 @@ fn read_line() -> String {
     line.trim().to_string()
 }
 
-#[allow(dead_code)]
 fn prompt_exponent() -> u32 {
-    1
+    loop {
+        print!("Enter N (finds all perfect squares with up to 10^N digits, max 1): ");
+        io::stdout().flush().unwrap();
+        match read_line().parse::<u32>() {
+            Ok(1) => return 1,
+            Ok(_) => eprintln!("N must be 1."),
+            _ => eprintln!("Please enter a positive integer."),
+        }
+    }
 }
 
-fn main() {}
+fn main() {
+    let cli = Cli::parse();
+
+    let exponent = match cli.exponent {
+        Some(n) => {
+            if n != 1 {
+                eprintln!("Error: N must be 1.");
+                std::process::exit(1);
+            }
+            n
+        }
+        None => prompt_exponent(),
+    };
+
+    let max_digits: u32 = 10u32.pow(exponent); // 10^1 = 10
+
+    println!("Perfect Square Generator (Rust)");
+    println!("{}", "=".repeat(40));
+    println!(
+        "Generating all perfect squares with up to 10^{} = {} digits",
+        exponent,
+        fmt_int(u64::from(max_digits))
+    );
+
+    let mut buf: Vec<u8> = Vec::new();
+    let count = generate_squares(max_digits, &mut buf).expect("generation error");
+
+    println!("\nFound {} perfect squares with up to 10^{} digits", fmt_int(count), exponent);
+    print!("Display all {} perfect squares? (y/n): ", fmt_int(count));
+    io::stdout().flush().unwrap();
+    if matches!(read_line().as_str(), "y" | "yes") {
+        io::stdout().write_all(&buf).unwrap();
+    } else {
+        let filename = format!("sq_1e{}.txt", exponent);
+        std::fs::write(&filename, &buf).expect("file write failed");
+        println!("Saved to {}", filename);
+    }
+}
 
 #[cfg(test)]
 mod tests {
