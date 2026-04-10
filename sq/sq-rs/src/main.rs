@@ -238,4 +238,13 @@ mod tests {
         let result = generate_squares(1, &mut FailWriter);
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_idempotent_same_input() {
+        let mut buf1: Vec<u8> = Vec::new();
+        generate_squares(2, &mut buf1).unwrap();
+        let mut buf2: Vec<u8> = Vec::new();
+        generate_squares(2, &mut buf2).unwrap();
+        assert_eq!(buf1, buf2);
+    }
 }

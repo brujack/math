@@ -54,6 +54,11 @@ class TestGenerateSquares(unittest.TestCase):
         result = list(generate_squares(10))
         self.assertNotIn(100_000 * 100_000, result)
 
+    def test_idempotent_same_input(self):
+        result1 = list(generate_squares(2))
+        result2 = list(generate_squares(2))
+        self.assertEqual(result1, result2)
+
 
 class TestParseArgs(unittest.TestCase):
 
