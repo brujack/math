@@ -95,7 +95,7 @@ Where to add tests:
 
 ## CI
 
-Five workflow files, one per project, each running on every push and pull request to `master`.  Build jobs depend on their test job — a build will not run if tests fail.
+Six workflow files.  Project workflows run on feature branch pushes and on PRs to `master` (never on direct master pushes).  Build jobs depend on their test job — a build will not run if tests fail.
 
 | Workflow | File | Jobs |
 |----------|------|------|
@@ -104,8 +104,10 @@ Five workflow files, one per project, each running on every push and pull reques
 | prime-rs | `.github/workflows/prime-rs.yml` | test → build + artifact |
 | fib.py | `.github/workflows/fib-py.yml` | test |
 | fib-rs | `.github/workflows/fib-rs.yml` | test → build + artifact |
+| auto-merge | `.github/workflows/auto-merge.yml` | enables GitHub auto-merge on PR open |
 
 **When adding a new project**, create a dedicated workflow file `.github/workflows/<project>.yml` following the same pattern:
+- Trigger: `push: branches-ignore: [master]` and `pull_request: branches: [master]`
 - One `test` job running the project's test suite
 - One `build` job with `needs: [test]` that builds the release binary and uploads it as an artifact
 - A badge for the new workflow added to the top of `README.md` and to the CI column of the project table
@@ -132,6 +134,19 @@ Do **not** add `actions/setup-node` to jobs — these are Rust/Python projects t
 ```
 
 Artifacts are downloadable from the Actions run summary page on GitHub.
+
+## Branch Workflow
+
+**Never commit directly to `master`.** All changes — features, fixes, docs — go through a feature branch and PR.
+
+```bash
+git checkout -b <type>/<short-description>   # e.g. feat/fib-boundary-tests
+# make changes, commit
+git push -u origin <branch>
+gh pr create --title "..." --body "..."
+```
+
+CI runs on feature branch pushes and PRs. The `auto-merge` workflow enables GitHub auto-merge when the PR is opened; it merges automatically once all required checks pass.
 
 ## Committing Work
 
