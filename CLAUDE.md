@@ -11,6 +11,7 @@ High-performance mathematical computation tools.
 | [`pi/`](pi/) | Python + Rust | Calculate π to N decimal places (Chudnovsky algorithm) | [`pi/CLAUDE.md`](pi/CLAUDE.md) |
 | [`prime/`](prime/) | Rust | Find all primes up to 10^N (segmented sieve) | [`prime/CLAUDE.md`](prime/CLAUDE.md) |
 | [`fib/`](fib/) | Python + Rust | Generate all Fibonacci numbers with up to 10^X digits | [`fib/CLAUDE.md`](fib/CLAUDE.md) |
+| [`sq/`](sq/) | Python + Rust | Find all perfect squares with up to 10^N digits (N=1 max) | [`sq/CLAUDE.md`](sq/CLAUDE.md) |
 
 ## Architectural Decision Records
 
@@ -27,6 +28,8 @@ Each project has its own installer:
 | `prime/prime-rs/install_deps.sh` | Rust toolchain, `cargo-tarpaulin` |
 | `fib/install_deps.sh` | `ruff`, `coverage` |
 | `fib/fib-rs/install_deps.sh` | GMP, Rust toolchain, `cargo-tarpaulin` |
+| `sq/install_deps.sh` | `ruff`, `coverage` |
+| `sq/sq-rs/install_deps.sh` | Rust toolchain |
 
 ## Quick Reference
 
@@ -77,17 +80,44 @@ make lint      # cargo clippy -- -D warnings
 make test      # lint, then cargo test
 ```
 
+### Python (`sq/`)
+
+```bash
+cd sq
+make run       # python3 sq.py
+make lint      # ruff check .
+make test      # lint, then python3 -m unittest test_sq -v
+make coverage  # coverage run + report
+```
+
+### Rust (`sq/sq-rs/`)
+
+```bash
+cd sq/sq-rs
+make sq        # cargo build --release
+make lint      # cargo clippy -- -D warnings
+make test      # lint, then cargo test
+```
+
 ## Testing Policy
 
-**Unit tests must be written for all new code added to any project in this repository.**
+**TDD is required.** Write the failing test first, then write the minimum implementation to make it pass. Never write implementation before the test. Tests must be added in the same commit as the code they cover.
 
-- Python tests: add to `pi/test_pi.py` (pi) or `fib/test_fib.py` (fib), run with `make test` from the project directory
+Every test must cover more than the happy path. Three categories are required for every function:
+
+- **Boundary value tests** — empty/zero/null input, single vs multiple elements, min/max valid values, one above/below valid range
+- **Error path tests** — what happens on failure, dependency failure, partial failure
+- **State transition tests** — before/after assertions, no unintended side effects, idempotency
+
+Where to add tests:
+
+- Python tests: add to `pi/test_pi.py` (pi), `fib/test_fib.py` (fib), or `sq/test_sq.py` (sq), run with `make test` from the project directory
 - Rust tests: add to the `#[cfg(test)] mod tests` block in `src/main.rs`, run with `make test`
 - Coverage tools: `make coverage` (Python), `cargo tarpaulin` (Rust)
 
 ## CI
 
-Five workflow files, one per project, each running on every push and pull request to `master`.  Build jobs depend on their test job — a build will not run if tests fail.
+Eight workflow files.  Project workflows run on feature branch pushes and on PRs to `master` (never on direct master pushes).  Build jobs depend on their test job — a build will not run if tests fail.
 
 | Workflow | File | Jobs |
 |----------|------|------|
@@ -96,8 +126,12 @@ Five workflow files, one per project, each running on every push and pull reques
 | prime-rs | `.github/workflows/prime-rs.yml` | test → build + artifact |
 | fib.py | `.github/workflows/fib-py.yml` | test |
 | fib-rs | `.github/workflows/fib-rs.yml` | test → build + artifact |
+| sq.py | `.github/workflows/sq-py.yml` | test |
+| sq-rs | `.github/workflows/sq-rs.yml` | test → build + artifact |
+| auto-merge | `.github/workflows/auto-merge.yml` | secret-scan → auto-merge (secret-scan is a hard gate) |
 
 **When adding a new project**, create a dedicated workflow file `.github/workflows/<project>.yml` following the same pattern:
+- Trigger: `push: branches-ignore: [master]` and `pull_request: branches: [master]`
 - One `test` job running the project's test suite
 - One `build` job with `needs: [test]` that builds the release binary and uploads it as an artifact
 - A badge for the new workflow added to the top of `README.md` and to the CI column of the project table
@@ -124,6 +158,19 @@ Do **not** add `actions/setup-node` to jobs — these are Rust/Python projects t
 ```
 
 Artifacts are downloadable from the Actions run summary page on GitHub.
+
+## Branch Workflow
+
+**Never commit directly to `master`.** All changes — features, fixes, docs — go through a feature branch and PR.
+
+```bash
+git checkout -b <type>/<short-description>   # e.g. feat/fib-boundary-tests
+# make changes, commit
+git push -u origin <branch>
+gh pr create --title "..." --body "..."
+```
+
+CI runs on feature branch pushes and PRs. The `auto-merge` workflow enables GitHub auto-merge when the PR is opened; it merges automatically once all required checks pass.
 
 ## Committing Work
 

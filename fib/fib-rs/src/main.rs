@@ -179,6 +179,18 @@ mod tests {
         assert_eq!(fmt_int(1_234_567), "1,234,567");
     }
 
+    // --- FailWriter helper ---
+
+    struct FailWriter;
+    impl Write for FailWriter {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::Other, "write failed"))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     // --- generate_fibonacci ---
 
     #[test]
@@ -237,5 +249,21 @@ mod tests {
             let n: u64 = line.parse().unwrap();
             assert!(n > 0);
         }
+    }
+
+    #[test]
+    fn test_zero_max_digits_empty() {
+        // max_digits=0: limit=10^0=1, b=1, 1<1 is false → yields nothing
+        let mut buf: Vec<u8> = Vec::new();
+        let count = generate_fibonacci(0, &mut buf).unwrap();
+        assert_eq!(count, 0);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn test_write_error_propagates() {
+        // A writer that always fails; generate_fibonacci must surface the error.
+        let result = generate_fibonacci(1, &mut FailWriter);
+        assert!(result.is_err());
     }
 }

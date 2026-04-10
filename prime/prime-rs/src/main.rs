@@ -377,6 +377,18 @@ fn main() {
 mod tests {
     use super::*;
 
+    // --- FailWriter helper ---
+
+    struct FailWriter;
+    impl Write for FailWriter {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::Other, "write failed"))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     // --- fmt_int ---
 
     #[test]
@@ -481,6 +493,14 @@ mod tests {
         assert!(result.is_empty());
     }
 
+    #[test]
+    fn test_sieve_segment_lo_equals_limit_prime() {
+        // lo == limit == 31 (a prime): segment contains exactly [31].
+        let sp = small_sieve(5); // [2, 3, 5]
+        let result = sieve_segment(31, 31, &sp);
+        assert_eq!(result, vec![31u64]);
+    }
+
     // --- find_primes (end-to-end) ---
 
     #[test]
@@ -489,6 +509,22 @@ mod tests {
         let count = find_primes(1, &mut buf).unwrap();
         assert_eq!(count, 0);
         assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn test_find_primes_limit_2() {
+        // limit=2: exactly one prime, output is "2\n"
+        let mut buf: Vec<u8> = Vec::new();
+        let count = find_primes(2, &mut buf).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(String::from_utf8(buf).unwrap(), "2\n");
+    }
+
+    #[test]
+    fn test_find_primes_write_error_propagates() {
+        // limit=2 tries to write "2\n"; FailWriter returns an error immediately.
+        let result = find_primes(2, &mut FailWriter);
+        assert!(result.is_err());
     }
 
     #[test]

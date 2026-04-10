@@ -1,4 +1,4 @@
-name: fib.py
+name: sq.py
 
 on:
   push:
@@ -13,11 +13,11 @@ env:
 
 jobs:
   test:
-    name: Test fib.py
+    name: Test sq.py
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: fib
+        working-directory: sq
     steps:
       - uses: actions/checkout@v5
 

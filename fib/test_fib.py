@@ -43,6 +43,11 @@ class TestGenerateFibonacci(unittest.TestCase):
         result = list(generate_fibonacci(2))
         self.assertEqual(result[:10], [1, 1, 2, 3, 5, 8, 13, 21, 34, 55])
 
+    def test_max_digits_zero_empty(self):
+        # max_digits=0: limit=10^0=1, b=1, 1<1 is False → yields nothing
+        result = list(generate_fibonacci(0))
+        self.assertEqual(result, [])
+
 
 class TestParseArgs(unittest.TestCase):
 
@@ -59,6 +64,15 @@ class TestParseArgs(unittest.TestCase):
         args = parse_args()
         sys.argv = old_argv
         self.assertEqual(args.exponent, 3)
+
+    def test_invalid_non_integer_arg_exits(self):
+        old_argv = sys.argv
+        sys.argv = ["fib.py", "abc"]
+        try:
+            with self.assertRaises(SystemExit):
+                parse_args()
+        finally:
+            sys.argv = old_argv
 
 
 class TestGetExponent(unittest.TestCase):
@@ -82,6 +96,10 @@ class TestGetExponent(unittest.TestCase):
     def test_too_high_exits(self):
         with self.assertRaises(SystemExit):
             get_exponent(self._args(6))
+
+    def test_negative_exits(self):
+        with self.assertRaises(SystemExit):
+            get_exponent(self._args(-1))
 
 
 if __name__ == "__main__":

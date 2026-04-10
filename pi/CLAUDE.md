@@ -178,7 +178,7 @@ Also update the top-level `CLAUDE.md` if the change affects the repository overv
 
 ## Editing Guidance
 
-- **Write unit tests for all new or changed functions** and add them to `test_pi.py`.
+- **Write the failing test first** for all new or changed functions, then add the minimum implementation. Tests go in `test_pi.py`.
 - Keep changes minimal and preserve the single-file CLI structure unless a refactor is clearly necessary.
 - Preserve the current interactive behavior unless the task explicitly changes UX.
 - Ensure every script in the repository supports `-h` and `--help` with accurate command-line usage text.
@@ -190,7 +190,13 @@ Also update the top-level `CLAUDE.md` if the change affects the repository overv
 
 ## Testing
 
-**Unit tests must be written for all new code added to this project** — both Python and Rust.
+**TDD is required.** Write the failing test first, then write the minimum implementation to make it pass. Never write implementation before the test. Tests must be added in the same commit as the code they cover — both Python and Rust.
+
+Every test must cover more than the happy path. Three categories are required for every function:
+
+- **Boundary value tests** — empty/zero/null input, single vs multiple elements, min/max valid values, one above/below valid range
+- **Error path tests** — what happens on failure, dependency failure, partial failure
+- **State transition tests** — before/after assertions, no unintended side effects, idempotency
 
 ### Python (`test_pi.py`)
 
@@ -210,11 +216,11 @@ python3 -m pytest test_pi.py -v   # if pytest is installed
 
 gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 
-#### Test coverage (78% line coverage, 61 tests)
+#### Test coverage (78% line coverage, 63 tests)
 
 | Class | Tests | Notes |
 |-------|-------|-------|
-| `TestTreeCombine` | 6 | Pure Python — always runs |
+| `TestTreeCombine` | 7 | Pure Python — always runs; includes empty-list boundary |
 | `TestPwriteAll` | 4 | POSIX pwrite — always runs |
 | `TestPwriteAllStall` | 1 | Error path — always runs |
 | `TestChudnovskyBS` | 7 | Skipped without gmpy2 |
@@ -228,7 +234,7 @@ gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 | `TestShowPiPreview` | 4 | stdout capture |
 | `TestSavePiToFile` | 5 | File write + content checks |
 | `TestCalculatePiParallel` | 1 | Skipped without gmpy2 |
-| `TestGetTargetDigits` | 4 | Argument parsing |
+| `TestGetTargetDigits` | 5 | Argument parsing; includes minimum value (digits=1) |
 | `TestParseArgs` | 3 | CLI flag parsing |
 
 #### Adding new tests
@@ -256,7 +262,7 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-#### Test coverage (39% line coverage, 18 tests)
+#### Test coverage (39% line coverage, 19 tests)
 
 | Area | Tests | Notes |
 |------|-------|-------|
@@ -264,7 +270,7 @@ cargo tarpaulin --out Stdout
 | `bs_leaf` | 4 | base case, index-1 formulas, even/odd sign, counter delta |
 | `bs_merge` | 1 | result matches manual merge of two leaves |
 | `bs` split consistency | 2 | n=4 and n=8 split/merge round-trip |
-| `pi_to_string` | 4 | format, exact length, no exponent notation, known digits |
+| `pi_to_string` | 5 | format, exact length, no exponent notation, known digits, single decimal place |
 | `compute_pi` | 2 | end-to-end accuracy at 10 and 50 decimal places |
 
 Uncovered lines: `write_pi_file` (parallel pwrite I/O), `prompt_digits` / `read_line` (interactive stdin), `main()` — all integration-level only.

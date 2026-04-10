@@ -45,6 +45,14 @@ python3 fib.py 3      # generate Fibonacci numbers with up to 1,000 digits
 
 ## Testing
 
+**TDD is required.** Write the failing test first, then write the minimum implementation to make it pass. Never write implementation before the test. Tests must be added in the same commit as the code they cover.
+
+Every test must cover more than the happy path. Three categories are required for every function:
+
+- **Boundary value tests** — empty/zero/null input, single vs multiple elements, min/max valid values, one above/below valid range
+- **Error path tests** — what happens on failure, dependency failure, partial failure
+- **State transition tests** — before/after assertions, no unintended side effects, idempotency
+
 ```bash
 make test      # lint + unittest
 make coverage  # coverage run + report
@@ -54,9 +62,9 @@ make coverage  # coverage run + report
 
 | Class | Tests |
 |-------|-------|
-| `TestGenerateFibonacci` | 8 — sequence correctness, known values, Fibonacci property |
-| `TestParseArgs` | 2 — no-arg and with-arg CLI parsing |
-| `TestGetExponent` | 5 — boundary validation, sys.exit for out-of-range |
+| `TestGenerateFibonacci` | 9 — sequence correctness, known values, Fibonacci property, max_digits=0 empty |
+| `TestParseArgs` | 3 — no-arg, with-arg, invalid non-integer exits |
+| `TestGetExponent` | 6 — boundary validation, sys.exit for out-of-range and negative |
 
 ## Keeping This File Up To Date
 

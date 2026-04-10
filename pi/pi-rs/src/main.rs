@@ -618,6 +618,15 @@ mod tests {
         assert_eq!(&s[..17], &PI_REF[..17]);
     }
 
+    #[test]
+    fn test_pi_to_string_single_decimal_place() {
+        // digits=1: "3." + 1 digit = "3.1"
+        let pi = Float::with_val(200, rug::float::Constant::Pi);
+        let s = pi_to_string(pi, 1);
+        assert_eq!(s.len(), 3);
+        assert_eq!(s, "3.1");
+    }
+
     // --- compute_pi (end-to-end accuracy) ---
 
     #[test]

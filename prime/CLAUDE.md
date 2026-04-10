@@ -98,7 +98,13 @@ Uses `\r` to overwrite in place; a final line is printed after the thread is joi
 
 ## Testing
 
-**Unit tests must be written for all new code added to this project.**
+**TDD is required.** Write the failing test first, then write the minimum implementation to make it pass. Never write implementation before the test. Tests must be added in the same commit as the code they cover.
+
+Every test must cover more than the happy path. Three categories are required for every function:
+
+- **Boundary value tests** — empty/zero/null input, single vs multiple elements, min/max valid values, one above/below valid range
+- **Error path tests** — what happens on failure, dependency failure, partial failure
+- **State transition tests** — before/after assertions, no unintended side effects, idempotency
 
 Tests live in a `#[cfg(test)] mod tests` block at the bottom of `src/main.rs`.
 
@@ -116,14 +122,14 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-### Test coverage (56% line coverage, 22 tests)
+### Test coverage (56% line coverage, 25 tests)
 
 | Area | Tests | Notes |
 |------|-------|-------|
 | `fmt_int` | 5 | zero, sub-thousand, thousands, millions, large |
 | `small_sieve` | 6 | empty, single prime, known lists, π(100)=25, π(1000)=168 |
-| `sieve_segment` | 4 | known range, no even numbers, empty when lo > limit |
-| `find_primes` | 7 | below-2, up-to-10 exact output, π(100), π(1000), π(10^6)=78498, last prime, no even non-2 |
+| `sieve_segment` | 5 | known range, no even numbers, empty when lo > limit, lo == limit (prime) |
+| `find_primes` | 9 | below-2, limit=2 exactly, up-to-10 exact output, π(100), π(1000), π(10^6)=78498, last prime, no even non-2, write error propagates |
 
 Uncovered lines: progress thread, `prompt_digits` / `read_line` (interactive stdin), `main()` — all integration-level only.
 
@@ -152,4 +158,4 @@ Also update the top-level `CLAUDE.md` if the change affects the repository overv
 - The `phase2_start` formula is subtle — see the important details note above before changing it.
 - `sieve_segment` assumes `lo` is odd; callers must ensure this invariant.
 - Generated output files (`primes_1eN.txt`) can be very large — do not commit them.
-- **Write unit tests for all new or changed functions** and add them to the `#[cfg(test)]` module.
+- **Write the failing test first** for all new or changed functions, then add the minimum implementation. Tests go in the `#[cfg(test)]` module.
