@@ -92,15 +92,15 @@ fn main() {
     let mut buf: Vec<u8> = Vec::new();
     let count = generate_squares(max_digits, &mut buf).expect("generation error");
 
+    let filename = format!("sq_1e{}.txt", exponent);
+    std::fs::write(&filename, &buf).expect("file write failed");
+
     println!("\nFound {} perfect squares with up to 10^{} digits", fmt_int(count), exponent);
-    print!("Display all {} perfect squares? (y/n): ", fmt_int(count));
+    println!("Saved to {}", filename);
+    print!("Also display all {} perfect squares? (y/n): ", fmt_int(count));
     io::stdout().flush().unwrap();
     if matches!(read_line().as_str(), "y" | "yes") {
         io::stdout().write_all(&buf).unwrap();
-    } else {
-        let filename = format!("sq_1e{}.txt", exponent);
-        std::fs::write(&filename, &buf).expect("file write failed");
-        println!("Saved to {}", filename);
     }
 }
 

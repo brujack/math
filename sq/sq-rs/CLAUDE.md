@@ -42,7 +42,7 @@ Or directly:
 ## Important Behavior
 
 - **Valid N:** 1 only. Any other value exits with code 1.
-- **Output:** always buffered in `Vec<u8>` (~1 MB). User prompted to display or save to `sq_1eN.txt`.
+- **Output:** always buffered in `Vec<u8>` and always saved to `sq_1eN.txt`. User is then prompted to also display on screen.
 - **Stopping criterion:** `k.checked_mul(k)` where `limit = 10u64.pow(max_digits)`.
 - **No GMP/rug:** all values fit in u64 for N=1 (max square = 99,999² = 9,999,800,001 << u64::MAX).
 

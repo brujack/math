@@ -72,17 +72,17 @@ def main() -> None:
         buf.write("\n")
         count += 1
 
+    filename = f"sq_1e{x}.txt"
+    with open(filename, "w") as f:
+        f.write(buf.getvalue())
+
     print(f"\nFound {count:,} perfect squares with up to 10^{x} digits")
+    print(f"Saved to {filename}")
     answer = input(
-        f"Display all {count:,} perfect squares? (y/n): "
+        f"Also display all {count:,} perfect squares? (y/n): "
     ).strip().lower()
     if answer in ("y", "yes"):
         print(buf.getvalue(), end="")
-    else:
-        filename = f"sq_1e{x}.txt"
-        with open(filename, "w") as f:
-            f.write(buf.getvalue())
-        print(f"Saved to {filename}")
 
 
 if __name__ == "__main__":

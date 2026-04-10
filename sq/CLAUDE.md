@@ -38,7 +38,7 @@ python3 sq.py 1    # generate all perfect squares with up to 10 digits
 
 ## Important Behavior
 
-- **Output:** always buffered in a `StringIO` (output is always small — ~100k lines, ~1 MB). User is prompted to display or save to `sq_1eN.txt`.
+- **Output:** always buffered in a `StringIO` and always saved to `sq_1eN.txt`. User is then prompted to also display on screen.
 - **Valid N:** 1 only. `get_exponent` exits with code 1 for any other value.
 - **Stopping criterion:** `k*k < 10^max_digits` (precomputed limit). For N=1: limit=10^10, last included square is 99,999² = 9,999,800,001.
 - **No external dependencies:** uses Python stdlib only.
