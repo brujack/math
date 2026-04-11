@@ -150,7 +150,7 @@ Nine workflow files.  Project workflows run on feature branch pushes and on PRs 
 - Trigger: `push: branches-ignore: [master]` and `pull_request: branches: [master]`
 - One `test` job running the project's test suite
 - One `build` job with `needs: [test]` that builds the release binary and uploads it as an artifact
-- A badge for the new workflow added to the top of `README.md` and to the CI column of the project table
+- A badge for the new workflow added to the top of `README.md` and to the CI column of the project table — use `badge.svg` without a `?branch=` query param so the badge shows the last run on any branch
 
 This gives a per-project badge in the README and keeps each project's CI self-contained.
 
@@ -225,5 +225,5 @@ The sub-project files (`pi/CLAUDE.md`, `prime/CLAUDE.md`, `fib/CLAUDE.md`, `sq/C
 
 ## Notes
 
-- Generated output files (`pi_*_digits.txt`, `primes_1e*.txt`) are large artifacts — do not commit them.
+- Generated output files (`pi_*_digits.txt`, `primes_1e*.txt`, `twin-primes_1e*.txt`) are large artifacts — do not commit them.
 - See each project's `CLAUDE.md` for detailed implementation guidance, code layout, and editing rules.
