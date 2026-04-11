@@ -14,9 +14,6 @@ sq_1e*.txt
 # Git worktrees
 .worktrees/
 
-# Git worktrees
-.worktrees/
-
 # Credential files — never commit
 .aws/
 .azure_creds/
