@@ -205,7 +205,7 @@ What to update and when:
 | New project added | Create `.github/workflows/<project>.yml` (test → build + artifact); add badge to `README.md` top and CI column; update `CLAUDE.md` CI table |
 | Editing rule or policy change | All affected `CLAUDE.md` → Editing Guidance section |
 
-The sub-project files (`pi/CLAUDE.md`, `prime/CLAUDE.md`) are the source of truth for implementation detail.  This top-level file is the entry point and quick reference — keep both in sync.
+The sub-project files (`pi/CLAUDE.md`, `prime/CLAUDE.md`, `fib/CLAUDE.md`, `sq/CLAUDE.md`, and each Rust subtree's `CLAUDE.md` under `pi/pi-rs/`, `prime/prime-rs/`, `fib/fib-rs/`, `sq/sq-rs/`) are the source of truth for implementation detail.  This top-level file is the entry point and quick reference — keep them in sync.
 
 ## Notes
 
