@@ -16,6 +16,7 @@ Design specs and implementation plans for features built with the superpowers wo
 |------|---------|--------|------|
 | 2026-03-30 | Fibonacci calculator | Done | [plans/2026-03-30-fibonacci.md](plans/2026-03-30-fibonacci.md) |
 | 2026-04-10 | Perfect squares calculator | Done | [plans/2026-04-10-perfect-squares.md](plans/2026-04-10-perfect-squares.md) |
+| 2026-04-11 | Twin primes | In Progress | [plans/2026-04-11-twin-primes.md](plans/2026-04-11-twin-primes.md) |
 
 ## Backlog
 
