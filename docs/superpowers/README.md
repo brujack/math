@@ -8,6 +8,7 @@ Design specs and implementation plans for features built with the superpowers wo
 |------|---------|------|
 | 2026-03-30 | Fibonacci calculator | [specs/2026-03-30-fibonacci-design.md](specs/2026-03-30-fibonacci-design.md) |
 | 2026-04-10 | Perfect squares calculator | [specs/2026-04-10-perfect-squares-design.md](specs/2026-04-10-perfect-squares-design.md) |
+| 2026-04-11 | Twin primes | [specs/2026-04-11-twin-primes-design.md](specs/2026-04-11-twin-primes-design.md) |
 
 ## Plans
 
@@ -22,7 +23,7 @@ Ideas approved for future specs, in no particular order:
 
 | Feature | Notes |
 |---------|-------|
-| Twin primes | Find all twin prime pairs up to 10^N; extends prime-rs segmented sieve |
+| ~~Twin primes~~ | Spec written — see Specs table above |
 | e (Euler's number) | Compute e to N decimal places; same arbitrary-precision approach as pi |
 | Collatz sequences | For each number up to 10^N find chain length; identify longest chain |
 | Perfect numbers | Find all perfect numbers up to 10^N; connected to Mersenne primes |
