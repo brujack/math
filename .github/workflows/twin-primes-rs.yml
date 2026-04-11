@@ -1,0 +1,57 @@
+name: twin-primes-rs
+
+on:
+  push:
+    branches-ignore:
+      - master
+  pull_request:
+    branches:
+      - master
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    name: Test twin-primes-rs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: twin-primes/twin-primes-rs
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: twin-primes/twin-primes-rs
+
+      - name: Run tests
+        run: make test
+
+  build:
+    name: Build twin-primes-rs
+    runs-on: ubuntu-latest
+    needs: [test]
+    defaults:
+      run:
+        working-directory: twin-primes/twin-primes-rs
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: twin-primes/twin-primes-rs
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: twin-primes
+          path: twin-primes/twin-primes-rs/target/release/twin-primes
+          retention-days: 7
