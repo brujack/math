@@ -1,10 +1,26 @@
-use std::io::{self, Write};
+use std::fs::File;
+use std::io::{self, BufWriter, Write};
+
+use clap::Parser;
+
+#[derive(Parser)]
+#[command(
+    name = "twin-primes",
+    about = "Find all twin prime pairs up to 10^N",
+    long_about = "Find all twin prime pairs (p, p+2) where both primes are\n\
+                  less than 10^N using a segmented Sieve of Eratosthenes.\n\n\
+                  Output is written to twin-primes_1e{N}.txt, one pair per\n\
+                  line in the format: p | p+2"
+)]
+struct Cli {
+    /// N: finds every twin prime pair where both p and p+2 < 10^N (max 15)
+    digits: u32,
+}
 
 /// Number range covered by one sieve segment. 2^19 = 524,288 numbers.
 /// Packed bitset (odd numbers only) = 32,768 bytes — fits in L2 cache.
 const SEG_SIZE: u64 = 1 << 19;
 
-#[allow(dead_code)]
 fn small_sieve(limit: u64) -> Vec<u64> {
     let n = limit as usize;
     if n < 2 {
@@ -27,7 +43,6 @@ fn small_sieve(limit: u64) -> Vec<u64> {
     (2..=n).filter(|&i| !composite[i]).map(|i| i as u64).collect()
 }
 
-#[allow(dead_code)]
 fn fmt_int(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
@@ -44,7 +59,6 @@ fn fmt_int(n: u64) -> String {
 ///
 /// Packed bitset: bit index i ↔ number lo + 2*i. 1 = composite, 0 = prime.
 /// `lo` must be odd.
-#[allow(dead_code)]
 fn sieve_segment(lo: u64, limit: u64, small_primes: &[u64]) -> Vec<u64> {
     let hi = (lo + SEG_SIZE).min(limit + 1); // exclusive
     if lo >= hi {
@@ -83,7 +97,6 @@ fn sieve_segment(lo: u64, limit: u64, small_primes: &[u64]) -> Vec<u64> {
 
 /// Find all twin prime pairs (p, p+2) where both p and p+2 < limit.
 /// Writes "p | p+2\n" per pair to `out`. Returns pair count.
-#[allow(dead_code)]
 fn find_twin_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
     if limit < 5 {
         return Ok(0);
@@ -134,7 +147,41 @@ fn find_twin_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
     Ok(count)
 }
 
-fn main() {}
+fn main() {
+    let cli = Cli::parse();
+    let digits = cli.digits;
+
+    if !(1..=15).contains(&digits) {
+        eprintln!("Error: N must be between 1 and 15.");
+        std::process::exit(1);
+    }
+
+    let limit: u64 = 10u64.pow(digits);
+    let filename = format!("twin-primes_1e{}.txt", digits);
+
+    println!("Twin Prime Sieve");
+    println!("{}", "=".repeat(40));
+    println!("Finding twin prime pairs where both p and p+2 < 10^{} = {}", digits, fmt_int(limit));
+
+    let file = File::create(&filename).unwrap_or_else(|e| {
+        eprintln!("Error: cannot create {}: {}", filename, e);
+        std::process::exit(1);
+    });
+    let mut writer = BufWriter::new(file);
+
+    let count = find_twin_primes(limit, &mut writer).unwrap_or_else(|e| {
+        eprintln!("Error writing output: {}", e);
+        std::process::exit(1);
+    });
+
+    writer.flush().unwrap_or_else(|e| {
+        eprintln!("Error flushing output: {}", e);
+        std::process::exit(1);
+    });
+
+    println!("Found {} twin prime pairs up to 10^{}", fmt_int(count), digits);
+    println!("Saved to {}", filename);
+}
 
 #[cfg(test)]
 mod tests {
