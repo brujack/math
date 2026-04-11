@@ -19,7 +19,7 @@ jobs:
       run:
         working-directory: fib/fib-rs
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install GMP
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev
@@ -41,7 +41,7 @@ jobs:
       run:
         working-directory: fib/fib-rs
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install GMP
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev
