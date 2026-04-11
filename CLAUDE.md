@@ -130,6 +130,8 @@ Eight workflow files.  Project workflows run on feature branch pushes and on PRs
 | sq-rs | `.github/workflows/sq-rs.yml` | test → build + artifact |
 | auto-merge | `.github/workflows/auto-merge.yml` | secret-scan → auto-merge (secret-scan is a hard gate) |
 
+**Branch protection — required status checks:** The `auto-merge` workflow uses `gh pr merge --auto`, which only merges once all *required* checks pass. Required checks must be configured in GitHub → Settings → Branches → master → Require status checks. The required set is: `Test pi.py`, `Test pi-rs`, `Test prime-rs`, `Test fib.py`, `Test fib-rs`, `Test sq.py`, `Test sq-rs`, `secret-scan`. When a new project is added, add its test job to this list. Without this, a PR with failing project tests can still auto-merge.
+
 **When adding a new project**, create a dedicated workflow file `.github/workflows/<project>.yml` following the same pattern:
 - Trigger: `push: branches-ignore: [master]` and `pull_request: branches: [master]`
 - One `test` job running the project's test suite
