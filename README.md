@@ -1,23 +1,23 @@
 # math
 
-[![pi.py](https://github.com/brujack/math/actions/workflows/pi-py.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/pi-py.yml)
-[![pi-rs](https://github.com/brujack/math/actions/workflows/pi-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/pi-rs.yml)
-[![prime-rs](https://github.com/brujack/math/actions/workflows/prime-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/prime-rs.yml)
-[![fib.py](https://github.com/brujack/math/actions/workflows/fib-py.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/fib-py.yml)
-[![fib-rs](https://github.com/brujack/math/actions/workflows/fib-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/fib-rs.yml)
-[![sq.py](https://github.com/brujack/math/actions/workflows/sq-py.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/sq-py.yml)
-[![sq-rs](https://github.com/brujack/math/actions/workflows/sq-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/sq-rs.yml)
-[![twin-primes-rs](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml)
+[![pi.py](https://github.com/brujack/math/actions/workflows/pi-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/pi-py.yml)
+[![pi-rs](https://github.com/brujack/math/actions/workflows/pi-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/pi-rs.yml)
+[![prime-rs](https://github.com/brujack/math/actions/workflows/prime-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/prime-rs.yml)
+[![fib.py](https://github.com/brujack/math/actions/workflows/fib-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/fib-py.yml)
+[![fib-rs](https://github.com/brujack/math/actions/workflows/fib-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/fib-rs.yml)
+[![sq.py](https://github.com/brujack/math/actions/workflows/sq-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/sq-py.yml)
+[![sq-rs](https://github.com/brujack/math/actions/workflows/sq-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/sq-rs.yml)
+[![twin-primes-rs](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml)
 
 High-performance mathematical computation tools.
 
 | Project | Description | Implementation | CI |
 |---------|-------------|----------------|----|
-| [`pi/`](pi/README.md) | Calculate π to N decimal places | Python + Rust | [![pi.py](https://github.com/brujack/math/actions/workflows/pi-py.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/pi-py.yml) [![pi-rs](https://github.com/brujack/math/actions/workflows/pi-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/pi-rs.yml) |
-| [`prime/`](prime/README.md) | Find all primes up to 10^N | Rust | [![prime-rs](https://github.com/brujack/math/actions/workflows/prime-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/prime-rs.yml) |
-| [`fib/`](fib/README.md) | Generate all Fibonacci numbers with up to 10^X digits | Python + Rust | [![fib.py](https://github.com/brujack/math/actions/workflows/fib-py.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/fib-py.yml) [![fib-rs](https://github.com/brujack/math/actions/workflows/fib-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/fib-rs.yml) |
-| [`sq/`](sq/README.md) | Generate all perfect squares with up to 10^N digits (N=1 max) | Python + Rust | [![sq.py](https://github.com/brujack/math/actions/workflows/sq-py.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/sq-py.yml) [![sq-rs](https://github.com/brujack/math/actions/workflows/sq-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/sq-rs.yml) |
-| [`twin-primes/`](twin-primes/README.md) | Find all twin prime pairs up to 10^N | Rust | [![twin-primes-rs](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml) |
+| [`pi/`](pi/README.md) | Calculate π to N decimal places | Python + Rust | [![pi.py](https://github.com/brujack/math/actions/workflows/pi-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/pi-py.yml) [![pi-rs](https://github.com/brujack/math/actions/workflows/pi-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/pi-rs.yml) |
+| [`prime/`](prime/README.md) | Find all primes up to 10^N | Rust | [![prime-rs](https://github.com/brujack/math/actions/workflows/prime-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/prime-rs.yml) |
+| [`fib/`](fib/README.md) | Generate all Fibonacci numbers with up to 10^X digits | Python + Rust | [![fib.py](https://github.com/brujack/math/actions/workflows/fib-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/fib-py.yml) [![fib-rs](https://github.com/brujack/math/actions/workflows/fib-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/fib-rs.yml) |
+| [`sq/`](sq/README.md) | Generate all perfect squares with up to 10^N digits (N=1 max) | Python + Rust | [![sq.py](https://github.com/brujack/math/actions/workflows/sq-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/sq-py.yml) [![sq-rs](https://github.com/brujack/math/actions/workflows/sq-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/sq-rs.yml) |
+| [`twin-primes/`](twin-primes/README.md) | Find all twin prime pairs up to 10^N | Rust | [![twin-primes-rs](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml) |
 
 ---
 
