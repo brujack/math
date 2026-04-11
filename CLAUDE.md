@@ -128,9 +128,11 @@ Eight workflow files.  Project workflows run on feature branch pushes and on PRs
 | fib-rs | `.github/workflows/fib-rs.yml` | test → build + artifact |
 | sq.py | `.github/workflows/sq-py.yml` | test |
 | sq-rs | `.github/workflows/sq-rs.yml` | test → build + artifact |
-| auto-merge | `.github/workflows/auto-merge.yml` | secret-scan → auto-merge (secret-scan is a hard gate) |
+| auto-merge | `.github/workflows/auto-merge.yml` | secret-scan → snyk-scan (advisory) → auto-merge (secret-scan is a hard gate) |
 
-**Branch protection — required status checks:** The `auto-merge` workflow uses `gh pr merge --auto`, which only merges once all *required* checks pass. Required checks must be configured in GitHub → Settings → Branches → master → Require status checks. The required set is: `Test pi.py`, `Test pi-rs`, `Test prime-rs`, `Test fib.py`, `Test fib-rs`, `Test sq.py`, `Test sq-rs`, `secret-scan`. When a new project is added, add its test job to this list. Without this, a PR with failing project tests can still auto-merge.
+**Auto-merge gate:** The `auto-merge` workflow gates on `needs: [secret-scan]`, so a secret scan failure blocks the merge. GitHub branch protection required checks (which would enforce project test jobs) require GitHub Team and are not available on this free account. Project test workflows are therefore advisory — a PR can technically auto-merge with failing tests. Rely on reviewing CI status in the PR before it merges.
+
+**snyk-scan** runs `snyk code test` (SAST) against the Python and Rust source. It is advisory — not in `needs` for `auto-merge`. Requires `SNYK_TOKEN` in repository secrets.
 
 **When adding a new project**, create a dedicated workflow file `.github/workflows/<project>.yml` following the same pattern:
 - Trigger: `push: branches-ignore: [master]` and `pull_request: branches: [master]`
