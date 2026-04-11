@@ -1,35 +1,40 @@
-# docs/superpowers
+# Superpowers Specs and Plans
 
-Design specs and implementation plans for features built with the superpowers workflow.
+Master status index for all specs and implementation plans in this directory.
 
-## Specs
+## Status Key
 
-| Date | Feature | File |
-|------|---------|------|
-| 2026-03-30 | Fibonacci calculator | [specs/2026-03-30-fibonacci-design.md](specs/2026-03-30-fibonacci-design.md) |
-| 2026-04-10 | Perfect squares calculator | [specs/2026-04-10-perfect-squares-design.md](specs/2026-04-10-perfect-squares-design.md) |
-| 2026-04-11 | Twin primes | [specs/2026-04-11-twin-primes-design.md](specs/2026-04-11-twin-primes-design.md) |
+| Status | Meaning |
+|---|---|
+| Done | Implemented and merged to master |
+| In Progress | Currently being implemented |
+| Pending | Not yet started |
 
-## Plans
+---
 
-| Date | Feature | Status | File |
-|------|---------|--------|------|
-| 2026-03-30 | Fibonacci calculator | Done | [plans/2026-03-30-fibonacci.md](plans/2026-03-30-fibonacci.md) |
-| 2026-04-10 | Perfect squares calculator | Done | [plans/2026-04-10-perfect-squares.md](plans/2026-04-10-perfect-squares.md) |
-| 2026-04-11 | Twin primes | Done | [plans/2026-04-11-twin-primes.md](plans/2026-04-11-twin-primes.md) |
+## All Plans
+
+| Date | Plan | Spec | Status |
+|---|---|---|---|
+| 2026-03-30 | [fibonacci](plans/2026-03-30-fibonacci.md) | [spec](specs/2026-03-30-fibonacci-design.md) | Done |
+| 2026-04-10 | [perfect-squares](plans/2026-04-10-perfect-squares.md) | [spec](specs/2026-04-10-perfect-squares-design.md) | Done |
+| 2026-04-11 | [twin-primes](plans/2026-04-11-twin-primes.md) | [spec](specs/2026-04-11-twin-primes-design.md) | Done |
+
+---
 
 ## Backlog
 
 Ideas approved for future specs, in no particular order:
 
 | Feature | Notes |
-|---------|-------|
-| ~~Twin primes~~ | Spec written — see Specs table above |
+|---|---|
 | e (Euler's number) | Compute e to N decimal places; same arbitrary-precision approach as pi |
 | Collatz sequences | For each number up to 10^N find chain length; identify longest chain |
 | Perfect numbers | Find all perfect numbers up to 10^N; connected to Mersenne primes |
 | Factorial | Compute N! to arbitrary precision; extends big-number arithmetic pattern |
 
+---
+
 ## Adding a new entry
 
-When a new spec or plan is created, add a row to the appropriate table above. Set status to **In Progress** when implementation starts, **Done** when the PR merges. Also add a `> **Status: DONE**` banner at the top of the plan file once complete.
+When a new spec or plan is created, add a row to the All Plans table. Set status to **In Progress** when implementation starts, **Done** when the PR merges. Also add a `> **Status: DONE**` banner at the top of the plan file once complete. Move backlog items to the All Plans table when their spec is written (remove the strikethrough pattern — just delete the backlog row).
