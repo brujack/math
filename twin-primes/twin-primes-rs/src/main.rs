@@ -1,3 +1,5 @@
+use std::io::{self, Write};
+
 /// Number range covered by one sieve segment. 2^19 = 524,288 numbers.
 /// Packed bitset (odd numbers only) = 32,768 bytes — fits in L2 cache.
 const SEG_SIZE: u64 = 1 << 19;
@@ -77,6 +79,59 @@ fn sieve_segment(lo: u64, limit: u64, small_primes: &[u64]) -> Vec<u64> {
         .filter(|&i| composite[i >> 3] & (1u8 << (i & 7)) == 0)
         .map(|i| lo + (i as u64) * 2)
         .collect()
+}
+
+/// Find all twin prime pairs (p, p+2) where both p and p+2 < limit.
+/// Writes "p | p+2\n" per pair to `out`. Returns pair count.
+#[allow(dead_code)]
+fn find_twin_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
+    if limit < 5 {
+        return Ok(0);
+    }
+
+    let sqrt_limit = (limit as f64).sqrt() as u64 + 1;
+    let small_primes = small_sieve(sqrt_limit);
+
+    let mut count = 0u64;
+
+    // Twin pairs within the small_primes range (both must be < limit).
+    for w in small_primes.windows(2) {
+        if w[1] - w[0] == 2 && w[1] < limit {
+            writeln!(out, "{} | {}", w[0], w[1])?;
+            count += 1;
+        }
+    }
+
+    // Segmented sieve for (sqrt_limit, limit].
+    // lo is always odd; SEG_SIZE is even so lo + SEG_SIZE stays odd.
+    let mut last_prime: Option<u64> = small_primes.last().copied();
+    let mut lo = sqrt_limit + 1 + (sqrt_limit & 1); // first odd > sqrt_limit
+
+    while lo <= limit {
+        let seg = sieve_segment(lo, limit, &small_primes);
+
+        // Boundary: check if last prime from the previous segment + 2 equals
+        // the first prime of this segment.
+        if let (Some(lp), Some(&fp)) = (last_prime, seg.first()) {
+            if fp == lp + 2 && fp < limit {
+                writeln!(out, "{} | {}", lp, fp)?;
+                count += 1;
+            }
+        }
+
+        // Twin pairs within this segment.
+        for w in seg.windows(2) {
+            if w[1] - w[0] == 2 && w[1] < limit {
+                writeln!(out, "{} | {}", w[0], w[1])?;
+                count += 1;
+            }
+        }
+
+        last_prime = seg.last().copied().or(last_prime);
+        lo += SEG_SIZE;
+    }
+
+    Ok(count)
 }
 
 fn main() {}
@@ -186,5 +241,113 @@ mod tests {
         // lo == limit == 31 (a prime): returns exactly [31].
         let sp = small_sieve(5);
         assert_eq!(sieve_segment(31, 31, &sp), vec![31u64]);
+    }
+
+    // --- FailWriter ---
+
+    struct FailWriter;
+    impl Write for FailWriter {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::Other, "write failed"))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    // --- find_twin_primes ---
+
+    #[test]
+    fn test_find_twin_primes_limit_below_5() {
+        // No twin pairs possible when limit < 5.
+        for limit in [0u64, 1, 2, 3, 4] {
+            let mut buf: Vec<u8> = Vec::new();
+            let count = find_twin_primes(limit, &mut buf).unwrap();
+            assert_eq!(count, 0, "limit={}", limit);
+            assert!(buf.is_empty(), "limit={}", limit);
+        }
+    }
+
+    #[test]
+    fn test_find_twin_primes_limit_5_no_pair() {
+        // (3,5): 5 is not < 5 → 0 pairs.
+        let mut buf: Vec<u8> = Vec::new();
+        let count = find_twin_primes(5, &mut buf).unwrap();
+        assert_eq!(count, 0);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn test_find_twin_primes_limit_6_one_pair() {
+        // (3,5): both < 6 → 1 pair.
+        let mut buf: Vec<u8> = Vec::new();
+        let count = find_twin_primes(6, &mut buf).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(String::from_utf8(buf).unwrap(), "3 | 5\n");
+    }
+
+    #[test]
+    fn test_find_twin_primes_n1_exact_output() {
+        // N=1, limit=10 → pairs: (3,5) and (5,7).
+        let mut buf: Vec<u8> = Vec::new();
+        let count = find_twin_primes(10, &mut buf).unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(
+            String::from_utf8(buf).unwrap(),
+            "3 | 5\n5 | 7\n"
+        );
+    }
+
+    #[test]
+    fn test_find_twin_primes_n2_exact_output() {
+        // N=2, limit=100 → 8 known pairs.
+        let mut buf: Vec<u8> = Vec::new();
+        let count = find_twin_primes(100, &mut buf).unwrap();
+        assert_eq!(count, 8);
+        assert_eq!(
+            String::from_utf8(buf).unwrap(),
+            "3 | 5\n5 | 7\n11 | 13\n17 | 19\n29 | 31\n41 | 43\n59 | 61\n71 | 73\n"
+        );
+    }
+
+    #[test]
+    fn test_find_twin_primes_n3_count() {
+        // N=3, limit=1000 → 35 pairs.
+        let mut buf: Vec<u8> = Vec::new();
+        let count = find_twin_primes(1_000, &mut buf).unwrap();
+        assert_eq!(count, 35);
+    }
+
+    #[test]
+    fn test_find_twin_primes_n4_count() {
+        // N=4, limit=10_000 → 205 pairs.
+        let mut buf: Vec<u8> = Vec::new();
+        let count = find_twin_primes(10_000, &mut buf).unwrap();
+        assert_eq!(count, 205);
+    }
+
+    #[test]
+    fn test_find_twin_primes_output_lines_match_count() {
+        // Line count in output must equal the returned count.
+        let mut buf: Vec<u8> = Vec::new();
+        let count = find_twin_primes(1_000, &mut buf).unwrap();
+        let lines = String::from_utf8(buf).unwrap();
+        assert_eq!(lines.lines().count() as u64, count);
+    }
+
+    #[test]
+    fn test_find_twin_primes_write_error_propagates() {
+        let result = find_twin_primes(100, &mut FailWriter);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_find_twin_primes_idempotent() {
+        // Running twice produces identical output.
+        let mut buf1: Vec<u8> = Vec::new();
+        let mut buf2: Vec<u8> = Vec::new();
+        find_twin_primes(1_000, &mut buf1).unwrap();
+        find_twin_primes(1_000, &mut buf2).unwrap();
+        assert_eq!(buf1, buf2);
     }
 }
