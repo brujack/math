@@ -12,6 +12,7 @@ High-performance mathematical computation tools.
 | [`prime/`](prime/) | Rust | Find all primes up to 10^N (segmented sieve) | [`prime/CLAUDE.md`](prime/CLAUDE.md) |
 | [`fib/`](fib/) | Python + Rust | Generate all Fibonacci numbers with up to 10^X digits | [`fib/CLAUDE.md`](fib/CLAUDE.md) |
 | [`sq/`](sq/) | Python + Rust | Find all perfect squares with up to 10^N digits (N=1 max) | [`sq/CLAUDE.md`](sq/CLAUDE.md) |
+| [`twin-primes/`](twin-primes/) | Rust | Find all twin prime pairs up to 10^N | [`twin-primes/twin-primes-rs/CLAUDE.md`](twin-primes/twin-primes-rs/CLAUDE.md) |
 
 ## Architectural Decision Records
 
@@ -30,6 +31,7 @@ Each project has its own installer:
 | `fib/fib-rs/install_deps.sh` | GMP, Rust toolchain, `cargo-tarpaulin` |
 | `sq/install_deps.sh` | `ruff`, `coverage` |
 | `sq/sq-rs/install_deps.sh` | Rust toolchain |
+| `twin-primes/twin-primes-rs/install_deps.sh` | Rust toolchain, `cargo-tarpaulin` |
 
 ## Quick Reference
 
@@ -99,6 +101,15 @@ make lint      # cargo clippy -- -D warnings
 make test      # lint, then cargo test
 ```
 
+### Rust (`twin-primes/twin-primes-rs/`)
+
+```bash
+cd twin-primes/twin-primes-rs
+make twin-primes  # cargo build --release
+make lint         # cargo clippy -- -D warnings
+make test         # lint, then cargo test
+```
+
 ## Testing Policy
 
 **TDD is required.** Write the failing test first, then write the minimum implementation to make it pass. Never write implementation before the test. Tests must be added in the same commit as the code they cover.
@@ -117,7 +128,7 @@ Where to add tests:
 
 ## CI
 
-Eight workflow files.  Project workflows run on feature branch pushes and on PRs to `master` (never on direct master pushes).  Build jobs depend on their test job — a build will not run if tests fail.
+Nine workflow files.  Project workflows run on feature branch pushes and on PRs to `master` (never on direct master pushes).  Build jobs depend on their test job — a build will not run if tests fail.
 
 | Workflow | File | Jobs |
 |----------|------|------|
@@ -128,6 +139,7 @@ Eight workflow files.  Project workflows run on feature branch pushes and on PRs
 | fib-rs | `.github/workflows/fib-rs.yml` | test → build + artifact |
 | sq.py | `.github/workflows/sq-py.yml` | test |
 | sq-rs | `.github/workflows/sq-rs.yml` | test → build + artifact |
+| twin-primes-rs | `.github/workflows/twin-primes-rs.yml` | test → build + artifact |
 | auto-merge | `.github/workflows/auto-merge.yml` | secret-scan → snyk-scan (advisory) → auto-merge (secret-scan is a hard gate) |
 
 **Auto-merge gate:** The `auto-merge` workflow gates on `needs: [secret-scan]`, so a secret scan failure blocks the merge. GitHub branch protection required checks (which would enforce project test jobs) require GitHub Team and are not available on this free account. Project test workflows are therefore advisory — a PR can technically auto-merge with failing tests. Rely on reviewing CI status in the PR before it merges.

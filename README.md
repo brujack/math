@@ -7,6 +7,7 @@
 [![fib-rs](https://github.com/brujack/math/actions/workflows/fib-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/fib-rs.yml)
 [![sq.py](https://github.com/brujack/math/actions/workflows/sq-py.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/sq-py.yml)
 [![sq-rs](https://github.com/brujack/math/actions/workflows/sq-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/sq-rs.yml)
+[![twin-primes-rs](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml)
 
 High-performance mathematical computation tools.
 
@@ -16,6 +17,7 @@ High-performance mathematical computation tools.
 | [`prime/`](prime/README.md) | Find all primes up to 10^N | Rust | [![prime-rs](https://github.com/brujack/math/actions/workflows/prime-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/prime-rs.yml) |
 | [`fib/`](fib/README.md) | Generate all Fibonacci numbers with up to 10^X digits | Python + Rust | [![fib.py](https://github.com/brujack/math/actions/workflows/fib-py.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/fib-py.yml) [![fib-rs](https://github.com/brujack/math/actions/workflows/fib-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/fib-rs.yml) |
 | [`sq/`](sq/README.md) | Generate all perfect squares with up to 10^N digits (N=1 max) | Python + Rust | [![sq.py](https://github.com/brujack/math/actions/workflows/sq-py.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/sq-py.yml) [![sq-rs](https://github.com/brujack/math/actions/workflows/sq-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/sq-rs.yml) |
+| [`twin-primes/`](twin-primes/README.md) | Find all twin prime pairs up to 10^N | Rust | [![twin-primes-rs](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml/badge.svg?branch=master)](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml) |
 
 ---
 
@@ -57,6 +59,16 @@ Generates every perfect square with at most 10^N decimal digits. N=1 is the only
 
 - Python implementation (`sq/sq.py`) — Python stdlib only, no external dependencies
 - Rust implementation (`sq/sq-rs/`) — plain u64 arithmetic, no GMP required
+
+---
+
+## twin-primes
+
+Finds every twin prime pair (p, p+2) where both primes are less than 10^N.
+
+- Rust implementation (`twin-primes/twin-primes-rs/`) — packed bitset segments (32 KB each, fits in L2 cache), constant memory usage regardless of N
+
+See [`twin-primes/README.md`](twin-primes/README.md) for full details.
 
 ---
 
