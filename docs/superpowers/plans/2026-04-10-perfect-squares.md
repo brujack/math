@@ -1,5 +1,7 @@
 # Perfect Squares Calculator Implementation Plan
 
+> **Status: DONE** — Implemented 2026-04-10. PRs #1 (feat), #2 (fix: always write file), #3 (fix: sq | root output format) merged to master.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a `sq/` project generating all perfect squares with at most 10^N decimal digits (N=1 only), with Python and Rust implementations matching the existing fib/pi/prime project structure.
