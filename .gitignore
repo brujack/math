@@ -10,6 +10,7 @@ pi_*_digits.txt
 primes_1e*.txt
 fib_1e*.txt
 sq_1e*.txt
+twin-primes_1e*.txt
 
 # Git worktrees
 .worktrees/
