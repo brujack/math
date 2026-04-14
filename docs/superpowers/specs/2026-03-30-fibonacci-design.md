@@ -113,12 +113,13 @@ Tests cover:
 
 Two new workflow files:
 
-| Workflow | File | Jobs |
-|----------|------|------|
-| fib.py | `.github/workflows/fib-py.yml` | test |
-| fib-rs | `.github/workflows/fib-rs.yml` | test → build + artifact |
+| Workflow | File                           | Jobs                    |
+| -------- | ------------------------------ | ----------------------- |
+| fib.py   | `.github/workflows/fib-py.yml` | test                    |
+| fib-rs   | `.github/workflows/fib-rs.yml` | test → build + artifact |
 
 Both follow existing patterns:
+
 - Run on every push and pull request to `master`
 - Node.js 24 (`actions/checkout@v5`, `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true`)
 - `fib-rs` build job uploads the release binary as an artifact (7-day retention)
@@ -134,12 +135,12 @@ Generated files (`fib_1e*.txt`) are large artifacts and must not be committed. A
 
 ## Constraints & Limits
 
-| X | Max digit count | Approx Fibonacci numbers | Approx output size |
-|---|----------------|--------------------------|-------------------|
-| 1 | 10 | ~47 | tiny |
-| 2 | 100 | ~478 | tiny |
-| 3 | 1,000 | ~4,785 | ~2.4 MB |
-| 4 | 10,000 | ~47,847 | ~240 MB |
-| 5 | 100,000 | ~478,468 | ~24 GB |
+| X   | Max digit count | Approx Fibonacci numbers | Approx output size |
+| --- | --------------- | ------------------------ | ------------------ |
+| 1   | 10              | ~47                      | tiny               |
+| 2   | 100             | ~478                     | tiny               |
+| 3   | 1,000           | ~4,785                   | ~2.4 MB            |
+| 4   | 10,000          | ~47,847                  | ~240 MB            |
+| 5   | 100,000         | ~478,468                 | ~24 GB             |
 
 Warning + confirmation required for X ≥ 4.

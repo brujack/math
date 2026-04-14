@@ -10,6 +10,7 @@ The original CI used a single `build.yml` covering all projects. A failure in on
 ## Decision
 
 Replace the single `build.yml` with **one workflow file per project** (e.g., `pi-py.yml`, `pi-rs.yml`). Each workflow:
+
 1. Has a `test` job that runs the project's test suite.
 2. Has a `build` job with `needs: [test]` — build only runs if tests pass.
 3. Rust build jobs upload the release binary as a 7-day artifact via `actions/upload-artifact@v5`.

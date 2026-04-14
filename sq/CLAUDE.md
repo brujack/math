@@ -60,11 +60,11 @@ make coverage  # coverage run + report
 
 ### Test coverage
 
-| Class | Tests |
-|-------|-------|
+| Class                 | Tests                                                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `TestGenerateSquares` | 10 — boundary (empty, 1-digit, 2-digit, 10-digit), correctness (perfect square, increasing), count, last value, exclusion |
-| `TestParseArgs` | 3 — no-arg, with-arg, invalid non-integer exits |
-| `TestGetExponent` | 4 — valid (1), zero exits, too-high exits, negative exits |
+| `TestParseArgs`       | 3 — no-arg, with-arg, invalid non-integer exits                                                                           |
+| `TestGetExponent`     | 4 — valid (1), zero exits, too-high exits, negative exits                                                                 |
 
 ## Keeping This File Up To Date
 

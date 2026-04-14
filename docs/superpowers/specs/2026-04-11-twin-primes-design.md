@@ -21,6 +21,7 @@ twin-primes/
 Segmented sieve of Eratosthenes operating over [2, 10^N) in fixed-size chunks (~1MB per segment). Memory usage is constant regardless of N.
 
 **Sieve steps:**
+
 1. Precompute small primes up to √(10^N) using a simple sieve
 2. Process the range in segments; for each segment, cross off multiples of each small prime
 3. Scan the sieved segment for primes p where p+2 is also prime in the segment — emit as a twin pair
@@ -49,6 +50,7 @@ Format: one pair per line — `p | p+2`
 ```
 
 Stdout summary (not written to file):
+
 ```
 Found 35 twin prime pairs up to 10^3
 Saved to twin-primes_1e3.txt
@@ -65,17 +67,20 @@ Saved to twin-primes_1e3.txt
 Tests in `#[cfg(test)] mod tests` in `src/main.rs`, run with `make test`.
 
 **Boundary value tests:**
+
 - N=1: range [2, 10) → pairs: (3,5) and (5,7) — note 5 appears in two pairs
 - N=2: range [2, 100) → 8 known pairs: (3,5), (5,7), (11,13), (17,19), (29,31), (41,43), (59,61), (71,73)
 - N=0: empty range, 0 pairs
 - Large N: verify count matches known values (e.g. N=4 → 205 pairs up to 10,000)
 
 **Error path tests:**
+
 - Missing argument → error exit
 - Non-integer argument → error exit
 - Write failure → propagated correctly using `FailWriter` pattern (same as `sq-rs`)
 
 **State transition tests:**
+
 - Output file created after run
 - File line count matches reported pair count
 - Running twice overwrites file cleanly (idempotent)
@@ -91,10 +96,10 @@ New workflow: `.github/workflows/twin-primes-rs.yml`
 
 ## Repo Updates Required
 
-| File | Change |
-|------|--------|
-| `README.md` | Add CI badge; add row to project table |
-| `CLAUDE.md` | Add to Repository Overview table, CI table, Dependency Installation table |
-| `scripts/pre-commit` | Add `twin-primes/twin-primes-rs` to lint loop |
-| `twin-primes/twin-primes-rs/CLAUDE.md` | New file — implementation detail for the project |
-| `docs/superpowers/README.md` | Move backlog row to Specs; add plan row when plan is written |
+| File                                   | Change                                                                    |
+| -------------------------------------- | ------------------------------------------------------------------------- |
+| `README.md`                            | Add CI badge; add row to project table                                    |
+| `CLAUDE.md`                            | Add to Repository Overview table, CI table, Dependency Installation table |
+| `scripts/pre-commit`                   | Add `twin-primes/twin-primes-rs` to lint loop                             |
+| `twin-primes/twin-primes-rs/CLAUDE.md` | New file — implementation detail for the project                          |
+| `docs/superpowers/README.md`           | Move backlog row to Specs; add plan row when plan is written              |

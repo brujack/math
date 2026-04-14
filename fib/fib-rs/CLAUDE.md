@@ -82,9 +82,9 @@ cargo test
 
 ### Test coverage
 
-| Area | Tests |
-|------|-------|
-| `fmt_int` | 4 — zero, sub-thousand, thousands, millions |
+| Area                 | Tests                                                                                                                                                 |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fmt_int`            | 4 — zero, sub-thousand, thousands, millions                                                                                                           |
 | `generate_fibonacci` | 8 — single-digit sequence, two-digit count, last value, first 10 values, Fibonacci property, all positive, max_digits=0 empty, write error propagates |
 
 Uncovered: `prompt_exponent`, `read_line`, `main()` — interactive/integration only.

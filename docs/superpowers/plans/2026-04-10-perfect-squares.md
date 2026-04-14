@@ -14,23 +14,23 @@
 
 ## File Map
 
-| Action | Path | Purpose |
-|--------|------|---------|
-| Create | `sq/sq.py` | Python implementation + CLI |
-| Create | `sq/test_sq.py` | Python unit tests |
-| Create | `sq/Makefile` | run, lint, test, coverage targets |
-| Create | `sq/install_deps.sh` | installs ruff, coverage |
-| Create | `sq/CLAUDE.md` | Python project guidance |
-| Create | `sq/sq-rs/src/main.rs` | Rust implementation + unit tests |
-| Create | `sq/sq-rs/Cargo.toml` | deps: clap only |
-| Create | `sq/sq-rs/Makefile` | sq, lint, test, clean targets |
-| Create | `sq/sq-rs/install_deps.sh` | Rust toolchain |
-| Create | `sq/sq-rs/CLAUDE.md` | Rust project guidance |
-| Create | `.github/workflows/sq-py.yml` | Python CI workflow |
-| Create | `.github/workflows/sq-rs.yml` | Rust CI workflow |
-| Modify | `.gitignore` | add `sq_1e*.txt` |
-| Modify | `CLAUDE.md` | add sq/ to project table and CI table |
-| Modify | `README.md` | add sq/ row, two CI badges |
+| Action | Path                          | Purpose                               |
+| ------ | ----------------------------- | ------------------------------------- |
+| Create | `sq/sq.py`                    | Python implementation + CLI           |
+| Create | `sq/test_sq.py`               | Python unit tests                     |
+| Create | `sq/Makefile`                 | run, lint, test, coverage targets     |
+| Create | `sq/install_deps.sh`          | installs ruff, coverage               |
+| Create | `sq/CLAUDE.md`                | Python project guidance               |
+| Create | `sq/sq-rs/src/main.rs`        | Rust implementation + unit tests      |
+| Create | `sq/sq-rs/Cargo.toml`         | deps: clap only                       |
+| Create | `sq/sq-rs/Makefile`           | sq, lint, test, clean targets         |
+| Create | `sq/sq-rs/install_deps.sh`    | Rust toolchain                        |
+| Create | `sq/sq-rs/CLAUDE.md`          | Rust project guidance                 |
+| Create | `.github/workflows/sq-py.yml` | Python CI workflow                    |
+| Create | `.github/workflows/sq-rs.yml` | Rust CI workflow                      |
+| Modify | `.gitignore`                  | add `sq_1e*.txt`                      |
+| Modify | `CLAUDE.md`                   | add sq/ to project table and CI table |
+| Modify | `README.md`                   | add sq/ row, two CI badges            |
 
 ---
 
@@ -47,6 +47,7 @@ git checkout -b feat/perfect-squares
 ```bash
 git branch --show-current
 ```
+
 Expected output: `feat/perfect-squares`
 
 ---
@@ -204,6 +205,7 @@ if __name__ == "__main__":
 ```bash
 cd sq && python3 -m unittest test_sq.TestGenerateSquares -v 2>&1 | head -30
 ```
+
 Expected: multiple FAIL/ERROR lines (stub returns None, not an iterable)
 
 - [ ] **Step 4: Implement `generate_squares` in `sq/sq.py`**
@@ -229,6 +231,7 @@ def generate_squares(max_digits: int):
 ```bash
 cd sq && python3 -m unittest test_sq.TestGenerateSquares -v
 ```
+
 Expected: 10 tests, all OK
 
 - [ ] **Step 6: Commit**
@@ -305,6 +308,7 @@ if __name__ == "__main__":
 ```bash
 cd sq && python3 -m unittest test_sq.TestParseArgs test_sq.TestGetExponent -v 2>&1 | head -20
 ```
+
 Expected: failures/errors (stubs return None)
 
 - [ ] **Step 3: Implement `parse_args` and `get_exponent` in `sq/sq.py`**
@@ -352,6 +356,7 @@ def get_exponent(args: argparse.Namespace) -> int:
 ```bash
 cd sq && python3 -m unittest test_sq -v
 ```
+
 Expected: 17 tests, all OK
 
 - [ ] **Step 5: Commit**
@@ -408,6 +413,7 @@ def main() -> None:
 ```bash
 cd sq && make lint
 ```
+
 Expected: `All checks passed!`
 
 - [ ] **Step 3: Run full test suite**
@@ -415,6 +421,7 @@ Expected: `All checks passed!`
 ```bash
 cd sq && make test
 ```
+
 Expected: 17 tests, all OK
 
 - [ ] **Step 4: Commit**
@@ -498,6 +505,7 @@ fn main() {}
 ```bash
 cd sq/sq-rs && cargo build 2>&1 | tail -5
 ```
+
 Expected: `Finished` line with no errors
 
 - [ ] **Step 8: Commit scaffold**
@@ -588,6 +596,7 @@ mod tests {
 ```bash
 cd sq/sq-rs && cargo test tests::test_fmt_int 2>&1 | tail -15
 ```
+
 Expected: 4 failures (stub returns empty string)
 
 - [ ] **Step 3: Implement `fmt_int`**
@@ -613,6 +622,7 @@ fn fmt_int(n: u64) -> String {
 ```bash
 cd sq/sq-rs && cargo test tests::test_fmt_int 2>&1 | tail -10
 ```
+
 Expected: `4 passed`
 
 - [ ] **Step 5: Commit**
@@ -748,6 +758,7 @@ Add inside `mod tests { ... }`, after the `fmt_int` tests:
 ```bash
 cd sq/sq-rs && cargo test tests::test_zero_max 2>&1 | tail -10
 ```
+
 Expected: FAILED (stub always returns `Ok(0)`)
 
 - [ ] **Step 3: Implement `generate_squares`**
@@ -781,6 +792,7 @@ fn generate_squares<W: Write>(max_digits: u32, out: &mut W) -> io::Result<u64> {
 ```bash
 cd sq/sq-rs && make test
 ```
+
 Expected: all tests pass (clippy clean + all test cases OK)
 
 - [ ] **Step 5: Commit**
@@ -860,6 +872,7 @@ fn main() {
 ```bash
 cd sq/sq-rs && make test
 ```
+
 Expected: all tests pass, clippy clean
 
 - [ ] **Step 4: Commit**
@@ -888,6 +901,7 @@ sq_1e*.txt
 ```bash
 echo "sq_1e1.txt" | git check-ignore --stdin
 ```
+
 Expected: `sq_1e1.txt`
 
 - [ ] **Step 3: Commit**
@@ -905,7 +919,7 @@ git commit -m "chore: add sq_1e*.txt to .gitignore"
 
 - [ ] **Step 1: Create `sq/CLAUDE.md`**
 
-```markdown
+````markdown
 # CLAUDE.md
 
 This file provides guidance to Claude when working with code in this repository.
@@ -924,17 +938,17 @@ Current structure:
 ## Running the Script
 
 \```bash
-make run       # python3 sq.py
-make lint      # ruff check .
-make test      # lint, then python3 -m unittest test_sq -v
-make coverage  # run tests and print coverage report
+make run # python3 sq.py
+make lint # ruff check .
+make test # lint, then python3 -m unittest test_sq -v
+make coverage # run tests and print coverage report
 \```
 
 Or directly:
 
 \```bash
-python3 sq.py      # interactive prompt
-python3 sq.py 1    # generate all perfect squares with up to 10 digits
+python3 sq.py # interactive prompt
+python3 sq.py 1 # generate all perfect squares with up to 10 digits
 \```
 
 ## Code Layout
@@ -962,17 +976,17 @@ Every test must cover more than the happy path. Three categories are required fo
 - **State transition tests** — before/after assertions, no unintended side effects, idempotency
 
 \```bash
-make test      # lint + unittest
-make coverage  # coverage run + report
+make test # lint + unittest
+make coverage # coverage run + report
 \```
 
 ### Test coverage
 
-| Class | Tests |
-|-------|-------|
+| Class                 | Tests                                                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `TestGenerateSquares` | 10 — boundary (empty, 1-digit, 2-digit, 10-digit), correctness (perfect square, increasing), count, last value, exclusion |
-| `TestParseArgs` | 3 — no-arg, with-arg, invalid non-integer exits |
-| `TestGetExponent` | 4 — valid (1), zero exits, too-high exits, negative exits |
+| `TestParseArgs`       | 3 — no-arg, with-arg, invalid non-integer exits                                                                           |
+| `TestGetExponent`     | 4 — valid (1), zero exits, too-high exits, negative exits                                                                 |
 
 ## Keeping This File Up To Date
 
@@ -982,11 +996,11 @@ Update this file whenever you:
 - Add or remove a Makefile target → update Running section and `README.md`
 - Change the valid exponent range → update Important Behavior
 - Add test classes or change coverage → update Testing table
-```
+````
 
 - [ ] **Step 2: Create `sq/sq-rs/CLAUDE.md`**
 
-```markdown
+````markdown
 # CLAUDE.md
 
 This file provides guidance to Claude when working with code in this repository.
@@ -1006,17 +1020,17 @@ Current structure:
 
 \```bash
 cd sq/sq-rs
-make sq        # cargo build --release, copies binary to ~/Downloads/sq
-make lint      # cargo clippy -- -D warnings
-make test      # lint, then cargo test
-make clean     # cargo clean + remove ~/Downloads/sq
+make sq # cargo build --release, copies binary to ~/Downloads/sq
+make lint # cargo clippy -- -D warnings
+make test # lint, then cargo test
+make clean # cargo clean + remove ~/Downloads/sq
 \```
 
 Or directly:
 
 \```bash
-./target/release/sq        # interactive prompt
-./target/release/sq 1      # generate all perfect squares with up to 10 digits
+./target/release/sq # interactive prompt
+./target/release/sq 1 # generate all perfect squares with up to 10 digits
 \```
 
 ## Code Layout (`src/main.rs`)
@@ -1047,9 +1061,9 @@ Every test must cover more than the happy path. Three categories are required fo
 
 ### Test coverage
 
-| Area | Tests |
-|------|-------|
-| `fmt_int` | 4 — zero, sub-thousand, thousands, millions |
+| Area               | Tests                                                                                                                                                                       |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fmt_int`          | 4 — zero, sub-thousand, thousands, millions                                                                                                                                 |
 | `generate_squares` | 11 — empty (max_digits=0), 1-digit exact, 2-digit count/last/exclusion, perfect-square property, strictly increasing, 10-digit count/last/exclusion, write error propagates |
 
 ## Keeping This File Up To Date
@@ -1060,7 +1074,7 @@ Update this file whenever you:
 - Add a Makefile target → update Build section
 - Change the valid exponent range → update Important Behavior
 - Add tests or change coverage → update Testing table
-```
+````
 
 - [ ] **Step 3: Commit**
 
@@ -1087,26 +1101,26 @@ In `CLAUDE.md`, add a row to the Repository Overview table:
 
 Add two new Quick Reference blocks after the existing `fib/fib-rs/` block:
 
-```markdown
+````markdown
 ### Python (`sq/`)
 
 \```bash
 cd sq
-make run       # python3 sq.py
-make lint      # ruff check .
-make test      # lint, then python3 -m unittest test_sq -v
-make coverage  # coverage run + report
+make run # python3 sq.py
+make lint # ruff check .
+make test # lint, then python3 -m unittest test_sq -v
+make coverage # coverage run + report
 \```
 
 ### Rust (`sq/sq-rs/`)
 
 \```bash
 cd sq/sq-rs
-make sq        # cargo build --release
-make lint      # cargo clippy -- -D warnings
-make test      # lint, then cargo test
+make sq # cargo build --release
+make lint # cargo clippy -- -D warnings
+make test # lint, then cargo test
 \```
-```
+````
 
 - [ ] **Step 3: Update `CLAUDE.md` — Testing Policy**
 

@@ -6,13 +6,13 @@ This file provides guidance to Claude when working with code in this repository.
 
 High-performance mathematical computation tools.
 
-| Project | Language | Description | CLAUDE.md |
-|---------|----------|-------------|-----------|
-| [`pi/`](pi/) | Python + Rust | Calculate π to N decimal places (Chudnovsky algorithm) | [`pi/CLAUDE.md`](pi/CLAUDE.md) |
-| [`prime/`](prime/) | Rust | Find all primes up to 10^N (segmented sieve) | [`prime/CLAUDE.md`](prime/CLAUDE.md) |
-| [`fib/`](fib/) | Python + Rust | Generate all Fibonacci numbers with up to 10^X digits | [`fib/CLAUDE.md`](fib/CLAUDE.md) |
-| [`sq/`](sq/) | Python + Rust | Find all perfect squares with up to 10^N digits (N=1 max) | [`sq/CLAUDE.md`](sq/CLAUDE.md) |
-| [`twin-primes/`](twin-primes/) | Rust | Find all twin prime pairs up to 10^N | [`twin-primes/twin-primes-rs/CLAUDE.md`](twin-primes/twin-primes-rs/CLAUDE.md) |
+| Project                        | Language      | Description                                               | CLAUDE.md                                                                      |
+| ------------------------------ | ------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| [`pi/`](pi/)                   | Python + Rust | Calculate π to N decimal places (Chudnovsky algorithm)    | [`pi/CLAUDE.md`](pi/CLAUDE.md)                                                 |
+| [`prime/`](prime/)             | Rust          | Find all primes up to 10^N (segmented sieve)              | [`prime/CLAUDE.md`](prime/CLAUDE.md)                                           |
+| [`fib/`](fib/)                 | Python + Rust | Generate all Fibonacci numbers with up to 10^X digits     | [`fib/CLAUDE.md`](fib/CLAUDE.md)                                               |
+| [`sq/`](sq/)                   | Python + Rust | Find all perfect squares with up to 10^N digits (N=1 max) | [`sq/CLAUDE.md`](sq/CLAUDE.md)                                                 |
+| [`twin-primes/`](twin-primes/) | Rust          | Find all twin prime pairs up to 10^N                      | [`twin-primes/twin-primes-rs/CLAUDE.md`](twin-primes/twin-primes-rs/CLAUDE.md) |
 
 ## Architectural Decision Records
 
@@ -22,16 +22,16 @@ Significant architectural decisions are recorded in [`docs/adr/`](docs/adr/READM
 
 Each project has its own installer:
 
-| Script | Installs |
-|--------|----------|
-| `pi/install_deps.sh` | GMP + MPFR, `mpmath`, `gmpy2`, `coverage` |
-| `pi/pi-rs/install_deps.sh` | GMP + MPFR, Rust toolchain, `cargo-tarpaulin` |
-| `prime/prime-rs/install_deps.sh` | Rust toolchain, `cargo-tarpaulin` |
-| `fib/install_deps.sh` | `ruff`, `coverage` |
-| `fib/fib-rs/install_deps.sh` | GMP, Rust toolchain, `cargo-tarpaulin` |
-| `sq/install_deps.sh` | `ruff`, `coverage` |
-| `sq/sq-rs/install_deps.sh` | Rust toolchain |
-| `twin-primes/twin-primes-rs/install_deps.sh` | Rust toolchain, `cargo-tarpaulin` |
+| Script                                       | Installs                                      |
+| -------------------------------------------- | --------------------------------------------- |
+| `pi/install_deps.sh`                         | GMP + MPFR, `mpmath`, `gmpy2`, `coverage`     |
+| `pi/pi-rs/install_deps.sh`                   | GMP + MPFR, Rust toolchain, `cargo-tarpaulin` |
+| `prime/prime-rs/install_deps.sh`             | Rust toolchain, `cargo-tarpaulin`             |
+| `fib/install_deps.sh`                        | `ruff`, `coverage`                            |
+| `fib/fib-rs/install_deps.sh`                 | GMP, Rust toolchain, `cargo-tarpaulin`        |
+| `sq/install_deps.sh`                         | `ruff`, `coverage`                            |
+| `sq/sq-rs/install_deps.sh`                   | Rust toolchain                                |
+| `twin-primes/twin-primes-rs/install_deps.sh` | Rust toolchain, `cargo-tarpaulin`             |
 
 ## Quick Reference
 
@@ -128,25 +128,26 @@ Where to add tests:
 
 ## CI
 
-Nine workflow files.  Project workflows run on feature branch pushes and on PRs to `master` (never on direct master pushes).  Build jobs depend on their test job — a build will not run if tests fail.
+Nine workflow files. Project workflows run on feature branch pushes and on PRs to `master` (never on direct master pushes). Build jobs depend on their test job — a build will not run if tests fail.
 
-| Workflow | File | Jobs |
-|----------|------|------|
-| pi.py | `.github/workflows/pi-py.yml` | test |
-| pi-rs | `.github/workflows/pi-rs.yml` | test → build + artifact |
-| prime-rs | `.github/workflows/prime-rs.yml` | test → build + artifact |
-| fib.py | `.github/workflows/fib-py.yml` | test |
-| fib-rs | `.github/workflows/fib-rs.yml` | test → build + artifact |
-| sq.py | `.github/workflows/sq-py.yml` | test |
-| sq-rs | `.github/workflows/sq-rs.yml` | test → build + artifact |
-| twin-primes-rs | `.github/workflows/twin-primes-rs.yml` | test → build + artifact |
-| auto-merge | `.github/workflows/auto-merge.yml` | secret-scan → snyk-scan (advisory) → auto-merge (secret-scan is a hard gate) |
+| Workflow       | File                                   | Jobs                                                                         |
+| -------------- | -------------------------------------- | ---------------------------------------------------------------------------- |
+| pi.py          | `.github/workflows/pi-py.yml`          | test                                                                         |
+| pi-rs          | `.github/workflows/pi-rs.yml`          | test → build + artifact                                                      |
+| prime-rs       | `.github/workflows/prime-rs.yml`       | test → build + artifact                                                      |
+| fib.py         | `.github/workflows/fib-py.yml`         | test                                                                         |
+| fib-rs         | `.github/workflows/fib-rs.yml`         | test → build + artifact                                                      |
+| sq.py          | `.github/workflows/sq-py.yml`          | test                                                                         |
+| sq-rs          | `.github/workflows/sq-rs.yml`          | test → build + artifact                                                      |
+| twin-primes-rs | `.github/workflows/twin-primes-rs.yml` | test → build + artifact                                                      |
+| auto-merge     | `.github/workflows/auto-merge.yml`     | secret-scan → snyk-scan (advisory) → auto-merge (secret-scan is a hard gate) |
 
 **Auto-merge gate:** The `auto-merge` workflow gates on `needs: [secret-scan]`, so a secret scan failure blocks the merge. GitHub branch protection required checks (which would enforce project test jobs) require GitHub Team and are not available on this free account. Project test workflows are therefore advisory — a PR can technically auto-merge with failing tests. Rely on reviewing CI status in the PR before it merges.
 
 **snyk-scan** runs `snyk code test` (SAST) against the Python and Rust source. It is advisory — not in `needs` for `auto-merge`. Requires `SNYK_TOKEN` in repository secrets.
 
 **When adding a new project**, create a dedicated workflow file `.github/workflows/<project>.yml` following the same pattern:
+
 - Trigger: `push: branches-ignore: [master]` and `pull_request: branches: [master]`
 - One `test` job running the project's test suite
 - One `build` job with `needs: [test]` that builds the release binary and uploads it as an artifact
@@ -154,7 +155,7 @@ Nine workflow files.  Project workflows run on feature branch pushes and on PRs 
 
 This gives a per-project badge in the README and keeps each project's CI self-contained.
 
-**All jobs must run on Node.js 24.**  Use action versions that natively support Node.js 24:
+**All jobs must run on Node.js 24.** Use action versions that natively support Node.js 24:
 
 - `actions/checkout@v5` — natively runs on Node.js 24 (v4 used Node.js 20 and is deprecated)
 
@@ -190,7 +191,7 @@ CI runs on feature branch pushes and PRs. The `auto-merge` workflow enables GitH
 
 ## Committing Work
 
-**Create a git commit at the end of each logical unit of work.**  A unit of work is a self-contained change: a new feature, a bug fix, a docs update, a refactor, or any combination that belongs together.  Do not batch unrelated changes into one commit and do not leave work uncommitted.
+**Create a git commit at the end of each logical unit of work.** A unit of work is a self-contained change: a new feature, a bug fix, a docs update, a refactor, or any combination that belongs together. Do not batch unrelated changes into one commit and do not leave work uncommitted.
 
 Commit message format:
 
@@ -206,22 +207,22 @@ Common types: `feat`, `fix`, `docs`, `ci`, `refactor`, `test`, `chore`.
 
 ## Keeping CLAUDE.md Up To Date
 
-**When making any change to this repository, update the relevant CLAUDE.md file(s) before finishing.**  These files are the primary reference for future sessions — stale documentation is worse than none.
+**When making any change to this repository, update the relevant CLAUDE.md file(s) before finishing.** These files are the primary reference for future sessions — stale documentation is worse than none.
 
 What to update and when:
 
-| Change | Files to update |
-|--------|----------------|
-| New or renamed function / constant | Project `CLAUDE.md` → Code Layout section |
-| New or removed Makefile target | Project `CLAUDE.md` + `README.md` → Makefile targets table |
-| New dependency or install step | `pi/install_deps.sh` + project `CLAUDE.md` + `README.md` |
-| New test class or change in coverage % | Project `CLAUDE.md` + `README.md` → Testing section |
-| New project added to the repo | Top-level `CLAUDE.md` → Repository Overview table |
-| Behaviour or algorithm change | Project `CLAUDE.md` → Important Behavior / Implementation Details |
-| New project added | Create `.github/workflows/<project>.yml` (test → build + artifact); add badge to `README.md` top and CI column; update `CLAUDE.md` CI table; add new sub-project dirs to the loop in `scripts/pre-commit` |
-| Editing rule or policy change | All affected `CLAUDE.md` → Editing Guidance section |
+| Change                                 | Files to update                                                                                                                                                                                           |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| New or renamed function / constant     | Project `CLAUDE.md` → Code Layout section                                                                                                                                                                 |
+| New or removed Makefile target         | Project `CLAUDE.md` + `README.md` → Makefile targets table                                                                                                                                                |
+| New dependency or install step         | `pi/install_deps.sh` + project `CLAUDE.md` + `README.md`                                                                                                                                                  |
+| New test class or change in coverage % | Project `CLAUDE.md` + `README.md` → Testing section                                                                                                                                                       |
+| New project added to the repo          | Top-level `CLAUDE.md` → Repository Overview table                                                                                                                                                         |
+| Behaviour or algorithm change          | Project `CLAUDE.md` → Important Behavior / Implementation Details                                                                                                                                         |
+| New project added                      | Create `.github/workflows/<project>.yml` (test → build + artifact); add badge to `README.md` top and CI column; update `CLAUDE.md` CI table; add new sub-project dirs to the loop in `scripts/pre-commit` |
+| Editing rule or policy change          | All affected `CLAUDE.md` → Editing Guidance section                                                                                                                                                       |
 
-The sub-project files (`pi/CLAUDE.md`, `prime/CLAUDE.md`, `fib/CLAUDE.md`, `sq/CLAUDE.md`, and each Rust subtree's `CLAUDE.md` under `pi/pi-rs/`, `prime/prime-rs/`, `fib/fib-rs/`, `sq/sq-rs/`) are the source of truth for implementation detail.  This top-level file is the entry point and quick reference — keep them in sync.
+The sub-project files (`pi/CLAUDE.md`, `prime/CLAUDE.md`, `fib/CLAUDE.md`, `sq/CLAUDE.md`, and each Rust subtree's `CLAUDE.md` under `pi/pi-rs/`, `prime/prime-rs/`, `fib/fib-rs/`, `sq/sq-rs/`) are the source of truth for implementation detail. This top-level file is the entry point and quick reference — keep them in sync.
 
 ## Notes
 

@@ -60,11 +60,11 @@ make coverage  # coverage run + report
 
 ### Test coverage
 
-| Class | Tests |
-|-------|-------|
+| Class                   | Tests                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------ |
 | `TestGenerateFibonacci` | 9 — sequence correctness, known values, Fibonacci property, max_digits=0 empty |
-| `TestParseArgs` | 3 — no-arg, with-arg, invalid non-integer exits |
-| `TestGetExponent` | 6 — boundary validation, sys.exit for out-of-range and negative |
+| `TestParseArgs`         | 3 — no-arg, with-arg, invalid non-integer exits                                |
+| `TestGetExponent`       | 6 — boundary validation, sys.exit for out-of-range and negative                |
 
 ## Keeping This File Up To Date
 

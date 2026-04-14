@@ -4,21 +4,21 @@ Master status index for all specs and implementation plans in this directory.
 
 ## Status Key
 
-| Status | Meaning |
-|---|---|
-| Done | Implemented and merged to master |
-| In Progress | Currently being implemented |
-| Pending | Not yet started |
+| Status      | Meaning                          |
+| ----------- | -------------------------------- |
+| Done        | Implemented and merged to master |
+| In Progress | Currently being implemented      |
+| Pending     | Not yet started                  |
 
 ---
 
 ## All Plans
 
-| Date | Plan | Spec | Status |
-|---|---|---|---|
-| 2026-03-30 | [fibonacci](plans/2026-03-30-fibonacci.md) | [spec](specs/2026-03-30-fibonacci-design.md) | Done |
-| 2026-04-10 | [perfect-squares](plans/2026-04-10-perfect-squares.md) | [spec](specs/2026-04-10-perfect-squares-design.md) | Done |
-| 2026-04-11 | [twin-primes](plans/2026-04-11-twin-primes.md) | [spec](specs/2026-04-11-twin-primes-design.md) | Done |
+| Date       | Plan                                                   | Spec                                               | Status |
+| ---------- | ------------------------------------------------------ | -------------------------------------------------- | ------ |
+| 2026-03-30 | [fibonacci](plans/2026-03-30-fibonacci.md)             | [spec](specs/2026-03-30-fibonacci-design.md)       | Done   |
+| 2026-04-10 | [perfect-squares](plans/2026-04-10-perfect-squares.md) | [spec](specs/2026-04-10-perfect-squares-design.md) | Done   |
+| 2026-04-11 | [twin-primes](plans/2026-04-11-twin-primes.md)         | [spec](specs/2026-04-11-twin-primes-design.md)     | Done   |
 
 ---
 
@@ -26,12 +26,12 @@ Master status index for all specs and implementation plans in this directory.
 
 Ideas approved for future specs, in no particular order:
 
-| Feature | Notes |
-|---|---|
-| e (Euler's number) | Compute e to N decimal places; same arbitrary-precision approach as pi |
-| Collatz sequences | For each number up to 10^N find chain length; identify longest chain |
-| Perfect numbers | Find all perfect numbers up to 10^N; connected to Mersenne primes |
-| Factorial | Compute N! to arbitrary precision; extends big-number arithmetic pattern |
+| Feature            | Notes                                                                    |
+| ------------------ | ------------------------------------------------------------------------ |
+| e (Euler's number) | Compute e to N decimal places; same arbitrary-precision approach as pi   |
+| Collatz sequences  | For each number up to 10^N find chain length; identify longest chain     |
+| Perfect numbers    | Find all perfect numbers up to 10^N; connected to Mersenne primes        |
+| Factorial          | Compute N! to arbitrary precision; extends big-number arithmetic pattern |
 
 ---
 

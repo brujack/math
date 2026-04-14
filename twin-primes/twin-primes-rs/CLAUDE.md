@@ -30,9 +30,11 @@ make test          # lint + cargo test
 ## Code Layout (`src/main.rs`)
 
 Constants:
+
 - `SEG_SIZE` (`u64`, 2^19): segment size; keeps packed bitset in L2 cache.
 
 Functions:
+
 - `fn small_sieve(limit)` → `Vec<u64>`: simple Eratosthenes sieve of [2, limit].
 - `fn sieve_segment(lo, limit, small_primes)` → `Vec<u64>`: sieves one segment [lo, lo+SEG_SIZE) ∩ [lo, limit]. `lo` must be odd.
 - `fn find_twin_primes<W: Write>(limit, out)` → `io::Result<u64>`: orchestrates both phases; writes `p | p+2\n` pairs; returns count.
@@ -51,6 +53,7 @@ Functions:
 Tests in `#[cfg(test)] mod tests`. Run with `make test`.
 
 Known twin prime counts:
+
 - N=1 (limit=10): 2 pairs — (3,5),(5,7)
 - N=2 (limit=100): 8 pairs
 - N=3 (limit=1,000): 35 pairs
@@ -66,6 +69,7 @@ Known twin prime counts:
 ## Keeping This File Up To Date
 
 Update when:
+
 - Function renamed or signature changed → update Code Layout
 - Makefile target added/removed → update Build section + top-level CLAUDE.md
 - Dependency added → update install_deps.sh + this file

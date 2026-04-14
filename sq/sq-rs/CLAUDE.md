@@ -58,9 +58,9 @@ Every test must cover more than the happy path. Three categories are required fo
 
 ### Test coverage
 
-| Area | Tests |
-|------|-------|
-| `fmt_int` | 4 — zero, sub-thousand, thousands, millions |
+| Area               | Tests                                                                                                                                                                       |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fmt_int`          | 4 — zero, sub-thousand, thousands, millions                                                                                                                                 |
 | `generate_squares` | 11 — empty (max_digits=0), 1-digit exact, 2-digit count/last/exclusion, perfect-square property, strictly increasing, 10-digit count/last/exclusion, write error propagates |
 
 ## Keeping This File Up To Date

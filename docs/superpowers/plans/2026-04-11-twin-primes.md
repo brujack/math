@@ -14,25 +14,26 @@
 
 ## File Map
 
-| Action | Path | Purpose |
-|--------|------|---------|
-| Create | `twin-primes/twin-primes-rs/Cargo.toml` | Package manifest |
-| Create | `twin-primes/twin-primes-rs/Makefile` | Build/test targets |
-| Create | `twin-primes/twin-primes-rs/install_deps.sh` | Dependency installer |
-| Create | `twin-primes/twin-primes-rs/src/main.rs` | All logic + tests |
-| Create | `twin-primes/twin-primes-rs/CLAUDE.md` | Project guidance |
-| Create | `twin-primes/README.md` | Project README |
-| Create | `.github/workflows/twin-primes-rs.yml` | CI workflow |
-| Modify | `README.md` | Add badge + table row + section |
-| Modify | `CLAUDE.md` | Update Overview, CI, Dependency tables |
-| Modify | `scripts/pre-commit` | Add lint loop + twin-primes/twin-primes-rs |
-| Modify | `docs/superpowers/README.md` | Add plan row |
+| Action | Path                                         | Purpose                                    |
+| ------ | -------------------------------------------- | ------------------------------------------ |
+| Create | `twin-primes/twin-primes-rs/Cargo.toml`      | Package manifest                           |
+| Create | `twin-primes/twin-primes-rs/Makefile`        | Build/test targets                         |
+| Create | `twin-primes/twin-primes-rs/install_deps.sh` | Dependency installer                       |
+| Create | `twin-primes/twin-primes-rs/src/main.rs`     | All logic + tests                          |
+| Create | `twin-primes/twin-primes-rs/CLAUDE.md`       | Project guidance                           |
+| Create | `twin-primes/README.md`                      | Project README                             |
+| Create | `.github/workflows/twin-primes-rs.yml`       | CI workflow                                |
+| Modify | `README.md`                                  | Add badge + table row + section            |
+| Modify | `CLAUDE.md`                                  | Update Overview, CI, Dependency tables     |
+| Modify | `scripts/pre-commit`                         | Add lint loop + twin-primes/twin-primes-rs |
+| Modify | `docs/superpowers/README.md`                 | Add plan row                               |
 
 ---
 
 ### Task 1: Project scaffold
 
 **Files:**
+
 - Create: `twin-primes/twin-primes-rs/Cargo.toml`
 - Create: `twin-primes/twin-primes-rs/Makefile`
 - Create: `twin-primes/twin-primes-rs/install_deps.sh`
@@ -176,6 +177,7 @@ git commit -m "feat: scaffold twin-primes-rs project"
 ### Task 2: fmt_int helper
 
 **Files:**
+
 - Modify: `twin-primes/twin-primes-rs/src/main.rs`
 
 - [ ] **Step 1: Write the failing tests**
@@ -259,6 +261,7 @@ git commit -m "feat: add fmt_int helper to twin-primes-rs"
 ### Task 3: small_sieve
 
 **Files:**
+
 - Modify: `twin-primes/twin-primes-rs/src/main.rs`
 
 - [ ] **Step 1: Write the failing tests**
@@ -361,6 +364,7 @@ git commit -m "feat: add small_sieve to twin-primes-rs"
 ### Task 4: sieve_segment
 
 **Files:**
+
 - Modify: `twin-primes/twin-primes-rs/src/main.rs`
 
 - [ ] **Step 1: Add SEG_SIZE constant and write the failing tests**
@@ -495,6 +499,7 @@ git commit -m "feat: add sieve_segment to twin-primes-rs"
 ### Task 5: find_twin_primes
 
 **Files:**
+
 - Modify: `twin-primes/twin-primes-rs/src/main.rs`
 
 Add `use std::io::{self, Write};` at the top of `src/main.rs`.
@@ -699,6 +704,7 @@ git commit -m "feat: implement find_twin_primes with segmented sieve"
 ### Task 6: main() and CLI
 
 **Files:**
+
 - Modify: `twin-primes/twin-primes-rs/src/main.rs`
 
 - [ ] **Step 1: Add imports and CLI struct**
@@ -782,6 +788,7 @@ cargo build --release
 ```
 
 Expected output:
+
 ```
 Twin Prime Sieve
 ========================================
@@ -795,6 +802,7 @@ cat twin-primes_1e2.txt
 ```
 
 Expected:
+
 ```
 3 | 5
 5 | 7
@@ -826,12 +834,13 @@ git commit -m "feat: add main() CLI and file output to twin-primes-rs"
 ### Task 7: Project documentation
 
 **Files:**
+
 - Create: `twin-primes/twin-primes-rs/CLAUDE.md`
 - Create: `twin-primes/README.md`
 
 - [ ] **Step 1: Create `twin-primes/twin-primes-rs/CLAUDE.md`**
 
-```markdown
+````markdown
 # CLAUDE.md
 
 This file provides guidance to Claude when working with twin-primes-rs.
@@ -860,13 +869,16 @@ cd twin-primes/twin-primes-rs
 make twin-primes   # cargo build --release, copies to ~/Downloads/twin-primes
 make test          # lint + cargo test
 ```
+````
 
 ## Code Layout (`src/main.rs`)
 
 Constants:
+
 - `SEG_SIZE` (`u64`, 2^19): segment size; keeps packed bitset in L2 cache.
 
 Functions:
+
 - `fn small_sieve(limit)` → `Vec<u64>`: simple Eratosthenes sieve of [2, limit].
 - `fn sieve_segment(lo, limit, small_primes)` → `Vec<u64>`: sieves one segment [lo, lo+SEG_SIZE) ∩ [lo, limit]. `lo` must be odd.
 - `fn find_twin_primes<W: Write>(limit, out)` → `io::Result<u64>`: orchestrates both phases; writes `p | p+2\n` pairs; returns count.
@@ -885,6 +897,7 @@ Functions:
 Tests in `#[cfg(test)] mod tests`. Run with `make test`.
 
 Known twin prime counts:
+
 - N=1 (limit=10): 2 pairs — (3,5),(5,7)
 - N=2 (limit=100): 8 pairs
 - N=3 (limit=1,000): 35 pairs
@@ -900,11 +913,13 @@ Known twin prime counts:
 ## Keeping This File Up To Date
 
 Update when:
+
 - Function renamed or signature changed → update Code Layout
 - Makefile target added/removed → update Build section + top-level CLAUDE.md
 - Dependency added → update install_deps.sh + this file
 - Test counts change → update Testing section
-```
+
+````
 
 - [ ] **Step 2: Create `twin-primes/README.md`**
 
@@ -923,7 +938,7 @@ Finds every twin prime pair (p, p+2) where both primes are less than 10^N.
 cd twin-primes/twin-primes-rs
 make twin-primes
 ./target/release/twin-primes <N>
-```
+````
 
 Output is written to `twin-primes_1e{N}.txt`, one pair per line:
 
@@ -942,20 +957,22 @@ make lint          # cargo clippy -- -D warnings
 make test          # lint + cargo test
 make clean         # remove build artifacts
 ```
-```
+
+````
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add twin-primes/twin-primes-rs/CLAUDE.md twin-primes/README.md
 git commit -m "docs: add CLAUDE.md and README for twin-primes-rs"
-```
+````
 
 ---
 
 ### Task 8: CI workflow
 
 **Files:**
+
 - Create: `.github/workflows/twin-primes-rs.yml`
 
 - [ ] **Step 1: Create `.github/workflows/twin-primes-rs.yml`**
@@ -1032,6 +1049,7 @@ git commit -m "ci: add twin-primes-rs workflow"
 ### Task 9: Repo-wide updates
 
 **Files:**
+
 - Modify: `README.md`
 - Modify: `CLAUDE.md`
 - Modify: `scripts/pre-commit`
@@ -1089,7 +1107,7 @@ Add after the `sq/sq-rs/install_deps.sh` row:
 
 Add after the `### Rust (sq/sq-rs/)` section:
 
-```markdown
+````markdown
 ### Rust (`twin-primes/twin-primes-rs/`)
 
 ```bash
@@ -1098,7 +1116,9 @@ make twin-primes  # cargo build --release
 make lint         # cargo clippy -- -D warnings
 make test         # lint, then cargo test
 ```
-```
+````
+
+````
 
 - [ ] **Step 7: Update top-level `CLAUDE.md` — CI table**
 
@@ -1106,7 +1126,7 @@ Change the CI section count from "Eight workflow files" to "Nine workflow files"
 
 ```markdown
 | twin-primes-rs | `.github/workflows/twin-primes-rs.yml` | test → build + artifact |
-```
+````
 
 - [ ] **Step 8: Update `scripts/pre-commit` — add lint loop with all sub-projects**
 

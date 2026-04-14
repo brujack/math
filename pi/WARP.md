@@ -9,10 +9,12 @@ This is a Python project for high-precision mathematical calculations, currently
 ## Dependencies
 
 **Required:**
+
 - Python 3.x
 - `mpmath` library (for arbitrary-precision arithmetic)
 
 **Installation:**
+
 ```bash
 pip install mpmath
 ```
@@ -20,11 +22,13 @@ pip install mpmath
 ## Running the Code
 
 ### Main π Calculator
+
 ```bash
 python3 pi.py
 ```
 
 The script is interactive and will prompt for:
+
 1. Number of decimal places (1-1,000,000+)
 2. Display preference (show all digits or save to file)
 
@@ -39,6 +43,7 @@ The script is interactive and will prompt for:
   - 10M digits: ~300-600 seconds conversion
 
 The script includes:
+
 - Progress bars with ETA for string conversion
 - Countdown timers for file writing
 - Chunked file I/O for large outputs
@@ -74,14 +79,17 @@ The script includes:
 ### Key Implementation Details
 
 **Precision Management:**
+
 - Uses `digits + 50` extra precision for intermediate calculations
 - Converts to string using `mpmath.nstr(value, digits+1, strip_zeros=False)`
 
 **Performance Bottleneck:**
+
 - String conversion from `mpmath.mpf` to text is the slowest operation (not the calculation itself)
 - Conversion time grows non-linearly: O(n^1.5) to O(n^2) for very large numbers
 
 **Threading:**
+
 - Progress indicator runs in daemon thread
 - Prevents blocking during long conversion operations
 

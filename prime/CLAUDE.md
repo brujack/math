@@ -12,17 +12,19 @@ Current structure:
 
 ## Rust Implementation (`prime-rs/`)
 
-The binary finds every prime up to 10^N.  Practical range: N ≤ 10 for reasonable runtimes and output file sizes (N=10 → ~455 M primes, ~5 GB text file).  N up to 18 is supported with a warning for N ≥ 11.
+The binary finds every prime up to 10^N. Practical range: N ≤ 10 for reasonable runtimes and output file sizes (N=10 → ~455 M primes, ~5 GB text file). N up to 18 is supported with a warning for N ≥ 11.
 
 ### Algorithm
 
 Two-phase segmented Sieve of Eratosthenes:
 
 **Phase 1** — simple sieve of `[2, √(10^N)]`
+
 - Runs once; produces `small_primes` used to cross off composites in phase 2.
 - For N=9: √(10^9) ≈ 31 623 → trivial (168 primes, ~4 KB).
 
 **Phase 2** — segmented sieve of `(√(10^N), 10^N]`
+
 - Range split into `SEG_SIZE`-number segments (2^19 = 524 288 numbers each).
 - Each segment represented as a **packed bitset** (1 bit per odd number = 32 KB) — fits in L2 cache.
 - Segments grouped into `BLOCK_SIZE`-number blocks (100 M numbers); each block is processed with `rayon::par_iter` across its segments.
@@ -37,6 +39,7 @@ make prime       # cargo build --release, copies binary to ~/Downloads/prime
 ```
 
 A `Makefile` is provided in `prime-rs/`:
+
 - `make prime` — runs `cargo build --release` and copies the binary to `~/Downloads/prime`
 - `make lint` — runs `cargo clippy -- -D warnings`
 - `make test` — runs lint then `cargo test`
@@ -49,26 +52,31 @@ Install the Rust toolchain and `cargo-tarpaulin` by running `prime/prime-rs/inst
 ### Code Layout (`prime-rs/src/main.rs`)
 
 Constants:
+
 - `SEG_SIZE` (`u64`, 2^19): number range covered by one sieve segment; governs the 32 KB bitset per segment.
 - `BLOCK_SIZE` (`u64`, 100 M): numbers per sequential rayon batch; bounds peak RAM.
 
 Sieve functions:
+
 - `fn small_sieve(limit)`: simple Eratosthenes sieve of `[2, limit]`; returns `Vec<u64>` of primes.
 - `fn sieve_segment(lo, limit, small_primes)`: sieves one segment `[lo, lo+SEG_SIZE) ∩ [lo, limit]` using a packed `Vec<u8>` bitset. `lo` must be odd and greater than all `small_primes`. Returns `Vec<u64>` of primes in the segment.
 
 Driver:
+
 - `fn find_primes<W: Write>(limit, out)`: orchestrates both phases; spawns a progress thread; returns total prime count.
   - Writes small primes directly after phase 1.
   - Iterates `block_lo` from `phase2_start` (first odd > `sqrt_limit`) to `limit` in `BLOCK_SIZE` steps.
   - Within each block: builds `seg_starts` Vec, runs `par_iter().map(sieve_segment).collect()`, writes results.
 
 Helpers:
+
 - `fn fmt_int(n)`: formats `u64` with thousands separators.
 - `fn read_line()`, `fn prompt_digits()`: interactive prompt helpers.
 
 ### Bitset Representation
 
 `sieve_segment` uses a packed `Vec<u8>` where:
+
 - Bit index `i` represents the odd number `lo + 2*i`.
 - Bit = 1 means composite; bit = 0 means prime candidate.
 - For small prime `p`, consecutive odd multiples are `2p` apart in number space → index step = `p` (since each index unit covers 2 numbers).
@@ -77,9 +85,11 @@ Helpers:
 ### Progress Output
 
 A background thread wakes every 200 ms and prints to stderr:
+
 ```
   Phase 2:  XX%  (N / N numbers sieved)  X.X M/s
 ```
+
 Uses `\r` to overwrite in place; a final line is printed after the thread is joined.
 
 ### Output Behaviour
@@ -124,12 +134,12 @@ cargo tarpaulin --out Stdout
 
 ### Test coverage (56% line coverage, 25 tests)
 
-| Area | Tests | Notes |
-|------|-------|-------|
-| `fmt_int` | 5 | zero, sub-thousand, thousands, millions, large |
-| `small_sieve` | 6 | empty, single prime, known lists, π(100)=25, π(1000)=168 |
-| `sieve_segment` | 5 | known range, no even numbers, empty when lo > limit, lo == limit (prime) |
-| `find_primes` | 9 | below-2, limit=2 exactly, up-to-10 exact output, π(100), π(1000), π(10^6)=78498, last prime, no even non-2, write error propagates |
+| Area            | Tests | Notes                                                                                                                              |
+| --------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `fmt_int`       | 5     | zero, sub-thousand, thousands, millions, large                                                                                     |
+| `small_sieve`   | 6     | empty, single prime, known lists, π(100)=25, π(1000)=168                                                                           |
+| `sieve_segment` | 5     | known range, no even numbers, empty when lo > limit, lo == limit (prime)                                                           |
+| `find_primes`   | 9     | below-2, limit=2 exactly, up-to-10 exact output, π(100), π(1000), π(10^6)=78498, last prime, no even non-2, write error propagates |
 
 Uncovered lines: progress thread, `prompt_digits` / `read_line` (interactive stdin), `main()` — all integration-level only.
 
@@ -141,7 +151,7 @@ Uncovered lines: progress thread, `prompt_digits` / `read_line` (interactive std
 
 ## Keeping This File Up To Date
 
-**Update this file whenever you change the code.**  Future Claude sessions rely on it — stale docs are worse than none.  Specifically:
+**Update this file whenever you change the code.** Future Claude sessions rely on it — stale docs are worse than none. Specifically:
 
 - New or renamed function / constant → update Code Layout
 - Makefile target added or removed → update the Makefile bullet list here and in `README.md`

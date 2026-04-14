@@ -4,7 +4,7 @@ This file provides guidance to Claude when working with code in this repository.
 
 ## Repository Overview
 
-This repository contains a small Python CLI for calculating π to high precision.  It uses the Chudnovsky algorithm with `gmpy2`/GMP (fast path) and falls back to `mpmath` if `gmpy2` is not installed.
+This repository contains a small Python CLI for calculating π to high precision. It uses the Chudnovsky algorithm with `gmpy2`/GMP (fast path) and falls back to `mpmath` if `gmpy2` is not installed.
 
 Current structure:
 
@@ -20,6 +20,7 @@ Current structure:
 The Rust binary targets >50M digit workloads where the Python subprocess IPC overhead becomes significant.
 
 Key differences from Python:
+
 - Uses `rayon::join()` for recursive parallel binary splitting — threads share memory, zero IPC/serialisation cost
 - `rug` wraps GMP (`Integer`) and MPFR (`Float`) directly — same C libraries as Python's gmpy2
 - Parallel file I/O via `FileExt::write_at` (POSIX pwrite equivalent) dispatched by rayon
@@ -33,6 +34,7 @@ make pi          # builds release binary and copies it to ~/Downloads/pi
 ```
 
 A `Makefile` is provided in `pi-rs/`:
+
 - `make pi` — runs `cargo build --release` and copies the binary to `~/Downloads/pi`
 - `make lint` — runs `cargo clippy -- -D warnings`
 - `make test` — runs lint then `cargo test`
@@ -74,19 +76,20 @@ bash pi/pi-rs/install_deps.sh  # pi-rs — GMP + MPFR, Rust toolchain, cargo-tar
 
 Requirements summary:
 
-| Dependency | Required for |
-|---|---|
-| Python 3 | `pi.py`, tests |
-| `mpmath` | `pi.py` fallback path (required) |
-| `gmpy2` | `pi.py` fast path (optional, 5–50× speedup) |
-| `coverage` | `make coverage` |
-| GMP + MPFR (C libs) | `gmpy2`, `pi-rs` via rug |
-| Rust 1.85+ | `pi-rs` |
-| `cargo-tarpaulin` | `cargo tarpaulin` (Rust coverage) |
+| Dependency          | Required for                                |
+| ------------------- | ------------------------------------------- |
+| Python 3            | `pi.py`, tests                              |
+| `mpmath`            | `pi.py` fallback path (required)            |
+| `gmpy2`             | `pi.py` fast path (optional, 5–50× speedup) |
+| `coverage`          | `make coverage`                             |
+| GMP + MPFR (C libs) | `gmpy2`, `pi-rs` via rug                    |
+| Rust 1.85+          | `pi-rs`                                     |
+| `cargo-tarpaulin`   | `cargo tarpaulin` (Rust coverage)           |
 
 ## Running The Script
 
 A `Makefile` is provided in `pi/`:
+
 - `make run` — runs `python3 pi.py`
 - `make lint` — runs `ruff check .`
 - `make test` — runs lint then `python3 -m unittest test_pi -v`
@@ -139,7 +142,7 @@ CLI:
 
 Main functions:
 
-- `calculate_pi_high_precision(digits)`: tries gmpy2 Chudnovsky first, falls back to mpmath; caches `(Q_int, T_int)` in `_gmpy2_QT_cache` for the subprocess.  Returns a `gmpy2.mpfr` (fast path) or `mpmath.mpf` (fallback path).
+- `calculate_pi_high_precision(digits)`: tries gmpy2 Chudnovsky first, falls back to mpmath; caches `(Q_int, T_int)` in `_gmpy2_QT_cache` for the subprocess. Returns a `gmpy2.mpfr` (fast path) or `mpmath.mpf` (fallback path).
 - `show_pi_preview(pi_value, preview_digits)`: prints a short preview of the computed digits.
 - `save_pi_to_file(pi_value, digits, filename)`: two-phase save — subprocess conversion then parallel pwrite file write.
 - `main()`: top-level entry point; calls `parse_args()`, `get_target_digits()`, `calculate_pi_high_precision()`, and either `show_pi_preview()` or `save_pi_to_file()` based on digit count.
@@ -155,18 +158,18 @@ Module-level constants / state:
 
 ## Important Behavior
 
-- **gmpy2 path (fast)**: uses the Chudnovsky binary-splitting algorithm with GMP big-integer arithmetic (`gmpy2.mpz`), then MPFR for the final floating-point value.  Each Chudnovsky term contributes ≈14.18 decimal digits; recursion depth is O(log N), well within Python's stack limit.  The series computation is parallelised across all available CPU cores: `[0, N)` is split into `_CPU_COUNT` equal chunks (minimum 100 terms each), each chunk is computed in a subprocess, and the results are merged in the main process via `_tree_combine` (pairwise tree reduction keeps intermediate GMP multiply sizes balanced).
-- **mpmath fallback**: sets precision to `digits + 50` and uses `mpmath.pi`.  Large runs are dominated by converting the `mpmath` value to a string, not by the calculation itself.
-- **gmpy2.mpfr is a C extension type** and does not support arbitrary attribute assignment.  The `(Q_int, T_int)` accumulator ints are stored in `_gmpy2_QT_cache` (module-level) and passed as plain Python ints to the subprocess worker, avoiding any gmpy2 pickling uncertainty.
+- **gmpy2 path (fast)**: uses the Chudnovsky binary-splitting algorithm with GMP big-integer arithmetic (`gmpy2.mpz`), then MPFR for the final floating-point value. Each Chudnovsky term contributes ≈14.18 decimal digits; recursion depth is O(log N), well within Python's stack limit. The series computation is parallelised across all available CPU cores: `[0, N)` is split into `_CPU_COUNT` equal chunks (minimum 100 terms each), each chunk is computed in a subprocess, and the results are merged in the main process via `_tree_combine` (pairwise tree reduction keeps intermediate GMP multiply sizes balanced).
+- **mpmath fallback**: sets precision to `digits + 50` and uses `mpmath.pi`. Large runs are dominated by converting the `mpmath` value to a string, not by the calculation itself.
+- **gmpy2.mpfr is a C extension type** and does not support arbitrary attribute assignment. The `(Q_int, T_int)` accumulator ints are stored in `_gmpy2_QT_cache` (module-level) and passed as plain Python ints to the subprocess worker, avoiding any gmpy2 pickling uncertainty.
 - String conversion runs in a `ProcessPoolExecutor` subprocess (1 worker) to bypass the GIL; the main thread polls `future.done()` to drive the progress display — no background thread is used.
-- File writing uses `ThreadPoolExecutor` (`_IO_WORKERS` threads) with `os.pwrite(2)` so multiple threads can write non-overlapping chunks concurrently. The file is pre-allocated with `os.ftruncate()` before any writes.  A `threading.Lock` (`_progress_lock`) guards `completed_chunks` increments and the progress print inside `write_chunk` to prevent data races on the shared counter and interleaved terminal output.
+- File writing uses `ThreadPoolExecutor` (`_IO_WORKERS` threads) with `os.pwrite(2)` so multiple threads can write non-overlapping chunks concurrently. The file is pre-allocated with `os.ftruncate()` before any writes. A `threading.Lock` (`_progress_lock`) guards `completed_chunks` increments and the progress print inside `write_chunk` to prevent data races on the shared counter and interleaved terminal output.
 - On macOS the `spawn` multiprocessing context is used; on Linux `fork` is used.
 - The `if __name__ == "__main__":` guard checks `multiprocessing.current_process().name == "MainProcess"` to prevent `main()` from running in worker subprocesses (required on macOS where `spawn` re-executes the script in each worker).
 - Very large output files can be slow to generate and should not be casually regenerated during routine edits.
 
 ## Keeping This File Up To Date
 
-**Update this file whenever you change the code.**  Future Claude sessions rely on it — stale docs are worse than none.  Specifically:
+**Update this file whenever you change the code.** Future Claude sessions rely on it — stale docs are worse than none. Specifically:
 
 - New or renamed function / constant → update Code Layout
 - Makefile target added or removed → update the Makefile bullet list here and in `README.md`
@@ -185,7 +188,7 @@ Also update the top-level `CLAUDE.md` if the change affects the repository overv
 - Be careful with performance changes inside `save_pi_to_file`, since that function handles the main large-number bottleneck.
 - `_convert_gmpy2_worker`, `_convert_mpmath_worker`, `_bs_chunk_worker`, and `_pwrite_all` must remain at module level — moving them inside a function or class will break multiprocessing pickling.
 - Do not remove the `current_process().name == "MainProcess"` check from the `if __name__ == "__main__":` block — it is required to prevent infinite subprocess spawning on macOS (where `spawn` re-executes the script in each worker).
-- Do not attempt to set arbitrary attributes on `gmpy2.mpfr` objects — they are C extension types with fixed slots.  Use `_gmpy2_QT_cache` to pass data between the calculation and the subprocess worker.
+- Do not attempt to set arbitrary attributes on `gmpy2.mpfr` objects — they are C extension types with fixed slots. Use `_gmpy2_QT_cache` to pass data between the calculation and the subprocess worker.
 - Avoid committing regenerated large output files unless the task explicitly requires updating them.
 
 ## Testing
@@ -218,24 +221,24 @@ gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 
 #### Test coverage (78% line coverage, 63 tests)
 
-| Class | Tests | Notes |
-|-------|-------|-------|
-| `TestTreeCombine` | 7 | Pure Python — always runs; includes empty-list boundary |
-| `TestPwriteAll` | 4 | POSIX pwrite — always runs |
-| `TestPwriteAllStall` | 1 | Error path — always runs |
-| `TestChudnovskyBS` | 7 | Skipped without gmpy2 |
-| `TestBsChunkWorker` | 3 | Skipped without gmpy2 |
-| `TestGmpy2Conversions` | 5 | Skipped without gmpy2 |
-| `TestConvertGmpy2Worker` | 2 | Skipped without gmpy2 |
-| `TestConvertMpmathWorker` | 3 | Always runs |
-| `TestMpmathFallback` | 2 | Always runs |
-| `TestPiToStr` | 6 | Format + known-digit checks |
-| `TestPiAccuracy` | 4 | End-to-end vs reference π |
-| `TestShowPiPreview` | 4 | stdout capture |
-| `TestSavePiToFile` | 5 | File write + content checks |
-| `TestCalculatePiParallel` | 1 | Skipped without gmpy2 |
-| `TestGetTargetDigits` | 5 | Argument parsing; includes minimum value (digits=1) |
-| `TestParseArgs` | 3 | CLI flag parsing |
+| Class                     | Tests | Notes                                                   |
+| ------------------------- | ----- | ------------------------------------------------------- |
+| `TestTreeCombine`         | 7     | Pure Python — always runs; includes empty-list boundary |
+| `TestPwriteAll`           | 4     | POSIX pwrite — always runs                              |
+| `TestPwriteAllStall`      | 1     | Error path — always runs                                |
+| `TestChudnovskyBS`        | 7     | Skipped without gmpy2                                   |
+| `TestBsChunkWorker`       | 3     | Skipped without gmpy2                                   |
+| `TestGmpy2Conversions`    | 5     | Skipped without gmpy2                                   |
+| `TestConvertGmpy2Worker`  | 2     | Skipped without gmpy2                                   |
+| `TestConvertMpmathWorker` | 3     | Always runs                                             |
+| `TestMpmathFallback`      | 2     | Always runs                                             |
+| `TestPiToStr`             | 6     | Format + known-digit checks                             |
+| `TestPiAccuracy`          | 4     | End-to-end vs reference π                               |
+| `TestShowPiPreview`       | 4     | stdout capture                                          |
+| `TestSavePiToFile`        | 5     | File write + content checks                             |
+| `TestCalculatePiParallel` | 1     | Skipped without gmpy2                                   |
+| `TestGetTargetDigits`     | 5     | Argument parsing; includes minimum value (digits=1)     |
+| `TestParseArgs`           | 3     | CLI flag parsing                                        |
 
 #### Adding new tests
 
@@ -264,14 +267,14 @@ cargo tarpaulin --out Stdout
 
 #### Test coverage (39% line coverage, 19 tests)
 
-| Area | Tests | Notes |
-|------|-------|-------|
-| `fmt_int` | 5 | zero, sub-thousand, thousands, millions, billions |
-| `bs_leaf` | 4 | base case, index-1 formulas, even/odd sign, counter delta |
-| `bs_merge` | 1 | result matches manual merge of two leaves |
-| `bs` split consistency | 2 | n=4 and n=8 split/merge round-trip |
-| `pi_to_string` | 5 | format, exact length, no exponent notation, known digits, single decimal place |
-| `compute_pi` | 2 | end-to-end accuracy at 10 and 50 decimal places |
+| Area                   | Tests | Notes                                                                          |
+| ---------------------- | ----- | ------------------------------------------------------------------------------ |
+| `fmt_int`              | 5     | zero, sub-thousand, thousands, millions, billions                              |
+| `bs_leaf`              | 4     | base case, index-1 formulas, even/odd sign, counter delta                      |
+| `bs_merge`             | 1     | result matches manual merge of two leaves                                      |
+| `bs` split consistency | 2     | n=4 and n=8 split/merge round-trip                                             |
+| `pi_to_string`         | 5     | format, exact length, no exponent notation, known digits, single decimal place |
+| `compute_pi`           | 2     | end-to-end accuracy at 10 and 50 decimal places                                |
 
 Uncovered lines: `write_pi_file` (parallel pwrite I/O), `prompt_digits` / `read_line` (interactive stdin), `main()` — all integration-level only.
 

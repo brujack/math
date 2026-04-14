@@ -10,6 +10,7 @@ Finding all primes up to 10^N requires a sieve. A naive Sieve of Eratosthenes al
 ## Decision
 
 Use a **parallel segmented Sieve of Eratosthenes** in Rust with:
+
 - **32 KB packed bitset segments** — sized to fit in L2 cache, eliminating cache-miss overhead during inner sieve loops.
 - **rayon** for parallel evaluation of independent segments across all available CPU cores.
 - **Streaming output** — primes are written to file as each segment completes rather than accumulating in memory.

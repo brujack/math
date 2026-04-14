@@ -41,15 +41,17 @@ Top-level `CLAUDE.md` and `README.md` updated to include `sq/` in the project ta
 - Iterate `k = 1, 2, 3, …`; yield/write `k²` while `k² < limit`.
 - Stop when `k² ≥ limit`.
 
-For N=1: `max_digits = 10`, `limit = 10^10 = 10,000,000,000`.  
-- First square: 1² = 1  
-- Last square: 99,999² = 9,999,800,001 (10 digits) ✓  
-- Excluded: 100,000² = 10,000,000,000 (11 digits) ✗  
+For N=1: `max_digits = 10`, `limit = 10^10 = 10,000,000,000`.
+
+- First square: 1² = 1
+- Last square: 99,999² = 9,999,800,001 (10 digits) ✓
+- Excluded: 100,000² = 10,000,000,000 (11 digits) ✗
 - Total: 99,999 perfect squares
 
 All values fit in u64 (max u64 ≈ 1.8×10^19). No big-integer library needed.
 
 **Stopping criterion:**
+
 - Python: `k * k < limit`
 - Rust: `k.checked_mul(k).map_or(false, |sq| sq < limit)` — explicit about the invariant
 
@@ -74,10 +76,10 @@ Display all 99,999 perfect squares? (y/n):
 
 ## Dependencies
 
-| Component | Dependencies |
-|-----------|-------------|
-| `sq.py` | None (Python stdlib only) |
-| `sq-rs` | `clap` only — no GMP, no rug |
+| Component | Dependencies                 |
+| --------- | ---------------------------- |
+| `sq.py`   | None (Python stdlib only)    |
+| `sq-rs`   | `clap` only — no GMP, no rug |
 
 ---
 
@@ -86,19 +88,23 @@ Display all 99,999 perfect squares? (y/n):
 **Mandatory categories for `generate_squares(max_digits)`:**
 
 Boundary:
+
 - `max_digits=0` → limit=1, k²=1 ≥ 1 immediately → empty sequence
 - `max_digits=1` → yields 1, 4, 9 (three 1-digit squares, stops before 10)
 - Boundary at max_digits=10: 99,999² is included; 100,000² is excluded
 - Count for max_digits=10: exactly 99,999 squares
 
 Correctness:
+
 - Each yielded value is a perfect square (integer square root check)
 - Output is strictly increasing
 
 Error path (Rust):
+
 - `generate_squares` with a `FailWriter` → error propagates as `io::Result::Err`
 
 **CLI / arg parsing:**
+
 - N=1 → valid, returns 1
 - N=0 → exits with error
 - N=2 → exits with error (exceeds max)
@@ -106,6 +112,7 @@ Error path (Rust):
 - Non-integer arg → exits with error
 
 **State transition:**
+
 - Calling `generate_squares` twice with the same input produces identical output (idempotent, no side effects)
 
 ---
@@ -113,10 +120,12 @@ Error path (Rust):
 ## CI
 
 **`.github/workflows/sq-py.yml`**
+
 - Triggers: `push: branches-ignore: master`, `pull_request: branches: master`
 - Job `test`: installs `ruff` + `coverage`; runs `make test` from `sq/`
 
 **`.github/workflows/sq-rs.yml`**
+
 - Same triggers
 - Job `test`: Rust toolchain; runs `make test` from `sq/sq-rs/`
 - Job `build` (`needs: [test]`): `cargo build --release`; uploads `sq` binary as artifact (7-day retention)
@@ -135,9 +144,9 @@ Two new CI badges added to `README.md`.
 
 ## Documentation Updates
 
-| File | Update |
-|------|--------|
+| File                    | Update                                             |
+| ----------------------- | -------------------------------------------------- |
 | `CLAUDE.md` (top-level) | Add `sq/` row to Repository Overview and CI tables |
-| `README.md` | Add `sq/` row to project table; add two CI badges |
-| `sq/CLAUDE.md` | New file — Python project guidance |
-| `sq/sq-rs/CLAUDE.md` | New file — Rust project guidance |
+| `README.md`             | Add `sq/` row to project table; add two CI badges  |
+| `sq/CLAUDE.md`          | New file — Python project guidance                 |
+| `sq/sq-rs/CLAUDE.md`    | New file — Rust project guidance                   |

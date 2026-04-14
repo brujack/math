@@ -15,6 +15,7 @@
 ## File Map
 
 **Create:**
+
 - `fib/Makefile`
 - `fib/install_deps.sh`
 - `fib/fib.py`
@@ -31,6 +32,7 @@
 - `.gitignore`
 
 **Modify:**
+
 - `CLAUDE.md` (top-level) — add fib row to project table and quick reference
 - `README.md` (top-level) — add fib row, two badges
 
@@ -39,6 +41,7 @@
 ## Task 1: Python scaffolding — Makefile and install_deps.sh
 
 **Files:**
+
 - Create: `fib/Makefile`
 - Create: `fib/install_deps.sh`
 
@@ -128,6 +131,7 @@ git commit -m "feat: add fib Python project scaffolding (Makefile, install_deps.
 ## Task 2: Python — write failing tests
 
 **Files:**
+
 - Create: `fib/test_fib.py`
 
 - [ ] **Step 1: Write test_fib.py**
@@ -244,6 +248,7 @@ git commit -m "test: add failing tests for fib Python implementation"
 ## Task 3: Python — implement fib.py and pass tests
 
 **Files:**
+
 - Create: `fib/fib.py`
 
 - [ ] **Step 1: Write fib.py**
@@ -403,6 +408,7 @@ git commit -m "feat: implement fib.py — generate all Fibonacci numbers up to 1
 ## Task 4: Rust scaffolding — Cargo.toml and stub main.rs with failing tests
 
 **Files:**
+
 - Create: `fib/fib-rs/Cargo.toml`
 - Create: `fib/fib-rs/src/main.rs` (stubs + tests)
 
@@ -673,6 +679,7 @@ git commit -m "test: add failing Rust tests for fib-rs implementation"
 ## Task 5: Rust — implement generate_fibonacci and fmt_int, pass all tests
 
 **Files:**
+
 - Modify: `fib/fib-rs/src/main.rs`
 
 Replace the two stub functions with real implementations. All other code in the file stays the same.
@@ -775,6 +782,7 @@ git commit -m "feat: implement fib-rs — generate all Fibonacci numbers up to 1
 ## Task 6: Rust support files — Makefile and install_deps.sh
 
 **Files:**
+
 - Create: `fib/fib-rs/Makefile`
 - Create: `fib/fib-rs/install_deps.sh`
 
@@ -962,6 +970,7 @@ git commit -m "feat: add fib-rs Makefile and install_deps.sh"
 ## Task 7: CI workflows
 
 **Files:**
+
 - Create: `.github/workflows/fib-py.yml`
 - Create: `.github/workflows/fib-rs.yml`
 
@@ -1074,6 +1083,7 @@ git commit -m "ci: add fib-py and fib-rs GitHub Actions workflows"
 ## Task 8: Documentation, CLAUDE.md files, and top-level updates
 
 **Files:**
+
 - Create: `fib/CLAUDE.md`
 - Create: `fib/fib-rs/CLAUDE.md`
 - Create: `fib/README.md`
@@ -1083,7 +1093,7 @@ git commit -m "ci: add fib-py and fib-rs GitHub Actions workflows"
 
 - [ ] **Step 1: Create fib/CLAUDE.md**
 
-```markdown
+````markdown
 # CLAUDE.md
 
 This file provides guidance to Claude when working with code in this repository.
@@ -1107,6 +1117,7 @@ make lint      # ruff check .
 make test      # lint, then python3 -m unittest test_fib -v
 make coverage  # run tests and print coverage report
 ```
+````
 
 Or directly:
 
@@ -1138,11 +1149,11 @@ make coverage  # coverage run + report
 
 ### Test coverage
 
-| Class | Tests |
-|-------|-------|
+| Class                   | Tests                                                      |
+| ----------------------- | ---------------------------------------------------------- |
 | `TestGenerateFibonacci` | 8 — sequence correctness, known values, Fibonacci property |
-| `TestParseArgs` | 2 — no-arg and with-arg CLI parsing |
-| `TestGetExponent` | 5 — boundary validation, sys.exit for out-of-range |
+| `TestParseArgs`         | 2 — no-arg and with-arg CLI parsing                        |
+| `TestGetExponent`       | 5 — boundary validation, sys.exit for out-of-range         |
 
 ## Keeping This File Up To Date
 
@@ -1152,7 +1163,8 @@ Update this file whenever you:
 - Add or remove a Makefile target → update Running section and `README.md`
 - Change the valid exponent range or large-N threshold → update Important Behavior
 - Add test classes or change coverage → update Testing table
-```
+
+````
 
 - [ ] **Step 2: Create fib/fib-rs/CLAUDE.md**
 
@@ -1180,7 +1192,7 @@ make fib       # cargo build --release, copies binary to ~/Downloads/fib
 make lint      # cargo clippy -- -D warnings
 make test      # lint, then cargo test
 make clean     # cargo clean + remove ~/Downloads/fib
-```
+````
 
 Or directly:
 
@@ -1233,9 +1245,9 @@ cargo test
 
 ### Test coverage
 
-| Area | Tests |
-|------|-------|
-| `fmt_int` | 4 — zero, sub-thousand, thousands, millions |
+| Area                 | Tests                                                                                                     |
+| -------------------- | --------------------------------------------------------------------------------------------------------- |
+| `fmt_int`            | 4 — zero, sub-thousand, thousands, millions                                                               |
 | `generate_fibonacci` | 6 — single-digit sequence, two-digit count, last value, first 10 values, Fibonacci property, all positive |
 
 Uncovered: `prompt_exponent`, `read_line`, `main()` — interactive/integration only.
@@ -1248,7 +1260,8 @@ Update this file whenever you:
 - Change the valid exponent range or large-N threshold → update Important Behavior
 - Add tests or change coverage → update Testing table
 - Add a Makefile target → update Build section
-```
+
+````
 
 - [ ] **Step 3: Create fib/README.md**
 
@@ -1274,7 +1287,7 @@ bash install_deps.sh   # install ruff + coverage (one time)
 make run               # interactive prompt
 python3 fib.py 3       # generate Fibonacci numbers with up to 1,000 digits
 make test              # run unit tests
-```
+````
 
 ### Rust
 
@@ -1305,7 +1318,8 @@ Output: one Fibonacci number per line. Small results (X ≤ 2) are buffered and 
 ## Output Files
 
 Generated `fib_1eX.txt` files are large artifacts and are not committed to git.
-```
+
+````
 
 - [ ] **Step 4: Create root .gitignore**
 
@@ -1314,18 +1328,20 @@ Generated `fib_1eX.txt` files are large artifacts and are not committed to git.
 pi_*_digits.txt
 primes_1e*.txt
 fib_1e*.txt
-```
+````
 
 - [ ] **Step 5: Update top-level CLAUDE.md**
 
 In the Repository Overview table, add a row for fib:
 
 Find:
+
 ```markdown
 | [`prime/`](prime/) | Rust | Find all primes up to 10^N (segmented sieve) | [`prime/CLAUDE.md`](prime/CLAUDE.md) |
 ```
 
 Replace with:
+
 ```markdown
 | [`prime/`](prime/) | Rust | Find all primes up to 10^N (segmented sieve) | [`prime/CLAUDE.md`](prime/CLAUDE.md) |
 | [`fib/`](fib/) | Python + Rust | Generate all Fibonacci numbers with up to 10^X digits | [`fib/CLAUDE.md`](fib/CLAUDE.md) |
@@ -1333,7 +1349,7 @@ Replace with:
 
 In the Quick Reference section, add after the prime section:
 
-```markdown
+````markdown
 ### Python (`fib/`)
 
 ```bash
@@ -1343,6 +1359,7 @@ make lint      # ruff check .
 make test      # lint, then python3 -m unittest test_fib -v
 make coverage  # coverage run + report
 ```
+````
 
 ### Rust (`fib/fib-rs/`)
 
@@ -1352,14 +1369,15 @@ make fib       # cargo build --release
 make lint      # cargo clippy -- -D warnings
 make test      # lint, then cargo test
 ```
-```
+
+````
 
 In the CI table, add a row:
 
 ```markdown
 | fib.py | `.github/workflows/fib-py.yml` | test |
 | fib-rs | `.github/workflows/fib-rs.yml` | test → build + artifact |
-```
+````
 
 - [ ] **Step 6: Update top-level README.md**
 
@@ -1397,4 +1415,7 @@ See [`fib/README.md`](fib/README.md) for full details.
 git add fib/CLAUDE.md fib/fib-rs/CLAUDE.md fib/README.md .gitignore CLAUDE.md README.md
 git commit -m "docs: add fib project docs, CLAUDE.md files, .gitignore, update top-level README and CLAUDE.md"
 ```
+
+```
+
 ```
