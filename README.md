@@ -72,6 +72,20 @@ See [`twin-primes/README.md`](twin-primes/README.md) for full details.
 
 ---
 
+## Development Setup
+
+After cloning, install the pre-commit hook:
+
+```bash
+make install-hooks
+```
+
+This symlinks `scripts/pre-commit` into `.git/hooks/pre-commit`. The hook runs `make lint` on staged sub-projects and scans for secrets with `ggshield` (skipped gracefully if not installed). CI secret-scan via gitleaks is a backstop — local scanning catches secrets before they leave the machine.
+
+Install ggshield: `brew install gitguardian/tap/ggshield && ggshield auth login`.
+
+---
+
 ## Architectural Decisions
 
 Key decisions are recorded in [`docs/adr/`](docs/adr/README.md): algorithm choices (Chudnovsky, segmented sieve), language strategy (Python vs Rust), library choices (GMP/rug, rayon), and CI structure.
