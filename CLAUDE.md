@@ -35,6 +35,12 @@ Each project has its own installer:
 
 ## Quick Reference
 
+### Setup (run once per checkout)
+
+```bash
+make install-hooks   # creates .git/hooks/pre-commit → scripts/pre-commit
+```
+
 ### Python (`pi/`)
 
 ```bash
@@ -142,6 +148,8 @@ Nine workflow files. Project workflows run on feature branch pushes and on PRs t
 | twin-primes-rs | `.github/workflows/twin-primes-rs.yml` | test → build + artifact                                                      |
 | auto-merge     | `.github/workflows/auto-merge.yml`     | secret-scan → snyk-scan (advisory) → auto-merge (secret-scan is a hard gate) |
 
+**Pre-commit hook** — `scripts/pre-commit` is committed to the repo and installed as a symlink via `make install-hooks`. It runs `make lint` on staged sub-projects and `ggshield secret scan pre-commit` (skipped if not installed). CI gitleaks is a backstop — install and activate ggshield locally so secrets are caught before they leave the machine.
+
 **Auto-merge gate:** The `auto-merge` workflow gates on `needs: [secret-scan]`, so a secret scan failure blocks the merge. GitHub branch protection required checks (which would enforce project test jobs) require GitHub Team and are not available on this free account. Project test workflows are therefore advisory — a PR can technically auto-merge with failing tests. Rely on reviewing CI status in the PR before it merges.
 
 **snyk-scan** runs `snyk code test` (SAST) against the Python and Rust source. It is advisory — not in `needs` for `auto-merge`. Requires `SNYK_TOKEN` in repository secrets.
@@ -214,7 +222,7 @@ What to update and when:
 | Change                                 | Files to update                                                                                                                                                                                           |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | New or renamed function / constant     | Project `CLAUDE.md` → Code Layout section                                                                                                                                                                 |
-| New or removed Makefile target         | Project `CLAUDE.md` + `README.md` → Makefile targets table                                                                                                                                                |
+| New or removed Makefile target         | Project `CLAUDE.md` + `README.md` → Makefile targets table; root `Makefile` targets → top-level `CLAUDE.md` Quick Reference + `README.md`                                                                 |
 | New dependency or install step         | `pi/install_deps.sh` + project `CLAUDE.md` + `README.md`                                                                                                                                                  |
 | New test class or change in coverage % | Project `CLAUDE.md` + `README.md` → Testing section                                                                                                                                                       |
 | New project added to the repo          | Top-level `CLAUDE.md` → Repository Overview table                                                                                                                                                         |
