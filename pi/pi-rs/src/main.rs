@@ -313,7 +313,7 @@ fn write_pi_file(filename: &str, pi_str: &str, digits: usize) -> io::Result<()> 
             } else {
                 0.0
             };
-            let pct = if pi_total > 0 { written * 100 / pi_total } else { 100 };
+            let pct = (written * 100).checked_div(pi_total).unwrap_or(100);
             eprint!(
                 "\r  Writing: {:3}%  ({:.1} / {:.1} MB)  {:.1} MB/s   ",
                 pct,
