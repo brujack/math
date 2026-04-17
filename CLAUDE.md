@@ -38,7 +38,7 @@ Each project has its own installer:
 ### Setup (run once per checkout)
 
 ```bash
-make install-hooks   # symlinks scripts/pre-commit → .git/hooks/pre-commit
+make install-hooks   # creates .git/hooks/pre-commit → scripts/pre-commit
 ```
 
 ### Python (`pi/`)
@@ -222,7 +222,7 @@ What to update and when:
 | Change                                 | Files to update                                                                                                                                                                                           |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | New or renamed function / constant     | Project `CLAUDE.md` → Code Layout section                                                                                                                                                                 |
-| New or removed Makefile target         | Project `CLAUDE.md` + `README.md` → Makefile targets table; root `Makefile` targets → top-level `CLAUDE.md` Quick Reference + `README.md`                                                                |
+| New or removed Makefile target         | Project `CLAUDE.md` + `README.md` → Makefile targets table; root `Makefile` targets → top-level `CLAUDE.md` Quick Reference + `README.md`                                                                 |
 | New dependency or install step         | `pi/install_deps.sh` + project `CLAUDE.md` + `README.md`                                                                                                                                                  |
 | New test class or change in coverage % | Project `CLAUDE.md` + `README.md` → Testing section                                                                                                                                                       |
 | New project added to the repo          | Top-level `CLAUDE.md` → Repository Overview table                                                                                                                                                         |
