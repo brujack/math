@@ -30,12 +30,12 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version (e.g. v1.2.0)"
+        description: "Version number without the v prefix (e.g. 1.2.0)"
         required: true
         type: string
 ```
 
-The user triggers from the GitHub Actions UI → "Run workflow" → enters the version string. No format validation is enforced in the workflow.
+The user triggers from the GitHub Actions UI → "Run workflow" → enters the version number **without** the `v` prefix (e.g. `1.2.0`). The workflow prepends `<project>-v` when constructing the tag (e.g. `pi-v1.2.0`). No format validation is enforced in the workflow.
 
 ## Tag Format
 
@@ -54,7 +54,7 @@ Tags include the project name prefix to avoid collisions across projects:
 Each release job runs as a single `release` job with the following ordered steps:
 
 1. **Checkout** — full history (`fetch-depth: 0`) so `git log` can generate notes from the full commit graph
-2. **Install dependencies** — project-specific system packages (GMP + MPFR for pi-rs; nothing extra for the others)
+2. **Install dependencies** — project-specific system packages (GMP + MPFR for pi-rs; GMP only for fib-rs; nothing extra for prime-rs, sq-rs, twin-primes-rs)
 3. **Set up Rust toolchain** — `dtolnay/rust-toolchain@stable`
 4. **Run tests** — `make test` in the project directory; gates the release on passing tests
 5. **Build release binary** — `cargo build --release` in the project directory
