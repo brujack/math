@@ -1,0 +1,71 @@
+name: release-pi-rs
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version number without the v prefix (e.g. 1.2.0)"
+        required: true
+        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release pi-rs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install GMP and MPFR
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: pi/pi-rs
+
+      - name: Run tests
+        run: make test
+        working-directory: pi/pi-rs
+
+      - name: Build release binary
+        run: cargo build --release
+        working-directory: pi/pi-rs
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 --match="pi-v*" 2>/dev/null || true)
+          if [ -n "$PREV_TAG" ]; then
+            NOTES=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s" -- pi/pi-rs/ || true)
+          else
+            NOTES=$(git log HEAD --pretty=format:"- %s" -- pi/pi-rs/ || true)
+          fi
+          {
+            echo 'notes<<EOF'
+            echo "$NOTES"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "pi-v${{ inputs.version }}"
+          git push origin "pi-v${{ inputs.version }}"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "pi-v${{ inputs.version }}"
+          name: "pi v${{ inputs.version }}"
+          body: ${{ steps.notes.outputs.notes }}
+          files: pi/pi-rs/target/release/pi
