@@ -57,11 +57,13 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Create and push tag
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "pi-v${{ inputs.version }}"
-          git push origin "pi-v${{ inputs.version }}"
+          git tag "pi-v${VERSION}"
+          git push origin "pi-v${VERSION}"
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
