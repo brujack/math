@@ -38,7 +38,7 @@ Each project has its own installer:
 ### Setup (run once per checkout)
 
 ```bash
-make install-hooks   # creates .git/hooks/pre-commit → scripts/pre-commit
+make install-hooks   # installs pre-commit and pre-push hooks
 ```
 
 ### Python (`pi/`)
@@ -134,7 +134,7 @@ Where to add tests:
 
 ## CI
 
-Nine workflow files. Project workflows run on feature branch pushes and on PRs to `master` (never on direct master pushes). Build jobs depend on their test job — a build will not run if tests fail.
+Nine workflow files. Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail.
 
 | Workflow       | File                                   | Jobs                                                                         |
 | -------------- | -------------------------------------- | ---------------------------------------------------------------------------- |
@@ -150,16 +150,18 @@ Nine workflow files. Project workflows run on feature branch pushes and on PRs t
 
 **Pre-commit hook** — `scripts/pre-commit` is committed to the repo and installed as a symlink via `make install-hooks`. It runs `make lint` on staged sub-projects and `ggshield secret scan pre-commit` (skipped if not installed). CI gitleaks is a backstop — install and activate ggshield locally so secrets are caught before they leave the machine.
 
+**Pre-push hook** — `scripts/pre-push` is committed to the repo and installed as a symlink via `make install-hooks`. It detects which sub-projects have commits in the push range and runs `make test` for each. Skips branch deletions. Permanent — conserves GitHub Actions minutes by catching failures locally before the push reaches GitHub.
+
 **Auto-merge gate:** The `auto-merge` workflow gates on `needs: [secret-scan]`, so a secret scan failure blocks the merge. GitHub branch protection required checks (which would enforce project test jobs) require GitHub Team and are not available on this free account. Project test workflows are therefore advisory — a PR can technically auto-merge with failing tests. Rely on reviewing CI status in the PR before it merges.
 
 **snyk-scan** runs `snyk code test` (SAST) against the Python and Rust source. It is advisory — not in `needs` for `auto-merge`. Requires `SNYK_TOKEN` in repository secrets.
 
 **When adding a new project**, create a dedicated workflow file `.github/workflows/<project>.yml` following the same pattern:
 
-- Trigger: `push: branches-ignore: [master]` and `pull_request: branches: [master]`
+- Trigger: `pull_request: branches: [master]` only — no `push:` trigger (pre-push hook handles branch pushes locally)
 - One `test` job running the project's test suite
 - One `build` job with `needs: [test]` that builds the release binary and uploads it as an artifact
-- A badge for the new workflow added to the top of `README.md` and to the CI column of the project table — use `badge.svg?event=pull_request` so the badge reflects the last PR run (workflows use `branches-ignore: [master]` so master-based filters always show no status)
+- A badge for the new workflow added to the top of `README.md` and to the CI column of the project table — use `badge.svg?event=pull_request` so the badge reflects the last PR run (workflows trigger on `pull_request` only so master-based filters always show no status)
 
 This gives a per-project badge in the README and keeps each project's CI self-contained.
 
@@ -195,7 +197,7 @@ git push -u origin <branch>
 gh pr create --title "..." --body "..."
 ```
 
-CI runs on feature branch pushes and PRs. The `auto-merge` workflow enables GitHub auto-merge when the PR is opened; it merges automatically once all required checks pass.
+The pre-push hook runs `make test` for changed sub-projects locally before the push reaches GitHub. GitHub Actions CI runs on PRs only. The `auto-merge` workflow enables GitHub auto-merge when the PR is opened; it merges automatically once all required checks pass.
 
 ## Committing Work
 
@@ -219,16 +221,16 @@ Common types: `feat`, `fix`, `docs`, `ci`, `refactor`, `test`, `chore`.
 
 What to update and when:
 
-| Change                                 | Files to update                                                                                                                                                                                           |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| New or renamed function / constant     | Project `CLAUDE.md` → Code Layout section                                                                                                                                                                 |
-| New or removed Makefile target         | Project `CLAUDE.md` + `README.md` → Makefile targets table; root `Makefile` targets → top-level `CLAUDE.md` Quick Reference + `README.md`                                                                 |
-| New dependency or install step         | `pi/install_deps.sh` + project `CLAUDE.md` + `README.md`                                                                                                                                                  |
-| New test class or change in coverage % | Project `CLAUDE.md` + `README.md` → Testing section                                                                                                                                                       |
-| New project added to the repo          | Top-level `CLAUDE.md` → Repository Overview table                                                                                                                                                         |
-| Behaviour or algorithm change          | Project `CLAUDE.md` → Important Behavior / Implementation Details                                                                                                                                         |
-| New project added                      | Create `.github/workflows/<project>.yml` (test → build + artifact); add badge to `README.md` top and CI column; update `CLAUDE.md` CI table; add new sub-project dirs to the loop in `scripts/pre-commit` |
-| Editing rule or policy change          | All affected `CLAUDE.md` → Editing Guidance section                                                                                                                                                       |
+| Change                                 | Files to update                                                                                                                                                                                                                   |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| New or renamed function / constant     | Project `CLAUDE.md` → Code Layout section                                                                                                                                                                                         |
+| New or removed Makefile target         | Project `CLAUDE.md` + `README.md` → Makefile targets table; root `Makefile` targets → top-level `CLAUDE.md` Quick Reference + `README.md`                                                                                         |
+| New dependency or install step         | `pi/install_deps.sh` + project `CLAUDE.md` + `README.md`                                                                                                                                                                          |
+| New test class or change in coverage % | Project `CLAUDE.md` + `README.md` → Testing section                                                                                                                                                                               |
+| New project added to the repo          | Top-level `CLAUDE.md` → Repository Overview table                                                                                                                                                                                 |
+| Behaviour or algorithm change          | Project `CLAUDE.md` → Important Behavior / Implementation Details                                                                                                                                                                 |
+| New project added                      | Create `.github/workflows/<project>.yml` (test → build + artifact); add badge to `README.md` top and CI column; update `CLAUDE.md` CI table; add new sub-project dirs to the loops in `scripts/pre-commit` and `scripts/pre-push` |
+| Editing rule or policy change          | All affected `CLAUDE.md` → Editing Guidance section                                                                                                                                                                               |
 
 The sub-project files (`pi/CLAUDE.md`, `prime/CLAUDE.md`, `fib/CLAUDE.md`, `sq/CLAUDE.md`, and each Rust subtree's `CLAUDE.md` under `pi/pi-rs/`, `prime/prime-rs/`, `fib/fib-rs/`, `sq/sq-rs/`) are the source of truth for implementation detail. This top-level file is the entry point and quick reference — keep them in sync.
 
