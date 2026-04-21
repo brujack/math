@@ -1,0 +1,69 @@
+name: release-twin-primes-rs
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version number without the v prefix (e.g. 1.2.0)"
+        required: true
+        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release twin-primes-rs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: twin-primes/twin-primes-rs
+
+      - name: Run tests
+        run: make test
+        working-directory: twin-primes/twin-primes-rs
+
+      - name: Build release binary
+        run: cargo build --release
+        working-directory: twin-primes/twin-primes-rs
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 --match="twin-primes-v*" 2>/dev/null || true)
+          if [ -n "$PREV_TAG" ]; then
+            NOTES=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s" -- twin-primes/twin-primes-rs/ || true)
+          else
+            NOTES=$(git log HEAD --pretty=format:"- %s" -- twin-primes/twin-primes-rs/ || true)
+          fi
+          DELIMITER="EOF_$(openssl rand -hex 8)"
+          {
+            printf 'notes<<%s\n' "${DELIMITER}"
+            printf '%s\n' "${NOTES}"
+            printf '%s\n' "${DELIMITER}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "twin-primes-v${{ inputs.version }}"
+          git push origin "twin-primes-v${{ inputs.version }}"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "twin-primes-v${{ inputs.version }}"
+          name: "twin-primes v${{ inputs.version }}"
+          body: "${{ steps.notes.outputs.notes }}"
+          files: twin-primes/twin-primes-rs/target/release/twin-primes
