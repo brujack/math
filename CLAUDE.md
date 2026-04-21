@@ -190,9 +190,11 @@ Artifacts are downloadable from the Actions run summary page on GitHub.
 
 **Never commit directly to `master`.** All changes — features, fixes, docs — go through a feature branch and PR.
 
+**Worktree directory:** Use `.worktrees/` (project-local, listed in `.gitignore`) for all git worktrees in this repo.
+
 ```bash
-git checkout -b <type>/<short-description>   # e.g. feat/fib-boundary-tests
-# make changes, commit
+git worktree add .worktrees/<branch-name> -b <type>/<short-description>
+# work in .worktrees/<branch-name>/
 git push -u origin <branch>
 gh pr create --title "..." --body "..."
 ```
