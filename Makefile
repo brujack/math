@@ -2,4 +2,5 @@
 
 install-hooks:
 	ln -sf "../../scripts/pre-commit" "$$(git rev-parse --git-path hooks)/pre-commit"
-	@printf "pre-commit hook installed\n"
+	ln -sf "../../scripts/pre-push" "$$(git rev-parse --git-path hooks)/pre-push"
+	@printf "Pre-commit and pre-push hooks installed\n"
