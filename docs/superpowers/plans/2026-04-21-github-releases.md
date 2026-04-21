@@ -86,10 +86,11 @@ jobs:
           else
             NOTES=$(git log HEAD --pretty=format:"- %s" -- pi/pi-rs/ || true)
           fi
+          DELIMITER="EOF_$(openssl rand -hex 8)"
           {
-            echo 'notes<<EOF'
-            echo "$NOTES"
-            echo 'EOF'
+            printf 'notes<<%s\n' "${DELIMITER}"
+            printf '%s\n' "${NOTES}"
+            printf '%s\n' "${DELIMITER}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create and push tag
@@ -104,7 +105,7 @@ jobs:
         with:
           tag_name: "pi-v${{ inputs.version }}"
           name: "pi v${{ inputs.version }}"
-          body: ${{ steps.notes.outputs.notes }}
+          body: "${{ steps.notes.outputs.notes }}"
           files: pi/pi-rs/target/release/pi
 ```
 
@@ -184,10 +185,11 @@ jobs:
           else
             NOTES=$(git log HEAD --pretty=format:"- %s" -- prime/prime-rs/ || true)
           fi
+          DELIMITER="EOF_$(openssl rand -hex 8)"
           {
-            echo 'notes<<EOF'
-            echo "$NOTES"
-            echo 'EOF'
+            printf 'notes<<%s\n' "${DELIMITER}"
+            printf '%s\n' "${NOTES}"
+            printf '%s\n' "${DELIMITER}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create and push tag
@@ -202,7 +204,7 @@ jobs:
         with:
           tag_name: "prime-v${{ inputs.version }}"
           name: "prime v${{ inputs.version }}"
-          body: ${{ steps.notes.outputs.notes }}
+          body: "${{ steps.notes.outputs.notes }}"
           files: prime/prime-rs/target/release/prime
 ```
 
@@ -285,10 +287,11 @@ jobs:
           else
             NOTES=$(git log HEAD --pretty=format:"- %s" -- fib/fib-rs/ || true)
           fi
+          DELIMITER="EOF_$(openssl rand -hex 8)"
           {
-            echo 'notes<<EOF'
-            echo "$NOTES"
-            echo 'EOF'
+            printf 'notes<<%s\n' "${DELIMITER}"
+            printf '%s\n' "${NOTES}"
+            printf '%s\n' "${DELIMITER}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create and push tag
@@ -303,7 +306,7 @@ jobs:
         with:
           tag_name: "fib-v${{ inputs.version }}"
           name: "fib v${{ inputs.version }}"
-          body: ${{ steps.notes.outputs.notes }}
+          body: "${{ steps.notes.outputs.notes }}"
           files: fib/fib-rs/target/release/fib
 ```
 
@@ -383,10 +386,11 @@ jobs:
           else
             NOTES=$(git log HEAD --pretty=format:"- %s" -- sq/sq-rs/ || true)
           fi
+          DELIMITER="EOF_$(openssl rand -hex 8)"
           {
-            echo 'notes<<EOF'
-            echo "$NOTES"
-            echo 'EOF'
+            printf 'notes<<%s\n' "${DELIMITER}"
+            printf '%s\n' "${NOTES}"
+            printf '%s\n' "${DELIMITER}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create and push tag
@@ -401,7 +405,7 @@ jobs:
         with:
           tag_name: "sq-v${{ inputs.version }}"
           name: "sq v${{ inputs.version }}"
-          body: ${{ steps.notes.outputs.notes }}
+          body: "${{ steps.notes.outputs.notes }}"
           files: sq/sq-rs/target/release/sq
 ```
 
@@ -481,10 +485,11 @@ jobs:
           else
             NOTES=$(git log HEAD --pretty=format:"- %s" -- twin-primes/twin-primes-rs/ || true)
           fi
+          DELIMITER="EOF_$(openssl rand -hex 8)"
           {
-            echo 'notes<<EOF'
-            echo "$NOTES"
-            echo 'EOF'
+            printf 'notes<<%s\n' "${DELIMITER}"
+            printf '%s\n' "${NOTES}"
+            printf '%s\n' "${DELIMITER}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create and push tag
@@ -499,7 +504,7 @@ jobs:
         with:
           tag_name: "twin-primes-v${{ inputs.version }}"
           name: "twin-primes v${{ inputs.version }}"
-          body: ${{ steps.notes.outputs.notes }}
+          body: "${{ steps.notes.outputs.notes }}"
           files: twin-primes/twin-primes-rs/target/release/twin-primes
 ```
 
