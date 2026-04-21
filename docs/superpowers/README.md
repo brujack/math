@@ -14,11 +14,12 @@ Master status index for all specs and implementation plans in this directory.
 
 ## All Plans
 
-| Date       | Plan                                                   | Spec                                               | Status |
-| ---------- | ------------------------------------------------------ | -------------------------------------------------- | ------ |
-| 2026-03-30 | [fibonacci](plans/2026-03-30-fibonacci.md)             | [spec](specs/2026-03-30-fibonacci-design.md)       | Done   |
-| 2026-04-10 | [perfect-squares](plans/2026-04-10-perfect-squares.md) | [spec](specs/2026-04-10-perfect-squares-design.md) | Done   |
-| 2026-04-11 | [twin-primes](plans/2026-04-11-twin-primes.md)         | [spec](specs/2026-04-11-twin-primes-design.md)     | Done   |
+| Date       | Plan                                                   | Spec                                               | Status      |
+| ---------- | ------------------------------------------------------ | -------------------------------------------------- | ----------- |
+| 2026-03-30 | [fibonacci](plans/2026-03-30-fibonacci.md)             | [spec](specs/2026-03-30-fibonacci-design.md)       | Done        |
+| 2026-04-10 | [perfect-squares](plans/2026-04-10-perfect-squares.md) | [spec](specs/2026-04-10-perfect-squares-design.md) | Done        |
+| 2026-04-11 | [twin-primes](plans/2026-04-11-twin-primes.md)         | [spec](specs/2026-04-11-twin-primes-design.md)     | Done        |
+| 2026-04-21 | —                                                      | [spec](specs/2026-04-21-github-releases-design.md) | In Progress |
 
 ---
 
