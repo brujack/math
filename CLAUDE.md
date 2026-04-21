@@ -136,22 +136,22 @@ Where to add tests:
 
 Fourteen workflow files. Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail.
 
-| Workflow       | File                                   | Jobs                                                                         |
-| -------------- | -------------------------------------- | ---------------------------------------------------------------------------- |
-| pi.py          | `.github/workflows/pi-py.yml`          | test                                                                         |
-| pi-rs          | `.github/workflows/pi-rs.yml`          | test → build + artifact                                                      |
-| prime-rs       | `.github/workflows/prime-rs.yml`       | test → build + artifact                                                      |
-| fib.py         | `.github/workflows/fib-py.yml`         | test                                                                         |
-| fib-rs         | `.github/workflows/fib-rs.yml`         | test → build + artifact                                                      |
-| sq.py          | `.github/workflows/sq-py.yml`          | test                                                                         |
-| sq-rs          | `.github/workflows/sq-rs.yml`          | test → build + artifact                                                      |
-| twin-primes-rs | `.github/workflows/twin-primes-rs.yml` | test → build + artifact                                                      |
+| Workflow               | File                                           | Jobs                                                                         |
+| ---------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------- |
+| pi.py                  | `.github/workflows/pi-py.yml`                  | test                                                                         |
+| pi-rs                  | `.github/workflows/pi-rs.yml`                  | test → build + artifact                                                      |
+| prime-rs               | `.github/workflows/prime-rs.yml`               | test → build + artifact                                                      |
+| fib.py                 | `.github/workflows/fib-py.yml`                 | test                                                                         |
+| fib-rs                 | `.github/workflows/fib-rs.yml`                 | test → build + artifact                                                      |
+| sq.py                  | `.github/workflows/sq-py.yml`                  | test                                                                         |
+| sq-rs                  | `.github/workflows/sq-rs.yml`                  | test → build + artifact                                                      |
+| twin-primes-rs         | `.github/workflows/twin-primes-rs.yml`         | test → build + artifact                                                      |
 | release-pi-rs          | `.github/workflows/release-pi-rs.yml`          | release (manual dispatch)                                                    |
-| release-prime-rs       | `.github/workflows/release-prime-rs.yml`        | release (manual dispatch)                                                    |
-| release-fib-rs         | `.github/workflows/release-fib-rs.yml`          | release (manual dispatch)                                                    |
-| release-sq-rs          | `.github/workflows/release-sq-rs.yml`           | release (manual dispatch)                                                    |
-| release-twin-primes-rs | `.github/workflows/release-twin-primes-rs.yml`  | release (manual dispatch)                                                    |
-| auto-merge     | `.github/workflows/auto-merge.yml`     | secret-scan → snyk-scan (advisory) → auto-merge (secret-scan is a hard gate) |
+| release-prime-rs       | `.github/workflows/release-prime-rs.yml`       | release (manual dispatch)                                                    |
+| release-fib-rs         | `.github/workflows/release-fib-rs.yml`         | release (manual dispatch)                                                    |
+| release-sq-rs          | `.github/workflows/release-sq-rs.yml`          | release (manual dispatch)                                                    |
+| release-twin-primes-rs | `.github/workflows/release-twin-primes-rs.yml` | release (manual dispatch)                                                    |
+| auto-merge             | `.github/workflows/auto-merge.yml`             | secret-scan → snyk-scan (advisory) → auto-merge (secret-scan is a hard gate) |
 
 **Pre-commit hook** — `scripts/pre-commit` is committed to the repo and installed as a symlink via `make install-hooks`. It runs `make lint` on staged sub-projects and `ggshield secret scan pre-commit` (skipped if not installed). CI gitleaks is a backstop — install and activate ggshield locally so secrets are caught before they leave the machine.
 
@@ -190,6 +190,34 @@ Do **not** add `actions/setup-node` to jobs — these are Rust/Python projects t
 ```
 
 Artifacts are downloadable from the Actions run summary page on GitHub.
+
+**GitHub Actions security and output patterns** — required in all workflows:
+
+1. **Env vars for user inputs in `run:` blocks** — never interpolate `${{ inputs.* }}` directly into shell; pass through `env:` instead to prevent expression injection:
+
+   ```yaml
+   - name: Create and push tag
+     env:
+       VERSION: ${{ inputs.version }}
+     run: git tag "pi-v${VERSION}"
+   ```
+
+2. **Randomized `GITHUB_OUTPUT` delimiter** — never use a fixed `EOF`; a commit message containing `EOF` on its own line truncates the output silently:
+
+   ```bash
+   DELIMITER="EOF_$(openssl rand -hex 8)"
+   {
+     printf 'notes<<%s\n' "${DELIMITER}"
+     printf '%s\n' "${NOTES}"
+     printf '%s\n' "${DELIMITER}"
+   } >> "$GITHUB_OUTPUT"
+   ```
+
+3. **Quote `body:` in `softprops/action-gh-release`** — release notes may contain YAML special characters; the value must be quoted:
+
+   ```yaml
+   body: "${{ steps.notes.outputs.notes }}"
+   ```
 
 ## Branch Workflow
 
