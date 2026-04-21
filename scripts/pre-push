@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Pre-push hook: runs tests for changed sub-projects before push reaches GitHub.
+# Permanent: provides fast local feedback and conserves GitHub Actions minutes.
+# GitHub Actions is the final merge gate on PRs.
+set -e
+
+REPO_ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
+DIRS_TO_TEST=()
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [ "${local_sha}" = "0000000000000000000000000000000000000000" ] && continue
+
+    if [ "${remote_sha}" = "0000000000000000000000000000000000000000" ]; then
+        base="$(git merge-base "${local_sha}" origin/master 2>/dev/null \
+            || git rev-list --max-parents=0 "${local_sha}")"
+        range="${base}..${local_sha}"
+    else
+        range="${remote_sha}..${local_sha}"
+    fi
+
+    for dir in pi pi/pi-rs prime/prime-rs fib fib/fib-rs sq sq/sq-rs twin-primes/twin-primes-rs; do
+        if git diff --name-only "${range}" | grep -q "^${dir}/"; then
+            DIRS_TO_TEST+=("${dir}")
+        fi
+    done
+done
+
+if [ "${#DIRS_TO_TEST[@]}" -eq 0 ]; then
+    printf "No changed sub-projects detected. Skipping tests.\n"
+    exit 0
+fi
+
+for dir in $(printf '%s\n' "${DIRS_TO_TEST[@]}" | sort -u); do
+    printf "test: %s\n" "${dir}"
+    make -C "${REPO_ROOT}/${dir}" test
+done
