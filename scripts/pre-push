@@ -4,13 +4,14 @@
 # GitHub Actions is the final merge gate on PRs.
 set -e
 
-REPO_ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
+REPO_ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)" \
+    || { printf "pre-push: could not determine repo root\n" >&2; exit 1; }
 DIRS_TO_TEST=()
 
 while read -r local_ref local_sha remote_ref remote_sha; do
-    [ "${local_sha}" = "0000000000000000000000000000000000000000" ] && continue
+    [[ "${local_sha}" = "0000000000000000000000000000000000000000" ]] && continue
 
-    if [ "${remote_sha}" = "0000000000000000000000000000000000000000" ]; then
+    if [[ "${remote_sha}" = "0000000000000000000000000000000000000000" ]]; then
         base="$(git merge-base "${local_sha}" origin/master 2>/dev/null \
             || git rev-list --max-parents=0 "${local_sha}")"
         range="${base}..${local_sha}"
@@ -25,7 +26,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     done
 done
 
-if [ "${#DIRS_TO_TEST[@]}" -eq 0 ]; then
+if [[ "${#DIRS_TO_TEST[@]}" -eq 0 ]]; then
     printf "No changed sub-projects detected. Skipping tests.\n"
     exit 0
 fi
