@@ -49,10 +49,11 @@ jobs:
           else
             NOTES=$(git log HEAD --pretty=format:"- %s" -- pi/pi-rs/ || true)
           fi
+          DELIMITER="EOF_$(openssl rand -hex 8)"
           {
-            echo 'notes<<EOF'
-            echo "$NOTES"
-            echo 'EOF'
+            printf 'notes<<%s\n' "${DELIMITER}"
+            printf '%s\n' "${NOTES}"
+            printf '%s\n' "${DELIMITER}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create and push tag
@@ -67,5 +68,5 @@ jobs:
         with:
           tag_name: "pi-v${{ inputs.version }}"
           name: "pi v${{ inputs.version }}"
-          body: ${{ steps.notes.outputs.notes }}
+          body: "${{ steps.notes.outputs.notes }}"
           files: pi/pi-rs/target/release/pi
