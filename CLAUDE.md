@@ -134,7 +134,7 @@ Where to add tests:
 
 ## CI
 
-Nine workflow files. Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail.
+Fourteen workflow files. Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail.
 
 | Workflow       | File                                   | Jobs                                                                         |
 | -------------- | -------------------------------------- | ---------------------------------------------------------------------------- |
@@ -146,6 +146,11 @@ Nine workflow files. Project workflows run on PRs to `master` only — the pre-p
 | sq.py          | `.github/workflows/sq-py.yml`          | test                                                                         |
 | sq-rs          | `.github/workflows/sq-rs.yml`          | test → build + artifact                                                      |
 | twin-primes-rs | `.github/workflows/twin-primes-rs.yml` | test → build + artifact                                                      |
+| release-pi-rs          | `.github/workflows/release-pi-rs.yml`          | release (manual dispatch)                                                    |
+| release-prime-rs       | `.github/workflows/release-prime-rs.yml`        | release (manual dispatch)                                                    |
+| release-fib-rs         | `.github/workflows/release-fib-rs.yml`          | release (manual dispatch)                                                    |
+| release-sq-rs          | `.github/workflows/release-sq-rs.yml`           | release (manual dispatch)                                                    |
+| release-twin-primes-rs | `.github/workflows/release-twin-primes-rs.yml`  | release (manual dispatch)                                                    |
 | auto-merge     | `.github/workflows/auto-merge.yml`     | secret-scan → snyk-scan (advisory) → auto-merge (secret-scan is a hard gate) |
 
 **Pre-commit hook** — `scripts/pre-commit` is committed to the repo and installed as a symlink via `make install-hooks`. It runs `make lint` on staged sub-projects and `ggshield secret scan pre-commit` (skipped if not installed). CI gitleaks is a backstop — install and activate ggshield locally so secrets are caught before they leave the machine.
@@ -190,9 +195,11 @@ Artifacts are downloadable from the Actions run summary page on GitHub.
 
 **Never commit directly to `master`.** All changes — features, fixes, docs — go through a feature branch and PR.
 
+**Worktree directory:** Use `.worktrees/` (project-local, listed in `.gitignore`) for all git worktrees in this repo.
+
 ```bash
-git checkout -b <type>/<short-description>   # e.g. feat/fib-boundary-tests
-# make changes, commit
+git worktree add .worktrees/<branch-name> -b <type>/<short-description>
+# work in .worktrees/<branch-name>/
 git push -u origin <branch>
 gh pr create --title "..." --body "..."
 ```
