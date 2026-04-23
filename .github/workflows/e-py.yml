@@ -1,0 +1,28 @@
+name: e.py
+
+on:
+  pull_request:
+    branches:
+      - master
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    name: Test e.py
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: e
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GMP and MPFR
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
+
+      - name: Install Python dependencies
+        run: pip install mpmath gmpy2 coverage ruff
+
+      - name: Run tests
+        run: make test
