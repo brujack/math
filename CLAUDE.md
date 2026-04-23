@@ -13,6 +13,7 @@ High-performance mathematical computation tools.
 | [`fib/`](fib/)                 | Python + Rust | Generate all Fibonacci numbers with up to 10^X digits     | [`fib/CLAUDE.md`](fib/CLAUDE.md)                                               |
 | [`sq/`](sq/)                   | Python + Rust | Find all perfect squares with up to 10^N digits (N=1 max) | [`sq/CLAUDE.md`](sq/CLAUDE.md)                                                 |
 | [`twin-primes/`](twin-primes/) | Rust          | Find all twin prime pairs up to 10^N                      | [`twin-primes/twin-primes-rs/CLAUDE.md`](twin-primes/twin-primes-rs/CLAUDE.md) |
+| [`e/`](e/)                     | Python + Rust | Calculate e to N decimal places (Taylor series)           | [`e/CLAUDE.md`](e/CLAUDE.md)                                                   |
 
 ## Architectural Decision Records
 
@@ -22,16 +23,18 @@ Significant architectural decisions are recorded in [`docs/adr/`](docs/adr/READM
 
 Each project has its own installer:
 
-| Script                                       | Installs                                      |
-| -------------------------------------------- | --------------------------------------------- |
-| `pi/install_deps.sh`                         | GMP + MPFR, `mpmath`, `gmpy2`, `coverage`     |
-| `pi/pi-rs/install_deps.sh`                   | GMP + MPFR, Rust toolchain, `cargo-tarpaulin` |
-| `prime/prime-rs/install_deps.sh`             | Rust toolchain, `cargo-tarpaulin`             |
-| `fib/install_deps.sh`                        | `ruff`, `coverage`                            |
-| `fib/fib-rs/install_deps.sh`                 | GMP, Rust toolchain, `cargo-tarpaulin`        |
-| `sq/install_deps.sh`                         | `ruff`, `coverage`                            |
-| `sq/sq-rs/install_deps.sh`                   | Rust toolchain                                |
-| `twin-primes/twin-primes-rs/install_deps.sh` | Rust toolchain, `cargo-tarpaulin`             |
+| Script                                       | Installs                                          |
+| -------------------------------------------- | ------------------------------------------------- |
+| `pi/install_deps.sh`                         | GMP + MPFR, `mpmath`, `gmpy2`, `coverage`         |
+| `pi/pi-rs/install_deps.sh`                   | GMP + MPFR, Rust toolchain, `cargo-tarpaulin`     |
+| `prime/prime-rs/install_deps.sh`             | Rust toolchain, `cargo-tarpaulin`                 |
+| `fib/install_deps.sh`                        | `ruff`, `coverage`                                |
+| `fib/fib-rs/install_deps.sh`                 | GMP, Rust toolchain, `cargo-tarpaulin`            |
+| `sq/install_deps.sh`                         | `ruff`, `coverage`                                |
+| `sq/sq-rs/install_deps.sh`                   | Rust toolchain                                    |
+| `twin-primes/twin-primes-rs/install_deps.sh` | Rust toolchain, `cargo-tarpaulin`                 |
+| `e/install_deps.sh`                          | GMP + MPFR, `mpmath`, `gmpy2`, `ruff`, `coverage` |
+| `e/e-rs/install_deps.sh`                     | GMP + MPFR, Rust toolchain, `cargo-tarpaulin`     |
 
 ## Quick Reference
 
@@ -116,6 +119,25 @@ make lint         # cargo clippy -- -D warnings
 make test         # lint, then cargo test
 ```
 
+### Python (`e/`)
+
+```bash
+cd e
+make run       # python3 e.py
+make lint      # ruff check .
+make test      # lint, then python3 -m unittest test_e -v
+make coverage  # coverage run + report
+```
+
+### Rust (`e/e-rs/`)
+
+```bash
+cd e/e-rs
+make e         # cargo build --release
+make lint      # cargo clippy -- -D warnings
+make test      # lint, then cargo test
+```
+
 ## Testing Policy
 
 **TDD is required.** Write the failing test first, then write the minimum implementation to make it pass. Never write implementation before the test. Tests must be added in the same commit as the code they cover.
@@ -128,13 +150,13 @@ Every test must cover more than the happy path. Three categories are required fo
 
 Where to add tests:
 
-- Python tests: add to `pi/test_pi.py` (pi), `fib/test_fib.py` (fib), or `sq/test_sq.py` (sq), run with `make test` from the project directory
+- Python tests: add to `pi/test_pi.py` (pi), `fib/test_fib.py` (fib), `sq/test_sq.py` (sq), or `e/test_e.py` (e), run with `make test` from the project directory
 - Rust tests: add to the `#[cfg(test)] mod tests` block in `src/main.rs`, run with `make test`
 - Coverage tools: `make coverage` (Python), `cargo tarpaulin` (Rust)
 
 ## CI
 
-Fourteen workflow files. Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail.
+Seventeen workflow files. Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail.
 
 | Workflow               | File                                           | Jobs                                                                         |
 | ---------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------- |
@@ -151,6 +173,9 @@ Fourteen workflow files. Project workflows run on PRs to `master` only — the p
 | release-fib-rs         | `.github/workflows/release-fib-rs.yml`         | release (manual dispatch)                                                    |
 | release-sq-rs          | `.github/workflows/release-sq-rs.yml`          | release (manual dispatch)                                                    |
 | release-twin-primes-rs | `.github/workflows/release-twin-primes-rs.yml` | release (manual dispatch)                                                    |
+| e.py                   | `.github/workflows/e-py.yml`                   | test                                                                         |
+| e-rs                   | `.github/workflows/e-rs.yml`                   | test → build + artifact                                                      |
+| release-e-rs           | `.github/workflows/release-e-rs.yml`           | release (manual dispatch)                                                    |
 | auto-merge             | `.github/workflows/auto-merge.yml`             | secret-scan → snyk-scan (advisory) → auto-merge (secret-scan is a hard gate) |
 
 **Pre-commit hook** — `scripts/pre-commit` is committed to the repo and installed as a symlink via `make install-hooks`. It runs `make lint` on staged sub-projects and `ggshield secret scan pre-commit` (skipped if not installed). CI gitleaks is a backstop — install and activate ggshield locally so secrets are caught before they leave the machine.
@@ -267,9 +292,9 @@ What to update and when:
 | New project added                      | Create `.github/workflows/<project>.yml` (test → build + artifact); add badge to `README.md` top and CI column; update `CLAUDE.md` CI table; add new sub-project dirs to the loops in `scripts/pre-commit` and `scripts/pre-push` |
 | Editing rule or policy change          | All affected `CLAUDE.md` → Editing Guidance section                                                                                                                                                                               |
 
-The sub-project files (`pi/CLAUDE.md`, `prime/CLAUDE.md`, `fib/CLAUDE.md`, `sq/CLAUDE.md`, and each Rust subtree's `CLAUDE.md` under `pi/pi-rs/`, `prime/prime-rs/`, `fib/fib-rs/`, `sq/sq-rs/`) are the source of truth for implementation detail. This top-level file is the entry point and quick reference — keep them in sync.
+The sub-project files (`pi/CLAUDE.md`, `prime/CLAUDE.md`, `fib/CLAUDE.md`, `sq/CLAUDE.md`, `e/CLAUDE.md`, and each Rust subtree's `CLAUDE.md` under `pi/pi-rs/`, `prime/prime-rs/`, `fib/fib-rs/`, `sq/sq-rs/`, `e/e-rs/`) are the source of truth for implementation detail. This top-level file is the entry point and quick reference — keep them in sync.
 
 ## Notes
 
-- Generated output files (`pi_*_digits.txt`, `primes_1e*.txt`, `twin-primes_1e*.txt`) are large artifacts — do not commit them.
+- Generated output files (`pi_*_digits.txt`, `primes_1e*.txt`, `twin-primes_1e*.txt`, `e_*_digits.txt`) are large artifacts — do not commit them.
 - See each project's `CLAUDE.md` for detailed implementation guidance, code layout, and editing rules.
