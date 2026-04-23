@@ -11,6 +11,7 @@ primes_1e*.txt
 fib_1e*.txt
 sq_1e*.txt
 twin-primes_1e*.txt
+e_*_digits.txt
 
 # Git worktrees
 .worktrees/
