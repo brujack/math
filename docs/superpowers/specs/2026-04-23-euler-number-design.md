@@ -10,7 +10,9 @@ Taylor series: `e = sum(1/n! for n=0..N_terms)` computed via binary splitting.
 
 Define accumulators over a range `[a, b)` with midpoint `m = (a+b)/2`:
 
-Base case (`b - a == 1`): `P(a,b) = b`, `Q(a,b) = 1`.
+Base case (`b - a == 1`): `P(a,b) = a+1`, `Q(a,b) = a+1` (special: `P(0,1) = 1, Q(0,1) = 1`).
+
+`Q(a,b)` is defined as `S(a,b) * P(a,b)` where `S(a,b) = sum_{k=a}^{b-1} a!/k!`. This ensures that the merge formula uses only integer multiplication and addition.
 
 Recursive case: compute left and right subtrees, merge:
 
@@ -19,7 +21,7 @@ P(a,b) = P(a,m) * P(m,b)
 Q(a,b) = Q(a,m) * P(m,b) + Q(m,b)
 ```
 
-Final result: `e = 1 + Q(0,N_terms) / P(0,N_terms)` (the leading 1 accounts for the 0th term).
+Final result: `e = Q(0,N_terms) / P(0,N_terms)`. The `1/0!` term is included in the recursion (leaf 0 contributes `Q=1, P=1`).
 
 **Number of terms:** Approximately `N / log10(N)` terms are needed for N decimal digits. Each term `1/n!` contributes roughly `log10(n)` new digits. Compute a safe upper bound and verify precision against a reference.
 
