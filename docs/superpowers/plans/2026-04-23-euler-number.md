@@ -1,5 +1,7 @@
 # Euler's Number (e) Implementation Plan
 
+> **Status: DONE** — Implemented 2026-04-23. PR #18 merged to master.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Compute Euler's number _e_ to N decimal places using the Taylor series with binary splitting, with parallel Python and Rust implementations mirroring the `pi/` project structure.
