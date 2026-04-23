@@ -13,6 +13,7 @@ gmpy2-dependent tests are skipped automatically when gmpy2 is not installed.
 import io
 import os
 import sys
+import tempfile
 import unittest
 import unittest.mock
 from contextlib import redirect_stdout
@@ -359,6 +360,93 @@ class TestParseArgs(unittest.TestCase):
     def test_invalid_exits(self):
         with self.assertRaises(SystemExit):
             parse_args(["not_a_number"])
+
+
+# ---------------------------------------------------------------------------
+# TestShowEPreview
+# ---------------------------------------------------------------------------
+
+class TestShowEPreview(unittest.TestCase):
+    """show_e_preview prints a correctly formatted e preview."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._e = _quiet_e(50)
+
+    def _capture(self, digits):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            from e import show_e_preview
+            show_e_preview(self._e, digits)
+        return buf.getvalue()
+
+    def test_output_contains_e_equals(self):
+        out = self._capture(10)
+        self.assertIn("e =", out)
+
+    def test_output_starts_with_2_dot(self):
+        out = self._capture(10)
+        self.assertIn("2.", out)
+
+    def test_output_mentions_decimal_places(self):
+        out = self._capture(10)
+        self.assertIn("decimal places", out)
+
+    def test_preview_capped_at_200(self):
+        out = self._capture(500)
+        self.assertIn("200", out)
+
+
+# ---------------------------------------------------------------------------
+# TestSaveEToFile
+# ---------------------------------------------------------------------------
+
+class TestSaveEToFile(unittest.TestCase):
+    """save_e_to_file writes a correctly structured output file."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._e = _quiet_e(50)
+
+    def setUp(self):
+        self._tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
+        self._path = self._tmp.name
+        self._tmp.close()
+
+    def tearDown(self):
+        os.unlink(self._path)
+
+    def _save(self, digits=50):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            from e import save_e_to_file
+            save_e_to_file(self._e, digits, self._path)
+
+    def test_file_is_created(self):
+        self._save()
+        self.assertTrue(os.path.exists(self._path))
+
+    def test_file_contains_header(self):
+        self._save()
+        with open(self._path) as f:
+            content = f.read()
+        self.assertIn("e calculated to", content)
+
+    def test_file_contains_e_digits(self):
+        self._save()
+        with open(self._path) as f:
+            content = f.read()
+        self.assertIn("2.71828182845904", content)
+
+    def test_file_contains_footer(self):
+        self._save()
+        with open(self._path) as f:
+            content = f.read()
+        self.assertIn("Total decimal places", content)
+
+    def test_file_size_is_nonzero(self):
+        self._save()
+        self.assertGreater(os.path.getsize(self._path), 0)
 
 
 if __name__ == "__main__":
