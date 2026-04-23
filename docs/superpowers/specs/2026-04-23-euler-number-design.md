@@ -142,6 +142,8 @@ Install scripts: `e/install_deps.sh` and `e/e-rs/install_deps.sh`, following the
 
 All follow existing patterns: `pull_request: branches: [master]` trigger, Node.js 24, `actions/checkout@v5`, `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true`.
 
+**Local testing gate:** The pre-push hook runs `make test` for changed sub-projects before the push reaches GitHub. All tests (Python and Rust) must pass locally before pushing the feature branch. GitHub Actions CI is the final merge gate on PRs, not the first line of defense.
+
 ## Repo Updates Required
 
 | File                         | Change                                                                         |
