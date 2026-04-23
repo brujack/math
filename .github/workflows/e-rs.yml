@@ -1,0 +1,60 @@
+name: e-rs
+
+on:
+  pull_request:
+    branches:
+      - master
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    name: Test e-rs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: e/e-rs
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GMP and MPFR
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: e/e-rs
+
+      - name: Run tests
+        run: make test
+
+  build:
+    name: Build e-rs
+    runs-on: ubuntu-latest
+    needs: [test]
+    defaults:
+      run:
+        working-directory: e/e-rs
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GMP and MPFR
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: e/e-rs
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: e
+          path: e/e-rs/target/release/e
+          retention-days: 7
