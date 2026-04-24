@@ -140,13 +140,14 @@ def _factorial_rec(n, primes):
 
 
 def calculate_factorial(n):
-    """Compute n! using the prime swing algorithm. Returns int."""
+    """Compute n! using the prime swing algorithm. Returns gmpy2.mpz if available, int otherwise."""
     if n < 0:
         raise ValueError(f"factorial not defined for negative integers: {n}")
     if n <= 1:
-        return 1
-    primes = _sieve(n)
-    result = _factorial_rec(n, primes)
+        result = 1
+    else:
+        primes = _sieve(n)
+        result = _factorial_rec(n, primes)
     if _HAS_GMPY2:
         return _gmpy2.mpz(result)
     return result

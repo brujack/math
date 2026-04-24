@@ -11,6 +11,8 @@ from contextlib import redirect_stdout
 sys.path.insert(0, os.path.dirname(__file__))
 
 from factorial import (
+    _HAS_GMPY2,
+    _gmpy2,
     _sieve,
     _compute_swing,
     _compute_swing_chunk,
@@ -180,9 +182,22 @@ class TestCalculateFactorial(unittest.TestCase):
     def test_factorial_20(self):
         self.assertEqual(int(_quiet_factorial(20)), FACTORIAL_REF[20])
 
+    def test_factorial_3(self):
+        self.assertEqual(int(_quiet_factorial(3)), FACTORIAL_REF[3])
+
+    def test_factorial_4(self):
+        self.assertEqual(int(_quiet_factorial(4)), FACTORIAL_REF[4])
+
     def test_factorial_negative_raises(self):
         with self.assertRaises(ValueError):
             calculate_factorial(-1)
+
+    def test_factorial_returns_mpz_when_gmpy2_available(self):
+        """When gmpy2 is installed, calculate_factorial returns gmpy2.mpz."""
+        if not _HAS_GMPY2:
+            self.skipTest("gmpy2 not installed")
+        result = _quiet_factorial(5)
+        self.assertIsInstance(result, _gmpy2.mpz)
 
 
 if __name__ == "__main__":
