@@ -8,6 +8,8 @@
 [![sq.py](https://github.com/brujack/math/actions/workflows/sq-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/sq-py.yml)
 [![sq-rs](https://github.com/brujack/math/actions/workflows/sq-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/sq-rs.yml)
 [![twin-primes-rs](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml)
+[![e.py](https://github.com/brujack/math/actions/workflows/e-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/e-py.yml)
+[![e-rs](https://github.com/brujack/math/actions/workflows/e-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/e-rs.yml)
 
 High-performance mathematical computation tools.
 
@@ -18,6 +20,7 @@ High-performance mathematical computation tools.
 | [`fib/`](fib/README.md)                 | Generate all Fibonacci numbers with up to 10^X digits         | Python + Rust  | [![fib.py](https://github.com/brujack/math/actions/workflows/fib-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/fib-py.yml) [![fib-rs](https://github.com/brujack/math/actions/workflows/fib-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/fib-rs.yml) |
 | [`sq/`](sq/README.md)                   | Generate all perfect squares with up to 10^N digits (N=1 max) | Python + Rust  | [![sq.py](https://github.com/brujack/math/actions/workflows/sq-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/sq-py.yml) [![sq-rs](https://github.com/brujack/math/actions/workflows/sq-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/sq-rs.yml)       |
 | [`twin-primes/`](twin-primes/README.md) | Find all twin prime pairs up to 10^N                          | Rust           | [![twin-primes-rs](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml)                                                                                                                                              |
+| [`e/`](e/README.md)                     | Calculate e to N decimal places                               | Python + Rust  | [![e.py](https://github.com/brujack/math/actions/workflows/e-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/e-py.yml) [![e-rs](https://github.com/brujack/math/actions/workflows/e-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/e-rs.yml)             |
 
 ---
 
@@ -69,6 +72,17 @@ Finds every twin prime pair (p, p+2) where both primes are less than 10^N.
 - Rust implementation (`twin-primes/twin-primes-rs/`) — packed bitset segments (32 KB each, fits in L2 cache), constant memory usage regardless of N
 
 See [`twin-primes/README.md`](twin-primes/README.md) for full details.
+
+---
+
+## e
+
+Calculates Euler's number _e_ to an arbitrary number of decimal places using the **Taylor series** with binary splitting.
+
+- Python implementation (`e/e.py`) — gmpy2/GMP fast path with mpmath fallback
+- Rust implementation (`e/e-rs/`) — shared-memory rayon parallelism with zero IPC overhead
+
+See [`e/README.md`](e/README.md) for full details.
 
 ---
 
