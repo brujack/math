@@ -80,13 +80,22 @@ fn compute_swing(m: u64, primes: &[u32]) -> Integer {
 }
 
 #[allow(dead_code)]
-fn factorial_rec(_n: u64, _primes: &[u32]) -> Integer {
-    todo!()
+fn factorial_rec(n: u64, primes: &[u32]) -> Integer {
+    if n <= 1 {
+        return Integer::from(1u64);
+    }
+    let half = factorial_rec(n / 2, primes);
+    let swing = compute_swing(n, primes);
+    Integer::from(&half * &half) * swing
 }
 
 #[allow(dead_code)]
-fn calculate_factorial(_n: u64) -> Integer {
-    todo!()
+fn calculate_factorial(n: u64) -> Integer {
+    if n <= 1 {
+        return Integer::from(1u64);
+    }
+    let primes = sieve(n);
+    factorial_rec(n, &primes)
 }
 
 #[allow(dead_code)]
@@ -220,5 +229,71 @@ mod tests {
     fn test_sieve_count_to_1000() {
         // π(1000) = 168
         assert_eq!(sieve(1000).len(), 168);
+    }
+
+    // factorial_rec tests
+    #[test]
+    fn test_factorial_rec_base_0() {
+        let primes = sieve(10);
+        assert_eq!(factorial_rec(0, &primes), Integer::from(1u64));
+    }
+
+    #[test]
+    fn test_factorial_rec_base_1() {
+        let primes = sieve(10);
+        assert_eq!(factorial_rec(1, &primes), Integer::from(1u64));
+    }
+
+    #[test]
+    fn test_factorial_rec_2() {
+        let primes = sieve(10);
+        assert_eq!(factorial_rec(2, &primes), Integer::from(2u64));
+    }
+
+    #[test]
+    fn test_factorial_rec_5() {
+        let primes = sieve(10);
+        assert_eq!(factorial_rec(5, &primes), Integer::from(120u64));
+    }
+
+    // calculate_factorial tests
+    #[test]
+    fn test_calculate_factorial_0() {
+        assert_eq!(calculate_factorial(0), Integer::from(1u64));
+    }
+
+    #[test]
+    fn test_calculate_factorial_1() {
+        assert_eq!(calculate_factorial(1), Integer::from(1u64));
+    }
+
+    #[test]
+    fn test_calculate_factorial_2() {
+        assert_eq!(calculate_factorial(2), Integer::from(2u64));
+    }
+
+    #[test]
+    fn test_calculate_factorial_3() {
+        assert_eq!(calculate_factorial(3), Integer::from(6u64));
+    }
+
+    #[test]
+    fn test_calculate_factorial_4() {
+        assert_eq!(calculate_factorial(4), Integer::from(24u64));
+    }
+
+    #[test]
+    fn test_calculate_factorial_5() {
+        assert_eq!(calculate_factorial(5), Integer::from(120u64));
+    }
+
+    #[test]
+    fn test_calculate_factorial_10() {
+        assert_eq!(calculate_factorial(10), Integer::from(3628800u64));
+    }
+
+    #[test]
+    fn test_calculate_factorial_20() {
+        assert_eq!(calculate_factorial(20), Integer::from(2432902008176640000u64));
     }
 }
