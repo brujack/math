@@ -116,7 +116,10 @@ fn prompt_n() -> u64 {
         let line = stdin.lock().lines().next().unwrap().unwrap();
         match line.trim().parse::<u64>() {
             Ok(n) => return n,
-            Err(_) => eprintln!("Invalid input '{}'. Please enter a non-negative integer.", line.trim()),
+            Err(_) => eprintln!(
+                "Invalid input '{}'. Please enter a non-negative integer.",
+                line.trim()
+            ),
         }
     }
 }
@@ -145,7 +148,11 @@ fn main() {
     let digit_count = digits_str.len();
     let filename = format!("factorial_{}.txt", n);
 
-    eprintln!("Writing {} digits to {} ...", fmt_int(digit_count as u64), filename);
+    eprintln!(
+        "Writing {} digits to {} ...",
+        fmt_int(digit_count as u64),
+        filename
+    );
     let write_start = std::time::Instant::now();
     std::fs::write(&filename, &digits_str).expect("Failed to write output file");
     let write_elapsed = write_start.elapsed();
@@ -264,8 +271,7 @@ mod tests {
     fn test_sieve_no_composites() {
         let primes = sieve(20);
         for &p in &primes {
-            assert!(p < 2 || (2..p).all(|d| p % d != 0),
-                "{} is composite", p);
+            assert!(p < 2 || (2..p).all(|d| p % d != 0), "{} is composite", p);
         }
     }
 
@@ -370,6 +376,9 @@ mod tests {
 
     #[test]
     fn test_calculate_factorial_20() {
-        assert_eq!(calculate_factorial(20), Integer::from(2432902008176640000u64));
+        assert_eq!(
+            calculate_factorial(20),
+            Integer::from(2432902008176640000u64)
+        );
     }
 }
