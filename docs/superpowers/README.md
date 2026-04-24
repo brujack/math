@@ -14,13 +14,14 @@ Master status index for all specs and implementation plans in this directory.
 
 ## All Plans
 
-| Date       | Plan                                                   | Spec                                               | Status |
-| ---------- | ------------------------------------------------------ | -------------------------------------------------- | ------ |
-| 2026-03-30 | [fibonacci](plans/2026-03-30-fibonacci.md)             | [spec](specs/2026-03-30-fibonacci-design.md)       | Done   |
-| 2026-04-10 | [perfect-squares](plans/2026-04-10-perfect-squares.md) | [spec](specs/2026-04-10-perfect-squares-design.md) | Done   |
-| 2026-04-11 | [twin-primes](plans/2026-04-11-twin-primes.md)         | [spec](specs/2026-04-11-twin-primes-design.md)     | Done   |
-| 2026-04-21 | [github-releases](plans/2026-04-21-github-releases.md) | [spec](specs/2026-04-21-github-releases-design.md) | Done   |
-| 2026-04-23 | [euler-number](plans/2026-04-23-euler-number.md)       | [spec](specs/2026-04-23-euler-number-design.md)    | Done   |
+| Date       | Plan                                                   | Spec                                               | Status      |
+| ---------- | ------------------------------------------------------ | -------------------------------------------------- | ----------- |
+| 2026-03-30 | [fibonacci](plans/2026-03-30-fibonacci.md)             | [spec](specs/2026-03-30-fibonacci-design.md)       | Done        |
+| 2026-04-10 | [perfect-squares](plans/2026-04-10-perfect-squares.md) | [spec](specs/2026-04-10-perfect-squares-design.md) | Done        |
+| 2026-04-11 | [twin-primes](plans/2026-04-11-twin-primes.md)         | [spec](specs/2026-04-11-twin-primes-design.md)     | Done        |
+| 2026-04-21 | [github-releases](plans/2026-04-21-github-releases.md) | [spec](specs/2026-04-21-github-releases-design.md) | Done        |
+| 2026-04-23 | [euler-number](plans/2026-04-23-euler-number.md)       | [spec](specs/2026-04-23-euler-number-design.md)    | Done        |
+| 2026-04-24 | [factorial](plans/2026-04-24-factorial.md)             | [spec](specs/2026-04-24-factorial-design.md)       | In Progress |
 
 ---
 
@@ -28,11 +29,10 @@ Master status index for all specs and implementation plans in this directory.
 
 Ideas approved for future specs, in no particular order:
 
-| Feature           | Notes                                                                    |
-| ----------------- | ------------------------------------------------------------------------ |
-| Collatz sequences | For each number up to 10^N find chain length; identify longest chain     |
-| Perfect numbers   | Find all perfect numbers up to 10^N; connected to Mersenne primes        |
-| Factorial         | Compute N! to arbitrary precision; extends big-number arithmetic pattern |
+| Feature           | Notes                                                                |
+| ----------------- | -------------------------------------------------------------------- |
+| Collatz sequences | For each number up to 10^N find chain length; identify longest chain |
+| Perfect numbers   | Find all perfect numbers up to 10^N; connected to Mersenne primes    |
 
 ---
 
