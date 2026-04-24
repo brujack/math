@@ -1,5 +1,7 @@
 # GitHub Releases Implementation Plan
 
+> **Status: DONE**
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a `workflow_dispatch`-triggered GitHub release workflow for each of the five Rust projects, producing a tagged GitHub release with a built binary and auto-generated release notes.
