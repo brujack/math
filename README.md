@@ -10,17 +10,20 @@
 [![twin-primes-rs](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml)
 [![e.py](https://github.com/brujack/math/actions/workflows/e-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/e-py.yml)
 [![e-rs](https://github.com/brujack/math/actions/workflows/e-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/e-rs.yml)
+[![factorial-py](https://github.com/brujack/math/actions/workflows/factorial-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/factorial-py.yml)
+[![factorial-rs](https://github.com/brujack/math/actions/workflows/factorial-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/factorial-rs.yml)
 
 High-performance mathematical computation tools.
 
-| Project                                 | Description                                                   | Implementation | CI                                                                                                                                                                                                                                                                                                                                        |
-| --------------------------------------- | ------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`pi/`](pi/README.md)                   | Calculate π to N decimal places                               | Python + Rust  | [![pi.py](https://github.com/brujack/math/actions/workflows/pi-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/pi-py.yml) [![pi-rs](https://github.com/brujack/math/actions/workflows/pi-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/pi-rs.yml)       |
-| [`prime/`](prime/README.md)             | Find all primes up to 10^N                                    | Rust           | [![prime-rs](https://github.com/brujack/math/actions/workflows/prime-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/prime-rs.yml)                                                                                                                                                                |
-| [`fib/`](fib/README.md)                 | Generate all Fibonacci numbers with up to 10^X digits         | Python + Rust  | [![fib.py](https://github.com/brujack/math/actions/workflows/fib-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/fib-py.yml) [![fib-rs](https://github.com/brujack/math/actions/workflows/fib-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/fib-rs.yml) |
-| [`sq/`](sq/README.md)                   | Generate all perfect squares with up to 10^N digits (N=1 max) | Python + Rust  | [![sq.py](https://github.com/brujack/math/actions/workflows/sq-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/sq-py.yml) [![sq-rs](https://github.com/brujack/math/actions/workflows/sq-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/sq-rs.yml)       |
-| [`twin-primes/`](twin-primes/README.md) | Find all twin prime pairs up to 10^N                          | Rust           | [![twin-primes-rs](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml)                                                                                                                                              |
-| [`e/`](e/README.md)                     | Calculate e to N decimal places                               | Python + Rust  | [![e.py](https://github.com/brujack/math/actions/workflows/e-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/e-py.yml) [![e-rs](https://github.com/brujack/math/actions/workflows/e-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/e-rs.yml)             |
+| Project                                 | Description                                                   | Implementation | CI                                                                                                                                                                                                                                                                                                                                                                            |
+| --------------------------------------- | ------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`pi/`](pi/README.md)                   | Calculate π to N decimal places                               | Python + Rust  | [![pi.py](https://github.com/brujack/math/actions/workflows/pi-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/pi-py.yml) [![pi-rs](https://github.com/brujack/math/actions/workflows/pi-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/pi-rs.yml)                                           |
+| [`prime/`](prime/README.md)             | Find all primes up to 10^N                                    | Rust           | [![prime-rs](https://github.com/brujack/math/actions/workflows/prime-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/prime-rs.yml)                                                                                                                                                                                                    |
+| [`fib/`](fib/README.md)                 | Generate all Fibonacci numbers with up to 10^X digits         | Python + Rust  | [![fib.py](https://github.com/brujack/math/actions/workflows/fib-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/fib-py.yml) [![fib-rs](https://github.com/brujack/math/actions/workflows/fib-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/fib-rs.yml)                                     |
+| [`sq/`](sq/README.md)                   | Generate all perfect squares with up to 10^N digits (N=1 max) | Python + Rust  | [![sq.py](https://github.com/brujack/math/actions/workflows/sq-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/sq-py.yml) [![sq-rs](https://github.com/brujack/math/actions/workflows/sq-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/sq-rs.yml)                                           |
+| [`twin-primes/`](twin-primes/README.md) | Find all twin prime pairs up to 10^N                          | Rust           | [![twin-primes-rs](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/twin-primes-rs.yml)                                                                                                                                                                                  |
+| [`e/`](e/README.md)                     | Calculate e to N decimal places                               | Python + Rust  | [![e.py](https://github.com/brujack/math/actions/workflows/e-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/e-py.yml) [![e-rs](https://github.com/brujack/math/actions/workflows/e-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/e-rs.yml)                                                 |
+| [`factorial/`](factorial/README.md)     | Compute N! to arbitrary precision (prime swing algorithm)     | Python + Rust  | [![factorial-py](https://github.com/brujack/math/actions/workflows/factorial-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/factorial-py.yml) [![factorial-rs](https://github.com/brujack/math/actions/workflows/factorial-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/factorial-rs.yml) |
 
 ---
 
@@ -83,6 +86,40 @@ Calculates Euler's number _e_ to an arbitrary number of decimal places using the
 - Rust implementation (`e/e-rs/`) — shared-memory rayon parallelism with zero IPC overhead
 
 See [`e/README.md`](e/README.md) for full details.
+
+---
+
+## factorial
+
+Computes N! (N factorial) to arbitrary precision using the **prime swing algorithm** (`n! = swing(n) × (⌊n/2⌋!)²`).
+
+- Python implementation (`factorial/factorial.py`) — gmpy2/GMP fast path with plain int fallback; parallel swing via `ProcessPoolExecutor`
+- Rust implementation (`factorial/factorial-rs/`) — `rug`/GMP with rayon parallel chunks
+
+See [`factorial/README.md`](factorial/README.md) for full details.
+
+---
+
+## Quick Reference
+
+### Python (`factorial/`)
+
+```bash
+cd factorial
+make run       # python3 factorial.py
+make lint      # ruff check .
+make test      # lint, then python3 -m unittest test_factorial -v
+make coverage  # coverage run + report
+```
+
+### Rust (`factorial/factorial-rs/`)
+
+```bash
+cd factorial/factorial-rs
+make factorial # cargo build --release
+make lint      # cargo clippy -- -D warnings
+make test      # lint, then cargo test
+```
 
 ---
 
