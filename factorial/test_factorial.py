@@ -252,7 +252,8 @@ class TestOutputFile(unittest.TestCase):
             original_dir = os.getcwd()
             os.chdir(tmpdir)
             try:
-                _write_factorial_file(120, 5)
+                with patch("builtins.print"):
+                    _write_factorial_file(120, 5)
                 self.assertTrue(os.path.exists("factorial_5.txt"))
             finally:
                 os.chdir(original_dir)
@@ -262,7 +263,8 @@ class TestOutputFile(unittest.TestCase):
             original_dir = os.getcwd()
             os.chdir(tmpdir)
             try:
-                filename = _write_factorial_file(6, 3)
+                with patch("builtins.print"):
+                    filename = _write_factorial_file(6, 3)
                 self.assertEqual(filename, "factorial_3.txt")
             finally:
                 os.chdir(original_dir)
