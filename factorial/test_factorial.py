@@ -4,24 +4,18 @@
 import io
 import os
 import sys
-import tempfile
 import unittest
 import unittest.mock
 from contextlib import redirect_stdout
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-import factorial as fac_module
 from factorial import (
-    _HAS_GMPY2,
     _sieve,
     _compute_swing,
     _compute_swing_chunk,
     _tree_combine_int,
-    _write_factorial_file,
     calculate_factorial,
-    get_target_n,
-    parse_args,
 )
 
 # Known exact factorial values for testing.

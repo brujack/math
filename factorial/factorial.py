@@ -12,13 +12,10 @@ Install fast backend (recommended):
     bash install_deps.sh
 """
 
-import argparse
-import bisect
 import concurrent.futures
 import multiprocessing
 import os
 import sys
-import time
 
 try:
     import gmpy2 as _gmpy2
