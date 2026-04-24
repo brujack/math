@@ -152,6 +152,19 @@ class TestComputeSwing(unittest.TestCase):
         result = _compute_swing(6, primes)
         self.assertIsInstance(result, int)
 
+    def test_swing_four(self):
+        # swing(4): p=2 gives exp=1 (4//2=2 even, 2//2=1 odd -> 1), contrib=2;
+        # p=3 gives exp=1 (4//3=1 odd -> 1), contrib=3. Result = 2*3 = 6.
+        primes = _sieve(10)
+        self.assertEqual(_compute_swing(4, primes), 6)
+
+    def test_swing_satisfies_factorial_recursion(self):
+        # Core prime swing identity: swing(n) * (n//2)! ** 2 == n!
+        # For n=6: swing(6) * 3!^2 == 6!
+        # swing(6) = 20, 3! = 6, 6^2 = 36, 20 * 36 = 720 = 6!
+        primes = _sieve(10)
+        self.assertEqual(_compute_swing(6, primes) * (6) ** 2, 720)
+
 
 if __name__ == "__main__":
     unittest.main()
