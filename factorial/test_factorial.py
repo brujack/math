@@ -59,5 +59,55 @@ class TestSieve(unittest.TestCase):
         self.assertEqual(len(_sieve(100)), 25)
 
 
+class TestComputeSwingChunk(unittest.TestCase):
+
+    def test_empty_prime_chunk(self):
+        self.assertEqual(_compute_swing_chunk(10, []), 1)
+
+    def test_prime_greater_than_m_returns_1(self):
+        # p=7 > m=5, so no contribution
+        self.assertEqual(_compute_swing_chunk(5, [7, 11]), 1)
+
+    def test_swing_of_2_via_chunk(self):
+        # p=2, m=2: q=2//2=1, 1%2=1, exp=1 → 2^1=2
+        self.assertEqual(_compute_swing_chunk(2, [2]), 2)
+
+    def test_swing_of_4_p2_contribution(self):
+        # p=2, m=4: q=4//2=2, 2%2=0; q=2//2=1, 1%2=1 → exp=1 → 2^1=2
+        self.assertEqual(_compute_swing_chunk(4, [2]), 2)
+
+    def test_swing_of_6_p2_contribution(self):
+        # p=2, m=6: q=6//2=3, 3%2=1, exp++; q=3//2=1, 1%2=1, exp++ → exp=2 → 2^2=4
+        self.assertEqual(_compute_swing_chunk(6, [2]), 4)
+
+    def test_swing_of_6_p3_contribution(self):
+        # p=3, m=6: q=6//3=2, 2%2=0; q=2//3=0, done → exp=0 → no contribution
+        self.assertEqual(_compute_swing_chunk(6, [3]), 1)
+
+    def test_swing_of_6_p5_contribution(self):
+        # p=5, m=6: q=6//5=1, 1%2=1 → exp=1 → 5^1=5
+        self.assertEqual(_compute_swing_chunk(6, [5]), 5)
+
+
+class TestTreeCombineInt(unittest.TestCase):
+
+    def test_empty_returns_1(self):
+        self.assertEqual(_tree_combine_int([]), 1)
+
+    def test_single_element(self):
+        self.assertEqual(_tree_combine_int([42]), 42)
+
+    def test_two_elements(self):
+        self.assertEqual(_tree_combine_int([3, 7]), 21)
+
+    def test_four_elements_tree_order(self):
+        # (2*3) * (5*7) = 6 * 35 = 210
+        self.assertEqual(_tree_combine_int([2, 3, 5, 7]), 210)
+
+    def test_odd_length(self):
+        # (2*3) * 5 = 30
+        self.assertEqual(_tree_combine_int([2, 3, 5]), 30)
+
+
 if __name__ == "__main__":
     unittest.main()

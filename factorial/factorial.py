@@ -57,13 +57,44 @@ def _sieve(n):
 # ---------------------------------------------------------------------------
 
 def _compute_swing_chunk(m, prime_chunk):
-    """Compute swing product for a chunk of primes."""
-    raise NotImplementedError
+    """
+    Compute product of p^e_p for each prime in prime_chunk, for swing(m).
+
+    e_p = number of odd values in {floor(m/p), floor(m/p^2), ...}
+    Returns a plain Python int (always picklable).
+    """
+    result = 1
+    for p in prime_chunk:
+        if p > m:
+            break
+        exp = 0
+        q = m
+        while q >= p:
+            q //= p
+            if q & 1:
+                exp += 1
+        if exp:
+            result *= p ** exp
+    return result
 
 
 def _tree_combine_int(values):
-    """Combine integer values using a tree multiplication."""
-    raise NotImplementedError
+    """
+    Pairwise tree reduction of a list of integers (plain int or gmpy2.mpz).
+    Returns 1 for an empty list.
+    Balanced tree keeps GMP multiply sizes similar at each level.
+    """
+    if not values:
+        return 1
+    while len(values) > 1:
+        next_level = []
+        for i in range(0, len(values), 2):
+            if i + 1 < len(values):
+                next_level.append(values[i] * values[i + 1])
+            else:
+                next_level.append(values[i])
+        values = next_level
+    return values[0]
 
 
 def _write_factorial_file(result, n, filename):
