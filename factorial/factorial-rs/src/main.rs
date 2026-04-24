@@ -1,7 +1,6 @@
 use rug::ops::Pow;
 use rug::Integer;
 
-#[allow(dead_code)]
 fn sieve(n: u64) -> Vec<u32> {
     if n < 2 {
         return vec![];
@@ -27,7 +26,6 @@ fn sieve(n: u64) -> Vec<u32> {
         .collect()
 }
 
-#[allow(dead_code)]
 fn compute_swing_chunk(m: u64, primes: &[u32]) -> Integer {
     let mut result = Integer::from(1u64);
     for &p in primes {
@@ -50,7 +48,6 @@ fn compute_swing_chunk(m: u64, primes: &[u32]) -> Integer {
     result
 }
 
-#[allow(dead_code)]
 fn compute_swing(m: u64, primes: &[u32]) -> Integer {
     use rayon::prelude::*;
 
@@ -79,7 +76,6 @@ fn compute_swing(m: u64, primes: &[u32]) -> Integer {
         )
 }
 
-#[allow(dead_code)]
 fn factorial_rec(n: u64, primes: &[u32]) -> Integer {
     if n <= 1 {
         return Integer::from(1u64);
@@ -89,7 +85,6 @@ fn factorial_rec(n: u64, primes: &[u32]) -> Integer {
     Integer::from(&half * &half) * swing
 }
 
-#[allow(dead_code)]
 fn calculate_factorial(n: u64) -> Integer {
     if n <= 1 {
         return Integer::from(1u64);
@@ -98,13 +93,68 @@ fn calculate_factorial(n: u64) -> Integer {
     factorial_rec(n, &primes)
 }
 
-#[allow(dead_code)]
-fn fmt_int(_n: u64) -> String {
-    todo!()
+fn fmt_int(n: u64) -> String {
+    let s = n.to_string();
+    let mut result = String::new();
+    let chars: Vec<char> = s.chars().collect();
+    let len = chars.len();
+    for (i, &c) in chars.iter().enumerate() {
+        if i > 0 && (len - i).is_multiple_of(3) {
+            result.push(',');
+        }
+        result.push(c);
+    }
+    result
+}
+
+fn prompt_n() -> u64 {
+    use std::io::{self, BufRead, Write};
+    loop {
+        print!("Enter N to compute N! : ");
+        io::stdout().flush().unwrap();
+        let stdin = io::stdin();
+        let line = stdin.lock().lines().next().unwrap().unwrap();
+        match line.trim().parse::<u64>() {
+            Ok(n) => return n,
+            Err(_) => eprintln!("Invalid input '{}'. Please enter a non-negative integer.", line.trim()),
+        }
+    }
 }
 
 fn main() {
-    todo!()
+    let args: Vec<String> = std::env::args().collect();
+    let n: u64 = if args.len() > 1 {
+        match args[1].parse::<u64>() {
+            Ok(v) => v,
+            Err(_) => {
+                eprintln!("Error: '{}' is not a valid non-negative integer", args[1]);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        prompt_n()
+    };
+
+    eprintln!("Computing {}! ...", fmt_int(n));
+    let start = std::time::Instant::now();
+    let result = calculate_factorial(n);
+    let elapsed = start.elapsed();
+    eprintln!("Computed in {:.2}s", elapsed.as_secs_f64());
+
+    let digits_str = result.to_string_radix(10);
+    let digit_count = digits_str.len();
+    let filename = format!("factorial_{}.txt", n);
+
+    eprintln!("Writing {} digits to {} ...", fmt_int(digit_count as u64), filename);
+    let write_start = std::time::Instant::now();
+    std::fs::write(&filename, &digits_str).expect("Failed to write output file");
+    let write_elapsed = write_start.elapsed();
+    eprintln!(
+        "{} digits written to {} in {:.2}s",
+        fmt_int(digit_count as u64),
+        filename,
+        write_elapsed.as_secs_f64()
+    );
 }
 
 #[cfg(test)]
@@ -254,6 +304,32 @@ mod tests {
     fn test_factorial_rec_5() {
         let primes = sieve(10);
         assert_eq!(factorial_rec(5, &primes), Integer::from(120u64));
+    }
+
+    // fmt_int tests
+    #[test]
+    fn test_fmt_int_zero() {
+        assert_eq!(fmt_int(0), "0");
+    }
+
+    #[test]
+    fn test_fmt_int_sub_thousand() {
+        assert_eq!(fmt_int(999), "999");
+    }
+
+    #[test]
+    fn test_fmt_int_thousands() {
+        assert_eq!(fmt_int(1000), "1,000");
+    }
+
+    #[test]
+    fn test_fmt_int_millions() {
+        assert_eq!(fmt_int(1_234_567), "1,234,567");
+    }
+
+    #[test]
+    fn test_fmt_int_large() {
+        assert_eq!(fmt_int(1_000_000_000), "1,000,000,000");
     }
 
     // calculate_factorial tests
