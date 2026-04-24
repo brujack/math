@@ -97,6 +97,37 @@ def _tree_combine_int(values):
     return values[0]
 
 
+def _compute_swing(m, primes):
+    """Compute swing(m) = product of p^e_p for all primes p <= m.
+
+    Splits the prime list into _CPU_COUNT chunks and dispatches each chunk
+    to a subprocess via ProcessPoolExecutor, then tree-combines the results.
+    Falls back to a single-process call when the prime list is small enough
+    that subprocess overhead would dominate.
+    """
+    if not primes or primes[0] > m:
+        return 1
+
+    # Filter to primes <= m (the sieve may contain primes beyond m)
+    relevant = [p for p in primes if p <= m]
+    if not relevant:
+        return 1
+
+    chunk_size = max(1, (len(relevant) + _CPU_COUNT - 1) // _CPU_COUNT)
+    chunks = [relevant[i : i + chunk_size] for i in range(0, len(relevant), chunk_size)]
+
+    if len(chunks) == 1:
+        # No benefit from subprocess overhead for a single chunk
+        return _compute_swing_chunk(m, chunks[0])
+
+    ctx = multiprocessing.get_context("spawn" if sys.platform == "darwin" else "fork")
+    with concurrent.futures.ProcessPoolExecutor(max_workers=len(chunks), mp_context=ctx) as pool:
+        futures = [pool.submit(_compute_swing_chunk, m, chunk) for chunk in chunks]
+        partial_results = [f.result() for f in futures]
+
+    return int(_tree_combine_int(partial_results))
+
+
 def _write_factorial_file(result, n, filename):
     """Write factorial result to file."""
     raise NotImplementedError

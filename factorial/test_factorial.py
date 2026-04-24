@@ -15,6 +15,7 @@ import factorial as fac_module
 from factorial import (
     _HAS_GMPY2,
     _sieve,
+    _compute_swing,
     _compute_swing_chunk,
     _tree_combine_int,
     _write_factorial_file,
@@ -117,6 +118,39 @@ class TestTreeCombineInt(unittest.TestCase):
     def test_odd_length(self):
         # (2*3) * 5 = 30
         self.assertEqual(_tree_combine_int([2, 3, 5]), 30)
+
+
+class TestComputeSwing(unittest.TestCase):
+
+    def test_swing_0(self):
+        # swing(0) = empty product = 1
+        primes = _sieve(10)
+        self.assertEqual(_compute_swing(0, primes), 1)
+
+    def test_swing_1(self):
+        # swing(1) = empty product = 1 (no primes <= 1)
+        primes = _sieve(10)
+        self.assertEqual(_compute_swing(1, primes), 1)
+
+    def test_swing_2(self):
+        # swing(2) = 2 (p=2: q=2->1(odd,+1) -> exp=1)
+        primes = _sieve(10)
+        self.assertEqual(_compute_swing(2, primes), 2)
+
+    def test_swing_6(self):
+        # swing(6) = 20 (p=2: exp=2 -> 4; p=3: exp=0 -> 1; p=5: exp=1 -> 5; 7>6 skip)
+        primes = _sieve(10)
+        self.assertEqual(_compute_swing(6, primes), 20)
+
+    def test_swing_empty_primes(self):
+        # empty primes list returns 1
+        self.assertEqual(_compute_swing(100, []), 1)
+
+    def test_swing_returns_int(self):
+        # return type must be plain int (not gmpy2.mpz) for later use
+        primes = _sieve(10)
+        result = _compute_swing(6, primes)
+        self.assertIsInstance(result, int)
 
 
 if __name__ == "__main__":
