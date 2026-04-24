@@ -12,10 +12,12 @@ Install fast backend (recommended):
     bash install_deps.sh
 """
 
+import argparse
 import concurrent.futures
 import multiprocessing
 import os
 import sys
+import time
 
 try:
     import gmpy2 as _gmpy2
@@ -125,9 +127,17 @@ def _compute_swing(m, primes):
     return int(_tree_combine_int(partial_results))
 
 
-def _write_factorial_file(result, n, filename):
-    """Write factorial result to file."""
-    raise NotImplementedError
+def _write_factorial_file(result, n):
+    """Write factorial result to factorial_<n>.txt. Returns filename."""
+    filename = f"factorial_{n}.txt"
+    digits_str = str(int(result))
+    start = time.time()
+    with open(filename, "w") as f:
+        f.write(digits_str)
+    elapsed = time.time() - start
+    digit_count = len(digits_str)
+    print(f"{digit_count:,} digits written to {filename} in {elapsed:.2f}s")
+    return filename
 
 
 def _factorial_rec(n, primes):
@@ -153,11 +163,46 @@ def calculate_factorial(n):
     return result
 
 
-def get_target_n(args):
-    """Extract target N from parsed arguments."""
-    raise NotImplementedError
-
-
 def parse_args(argv=None):
-    """Parse command-line arguments."""
-    raise NotImplementedError
+    """Parse CLI arguments. Returns namespace with optional positional 'n'."""
+    parser = argparse.ArgumentParser(
+        description="Compute N! to arbitrary precision using the prime swing algorithm."
+    )
+    parser.add_argument("n", nargs="?", type=int, help="Integer to compute factorial of")
+    return parser.parse_args(argv)
+
+
+def get_target_n(args):
+    """Return n from args or interactive prompt. Validates positive integer (0 allowed)."""
+    if args.n is not None:
+        if args.n < 0:
+            raise ValueError(f"n must be a non-negative integer, got {args.n}")
+        return args.n
+    while True:
+        raw = input("Enter N to compute N! : ").strip()
+        try:
+            n = int(raw)
+        except ValueError:
+            print(f"Invalid input: '{raw}'. Please enter a non-negative integer.")
+            continue
+        if n < 0:
+            print(f"N must be non-negative, got {n}.")
+            continue
+        return n
+
+
+def main():
+    """Entry point: parse args, compute factorial, write to file."""
+    args = parse_args()
+    n = get_target_n(args)
+    print(f"Computing {n:,}! ...")
+    start = time.time()
+    result = calculate_factorial(n)
+    elapsed = time.time() - start
+    print(f"Computed in {elapsed:.2f}s")
+    _write_factorial_file(result, n)
+
+
+if __name__ == "__main__":
+    if multiprocessing.current_process().name == "MainProcess":
+        main()

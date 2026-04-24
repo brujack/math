@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Unit tests for factorial.py."""
 
+import argparse
 import io
 import os
 import sys
+import tempfile
 import unittest
 import unittest.mock
 from contextlib import redirect_stdout
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -18,6 +21,9 @@ from factorial import (
     _compute_swing_chunk,
     _tree_combine_int,
     calculate_factorial,
+    parse_args,
+    get_target_n,
+    _write_factorial_file,
 )
 
 # Known exact factorial values for testing.
@@ -198,6 +204,94 @@ class TestCalculateFactorial(unittest.TestCase):
             self.skipTest("gmpy2 not installed")
         result = _quiet_factorial(5)
         self.assertIsInstance(result, _gmpy2.mpz)
+
+
+class TestParseArgs(unittest.TestCase):
+    def test_no_args_n_is_none(self):
+        args = parse_args([])
+        self.assertIsNone(args.n)
+
+    def test_positional_arg(self):
+        args = parse_args(["100"])
+        self.assertEqual(args.n, 100)
+
+    def test_help_exits(self):
+        with self.assertRaises(SystemExit):
+            parse_args(["--help"])
+
+
+class TestGetTargetN(unittest.TestCase):
+    def test_from_args(self):
+        args = argparse.Namespace(n=42)
+        self.assertEqual(get_target_n(args), 42)
+
+    def test_zero_from_args(self):
+        args = argparse.Namespace(n=0)
+        self.assertEqual(get_target_n(args), 0)
+
+    def test_negative_raises(self):
+        args = argparse.Namespace(n=-1)
+        with self.assertRaises(ValueError):
+            get_target_n(args)
+
+    def test_interactive_valid(self):
+        args = argparse.Namespace(n=None)
+        with patch("builtins.input", return_value="7"):
+            self.assertEqual(get_target_n(args), 7)
+
+    def test_interactive_non_integer_then_valid(self):
+        args = argparse.Namespace(n=None)
+        with patch("builtins.input", side_effect=["abc", "5"]):
+            with patch("builtins.print"):
+                self.assertEqual(get_target_n(args), 5)
+
+
+class TestOutputFile(unittest.TestCase):
+    def test_file_created(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_dir = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                _write_factorial_file(120, 5)
+                self.assertTrue(os.path.exists("factorial_5.txt"))
+            finally:
+                os.chdir(original_dir)
+
+    def test_filename_correct(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_dir = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                filename = _write_factorial_file(6, 3)
+                self.assertEqual(filename, "factorial_3.txt")
+            finally:
+                os.chdir(original_dir)
+
+    def test_content_is_digits_string(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_dir = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                with patch("builtins.print"):
+                    _write_factorial_file(3628800, 10)
+                with open("factorial_10.txt") as f:
+                    content = f.read()
+                self.assertEqual(content, "3628800")
+            finally:
+                os.chdir(original_dir)
+
+    def test_idempotent_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_dir = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                with patch("builtins.print"):
+                    _write_factorial_file(120, 5)
+                    _write_factorial_file(120, 5)
+                with open("factorial_5.txt") as f:
+                    self.assertEqual(f.read(), "120")
+            finally:
+                os.chdir(original_dir)
 
 
 if __name__ == "__main__":
