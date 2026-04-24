@@ -66,7 +66,7 @@ def _compute_swing_chunk(m, prime_chunk):
     result = 1
     for p in prime_chunk:
         if p > m:
-            break
+            break  # prime_chunk must be sorted ascending; primes beyond m have no contribution
         exp = 0
         q = m
         while q >= p:

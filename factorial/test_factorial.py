@@ -88,6 +88,16 @@ class TestComputeSwingChunk(unittest.TestCase):
         # p=5, m=6: q=6//5=1, 1%2=1 → exp=1 → 5^1=5
         self.assertEqual(_compute_swing_chunk(6, [5]), 5)
 
+    def test_swing_chunk_mixed_primes_some_exceed_m(self):
+        # Normal production pattern: chunk contains primes below AND above m.
+        # Primes above m should be skipped via the early break.
+        # For m=6, primes [2, 3, 5] contribute; 7 and 11 are > m and break early.
+        # p=2: q=6->3(odd,+1)->1(odd,+1) -> exp=2, contrib=4
+        # p=3: q=6->2(even)->0 -> exp=0, contrib=1
+        # p=5: q=6->1(odd,+1) -> exp=1, contrib=5
+        # 7 > 6: break. Result = 4 * 1 * 5 = 20.
+        self.assertEqual(_compute_swing_chunk(6, [2, 3, 5, 7, 11]), 20)
+
 
 class TestTreeCombineInt(unittest.TestCase):
 
