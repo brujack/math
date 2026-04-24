@@ -165,7 +165,7 @@ class TestComputeSwing(unittest.TestCase):
         # For n=6: swing(6) * 3!^2 == 6!
         # swing(6) = 20, 3! = 6, 6^2 = 36, 20 * 36 = 720 = 6!
         primes = _sieve(10)
-        self.assertEqual(_compute_swing(6, primes) * (6) ** 2, 720)
+        self.assertEqual(_compute_swing(6, primes) * FACTORIAL_REF[3] ** 2, 720)
 
 
 class TestCalculateFactorial(unittest.TestCase):
