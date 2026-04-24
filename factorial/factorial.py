@@ -130,9 +130,26 @@ def _write_factorial_file(result, n, filename):
     raise NotImplementedError
 
 
+def _factorial_rec(n, primes):
+    """Recursive prime swing factorial: n! = swing(n) * (n//2)!^2."""
+    if n <= 1:
+        return 1
+    half_factorial = _factorial_rec(n // 2, primes)
+    swing = _compute_swing(n, primes)
+    return half_factorial * half_factorial * swing
+
+
 def calculate_factorial(n):
-    """Calculate factorial of n using prime swing algorithm."""
-    raise NotImplementedError
+    """Compute n! using the prime swing algorithm. Returns int."""
+    if n < 0:
+        raise ValueError(f"factorial not defined for negative integers: {n}")
+    if n <= 1:
+        return 1
+    primes = _sieve(n)
+    result = _factorial_rec(n, primes)
+    if _HAS_GMPY2:
+        return _gmpy2.mpz(result)
+    return result
 
 
 def get_target_n(args):

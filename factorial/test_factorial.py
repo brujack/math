@@ -160,5 +160,30 @@ class TestComputeSwing(unittest.TestCase):
         self.assertEqual(_compute_swing(6, primes) * (6) ** 2, 720)
 
 
+class TestCalculateFactorial(unittest.TestCase):
+
+    def test_factorial_0(self):
+        self.assertEqual(int(_quiet_factorial(0)), FACTORIAL_REF[0])
+
+    def test_factorial_1(self):
+        self.assertEqual(int(_quiet_factorial(1)), FACTORIAL_REF[1])
+
+    def test_factorial_2(self):
+        self.assertEqual(int(_quiet_factorial(2)), FACTORIAL_REF[2])
+
+    def test_factorial_5(self):
+        self.assertEqual(int(_quiet_factorial(5)), FACTORIAL_REF[5])
+
+    def test_factorial_10(self):
+        self.assertEqual(int(_quiet_factorial(10)), FACTORIAL_REF[10])
+
+    def test_factorial_20(self):
+        self.assertEqual(int(_quiet_factorial(20)), FACTORIAL_REF[20])
+
+    def test_factorial_negative_raises(self):
+        with self.assertRaises(ValueError):
+            calculate_factorial(-1)
+
+
 if __name__ == "__main__":
     unittest.main()
