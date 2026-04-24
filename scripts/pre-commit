@@ -2,7 +2,7 @@
 set -e
 
 # Run lint for each sub-project that has staged changes
-for dir in pi pi/pi-rs prime/prime-rs fib fib/fib-rs sq sq/sq-rs twin-primes/twin-primes-rs e e/e-rs; do
+for dir in pi pi/pi-rs prime/prime-rs fib fib/fib-rs sq sq/sq-rs twin-primes/twin-primes-rs e e/e-rs factorial factorial/factorial-rs; do
     if git diff --cached --name-only | grep -q "^${dir}/"; then
         printf "lint: %s\n" "${dir}"
         make -C "${dir}" lint
