@@ -1,0 +1,15 @@
+[package]
+name = "factorial"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "factorial"
+path = "src/main.rs"
+
+[dependencies]
+rug = { version = "1", features = ["integer"] }
+rayon = "1"
+
+[profile.release]
+opt-level = 3

@@ -10,3 +10,4 @@ Repo-specific decisions for the `math` repository. Cross-cutting decisions (CI t
 | [0004](0004-gmp-rug-crate-for-arbitrary-precision.md)   | GMP/MPFR via rug crate for arbitrary-precision Rust arithmetic | 2026-03-20 | Accepted |
 | [0005](0005-rayon-for-shared-memory-parallelism.md)     | rayon for shared-memory parallelism in Rust                    | 2026-03-20 | Accepted |
 | [0006](0006-per-project-ci-workflows-with-test-gate.md) | Per-project CI workflows with test-before-build gate           | 2026-03-21 | Accepted |
+| [0007](0007-prime-swing-factorial.md)                   | Prime swing algorithm for factorial                            | 2026-04-24 | Accepted |
