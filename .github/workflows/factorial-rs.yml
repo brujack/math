@@ -1,0 +1,60 @@
+name: factorial-rs
+
+on:
+  pull_request:
+    branches:
+      - master
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    name: Test factorial-rs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: factorial/factorial-rs
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GMP and MPFR
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: factorial/factorial-rs
+
+      - name: Run tests
+        run: make test
+
+  build:
+    name: Build factorial-rs
+    runs-on: ubuntu-latest
+    needs: [test]
+    defaults:
+      run:
+        working-directory: factorial/factorial-rs
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GMP and MPFR
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: factorial/factorial-rs
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: factorial
+          path: factorial/factorial-rs/target/release/factorial
+          retention-days: 7
