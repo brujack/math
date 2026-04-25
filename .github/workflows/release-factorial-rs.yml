@@ -66,7 +66,7 @@ jobs:
           git push origin "factorial-v${VERSION}"
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: "factorial-v${{ inputs.version }}"
           name: "factorial v${{ inputs.version }}"
