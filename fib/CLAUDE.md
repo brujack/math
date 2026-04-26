@@ -60,11 +60,16 @@ make coverage  # coverage run + report
 
 ### Test coverage
 
-| Class                   | Tests                                                                          |
-| ----------------------- | ------------------------------------------------------------------------------ |
-| `TestGenerateFibonacci` | 9 — sequence correctness, known values, Fibonacci property, max_digits=0 empty |
-| `TestParseArgs`         | 3 — no-arg, with-arg, invalid non-integer exits                                |
-| `TestGetExponent`       | 6 — boundary validation, sys.exit for out-of-range and negative                |
+99% line coverage (`fib.py`).
+
+| Class                        | Tests                                                                                      |
+| ---------------------------- | ------------------------------------------------------------------------------------------ |
+| `TestGenerateFibonacci`      | 9 — sequence correctness, known values, Fibonacci property, max_digits=0 empty             |
+| `TestParseArgs`              | 3 — no-arg, with-arg, invalid non-integer exits                                            |
+| `TestGetExponent`            | 6 — boundary validation, sys.exit for out-of-range and negative                            |
+| `TestGetExponentInteractive` | 6 — interactive prompt: valid, low/high boundary, retries on out-of-range/zero/non-integer |
+| `TestMain`                   | 5 — small-X display + save branches, X=3 streaming, X≥4 warning aborts on "n"/blank        |
+| `TestEntryPoint`             | 1 — module runs via subprocess (exercises `if __name__ == "__main__"`)                     |
 
 ## Keeping This File Up To Date
 

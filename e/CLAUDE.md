@@ -175,21 +175,30 @@ python3 -m pytest test_e.py -v   # if pytest is installed
 
 gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 
-#### Test coverage (50 tests)
+#### Test coverage (93% line coverage, 65 tests)
 
-| Class                    | Tests | Notes                                                    |
-| ------------------------ | ----- | -------------------------------------------------------- |
-| `TestTreeCombine`        | 7     | Pure Python -- always runs; includes empty-list boundary |
-| `TestTaylorBS`           | 7     | Skipped without gmpy2                                    |
-| `TestBsChunkWorker`      | 3     | Skipped without gmpy2                                    |
-| `TestEToStr`             | 6     | Format + known-digit checks                              |
-| `TestEAccuracy`          | 4     | End-to-end vs reference e                                |
-| `TestMpmathFallback`     | 2     | Always runs                                              |
-| `TestCalculateEParallel` | 1     | Skipped without gmpy2                                    |
-| `TestGetTargetDigits`    | 5     | Argument parsing; includes minimum value (digits=1)      |
-| `TestParseArgs`          | 3     | CLI flag parsing                                         |
-| `TestShowEPreview`       | 4     | stdout capture                                           |
-| `TestSaveEToFile`        | 5     | File write + content checks                              |
+| Class                            | Tests | Notes                                                                   |
+| -------------------------------- | ----- | ----------------------------------------------------------------------- |
+| `TestTreeCombine`                | 7     | Pure Python -- always runs; includes empty-list boundary                |
+| `TestTaylorBS`                   | 7     | Skipped without gmpy2                                                   |
+| `TestBsChunkWorker`              | 3     | Skipped without gmpy2                                                   |
+| `TestEToStr`                     | 6     | Format + known-digit checks                                             |
+| `TestEAccuracy`                  | 4     | End-to-end vs reference e                                               |
+| `TestMpmathFallback`             | 2     | Always runs                                                             |
+| `TestCalculateEParallel`         | 1     | Skipped without gmpy2                                                   |
+| `TestGetTargetDigits`            | 5     | Argument parsing; includes minimum value (digits=1)                     |
+| `TestParseArgs`                  | 3     | CLI flag parsing                                                        |
+| `TestShowEPreview`               | 4     | stdout capture                                                          |
+| `TestSaveEToFile`                | 5     | File write + content checks                                             |
+| `TestETostrEdgeCases`            | 1     | Negative-mpfr sign-strip branch in `_e_to_str`                          |
+| `TestShowEPreviewNoDecimal`      | 1     | Else branch when preview string lacks `.`                               |
+| `TestGmpy2WorkerFunctions`       | 2     | Direct dispatch of `_gmpy2_str_from_PQ` and `_convert_gmpy2_worker`     |
+| `TestConvertMpmathWorker`        | 1     | Direct dispatch of `_convert_mpmath_worker`                             |
+| `TestPwriteAllStall`             | 1     | Stall path in `_pwrite_all` (returns 0)                                 |
+| `TestSaveEEstimateAndProgress`   | 1     | Exercises `estimate_conversion_time` tiers via patched ProcessPool      |
+| `TestGetTargetDigitsInteractive` | 5     | Interactive prompt: valid, retries, large-N decline + accept            |
+| `TestMain`                       | 5     | Display/save branches, ValueError, KeyboardInterrupt, generic exception |
+| `TestEntryPointGuard`            | 1     | Module runs via subprocess (`if __name__ == "__main__"` block)          |
 
 #### Adding new tests
 
