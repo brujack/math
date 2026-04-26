@@ -273,6 +273,8 @@ cargo tarpaulin --out Stdout
 
 #### Test coverage (39% line coverage, 19 tests)
 
+Below the project standard of >=90% — `write_pi_file` (parallel pwrite I/O), `prompt_digits` / `read_line` (interactive stdin), and `main()` are integration-level uncovered.
+
 | Area                   | Tests | Notes                                                                          |
 | ---------------------- | ----- | ------------------------------------------------------------------------------ |
 | `fmt_int`              | 5     | zero, sub-thousand, thousands, millions, billions                              |

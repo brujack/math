@@ -52,6 +52,10 @@ Functions:
 
 Tests in `#[cfg(test)] mod tests`. Run with `make test`.
 
+### Test coverage (76% line coverage, 25 tests)
+
+Below the project standard of >=90% — `write_twin_primes_file`, `prompt_exponent` / `read_line` (interactive stdin), and `main()` are integration-level uncovered.
+
 Known twin prime counts:
 
 - N=1 (limit=10): 2 pairs — (3,5),(5,7)

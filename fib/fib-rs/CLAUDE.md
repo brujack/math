@@ -80,7 +80,9 @@ cd fib/fib-rs
 cargo test
 ```
 
-### Test coverage
+### Test coverage (26% line coverage, 12 tests)
+
+Below the project standard of >=90% — `prompt_exponent`, `read_line`, `write_fib_file`, and `main()` are integration-level uncovered.
 
 | Area                 | Tests                                                                                                                                                 |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |

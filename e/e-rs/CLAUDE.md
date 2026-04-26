@@ -78,7 +78,9 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-### Test coverage (19 tests)
+### Test coverage (35% line coverage, 19 tests)
+
+Below the project standard of >=90% — `write_e_file` (parallel pwrite I/O), `prompt_digits` / `read_line` (interactive stdin), and `main()` are integration-level uncovered.
 
 | Area                   | Tests | Notes                                                                          |
 | ---------------------- | ----- | ------------------------------------------------------------------------------ |

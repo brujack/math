@@ -88,7 +88,9 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-### Test coverage (36 tests)
+### Test coverage (68% line coverage, 36 tests)
+
+Below the project standard of >=90% — `prompt_n` (interactive stdin) and `main()` are integration-level uncovered.
 
 | Area                  | Tests | Notes                                                                       |
 | --------------------- | ----- | --------------------------------------------------------------------------- |
