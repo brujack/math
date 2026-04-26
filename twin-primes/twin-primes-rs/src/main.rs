@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
+use std::path::{Path, PathBuf};
 
 use clap::Parser;
 
@@ -40,7 +41,10 @@ fn small_sieve(limit: u64) -> Vec<u64> {
         }
         i += 1;
     }
-    (2..=n).filter(|&i| !composite[i]).map(|i| i as u64).collect()
+    (2..=n)
+        .filter(|&i| !composite[i])
+        .map(|i| i as u64)
+        .collect()
 }
 
 fn fmt_int(n: u64) -> String {
@@ -147,45 +151,74 @@ fn find_twin_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
     Ok(count)
 }
 
-fn main() {
-    let cli = Cli::parse();
-    let digits = cli.digits;
+// ---------------------------------------------------------------------------
+// Orchestrator
+// ---------------------------------------------------------------------------
 
+fn run<W: Write, E: Write>(digits: u32, out: &mut W, err: &mut E, dir: &Path) -> io::Result<i32> {
     if !(1..=15).contains(&digits) {
-        eprintln!("Error: N must be between 1 and 15.");
-        std::process::exit(1);
+        writeln!(err, "Error: N must be between 1 and 15.")?;
+        return Ok(1);
     }
 
     let limit: u64 = 10u64.pow(digits);
-    let filename = format!("twin-primes_1e{}.txt", digits);
+    let path = dir.join(format!("twin-primes_1e{}.txt", digits));
 
-    println!("Twin Prime Sieve");
-    println!("{}", "=".repeat(40));
-    println!("Finding twin prime pairs where both p and p+2 < 10^{} = {}", digits, fmt_int(limit));
+    writeln!(out, "Twin Prime Sieve")?;
+    writeln!(out, "{}", "=".repeat(40))?;
+    writeln!(
+        out,
+        "Finding twin prime pairs where both p and p+2 < 10^{} = {}",
+        digits,
+        fmt_int(limit)
+    )?;
 
-    let file = File::create(&filename).unwrap_or_else(|e| {
-        eprintln!("Error: cannot create {}: {}", filename, e);
-        std::process::exit(1);
-    });
+    let file = match File::create(&path) {
+        Ok(f) => f,
+        Err(e) => {
+            writeln!(err, "Error: cannot create {}: {}", path.display(), e)?;
+            return Ok(1);
+        }
+    };
     let mut writer = BufWriter::new(file);
 
-    let count = find_twin_primes(limit, &mut writer).unwrap_or_else(|e| {
-        eprintln!("Error writing output: {}", e);
-        std::process::exit(1);
-    });
+    let count = find_twin_primes(limit, &mut writer)?;
+    writer.flush()?;
 
-    writer.flush().unwrap_or_else(|e| {
-        eprintln!("Error flushing output: {}", e);
-        std::process::exit(1);
-    });
+    writeln!(
+        out,
+        "Found {} twin prime pairs up to 10^{}",
+        fmt_int(count),
+        digits
+    )?;
+    writeln!(out, "Saved to {}", path.display())?;
 
-    println!("Found {} twin prime pairs up to 10^{}", fmt_int(count), digits);
-    println!("Saved to {}", filename);
+    Ok(0)
 }
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+
+fn main() {
+    let cli = Cli::parse();
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    let stderr = io::stderr();
+    let mut err = stderr.lock();
+    let dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let code = run(cli.digits, &mut out, &mut err, &dir).unwrap_or(1);
+    std::process::exit(code);
+}
+
+// ---------------------------------------------------------------------------
+// Unit tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn test_fmt_int_zero() {
@@ -228,10 +261,7 @@ mod tests {
 
     #[test]
     fn test_small_sieve_thirty() {
-        assert_eq!(
-            small_sieve(30),
-            vec![2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29]
-        );
+        assert_eq!(small_sieve(30), vec![2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29]);
     }
 
     #[test]
@@ -262,8 +292,8 @@ mod tests {
         let sp = small_sieve(14);
         let result = sieve_segment(101, 200, &sp);
         let expected = vec![
-            101u64, 103, 107, 109, 113, 127, 131, 137, 139, 149,
-            151, 157, 163, 167, 173, 179, 181, 191, 193, 197, 199,
+            101u64, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167, 173, 179, 181,
+            191, 193, 197, 199,
         ];
         assert_eq!(result, expected);
     }
@@ -295,7 +325,7 @@ mod tests {
     struct FailWriter;
     impl Write for FailWriter {
         fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
-            Err(io::Error::new(io::ErrorKind::Other, "write failed"))
+            Err(io::Error::other("write failed"))
         }
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
@@ -339,10 +369,7 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
         let count = find_twin_primes(10, &mut buf).unwrap();
         assert_eq!(count, 2);
-        assert_eq!(
-            String::from_utf8(buf).unwrap(),
-            "3 | 5\n5 | 7\n"
-        );
+        assert_eq!(String::from_utf8(buf).unwrap(), "3 | 5\n5 | 7\n");
     }
 
     #[test]
@@ -396,5 +423,96 @@ mod tests {
         find_twin_primes(1_000, &mut buf1).unwrap();
         find_twin_primes(1_000, &mut buf2).unwrap();
         assert_eq!(buf1, buf2);
+    }
+
+    // --- run ---
+
+    #[test]
+    fn test_run_invalid_digits_zero_exits_one() {
+        let dir = tempdir().unwrap();
+        let mut out: Vec<u8> = Vec::new();
+        let mut err: Vec<u8> = Vec::new();
+        let code = run(0, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 1);
+        let stderr = String::from_utf8(err).unwrap();
+        assert!(stderr.contains("between 1 and 15"), "stderr: {stderr}");
+    }
+
+    #[test]
+    fn test_run_invalid_digits_16_exits_one() {
+        let dir = tempdir().unwrap();
+        let mut out: Vec<u8> = Vec::new();
+        let mut err: Vec<u8> = Vec::new();
+        let code = run(16, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 1);
+        let stderr = String::from_utf8(err).unwrap();
+        assert!(stderr.contains("between 1 and 15"), "stderr: {stderr}");
+    }
+
+    #[test]
+    fn test_run_valid_creates_file() {
+        let dir = tempdir().unwrap();
+        let mut out: Vec<u8> = Vec::new();
+        let mut err: Vec<u8> = Vec::new();
+        let code = run(1, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        let file = dir.path().join("twin-primes_1e1.txt");
+        assert!(file.exists(), "output file not created");
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "3 | 5\n5 | 7\n");
+    }
+
+    #[test]
+    fn test_run_stdout_contains_header_and_count() {
+        let dir = tempdir().unwrap();
+        let mut out: Vec<u8> = Vec::new();
+        let mut err: Vec<u8> = Vec::new();
+        run(1, &mut out, &mut err, dir.path()).unwrap();
+        let stdout = String::from_utf8(out).unwrap();
+        assert!(stdout.contains("Twin Prime Sieve"), "stdout: {stdout}");
+        assert!(
+            stdout.contains("Found 2 twin prime pairs"),
+            "stdout: {stdout}"
+        );
+    }
+
+    #[test]
+    fn test_run_idempotent() {
+        let dir = tempdir().unwrap();
+        for _ in 0..2 {
+            let mut out: Vec<u8> = Vec::new();
+            let mut err: Vec<u8> = Vec::new();
+            let code = run(1, &mut out, &mut err, dir.path()).unwrap();
+            assert_eq!(code, 0);
+        }
+        let file = dir.path().join("twin-primes_1e1.txt");
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "3 | 5\n5 | 7\n");
+    }
+
+    #[test]
+    fn test_run_boundary_n1() {
+        // N=1 (minimum valid) → 2 pairs.
+        let dir = tempdir().unwrap();
+        let mut out: Vec<u8> = Vec::new();
+        let mut err: Vec<u8> = Vec::new();
+        let code = run(1, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        let file = dir.path().join("twin-primes_1e1.txt");
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(content.lines().count(), 2);
+    }
+
+    #[test]
+    fn test_run_boundary_n2() {
+        // N=2 → 8 pairs.
+        let dir = tempdir().unwrap();
+        let mut out: Vec<u8> = Vec::new();
+        let mut err: Vec<u8> = Vec::new();
+        let code = run(2, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        let file = dir.path().join("twin-primes_1e2.txt");
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(content.lines().count(), 8);
     }
 }
