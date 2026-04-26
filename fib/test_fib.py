@@ -2,10 +2,16 @@
 """Unit tests for fib.py."""
 
 import argparse
+import io
+import os
 import sys
+import tempfile
 import unittest
+from contextlib import redirect_stdout
+from unittest.mock import patch
 
-from fib import generate_fibonacci, parse_args, get_exponent
+import fib
+from fib import generate_fibonacci, parse_args, get_exponent, main
 
 
 class TestGenerateFibonacci(unittest.TestCase):
@@ -100,6 +106,119 @@ class TestGetExponent(unittest.TestCase):
     def test_negative_exits(self):
         with self.assertRaises(SystemExit):
             get_exponent(self._args(-1))
+
+
+class TestGetExponentInteractive(unittest.TestCase):
+    """Cover the interactive prompt branch of get_exponent (args.exponent is None)."""
+
+    def _args_none(self):
+        return argparse.Namespace(exponent=None)
+
+    def test_interactive_valid_first_try(self):
+        with patch("builtins.input", side_effect=["3"]), redirect_stdout(io.StringIO()):
+            self.assertEqual(get_exponent(self._args_none()), 3)
+
+    def test_interactive_low_boundary(self):
+        with patch("builtins.input", side_effect=["1"]), redirect_stdout(io.StringIO()):
+            self.assertEqual(get_exponent(self._args_none()), 1)
+
+    def test_interactive_high_boundary(self):
+        with patch("builtins.input", side_effect=["5"]), redirect_stdout(io.StringIO()):
+            self.assertEqual(get_exponent(self._args_none()), 5)
+
+    def test_interactive_out_of_range_then_valid(self):
+        with patch("builtins.input", side_effect=["6", "2"]), redirect_stdout(io.StringIO()):
+            self.assertEqual(get_exponent(self._args_none()), 2)
+
+    def test_interactive_zero_then_valid(self):
+        with patch("builtins.input", side_effect=["0", "1"]), redirect_stdout(io.StringIO()):
+            self.assertEqual(get_exponent(self._args_none()), 1)
+
+    def test_interactive_non_integer_then_valid(self):
+        with patch("builtins.input", side_effect=["abc", "3"]), redirect_stdout(io.StringIO()):
+            self.assertEqual(get_exponent(self._args_none()), 3)
+
+
+class TestMain(unittest.TestCase):
+    """Cover main() — small-output branch (X<=2), large-output streaming (X==3),
+    and the X>=4 confirmation prompt (both yes and no paths)."""
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        for f in os.listdir(self._tmp):
+            os.unlink(os.path.join(self._tmp, f))
+        os.rmdir(self._tmp)
+
+    def _run_main(self, argv, inputs):
+        old_argv = sys.argv
+        sys.argv = argv
+        try:
+            with patch("builtins.input", side_effect=inputs), redirect_stdout(io.StringIO()) as buf:
+                main()
+            return buf.getvalue()
+        finally:
+            sys.argv = old_argv
+
+    def test_small_x_display_branch(self):
+        # X=1, user chooses "y" → display all values, do not write file
+        out = self._run_main(["fib.py", "1"], ["y"])
+        self.assertIn("Fibonacci", out)
+        self.assertIn("1\n1\n2\n3\n5\n8", out)
+        self.assertFalse(os.path.exists("fib_1e1.txt"))
+
+    def test_small_x_save_branch(self):
+        # X=2 → max_digits=10^2=100. User chooses "n" → file is written.
+        self._run_main(["fib.py", "2"], ["n"])
+        self.assertTrue(os.path.exists("fib_1e2.txt"))
+        with open("fib_1e2.txt") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(lines[:3], ["1", "1", "2"])
+        self.assertLess(int(lines[-1]), 10 ** 100)
+
+    def test_streaming_branch_x3(self):
+        # X=3 → streaming-to-file path, no warning, no input prompts
+        self._run_main(["fib.py", "3"], [])
+        self.assertTrue(os.path.exists("fib_1e3.txt"))
+        with open("fib_1e3.txt") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(lines[0], "1")
+        # last value must have <= 1000 digits
+        self.assertLessEqual(len(lines[-1]), 1000)
+
+    def test_large_x_warning_aborts_on_no(self):
+        # X=4 → warning + confirmation; "n" returns without writing a file
+        out = self._run_main(["fib.py", "4"], ["n"])
+        self.assertIn("Warning", out)
+        self.assertFalse(os.path.exists("fib_1e4.txt"))
+
+    def test_large_x_warning_aborts_on_blank(self):
+        # X=4 → warning, blank confirmation also returns
+        out = self._run_main(["fib.py", "5"], [""])
+        self.assertIn("Warning", out)
+        self.assertFalse(os.path.exists("fib_1e5.txt"))
+
+
+class TestEntryPoint(unittest.TestCase):
+    """Cover the `if __name__ == "__main__"` guard."""
+
+    def test_module_runs_via_subprocess(self):
+        # Invoking fib.py as a script triggers the entry-point guard.
+        import subprocess
+        proc = subprocess.run(
+            [sys.executable, fib.__file__, "1"],
+            input="n\n",
+            capture_output=True,
+            text=True,
+            timeout=10,
+            cwd=tempfile.gettempdir(),
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("Fibonacci", proc.stdout)
 
 
 if __name__ == "__main__":
