@@ -219,26 +219,32 @@ python3 -m pytest test_pi.py -v   # if pytest is installed
 
 gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 
-#### Test coverage (78% line coverage, 63 tests)
+#### Test coverage (93% line coverage, 77 tests)
 
-| Class                     | Tests | Notes                                                   |
-| ------------------------- | ----- | ------------------------------------------------------- |
-| `TestTreeCombine`         | 7     | Pure Python — always runs; includes empty-list boundary |
-| `TestPwriteAll`           | 4     | POSIX pwrite — always runs                              |
-| `TestPwriteAllStall`      | 1     | Error path — always runs                                |
-| `TestChudnovskyBS`        | 7     | Skipped without gmpy2                                   |
-| `TestBsChunkWorker`       | 3     | Skipped without gmpy2                                   |
-| `TestGmpy2Conversions`    | 5     | Skipped without gmpy2                                   |
-| `TestConvertGmpy2Worker`  | 2     | Skipped without gmpy2                                   |
-| `TestConvertMpmathWorker` | 3     | Always runs                                             |
-| `TestMpmathFallback`      | 2     | Always runs                                             |
-| `TestPiToStr`             | 6     | Format + known-digit checks                             |
-| `TestPiAccuracy`          | 4     | End-to-end vs reference π                               |
-| `TestShowPiPreview`       | 4     | stdout capture                                          |
-| `TestSavePiToFile`        | 5     | File write + content checks                             |
-| `TestCalculatePiParallel` | 1     | Skipped without gmpy2                                   |
-| `TestGetTargetDigits`     | 5     | Argument parsing; includes minimum value (digits=1)     |
-| `TestParseArgs`           | 3     | CLI flag parsing                                        |
+| Class                            | Tests | Notes                                                                   |
+| -------------------------------- | ----- | ----------------------------------------------------------------------- |
+| `TestTreeCombine`                | 7     | Pure Python — always runs; includes empty-list boundary                 |
+| `TestPwriteAll`                  | 4     | POSIX pwrite — always runs                                              |
+| `TestPwriteAllStall`             | 1     | Error path — always runs                                                |
+| `TestChudnovskyBS`               | 7     | Skipped without gmpy2                                                   |
+| `TestBsChunkWorker`              | 3     | Skipped without gmpy2                                                   |
+| `TestGmpy2Conversions`           | 5     | Skipped without gmpy2                                                   |
+| `TestConvertGmpy2Worker`         | 2     | Skipped without gmpy2                                                   |
+| `TestConvertMpmathWorker`        | 3     | Always runs                                                             |
+| `TestMpmathFallback`             | 2     | Always runs                                                             |
+| `TestPiToStr`                    | 6     | Format + known-digit checks                                             |
+| `TestPiAccuracy`                 | 4     | End-to-end vs reference π                                               |
+| `TestShowPiPreview`              | 4     | stdout capture                                                          |
+| `TestSavePiToFile`               | 5     | File write + content checks                                             |
+| `TestCalculatePiParallel`        | 1     | Skipped without gmpy2                                                   |
+| `TestGetTargetDigits`            | 5     | Argument parsing; includes minimum value (digits=1)                     |
+| `TestParseArgs`                  | 3     | CLI flag parsing                                                        |
+| `TestPiToStrNegativeSign`        | 1     | Negative-mpfr sign-strip branch in `_gmpy2_mpfr_to_str`                 |
+| `TestShowPiPreviewNoDecimal`     | 1     | Else branch when preview string lacks `.`                               |
+| `TestGetTargetDigitsInteractive` | 5     | Interactive prompt: valid, retries, large-N decline + accept            |
+| `TestSavePiEstimateAndProgress`  | 1     | Exercises `estimate_conversion_time` tiers via patched ProcessPool      |
+| `TestMain`                       | 5     | Display/save branches, ValueError, KeyboardInterrupt, generic exception |
+| `TestEntryPointGuard`            | 1     | Module runs via subprocess (`if __name__ == "__main__"` block)          |
 
 #### Adding new tests
 

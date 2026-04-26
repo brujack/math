@@ -660,5 +660,204 @@ class TestParseArgs(unittest.TestCase):
                 parse_args()
 
 
+@unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
+class TestPiToStrNegativeSign(unittest.TestCase):
+    """Cover the negative-sign branch in `_gmpy2_mpfr_to_str`."""
+
+    def test_negative_mpfr_sign_branch(self):
+        from pi import _gmpy2 as g, _gmpy2_mpfr_to_str
+        ctx = g.get_context()
+        saved = ctx.precision
+        ctx.precision = 200
+        try:
+            neg = -g.mpfr("3.14159265358979")
+        finally:
+            ctx.precision = saved
+        s = _gmpy2_mpfr_to_str(neg, 5)
+        self.assertTrue(s.startswith("-"))
+
+
+class TestShowPiPreviewNoDecimal(unittest.TestCase):
+    """Cover the `else` branch (no '.' character in preview string)."""
+
+    def test_no_decimal_point_branch(self):
+        from pi import show_pi_preview
+
+        class FakePi:
+            pass
+
+        with unittest.mock.patch("pi._pi_to_str", return_value="3"):
+            with redirect_stdout(io.StringIO()) as buf:
+                show_pi_preview(FakePi(), 1)
+        self.assertIn("\u03c0 = 3.", buf.getvalue())
+
+
+class TestGetTargetDigitsInteractive(unittest.TestCase):
+    """Cover get_target_digits interactive prompt loop."""
+
+    def _ns(self, digits):
+        import argparse
+        return argparse.Namespace(digits=digits)
+
+    def test_interactive_valid(self):
+        from pi import get_target_digits
+        with unittest.mock.patch("builtins.input", side_effect=["100"]), redirect_stdout(io.StringIO()):
+            self.assertEqual(get_target_digits(self._ns(None)), 100)
+
+    def test_interactive_zero_then_valid(self):
+        from pi import get_target_digits
+        with unittest.mock.patch("builtins.input", side_effect=["0", "10"]), redirect_stdout(io.StringIO()):
+            self.assertEqual(get_target_digits(self._ns(None)), 10)
+
+    def test_interactive_non_integer_then_valid(self):
+        from pi import get_target_digits
+        with unittest.mock.patch("builtins.input", side_effect=["xyz", "5"]), redirect_stdout(io.StringIO()):
+            self.assertEqual(get_target_digits(self._ns(None)), 5)
+
+    def test_interactive_too_large_decline_then_accept(self):
+        from pi import get_target_digits
+        with unittest.mock.patch(
+            "builtins.input",
+            side_effect=["2000000", "n", "100"],
+        ), redirect_stdout(io.StringIO()):
+            self.assertEqual(get_target_digits(self._ns(None)), 100)
+
+    def test_interactive_too_large_accept(self):
+        from pi import get_target_digits
+        with unittest.mock.patch(
+            "builtins.input",
+            side_effect=["1500000", "y"],
+        ), redirect_stdout(io.StringIO()):
+            self.assertEqual(get_target_digits(self._ns(None)), 1_500_000)
+
+
+class TestSavePiEstimateAndProgress(unittest.TestCase):
+    """Cover save_pi_to_file's estimate_conversion_time tiers via patched ProcessPool."""
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        for f in os.listdir(self._tmp):
+            os.unlink(os.path.join(self._tmp, f))
+        os.rmdir(self._tmp)
+
+    def test_estimate_conversion_time_tiers(self):
+        from pi import save_pi_to_file
+        import mpmath
+
+        class _FakeFuture:
+            def __init__(self, v):
+                self._v = v
+            def done(self):
+                return True
+            def result(self):
+                return self._v
+
+        class _FakePool:
+            def __init__(self, *_, **__):
+                pass
+            def __enter__(self):
+                return self
+            def __exit__(self, *_a):
+                return False
+            def submit(self, fn, *args, **kwargs):
+                return _FakeFuture("3.14159\n")
+
+        mpmath.mp.dps = 30
+        pi_val = +mpmath.pi  # mpmath path
+
+        for d in (50_000, 500_000, 5_000_000, 50_000_000):
+            path = os.path.join(self._tmp, f"pi_{d}.txt")
+            with unittest.mock.patch(
+                "pi.concurrent.futures.ProcessPoolExecutor", _FakePool
+            ), redirect_stdout(io.StringIO()):
+                save_pi_to_file(pi_val, d, path)
+            self.assertTrue(os.path.exists(path))
+            os.unlink(path)
+
+
+class TestMain(unittest.TestCase):
+    """Cover main() — small/large display branches and error handlers."""
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        for f in os.listdir(self._tmp):
+            os.unlink(os.path.join(self._tmp, f))
+        os.rmdir(self._tmp)
+
+    def _run(self, argv, inputs):
+        from pi import main
+        with unittest.mock.patch("sys.argv", argv), \
+             unittest.mock.patch("builtins.input", side_effect=inputs), \
+             redirect_stdout(io.StringIO()) as buf:
+            main()
+        return buf.getvalue()
+
+    def test_small_digits_display_branch(self):
+        out = self._run(["pi.py", "10"], ["y"])
+        self.assertIn("3.14159", out)
+        self.assertIn("Total digits", out)
+
+    def test_small_digits_save_branch(self):
+        out = self._run(["pi.py", "10"], ["n"])
+        self.assertIn("3.14159", out)
+        self.assertTrue(os.path.exists("pi_10_digits.txt"))
+
+    def test_value_error_path(self):
+        from pi import main
+        with unittest.mock.patch("sys.argv", ["pi.py", "0"]), \
+             redirect_stdout(io.StringIO()) as buf:
+            with self.assertRaises(SystemExit) as cm:
+                main()
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("Error:", buf.getvalue())
+
+    def test_keyboard_interrupt_path(self):
+        from pi import main
+        with unittest.mock.patch("sys.argv", ["pi.py", "10"]), \
+             unittest.mock.patch("pi.calculate_pi_high_precision", side_effect=KeyboardInterrupt), \
+             redirect_stdout(io.StringIO()) as buf:
+            with self.assertRaises(SystemExit) as cm:
+                main()
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("interrupted", buf.getvalue())
+
+    def test_generic_exception_path(self):
+        from pi import main
+        with unittest.mock.patch("sys.argv", ["pi.py", "10"]), \
+             unittest.mock.patch("pi.calculate_pi_high_precision", side_effect=RuntimeError("boom")), \
+             redirect_stdout(io.StringIO()) as buf:
+            with self.assertRaises(SystemExit) as cm:
+                main()
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("Error occurred", buf.getvalue())
+
+
+class TestEntryPointGuard(unittest.TestCase):
+    """Cover the `if __name__ == "__main__"` block and main-process guard."""
+
+    def test_module_runs_via_subprocess(self):
+        import subprocess
+        proc = subprocess.run(
+            [sys.executable, pi_module.__file__, "5"],
+            input="n\n",
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=tempfile.gettempdir(),
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("3.14159", proc.stdout)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
