@@ -22,6 +22,7 @@ Build:
 
 use std::fs::File;
 use std::io::{self, BufRead, BufWriter, Write};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -83,7 +84,10 @@ fn small_sieve(limit: u64) -> Vec<u64> {
         }
         i += 1;
     }
-    (2..=n).filter(|&i| !composite[i]).map(|i| i as u64).collect()
+    (2..=n)
+        .filter(|&i| !composite[i])
+        .map(|i| i as u64)
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +148,23 @@ fn sieve_segment(lo: u64, limit: u64, small_primes: &[u64]) -> Vec<u64> {
 // Driver
 // ---------------------------------------------------------------------------
 
+/// Pure formatter for the phase-2 progress line (allows unit testing of format).
+fn format_phase2_progress(n: u64, phase2_total: u64, elapsed: f64) -> String {
+    let pct = n * 100 / phase2_total.max(1);
+    let rate = if elapsed > 0.001 {
+        n as f64 / elapsed / 1e6
+    } else {
+        0.0
+    };
+    format!(
+        "\r  Phase 2: {:3}%  ({} / {} numbers sieved)  {:.1} M/s   ",
+        pct,
+        fmt_int(n),
+        fmt_int(phase2_total),
+        rate,
+    )
+}
+
 /// Find all primes up to `limit`, writing one prime per line to `out`.
 /// Reports progress to stderr.  Returns the total prime count.
 fn find_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
@@ -184,25 +205,15 @@ fn find_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
     let done_c = Arc::clone(&done);
     let t2 = Instant::now();
 
-    let progress_thread = thread::spawn(move || {
-        loop {
-            thread::sleep(Duration::from_millis(200));
-            if done_c.load(Ordering::Relaxed) {
-                break;
-            }
-            let n = processed_c.load(Ordering::Relaxed);
-            let elapsed = t2.elapsed().as_secs_f64();
-            let pct = n * 100 / phase2_total.max(1);
-            let rate = if elapsed > 0.001 { n as f64 / elapsed / 1e6 } else { 0.0 };
-            eprint!(
-                "\r  Phase 2: {:3}%  ({} / {} numbers sieved)  {:.1} M/s   ",
-                pct,
-                fmt_int(n),
-                fmt_int(phase2_total),
-                rate,
-            );
-            let _ = io::stderr().flush();
+    let progress_thread = thread::spawn(move || loop {
+        thread::sleep(Duration::from_millis(200));
+        if done_c.load(Ordering::Relaxed) {
+            break;
         }
+        let n = processed_c.load(Ordering::Relaxed);
+        let elapsed = t2.elapsed().as_secs_f64();
+        eprint!("{}", format_phase2_progress(n, phase2_total, elapsed));
+        let _ = io::stderr().flush();
     });
 
     let mut block_lo = phase2_start;
@@ -210,12 +221,15 @@ fn find_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
         let block_hi = (block_lo + BLOCK_SIZE - 1).min(limit);
 
         // Collect segment starts (all odd) within this block.
-        let seg_starts: Vec<u64> =
-            std::iter::successors(Some(block_lo), |&s| {
-                let next = s + SEG_SIZE;
-                if next <= block_hi { Some(next) } else { None }
-            })
-            .collect();
+        let seg_starts: Vec<u64> = std::iter::successors(Some(block_lo), |&s| {
+            let next = s + SEG_SIZE;
+            if next <= block_hi {
+                Some(next)
+            } else {
+                None
+            }
+        })
+        .collect();
 
         // Sieve all segments in this block in parallel.
         let batch: Vec<Vec<u64>> = seg_starts
@@ -244,7 +258,11 @@ fn find_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
     progress_thread.join().unwrap();
 
     let elapsed2 = t2.elapsed().as_secs_f64();
-    let rate2 = if elapsed2 > 0.001 { phase2_total as f64 / elapsed2 / 1e6 } else { 0.0 };
+    let rate2 = if elapsed2 > 0.001 {
+        phase2_total as f64 / elapsed2 / 1e6
+    } else {
+        0.0
+    };
     eprintln!(
         "\r  Phase 2: 100%  ({} numbers sieved)  {:.1} M/s              ",
         fmt_int(phase2_total),
@@ -270,23 +288,122 @@ fn fmt_int(n: u64) -> String {
     out.chars().rev().collect()
 }
 
-fn read_line() -> String {
-    let stdin = io::stdin();
+fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<String> {
     let mut line = String::new();
-    stdin.lock().read_line(&mut line).unwrap();
-    line.trim().to_string()
+    reader.read_line(&mut line)?;
+    Ok(line.trim().to_string())
 }
 
-fn prompt_digits() -> u32 {
+fn confirm_large_n_with<R: BufRead, W: Write, E: Write>(
+    reader: &mut R,
+    out: &mut W,
+    err: &mut E,
+    n: u32,
+) -> io::Result<bool> {
+    let limit = 10u64.pow(n);
+    writeln!(
+        err,
+        "Warning: N={} means sieving up to {} — this may take a long time",
+        n,
+        fmt_int(limit)
+    )?;
+    writeln!(err, "         and produce a very large output file.")?;
+    write!(out, "Continue? (y/n): ")?;
+    out.flush()?;
+    let answer = read_line_from(reader)?;
+    Ok(matches!(answer.as_str(), "y" | "yes"))
+}
+
+fn prompt_n_with<R: BufRead, W: Write, E: Write>(
+    reader: &mut R,
+    out: &mut W,
+    err: &mut E,
+) -> io::Result<u32> {
     loop {
-        print!("Enter N (finds all primes up to 10^N, max 18): ");
-        io::stdout().flush().unwrap();
-        match read_line().parse::<u32>() {
-            Ok(n) if (1..=18).contains(&n) => return n,
-            Ok(_) => eprintln!("N must be between 1 and 18."),
-            _ => eprintln!("Please enter a positive integer."),
+        write!(out, "Enter N (finds all primes up to 10^N, max 18): ")?;
+        out.flush()?;
+        match read_line_from(reader)?.parse::<u32>() {
+            Ok(n) if (1..=18).contains(&n) => return Ok(n),
+            Ok(_) => writeln!(err, "N must be between 1 and 18.")?,
+            _ => writeln!(err, "Please enter a positive integer.")?,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Orchestrator
+// ---------------------------------------------------------------------------
+
+fn run<R: BufRead, W: Write, E: Write>(
+    cli: Cli,
+    reader: &mut R,
+    out: &mut W,
+    err: &mut E,
+    dir: &Path,
+) -> io::Result<i32> {
+    writeln!(out, "Prime Number Sieve (Rust/Rayon)")?;
+    writeln!(out, "{}", "=".repeat(40))?;
+
+    let digits = match cli.digits {
+        Some(d) => {
+            if !(1..=18).contains(&d) {
+                writeln!(err, "Error: N must be between 1 and 18.")?;
+                return Ok(1);
+            }
+            d
+        }
+        None => prompt_n_with(reader, out, err)?,
+    };
+
+    let limit: u64 = 10u64.pow(digits);
+
+    if digits >= 11 && !confirm_large_n_with(reader, out, err, digits)? {
+        return Ok(0);
+    }
+
+    writeln!(
+        out,
+        "Finding all primes up to 10^{} = {}",
+        digits,
+        fmt_int(limit)
+    )?;
+    writeln!(
+        out,
+        "Backend: segmented sieve / packed bitset / rayon ({} threads)",
+        rayon::current_num_threads()
+    )?;
+
+    let t_total = Instant::now();
+
+    if digits <= 6 {
+        // Small result: buffer in memory, let user choose to display or save.
+        let mut buf: Vec<u8> = Vec::new();
+        let count = find_primes(limit, &mut buf)?;
+
+        writeln!(out, "\nFound {} primes up to 10^{}", fmt_int(count), digits)?;
+        write!(out, "Display all {} primes? (y/n): ", fmt_int(count))?;
+        out.flush()?;
+        if matches!(read_line_from(reader)?.as_str(), "y" | "yes") {
+            out.write_all(&buf)?;
+        } else {
+            let path = dir.join(format!("primes_1e{}.txt", digits));
+            std::fs::write(&path, &buf)?;
+            writeln!(out, "Saved to {}", path.display())?;
+        }
+    } else {
+        // Large result: stream directly to file.
+        let path = dir.join(format!("primes_1e{}.txt", digits));
+        writeln!(out, "\nSaving to {}…", path.display())?;
+        let file = File::create(&path)?;
+        let mut writer = BufWriter::with_capacity(8 * 1024 * 1024, file);
+        let count = find_primes(limit, &mut writer)?;
+        writer.flush()?;
+        writeln!(out, "Found {} primes up to 10^{}", fmt_int(count), digits)?;
+        writeln!(out, "Saved to {}", path.display())?;
+    }
+
+    writeln!(out, "Total time: {:.2}s", t_total.elapsed().as_secs_f64())?;
+    Ok(0)
 }
 
 // ---------------------------------------------------------------------------
@@ -295,78 +412,15 @@ fn prompt_digits() -> u32 {
 
 fn main() {
     let cli = Cli::parse();
-
-    println!("Prime Number Sieve (Rust/Rayon)");
-    println!("{}", "=".repeat(40));
-
-    let digits = match cli.digits {
-        Some(d) => {
-            if !(1..=18).contains(&d) {
-                eprintln!("Error: N must be between 1 and 18.");
-                std::process::exit(1);
-            }
-            d
-        }
-        None => prompt_digits(),
-    };
-
-    let limit: u64 = 10u64.pow(digits);
-
-    if digits >= 11 {
-        eprintln!(
-            "Warning: N={} means sieving up to {} — this may take a long time",
-            digits,
-            fmt_int(limit)
-        );
-        eprintln!("         and produce a very large output file.");
-        print!("Continue? (y/n): ");
-        io::stdout().flush().unwrap();
-        if !matches!(read_line().as_str(), "y" | "yes") {
-            return;
-        }
-    }
-
-    println!(
-        "Finding all primes up to 10^{} = {}",
-        digits,
-        fmt_int(limit)
-    );
-    println!(
-        "Backend: segmented sieve / packed bitset / rayon ({} threads)",
-        rayon::current_num_threads()
-    );
-
-    let t_total = Instant::now();
-
-    if digits <= 6 {
-        // Small result: buffer in memory, let user choose to display or save.
-        let mut buf: Vec<u8> = Vec::new();
-        let count = find_primes(limit, &mut buf).expect("sieve error");
-
-        println!("\nFound {} primes up to 10^{}", fmt_int(count), digits);
-        print!("Display all {} primes? (y/n): ", fmt_int(count));
-        io::stdout().flush().unwrap();
-        if matches!(read_line().as_str(), "y" | "yes") {
-            io::stdout().write_all(&buf).unwrap();
-        } else {
-            let filename = format!("primes_1e{}.txt", digits);
-            std::fs::write(&filename, &buf).expect("file write failed");
-            println!("Saved to {}", filename);
-        }
-    } else {
-        // Large result: stream directly to file.
-        let filename = format!("primes_1e{}.txt", digits);
-        println!("\nSaving to {}…", filename);
-        let file = File::create(&filename).expect("cannot create output file");
-        let mut writer = BufWriter::with_capacity(8 * 1024 * 1024, file);
-        let count = find_primes(limit, &mut writer).expect("sieve/write error");
-        writer.flush().expect("flush error");
-
-        println!("Found {} primes up to 10^{}", fmt_int(count), digits);
-        println!("Saved to {}", filename);
-    }
-
-    println!("Total time: {:.2}s", t_total.elapsed().as_secs_f64());
+    let stdin = io::stdin();
+    let mut reader = stdin.lock();
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    let stderr = io::stderr();
+    let mut err = stderr.lock();
+    let dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let code = run(cli, &mut reader, &mut out, &mut err, &dir).unwrap_or(1);
+    std::process::exit(code);
 }
 
 // ---------------------------------------------------------------------------
@@ -376,13 +430,14 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     // --- FailWriter helper ---
 
     struct FailWriter;
     impl Write for FailWriter {
         fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
-            Err(io::Error::new(io::ErrorKind::Other, "write failed"))
+            Err(io::Error::other("write failed"))
         }
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
@@ -437,10 +492,7 @@ mod tests {
 
     #[test]
     fn test_small_sieve_thirty() {
-        assert_eq!(
-            small_sieve(30),
-            vec![2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29]
-        );
+        assert_eq!(small_sieve(30), vec![2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29]);
     }
 
     #[test]
@@ -471,8 +523,8 @@ mod tests {
         let sp = small_sieve(14);
         let result = sieve_segment(101, 200, &sp);
         let expected = vec![
-            101u64, 103, 107, 109, 113, 127, 131, 137, 139, 149,
-            151, 157, 163, 167, 173, 179, 181, 191, 193, 197, 199,
+            101u64, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167, 173, 179, 181,
+            191, 193, 197, 199,
         ];
         assert_eq!(result, expected);
     }
@@ -499,6 +551,146 @@ mod tests {
         let sp = small_sieve(5); // [2, 3, 5]
         let result = sieve_segment(31, 31, &sp);
         assert_eq!(result, vec![31u64]);
+    }
+
+    // --- format_phase2_progress ---
+
+    #[test]
+    fn test_format_phase2_progress_zero() {
+        let s = format_phase2_progress(0, 1_000, 1.0);
+        assert!(s.contains("  0%"), "got: {}", s);
+        assert!(s.contains("0 / 1,000"), "got: {}", s);
+    }
+
+    #[test]
+    fn test_format_phase2_progress_partial() {
+        let s = format_phase2_progress(500_000, 1_000_000, 1.0);
+        assert!(s.contains(" 50%"), "got: {}", s);
+        assert!(s.contains("500,000 / 1,000,000"), "got: {}", s);
+    }
+
+    #[test]
+    fn test_format_phase2_progress_complete() {
+        let s = format_phase2_progress(1_000, 1_000, 1.0);
+        assert!(s.contains("100%"), "got: {}", s);
+    }
+
+    #[test]
+    fn test_format_phase2_progress_zero_total() {
+        // phase2_total=0 → uses .max(1) to avoid division by zero; pct=0
+        let s = format_phase2_progress(0, 0, 1.0);
+        assert!(s.contains("  0%"), "got: {}", s);
+    }
+
+    // --- read_line_from ---
+
+    #[test]
+    fn test_read_line_from_trims_newline() {
+        let mut r = io::Cursor::new(b"hello\n");
+        assert_eq!(read_line_from(&mut r).unwrap(), "hello");
+    }
+
+    #[test]
+    fn test_read_line_from_empty() {
+        let mut r = io::Cursor::new(b"");
+        assert_eq!(read_line_from(&mut r).unwrap(), "");
+    }
+
+    #[test]
+    fn test_read_line_from_trims_whitespace() {
+        let mut r = io::Cursor::new(b"  hello  \n");
+        assert_eq!(read_line_from(&mut r).unwrap(), "hello");
+    }
+
+    // --- confirm_large_n_with ---
+
+    #[test]
+    fn test_confirm_large_n_y() {
+        let mut r = io::Cursor::new(b"y\n");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        assert!(confirm_large_n_with(&mut r, &mut out, &mut err, 11).unwrap());
+    }
+
+    #[test]
+    fn test_confirm_large_n_yes() {
+        let mut r = io::Cursor::new(b"yes\n");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        assert!(confirm_large_n_with(&mut r, &mut out, &mut err, 11).unwrap());
+    }
+
+    #[test]
+    fn test_confirm_large_n_n() {
+        let mut r = io::Cursor::new(b"n\n");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        assert!(!confirm_large_n_with(&mut r, &mut out, &mut err, 11).unwrap());
+        let stderr = String::from_utf8(err).unwrap();
+        assert!(stderr.contains("Warning:"), "stderr: {}", stderr);
+    }
+
+    #[test]
+    fn test_confirm_large_n_other() {
+        let mut r = io::Cursor::new(b"maybe\n");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        assert!(!confirm_large_n_with(&mut r, &mut out, &mut err, 12).unwrap());
+    }
+
+    // --- prompt_n_with ---
+
+    #[test]
+    fn test_prompt_n_valid() {
+        let mut r = io::Cursor::new(b"9\n");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 9);
+    }
+
+    #[test]
+    fn test_prompt_n_minimum() {
+        let mut r = io::Cursor::new(b"1\n");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 1);
+    }
+
+    #[test]
+    fn test_prompt_n_maximum() {
+        let mut r = io::Cursor::new(b"18\n");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 18);
+    }
+
+    #[test]
+    fn test_prompt_n_zero_retries() {
+        // 0 is invalid; retries and accepts 5
+        let mut r = io::Cursor::new(b"0\n5\n");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 5);
+        let stderr = String::from_utf8(err).unwrap();
+        assert!(stderr.contains("between 1 and 18"), "stderr: {}", stderr);
+    }
+
+    #[test]
+    fn test_prompt_n_non_numeric_retries() {
+        let mut r = io::Cursor::new(b"abc\n7\n");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 7);
+        let stderr = String::from_utf8(err).unwrap();
+        assert!(stderr.contains("positive integer"), "stderr: {}", stderr);
+    }
+
+    #[test]
+    fn test_prompt_n_above_max_retries() {
+        let mut r = io::Cursor::new(b"19\n6\n");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 6);
     }
 
     // --- find_primes (end-to-end) ---
@@ -577,5 +769,95 @@ mod tests {
             .filter(|&l| l != "2" && l.parse::<u64>().map(|n| n % 2 == 0).unwrap_or(false))
             .collect();
         assert!(bad.is_empty(), "unexpected even primes: {:?}", bad);
+    }
+
+    // --- run ---
+
+    #[test]
+    fn test_run_invalid_n_exits_one() {
+        let dir = tempdir().unwrap();
+        let cli = Cli { digits: Some(0) };
+        let mut r = io::Cursor::new(b"" as &[u8]);
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(cli, &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 1);
+        let stderr = String::from_utf8(err).unwrap();
+        assert!(stderr.contains("between 1 and 18"), "stderr: {}", stderr);
+    }
+
+    #[test]
+    fn test_run_n_1_display_y() {
+        // N=1 → primes up to 10 = {2,3,5,7}; user chooses "y" to display
+        let dir = tempdir().unwrap();
+        let cli = Cli { digits: Some(1) };
+        let mut r = io::Cursor::new(b"y\n");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(cli, &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        let stdout = String::from_utf8(out).unwrap();
+        assert!(stdout.contains("2\n"), "stdout: {}", stdout);
+        assert!(stdout.contains("7\n"), "stdout: {}", stdout);
+    }
+
+    #[test]
+    fn test_run_n_1_save_n() {
+        // N=1 → user chooses "n" → file saved to tempdir
+        let dir = tempdir().unwrap();
+        let cli = Cli { digits: Some(1) };
+        let mut r = io::Cursor::new(b"n\n");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(cli, &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        let stdout = String::from_utf8(out).unwrap();
+        assert!(stdout.contains("Saved to"), "stdout: {}", stdout);
+        assert!(dir.path().join("primes_1e1.txt").exists());
+    }
+
+    #[test]
+    fn test_run_n_7_streams_to_file() {
+        // N=7 → large path → streams to file (π(10^7) = 664,579)
+        let dir = tempdir().unwrap();
+        let cli = Cli { digits: Some(7) };
+        let mut r = io::Cursor::new(b"" as &[u8]);
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(cli, &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        let stdout = String::from_utf8(out).unwrap();
+        assert!(stdout.contains("Saved to"), "stdout: {}", stdout);
+        assert!(dir.path().join("primes_1e7.txt").exists());
+    }
+
+    #[test]
+    fn test_run_large_n_decline() {
+        // N=11 triggers the large-N confirm path; user declines
+        let dir = tempdir().unwrap();
+        let cli = Cli { digits: Some(11) };
+        let mut r = io::Cursor::new(b"n\n");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(cli, &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        assert!(!dir.path().join("primes_1e11.txt").exists());
+        let stderr = String::from_utf8(err).unwrap();
+        assert!(stderr.contains("Warning:"), "stderr: {}", stderr);
+    }
+
+    #[test]
+    fn test_run_no_arg_prompts() {
+        // No CLI arg → prompts for N; user enters 1 then chooses display
+        let dir = tempdir().unwrap();
+        let cli = Cli { digits: None };
+        let mut r = io::Cursor::new(b"1\ny\n");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(cli, &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        let stdout = String::from_utf8(out).unwrap();
+        assert!(stdout.contains("Enter N"), "stdout: {}", stdout);
+        assert!(stdout.contains("2\n"), "stdout: {}", stdout);
     }
 }
