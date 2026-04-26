@@ -79,7 +79,7 @@ make test      # python3 -m unittest test_pi -v
 make coverage  # run tests + print coverage report
 ```
 
-61 tests, 78% line coverage. Covers `_tree_combine`, `_pwrite_all`, `_chudnovsky_bs`, `_bs_chunk_worker`, `_pi_to_str`, `_convert_gmpy2_worker`, `_convert_mpmath_worker`, `show_pi_preview`, `save_pi_to_file`, `get_target_digits`, `parse_args`, and end-to-end accuracy against the known decimal expansion of π. gmpy2-dependent tests are skipped automatically when gmpy2 is not installed.
+77 tests, 93% line coverage. Covers `_tree_combine`, `_pwrite_all`, `_chudnovsky_bs`, `_bs_chunk_worker`, `_pi_to_str`, `_convert_gmpy2_worker`, `_convert_mpmath_worker`, `show_pi_preview`, `save_pi_to_file`, `get_target_digits`, `parse_args`, and end-to-end accuracy against the known decimal expansion of π. gmpy2-dependent tests are skipped automatically when gmpy2 is not installed.
 
 Check coverage:
 
@@ -130,7 +130,7 @@ cd pi-rs
 cargo test
 ```
 
-18 tests in a `#[cfg(test)]` module inside `src/main.rs`, 39% line coverage. Covers `fmt_int`, `bs_leaf` (base case, index formulas, sign, counter), `bs_merge` consistency, `bs` split consistency, `pi_to_string` (format, length, no exponent notation, known digits), and `compute_pi` end-to-end accuracy at 10 and 50 decimal places.
+19 tests in a `#[cfg(test)]` module inside `src/main.rs`, 39% line coverage. Covers `fmt_int`, `bs_leaf` (base case, index formulas, sign, counter), `bs_merge` consistency, `bs` split consistency, `pi_to_string` (format, length, no exponent notation, known digits), and `compute_pi` end-to-end accuracy at 10 and 50 decimal places.
 
 Uncovered lines are `write_pi_file` (parallel pwrite I/O), `prompt_digits` / `read_line` (interactive stdin), and `main()` — all integration-level only.
 

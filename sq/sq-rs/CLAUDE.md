@@ -56,7 +56,9 @@ Every test must cover more than the happy path. Three categories are required fo
 - **Error path tests** — what happens on failure, dependency failure, partial failure
 - **State transition tests** — before/after assertions, no unintended side effects, idempotency
 
-### Test coverage
+### Test coverage (35% line coverage, 16 tests)
+
+Below the project standard of >=90% — `prompt_exponent`, `read_line`, `write_squares_file`, and `main()` are integration-level uncovered.
 
 | Area               | Tests                                                                                                                                                                       |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

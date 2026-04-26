@@ -132,7 +132,9 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-### Test coverage (56% line coverage, 25 tests)
+### Test coverage (57% line coverage, 25 tests)
+
+Below the project standard of >=90% — progress thread, `prompt_digits` / `read_line` (interactive stdin), and `main()` are integration-level uncovered.
 
 | Area            | Tests | Notes                                                                                                                              |
 | --------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------- |

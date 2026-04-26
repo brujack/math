@@ -2,6 +2,11 @@
 __pycache__/
 *.pyc
 
+# Python coverage data
+.coverage
+.coverage.*
+htmlcov/
+
 # Rust build artifacts
 target/
 
