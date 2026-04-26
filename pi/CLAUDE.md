@@ -48,10 +48,18 @@ A `Makefile` is provided in `pi-rs/`:
 - `fn bs(a, b)`: recursive binary splitting; uses `rayon::join()` above threshold, serial recursion below
 - `fn bs_leaf(a)`: leaf computation with `rug::Integer`; increments `BS_LEAF_COUNT` on every call
 - `fn bs_merge(l, r)`: combines two adjacent ranges
+- `fn format_series_progress(completed, n)`: pure formatter for the compute progress line (testable in isolation)
 - `fn compute_pi(digits)`: resets `BS_LEAF_COUNT`, spawns a progress thread that prints series completion % every 200 ms, runs `bs(0, n)`, joins the thread, then builds `rug::Float` and calls `pi_to_string`
 - `fn pi_to_string(pi, digits)`: uses `pi.to_string_radix(10, Some(digits+5))`, trims to exact decimal places
-- `fn write_pi_file`: `#[cfg(unix)]` — pre-allocates with `file.set_len()`, spawns a progress thread reporting write % and MB/s every 200 ms, parallel pwrite via rayon `par_chunks` (each chunk updates an `Arc<AtomicU64>` byte counter), joins thread and prints final MB/s
+- `fn format_write_progress(written, pi_total, elapsed)`: pure formatter for the write progress line (testable in isolation)
+- `fn write_pi_file(dir, pi_str, digits)`: `#[cfg(unix)]` — builds `dir/pi_<digits>_digits.txt`, pre-allocates with `file.set_len()`, spawns a progress thread reporting write % and MB/s every 200 ms, parallel pwrite via rayon `par_chunks` (each chunk updates an `Arc<AtomicU64>` byte counter), joins thread and prints final MB/s; returns the written `PathBuf`
+- `fn save_pi(dir, pi_str, digits, out)`: `#[cfg(unix)]` — announces the filename then delegates to `write_pi_file`
 - `fn fmt_int(n)`: formats with thousands separators
+- `fn read_line_from<R: BufRead>(reader)`: reads one trimmed line from any `BufRead`
+- `fn confirm_large_digits_with<R, W, E>(reader, out, err, n)`: y/n confirmation for large digit counts
+- `fn prompt_digits_with<R, W, E>(reader, out, err)`: trait-injected interactive prompt (loops until valid; defers to `confirm_large_digits_with` for n > 1_000_000)
+- `fn run<R, W, E>(cli, reader, out, err, dir)`: orchestration — returns process exit code; injects all I/O so tests can use pipes + temp dirs
+- `fn main()`: thin wrapper — locks stdio, calls `run`, exits with the returned code
 
 ### rug Arithmetic Note
 
@@ -271,20 +279,32 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-#### Test coverage (39% line coverage, 19 tests)
+#### Test coverage (92.41% line coverage, 57 tests: 53 unit + 4 integration)
 
-Below the project standard of >=90% — `write_pi_file` (parallel pwrite I/O), `prompt_digits` / `read_line` (interactive stdin), and `main()` are integration-level uncovered.
+| Area                                    | Tests | Notes                                                                                               |
+| --------------------------------------- | ----- | --------------------------------------------------------------------------------------------------- |
+| `fmt_int`                               | 5     | zero, sub-thousand, thousands, millions, billions                                                   |
+| `bs_leaf`                               | 4     | base case, index-1 formulas, even/odd sign, counter delta                                           |
+| `bs_merge`                              | 1     | result matches manual merge of two leaves                                                           |
+| `bs` split consistency                  | 3     | n=4, n=8, and n=600 (exercises rayon::join branch above 512 threshold)                              |
+| `pi_to_string`                          | 7     | format, exact length, no exponent, known digits, single decimal place, exponent strip, no-dot path  |
+| `compute_pi`                            | 2     | end-to-end accuracy at 10 and 50 decimal places                                                     |
+| `format_series_progress`                | 4     | zero/partial/complete/zero-total                                                                    |
+| `format_write_progress`                 | 4     | normal speed, zero-elapsed, zero-total, complete                                                    |
+| `read_line_from`                        | 3     | trims newline, empty input, trims whitespace                                                        |
+| `confirm_large_digits_with`             | 4     | "y", "yes", "n", other input                                                                        |
+| `prompt_digits_with`                    | 6     | valid, minimum=1, zero retry, non-numeric retry, large decline + accept                             |
+| `write_pi_file`                         | 4     | contents, filename format, idempotency, missing-dir error                                           |
+| `save_pi`                               | 1     | writes file + announces                                                                             |
+| `run`                                   | 5     | digits=0 → exit 1, display=y, save=n, no-arg prompts, digits>10000 auto-saves                       |
+| `tests/cli.rs` (subprocess integration) | 4     | arg=0 exit 1, arg=10 + "y" displays, arg=10 + "n" saves, no-arg + "10\\ny\\n" prompts then displays |
 
-| Area                   | Tests | Notes                                                                          |
-| ---------------------- | ----- | ------------------------------------------------------------------------------ |
-| `fmt_int`              | 5     | zero, sub-thousand, thousands, millions, billions                              |
-| `bs_leaf`              | 4     | base case, index-1 formulas, even/odd sign, counter delta                      |
-| `bs_merge`             | 1     | result matches manual merge of two leaves                                      |
-| `bs` split consistency | 2     | n=4 and n=8 split/merge round-trip                                             |
-| `pi_to_string`         | 5     | format, exact length, no exponent notation, known digits, single decimal place |
-| `compute_pi`           | 2     | end-to-end accuracy at 10 and 50 decimal places                                |
+Uncovered lines (~17/224):
 
-Uncovered lines: `write_pi_file` (parallel pwrite I/O), `prompt_digits` / `read_line` (interactive stdin), `main()` — all integration-level only.
+- Compute and write progress-thread loop bodies (timing-dependent — only fire after a 200 ms tick)
+- `pi_to_string` pad branch when raw is shorter than wanted (defensive; unreachable for normal MPFR floats)
+- Write speed `else 0.0` branch when `elapsed <= 0.001` (writes always take >1 ms)
+- `#[cfg(not(unix))]` fallback stubs in `run` (macOS/Linux tests only hit the unix path)
 
 #### Adding new tests
 
