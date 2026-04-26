@@ -48,9 +48,13 @@ This pattern appears in `factorial_rec` where the squared half-factorial is mate
 
 - `fn fmt_int(n: u64) -> String` — formats an integer with thousands-separator commas (e.g. `1234567` → `"1,234,567"`).
 
-- `fn prompt_n() -> u64` — interactive stdin loop; prints prompt, reads a line, parses as `u64`. Retries with an error message on invalid input.
+- `fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<String>` — reads one line, trims trailing newline/whitespace. Returns empty string on EOF.
 
-- `fn main()` — parses optional CLI argument; calls `prompt_n()` if none. Computes factorial, writes result to `factorial_<n>.txt`, prints digit count and compute/write timing to stderr.
+- `fn prompt_n_with<R: BufRead, W: Write, E: Write>(reader, out, err) -> io::Result<u64>` — interactive loop; prints prompt to `out`, reads from `reader`, errors to `err`. Retries on non-numeric input.
+
+- `fn run<R: BufRead, W: Write, E: Write>(n_arg: Option<&str>, reader, out, err, dir: &Path) -> io::Result<i32>` — orchestrator. Parses `n_arg` (or prompts via `prompt_n_with`), computes factorial, writes result to `dir/factorial_<n>.txt`, reports to `err`. Returns exit code.
+
+- `fn main()` — collects `std::env::args()`, calls `run` with locked stdio and `current_dir`.
 
 ## Build
 
@@ -88,20 +92,22 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-### Test coverage (68% line coverage, 36 tests)
+### Test coverage (97.58% line coverage, 54 tests)
 
-Below the project standard of >=90% — `prompt_n` (interactive stdin) and `main()` are integration-level uncovered.
+| Area                  | Tests | Notes                                                                        |
+| --------------------- | ----- | ---------------------------------------------------------------------------- |
+| `sieve`               | 6     | empty (n<2), n=2, small known primes, no composites, π(100)=25, π(1000)=168  |
+| `compute_swing_chunk` | 6     | empty primes, prime exceeds m, m=2, p2/p3/p5 contributions for m=6           |
+| `compute_swing`       | 7     | swing(0..4,6), empty primes, factorial identity check (swing(6)×3!²=6!)      |
+| `factorial_rec`       | 4     | base cases 0 and 1, 2!, 5!                                                   |
+| `calculate_factorial` | 8     | 0!..5!, 10!, 20!                                                             |
+| `fmt_int`             | 5     | zero, sub-thousand, thousands, millions, large                               |
+| `read_line_from`      | 3     | trims newline, empty input, trims whitespace                                 |
+| `prompt_n_with`       | 4     | valid input, zero, retry on non-numeric, retry on negative                   |
+| `run` (unit)          | 5     | invalid arg exits 1, valid arg creates file, no arg prompts, 0!, idempotent  |
+| `run` (integration)   | 6     | invalid arg, 0!, 5!, no-arg prompt, retry on bad input, idempotent overwrite |
 
-| Area                  | Tests | Notes                                                                       |
-| --------------------- | ----- | --------------------------------------------------------------------------- |
-| `sieve`               | 6     | empty (n<2), n=2, small known primes, no composites, π(100)=25, π(1000)=168 |
-| `compute_swing_chunk` | 6     | empty primes, prime exceeds m, m=2, p2/p3/p5 contributions for m=6          |
-| `compute_swing`       | 7     | swing(0..4,6), empty primes, factorial identity check (swing(6)×3!²=6!)     |
-| `factorial_rec`       | 4     | base cases 0 and 1, 2!, 5!                                                  |
-| `calculate_factorial` | 8     | 0!..5!, 10!, 20!                                                            |
-| `fmt_int`             | 5     | zero, sub-thousand, thousands, millions, large                              |
-
-Uncovered lines: `prompt_n` (interactive stdin), `main()` -- integration-level only.
+Uncovered lines: 3 macro expansion artifacts in `prompt_n_with` loop and `run` error branch.
 
 ### Adding new tests
 

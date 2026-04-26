@@ -11,5 +11,8 @@ path = "src/main.rs"
 rug = { version = "1", features = ["integer"] }
 rayon = "1"
 
+[dev-dependencies]
+tempfile = "3"
+
 [profile.release]
 opt-level = 3
