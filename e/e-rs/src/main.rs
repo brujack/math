@@ -296,7 +296,7 @@ fn write_e_file(dir: &Path, e_str: &str, digits: usize) -> io::Result<PathBuf> {
 
 /// Format the series-progress status line shown by the compute_e progress thread.
 fn format_series_progress(completed: u64, n: u64) -> String {
-    let pct = if n > 0 { completed * 100 / n } else { 100 };
+    let pct = (completed * 100).checked_div(n).unwrap_or(100);
     format!(
         "  Computing series:  {:3}%  ({} / {} terms)   ",
         pct,
