@@ -39,7 +39,8 @@ Functions:
 - `fn sieve_segment(lo, limit, small_primes)` → `Vec<u64>`: sieves one segment [lo, lo+SEG_SIZE) ∩ [lo, limit]. `lo` must be odd.
 - `fn find_twin_primes<W: Write>(limit, out)` → `io::Result<u64>`: orchestrates both phases; writes `p | p+2\n` pairs; returns count.
 - `fn fmt_int(n)` → `String`: formats u64 with thousands separators.
-- `fn main()`: parses CLI arg N (1–15), calls find_twin_primes, writes to `twin-primes_1e{N}.txt`.
+- `fn run<W: Write, E: Write>(digits, out, err, dir)` → `io::Result<i32>`: validates digits (1–15), creates output file in `dir`, calls `find_twin_primes`, reports to `out`. Returns exit code.
+- `fn main()`: parses CLI via clap, calls `run` with locked stdio and `current_dir`.
 
 ## Important Implementation Details
 
@@ -52,9 +53,18 @@ Functions:
 
 Tests in `#[cfg(test)] mod tests`. Run with `make test`.
 
-### Test coverage (76% line coverage, 25 tests)
+### Test coverage (95.45% line coverage, 38 tests)
 
-Below the project standard of >=90% — `write_twin_primes_file`, `prompt_exponent` / `read_line` (interactive stdin), and `main()` are integration-level uncovered.
+| Area                | Tests | Notes                                                                                         |
+| ------------------- | ----- | --------------------------------------------------------------------------------------------- |
+| `fmt_int`           | 4     | zero, sub-thousand, thousands, millions                                                       |
+| `small_sieve`       | 6     | empty, n=2, n=10, n=30, π(100)=25, π(1000)=168                                                |
+| `sieve_segment`     | 5     | known range, lo>limit, single prime, all-odd, small known                                     |
+| `find_twin_primes`  | 9     | limit<5, limit=5, limit=6, N=1, N=2, N=3, N=4, line-count, FailWriter, idempotent             |
+| `run` (unit)        | 7     | invalid 0, invalid 16, valid N=1, stdout header+count, idempotent, boundary N=1, boundary N=2 |
+| `run` (integration) | 6     | invalid 0, invalid 16, N=1 file, N=2 file, stdout header, idempotent                          |
+
+Uncovered lines: 5 — two multi-line `writeln!` continuation artifacts, and the `File::create` error branch (requires write-protected directory).
 
 Known twin prime counts:
 
