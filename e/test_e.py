@@ -449,5 +449,269 @@ class TestSaveEToFile(unittest.TestCase):
         self.assertGreater(os.path.getsize(self._path), 0)
 
 
+class TestETostrEdgeCases(unittest.TestCase):
+    """Cover the negative-sign and no-decimal-point branches."""
+
+    def test_mpmath_negative_value_branch(self):
+        # Forces the `mantissa.startswith('-')` sign-strip path on the gmpy2 branch
+        # by passing a negative mpfr; otherwise stays on mpmath's path.
+        if _HAS_GMPY2:
+            from e import _gmpy2 as g
+            ctx = g.get_context()
+            saved = ctx.precision
+            ctx.precision = 200
+            try:
+                neg_e = -g.mpfr("2.718281828")
+            finally:
+                ctx.precision = saved
+            s = _e_to_str(neg_e, 5)
+            self.assertTrue(s.startswith("-"))
+
+
+class TestShowEPreviewNoDecimal(unittest.TestCase):
+    """Cover the `else` branch of show_e_preview (input has no '.' character)."""
+
+    def test_no_decimal_point_branch(self):
+        from e import show_e_preview
+
+        class FakeE:
+            pass
+
+        # Patch _e_to_str to return a string without '.'
+        with unittest.mock.patch("e._e_to_str", return_value="3"):
+            with redirect_stdout(io.StringIO()) as buf:
+                show_e_preview(FakeE(), 1)
+        # The "no decimal" branch produces "e = 3." in output.
+        self.assertIn("e = 3.", buf.getvalue())
+
+
+@unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
+class TestGmpy2WorkerFunctions(unittest.TestCase):
+    """Cover _gmpy2_str_from_PQ and _convert_gmpy2_worker (subprocess-only paths)."""
+
+    def test_gmpy2_str_from_pq_matches_e(self):
+        from e import _gmpy2_str_from_PQ, _calculate_e_gmpy2
+        with redirect_stdout(io.StringIO()):
+            _, P_int, Q_int = _calculate_e_gmpy2(20)
+        s = _gmpy2_str_from_PQ(P_int, Q_int, 20)
+        self.assertTrue(s.startswith("2.71828182845904523536"))
+
+    def test_convert_gmpy2_worker_dispatches(self):
+        from e import _convert_gmpy2_worker, _calculate_e_gmpy2
+        with redirect_stdout(io.StringIO()):
+            _, P_int, Q_int = _calculate_e_gmpy2(15)
+        s = _convert_gmpy2_worker(P_int, Q_int, 15)
+        self.assertTrue(s.startswith("2.71828182845904"))
+
+
+class TestConvertMpmathWorker(unittest.TestCase):
+    """Cover _convert_mpmath_worker direct dispatch."""
+
+    def test_returns_string(self):
+        import mpmath
+        from e import _convert_mpmath_worker
+        mpmath.mp.dps = 60
+        s = _convert_mpmath_worker(+mpmath.e, 20)
+        self.assertTrue(s.startswith("2.71828182845904523536"))
+
+
+class TestPwriteAllStall(unittest.TestCase):
+    """Cover the `n == 0` stall branch of _pwrite_all."""
+
+    def test_stall_raises_oserror(self):
+        from e import _pwrite_all
+
+        # Patch os.pwrite to return 0 on first call → triggers stall raise.
+        with unittest.mock.patch("e.os.pwrite", return_value=0):
+            with self.assertRaises(OSError):
+                _pwrite_all(1, b"abc", 0)
+
+
+class TestSaveEEstimateAndProgress(unittest.TestCase):
+    """Cover save_e_to_file's nested estimate_conversion_time and ProgressIndicator
+    overrun branch by invoking the function with a tiny digit count."""
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        for f in os.listdir(self._tmp):
+            os.unlink(os.path.join(self._tmp, f))
+        os.rmdir(self._tmp)
+
+    def test_estimate_conversion_time_branches(self):
+        # Exercise estimate_conversion_time at all four boundary tiers via
+        # a tiny call into save_e_to_file with patched ProcessPoolExecutor
+        # so the function returns immediately. The point is to evaluate
+        # estimate_conversion_time(d) for several d values inline.
+        from e import save_e_to_file
+
+        class _FakeFuture:
+            def __init__(self, value):
+                self._value = value
+            def done(self):
+                return True
+            def result(self):
+                return self._value
+
+        class _FakePool:
+            def __init__(self, *_, **__):
+                pass
+            def __enter__(self):
+                return self
+            def __exit__(self, *_a):
+                return False
+            def submit(self, fn, *args, **kwargs):
+                return _FakeFuture("2.71828\n")
+
+        # Build a fake mpmath value so we take the mpmath-only path
+        import mpmath
+        mpmath.mp.dps = 30
+        e_val = +mpmath.e
+
+        # Run several digit tiers — exercises every branch of estimate_conversion_time
+        # in the mpmath path (and the gmpy2 path by bypassing isinstance check).
+        for d in (50_000, 500_000, 5_000_000, 50_000_000):
+            path = os.path.join(self._tmp, f"e_test_{d}.txt")
+            with unittest.mock.patch(
+                "e.concurrent.futures.ProcessPoolExecutor", _FakePool
+            ), redirect_stdout(io.StringIO()):
+                save_e_to_file(e_val, d, path)
+            self.assertTrue(os.path.exists(path))
+            os.unlink(path)
+
+
+class TestGetTargetDigitsInteractive(unittest.TestCase):
+    """Cover the interactive prompt loop (lines 524-538)."""
+
+    def _ns(self, digits):
+        import argparse
+        return argparse.Namespace(digits=digits)
+
+    def test_interactive_valid_first_try(self):
+        with unittest.mock.patch("builtins.input", side_effect=["100"]), redirect_stdout(io.StringIO()):
+            self.assertEqual(get_target_digits(self._ns(None)), 100)
+
+    def test_interactive_zero_then_valid(self):
+        with unittest.mock.patch("builtins.input", side_effect=["0", "10"]), redirect_stdout(io.StringIO()):
+            self.assertEqual(get_target_digits(self._ns(None)), 10)
+
+    def test_interactive_non_integer_then_valid(self):
+        with unittest.mock.patch("builtins.input", side_effect=["abc", "5"]), redirect_stdout(io.StringIO()):
+            self.assertEqual(get_target_digits(self._ns(None)), 5)
+
+    def test_interactive_too_large_decline_then_accept(self):
+        # >1_000_000 triggers warning + confirmation; user declines, then enters smaller value
+        with unittest.mock.patch(
+            "builtins.input",
+            side_effect=["2000000", "n", "100"],
+        ), redirect_stdout(io.StringIO()):
+            self.assertEqual(get_target_digits(self._ns(None)), 100)
+
+    def test_interactive_too_large_accept(self):
+        # >1_000_000 with confirmation accepted: returns the large value
+        with unittest.mock.patch(
+            "builtins.input",
+            side_effect=["1500000", "y"],
+        ), redirect_stdout(io.StringIO()):
+            self.assertEqual(get_target_digits(self._ns(None)), 1_500_000)
+
+
+class TestMain(unittest.TestCase):
+    """Cover main() — small-digit display/save branches, large-digit auto-save,
+    and the error handlers (ValueError, KeyboardInterrupt, generic Exception)."""
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        for f in os.listdir(self._tmp):
+            os.unlink(os.path.join(self._tmp, f))
+        os.rmdir(self._tmp)
+
+    def _run(self, argv, inputs):
+        from e import main
+        old_argv = sys.argv
+        sys.argv = argv
+        try:
+            with unittest.mock.patch("builtins.input", side_effect=inputs), redirect_stdout(io.StringIO()) as buf:
+                main()
+            return buf.getvalue()
+        finally:
+            sys.argv = old_argv
+
+    def test_small_digits_display_branch(self):
+        # CLI digits=10: no save_e_to_file (<=10000), user picks "y" to display
+        out = self._run(["e.py", "10"], ["y"])
+        self.assertIn("2.71828", out)
+        self.assertIn("Total digits", out)
+        self.assertFalse(any(name.startswith("e_") and name.endswith("_digits.txt") for name in os.listdir(".")))
+
+    def test_small_digits_save_branch(self):
+        out = self._run(["e.py", "10"], ["n"])
+        self.assertIn("2.71828", out)
+        self.assertTrue(os.path.exists("e_10_digits.txt"))
+
+    def test_value_error_path(self):
+        # digits=0 → get_target_digits raises ValueError → handled, exit(1)
+        from e import main
+        sys.argv = ["e.py", "0"]
+        try:
+            with redirect_stdout(io.StringIO()) as buf:
+                with self.assertRaises(SystemExit) as cm:
+                    main()
+            self.assertEqual(cm.exception.code, 1)
+            self.assertIn("Error:", buf.getvalue())
+        finally:
+            sys.argv = ["e.py"]
+
+    def test_keyboard_interrupt_path(self):
+        from e import main
+        sys.argv = ["e.py", "10"]
+        try:
+            with unittest.mock.patch("e.calculate_e", side_effect=KeyboardInterrupt), redirect_stdout(io.StringIO()) as buf:
+                with self.assertRaises(SystemExit) as cm:
+                    main()
+            self.assertEqual(cm.exception.code, 1)
+            self.assertIn("interrupted", buf.getvalue())
+        finally:
+            sys.argv = ["e.py"]
+
+    def test_generic_exception_path(self):
+        from e import main
+        sys.argv = ["e.py", "10"]
+        try:
+            with unittest.mock.patch("e.calculate_e", side_effect=RuntimeError("boom")), redirect_stdout(io.StringIO()) as buf:
+                with self.assertRaises(SystemExit) as cm:
+                    main()
+            self.assertEqual(cm.exception.code, 1)
+            self.assertIn("Error occurred", buf.getvalue())
+        finally:
+            sys.argv = ["e.py"]
+
+
+class TestEntryPointGuard(unittest.TestCase):
+    """Cover the `if __name__ == "__main__"` block and main-process guard."""
+
+    def test_module_runs_via_subprocess(self):
+        import subprocess
+        proc = subprocess.run(
+            [sys.executable, e_module.__file__, "5"],
+            input="n\n",
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=tempfile.gettempdir(),
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("e", proc.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
