@@ -1,3 +1,6 @@
+use std::io::{self, BufRead, Write};
+use std::path::{Path, PathBuf};
+
 use rug::ops::Pow;
 use rug::Integer;
 
@@ -107,68 +110,151 @@ fn fmt_int(n: u64) -> String {
     result
 }
 
-fn prompt_n() -> u64 {
-    use std::io::{self, BufRead, Write};
+fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<String> {
+    let mut line = String::new();
+    reader.read_line(&mut line)?;
+    Ok(line.trim().to_string())
+}
+
+fn prompt_n_with<R: BufRead, W: Write, E: Write>(
+    reader: &mut R,
+    out: &mut W,
+    err: &mut E,
+) -> io::Result<u64> {
     loop {
-        print!("Enter N to compute N! : ");
-        io::stdout().flush().unwrap();
-        let stdin = io::stdin();
-        let line = stdin.lock().lines().next().unwrap().unwrap();
-        match line.trim().parse::<u64>() {
-            Ok(n) => return n,
-            Err(_) => eprintln!(
+        write!(out, "Enter N to compute N! : ")?;
+        out.flush()?;
+        let line = read_line_from(reader)?;
+        match line.parse::<u64>() {
+            Ok(n) => return Ok(n),
+            Err(_) => writeln!(
+                err,
                 "Invalid input '{}'. Please enter a non-negative integer.",
-                line.trim()
-            ),
+                line
+            )?,
         }
     }
 }
 
-fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    let n: u64 = if args.len() > 1 {
-        match args[1].parse::<u64>() {
+// ---------------------------------------------------------------------------
+// Orchestrator
+// ---------------------------------------------------------------------------
+
+fn run<R: BufRead, W: Write, E: Write>(
+    n_arg: Option<&str>,
+    reader: &mut R,
+    out: &mut W,
+    err: &mut E,
+    dir: &Path,
+) -> io::Result<i32> {
+    let n = match n_arg {
+        Some(s) => match s.parse::<u64>() {
             Ok(v) => v,
             Err(_) => {
-                eprintln!("Error: '{}' is not a valid non-negative integer", args[1]);
-                std::process::exit(1);
+                writeln!(err, "Error: '{}' is not a valid non-negative integer", s)?;
+                return Ok(1);
             }
-        }
-    } else {
-        prompt_n()
+        },
+        None => prompt_n_with(reader, out, err)?,
     };
 
-    eprintln!("Computing {}! ...", fmt_int(n));
+    writeln!(err, "Computing {}! ...", fmt_int(n))?;
     let start = std::time::Instant::now();
     let result = calculate_factorial(n);
     let elapsed = start.elapsed();
-    eprintln!("Computed in {:.2}s", elapsed.as_secs_f64());
+    writeln!(err, "Computed in {:.2}s", elapsed.as_secs_f64())?;
 
     let digits_str = result.to_string_radix(10);
     let digit_count = digits_str.len();
-    let filename = format!("factorial_{}.txt", n);
+    let path = dir.join(format!("factorial_{}.txt", n));
 
-    eprintln!(
+    writeln!(
+        err,
         "Writing {} digits to {} ...",
         fmt_int(digit_count as u64),
-        filename
-    );
+        path.display()
+    )?;
     let write_start = std::time::Instant::now();
-    std::fs::write(&filename, &digits_str).expect("Failed to write output file");
+    std::fs::write(&path, &digits_str)?;
     let write_elapsed = write_start.elapsed();
-    eprintln!(
+    writeln!(
+        err,
         "{} digits written to {} in {:.2}s",
         fmt_int(digit_count as u64),
-        filename,
+        path.display(),
         write_elapsed.as_secs_f64()
-    );
+    )?;
+
+    Ok(0)
 }
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    let n_arg = args.get(1).map(|s| s.as_str());
+    let stdin = io::stdin();
+    let mut reader = stdin.lock();
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    let stderr = io::stderr();
+    let mut err = stderr.lock();
+    let dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let code = run(n_arg, &mut reader, &mut out, &mut err, &dir).unwrap_or(1);
+    std::process::exit(code);
+}
+
+// ---------------------------------------------------------------------------
+// Unit tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
-    // compute_swing_chunk tests
+    // --- sieve ---
+
+    #[test]
+    fn test_sieve_below_2_empty() {
+        assert!(sieve(0).is_empty());
+        assert!(sieve(1).is_empty());
+    }
+
+    #[test]
+    fn test_sieve_n_equals_2() {
+        assert_eq!(sieve(2), vec![2u32]);
+    }
+
+    #[test]
+    fn test_sieve_small_known() {
+        assert_eq!(sieve(10), vec![2u32, 3, 5, 7]);
+    }
+
+    #[test]
+    fn test_sieve_no_composites() {
+        let primes = sieve(20);
+        for &p in &primes {
+            assert!(p < 2 || (2..p).all(|d| p % d != 0), "{} is composite", p);
+        }
+    }
+
+    #[test]
+    fn test_sieve_count_to_100() {
+        // π(100) = 25
+        assert_eq!(sieve(100).len(), 25);
+    }
+
+    #[test]
+    fn test_sieve_count_to_1000() {
+        // π(1000) = 168
+        assert_eq!(sieve(1000).len(), 168);
+    }
+
+    // --- compute_swing_chunk ---
+
     #[test]
     fn test_swing_chunk_empty() {
         assert_eq!(compute_swing_chunk(10, &[]), Integer::from(1u64));
@@ -203,7 +289,8 @@ mod tests {
         assert_eq!(compute_swing_chunk(6, &[5u32]), Integer::from(5u64));
     }
 
-    // compute_swing tests
+    // --- compute_swing ---
+
     #[test]
     fn test_swing_0() {
         let primes = sieve(10);
@@ -250,44 +337,8 @@ mod tests {
         assert_eq!(sw6 * three_factorial_sq, Integer::from(720u64));
     }
 
-    // Sieve tests
-    #[test]
-    fn test_sieve_below_2_empty() {
-        assert!(sieve(0).is_empty());
-        assert!(sieve(1).is_empty());
-    }
+    // --- factorial_rec ---
 
-    #[test]
-    fn test_sieve_n_equals_2() {
-        assert_eq!(sieve(2), vec![2u32]);
-    }
-
-    #[test]
-    fn test_sieve_small_known() {
-        assert_eq!(sieve(10), vec![2u32, 3, 5, 7]);
-    }
-
-    #[test]
-    fn test_sieve_no_composites() {
-        let primes = sieve(20);
-        for &p in &primes {
-            assert!(p < 2 || (2..p).all(|d| p % d != 0), "{} is composite", p);
-        }
-    }
-
-    #[test]
-    fn test_sieve_count_to_100() {
-        // π(100) = 25
-        assert_eq!(sieve(100).len(), 25);
-    }
-
-    #[test]
-    fn test_sieve_count_to_1000() {
-        // π(1000) = 168
-        assert_eq!(sieve(1000).len(), 168);
-    }
-
-    // factorial_rec tests
     #[test]
     fn test_factorial_rec_base_0() {
         let primes = sieve(10);
@@ -312,7 +363,8 @@ mod tests {
         assert_eq!(factorial_rec(5, &primes), Integer::from(120u64));
     }
 
-    // fmt_int tests
+    // --- fmt_int ---
+
     #[test]
     fn test_fmt_int_zero() {
         assert_eq!(fmt_int(0), "0");
@@ -338,7 +390,8 @@ mod tests {
         assert_eq!(fmt_int(1_000_000_000), "1,000,000,000");
     }
 
-    // calculate_factorial tests
+    // --- calculate_factorial ---
+
     #[test]
     fn test_calculate_factorial_0() {
         assert_eq!(calculate_factorial(0), Integer::from(1u64));
@@ -380,5 +433,137 @@ mod tests {
             calculate_factorial(20),
             Integer::from(2432902008176640000u64)
         );
+    }
+
+    // --- read_line_from ---
+
+    #[test]
+    fn test_read_line_from_trims_newline() {
+        let mut r = io::Cursor::new(b"hello\n");
+        assert_eq!(read_line_from(&mut r).unwrap(), "hello");
+    }
+
+    #[test]
+    fn test_read_line_from_empty() {
+        let mut r = io::Cursor::new(b"");
+        assert_eq!(read_line_from(&mut r).unwrap(), "");
+    }
+
+    #[test]
+    fn test_read_line_from_trims_whitespace() {
+        let mut r = io::Cursor::new(b"  42  \n");
+        assert_eq!(read_line_from(&mut r).unwrap(), "42");
+    }
+
+    // --- prompt_n_with ---
+
+    #[test]
+    fn test_prompt_n_valid() {
+        let mut r = io::Cursor::new(b"10\n");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 10);
+        let stdout = String::from_utf8(out).unwrap();
+        assert!(stdout.contains("Enter N"), "stdout: {}", stdout);
+    }
+
+    #[test]
+    fn test_prompt_n_zero() {
+        let mut r = io::Cursor::new(b"0\n");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_prompt_n_retry_on_non_numeric() {
+        let mut r = io::Cursor::new(b"abc\n5\n");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 5);
+        let stderr = String::from_utf8(err).unwrap();
+        assert!(stderr.contains("Invalid input"), "stderr: {}", stderr);
+    }
+
+    #[test]
+    fn test_prompt_n_retry_on_negative() {
+        // u64 doesn't parse negative, so "-1" is a parse error → retry
+        let mut r = io::Cursor::new(b"-1\n3\n");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 3);
+    }
+
+    // --- run ---
+
+    #[test]
+    fn test_run_invalid_arg_exits_one() {
+        let dir = tempdir().unwrap();
+        let mut r = io::Cursor::new(b"" as &[u8]);
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(Some("abc"), &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 1);
+        let stderr = String::from_utf8(err).unwrap();
+        assert!(stderr.contains("not a valid"), "stderr: {}", stderr);
+    }
+
+    #[test]
+    fn test_run_valid_arg_creates_file() {
+        let dir = tempdir().unwrap();
+        let mut r = io::Cursor::new(b"" as &[u8]);
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(Some("10"), &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        let path = dir.path().join("factorial_10.txt");
+        assert!(path.exists());
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content.trim(), "3628800");
+        let stderr = String::from_utf8(err).unwrap();
+        assert!(stderr.contains("digits written"), "stderr: {}", stderr);
+    }
+
+    #[test]
+    fn test_run_no_arg_prompts() {
+        let dir = tempdir().unwrap();
+        let mut r = io::Cursor::new(b"5\n");
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(None, &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        assert!(dir.path().join("factorial_5.txt").exists());
+        let stdout = String::from_utf8(out).unwrap();
+        assert!(stdout.contains("Enter N"), "stdout: {}", stdout);
+    }
+
+    #[test]
+    fn test_run_n_0_creates_file() {
+        // 0! = 1
+        let dir = tempdir().unwrap();
+        let mut r = io::Cursor::new(b"" as &[u8]);
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(Some("0"), &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        let path = dir.path().join("factorial_0.txt");
+        assert!(path.exists());
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content.trim(), "1");
+    }
+
+    #[test]
+    fn test_run_idempotent() {
+        // Running twice for same n overwrites the file with identical content
+        let dir = tempdir().unwrap();
+        for _ in 0..2 {
+            let mut r = io::Cursor::new(b"" as &[u8]);
+            let mut out = Vec::new();
+            let mut err = Vec::new();
+            let code = run(Some("3"), &mut r, &mut out, &mut err, dir.path()).unwrap();
+            assert_eq!(code, 0);
+        }
+        let content = std::fs::read_to_string(dir.path().join("factorial_3.txt")).unwrap();
+        assert_eq!(content.trim(), "6");
     }
 }
