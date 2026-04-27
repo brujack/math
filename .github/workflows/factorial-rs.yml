@@ -30,6 +30,12 @@ jobs:
       - name: Run tests
         run: make test
 
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+
+      - name: Check coverage (≥90%)
+        run: cargo tarpaulin --fail-under 90
+
   build:
     name: Build factorial-rs
     runs-on: ubuntu-latest
