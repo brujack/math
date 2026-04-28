@@ -459,6 +459,7 @@ fn save_e<W: Write>(dir: &Path, e_str: &str, digits: usize, out: &mut W) -> io::
     write_e_file(dir, e_str, digits)
 }
 
+#[cfg(not(tarpaulin_include))]
 fn main() {
     let cli = Cli::parse();
     let stdin = io::stdin();

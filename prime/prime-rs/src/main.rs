@@ -410,6 +410,7 @@ fn run<R: BufRead, W: Write, E: Write>(
 // Entry point
 // ---------------------------------------------------------------------------
 
+#[cfg(not(tarpaulin_include))]
 fn main() {
     let cli = Cli::parse();
     let stdin = io::stdin();
