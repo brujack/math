@@ -176,6 +176,8 @@ Where to add tests:
 - Rust tests: add to the `#[cfg(test)] mod tests` block in `src/main.rs`, run with `make test`
 - Coverage tools: `make coverage` (Python), `cargo tarpaulin` (Rust)
 
+**Coverage floor: ≥90% line coverage is required for all Rust crates.** This is enforced in CI — each Rust workflow runs `cargo tarpaulin --fail-under 90` in the `test` job after `make test`. A PR that drops any crate below 90% will fail CI and cannot auto-merge. The pre-push hook does not check coverage locally (too slow); CI is the gate.
+
 ## CI
 
 Twenty workflow files. Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail.

@@ -56,10 +56,7 @@ fn prompt_exponent_with<R: BufRead, W: Write, E: Write>(
     err: &mut E,
 ) -> io::Result<u32> {
     loop {
-        write!(
-            out,
-            "Enter N (finds all perfect squares with up to 10^N digits, max 1): "
-        )?;
+        write!(out, "Enter N (finds all perfect squares with up to 10^N digits, max 1): ")?;
         out.flush()?;
         match read_line_from(reader)?.parse::<u32>() {
             Ok(1) => return Ok(1),
@@ -97,30 +94,16 @@ fn run<R: BufRead, W: Write, E: Write>(
 
     writeln!(out, "Perfect Square Generator (Rust)")?;
     writeln!(out, "{}", "=".repeat(40))?;
-    writeln!(
-        out,
-        "Generating all perfect squares with up to 10^{} = {} digits",
-        exponent,
-        fmt_int(u64::from(max_digits))
-    )?;
+    writeln!(out, "Generating all perfect squares with up to 10^{} = {} digits", exponent, fmt_int(u64::from(max_digits)))?;
 
     let mut buf: Vec<u8> = Vec::new();
     let count = generate_squares(max_digits, &mut buf)?;
 
     let path = write_squares_file(dir, exponent, &buf)?;
 
-    writeln!(
-        out,
-        "\nFound {} perfect squares with up to 10^{} digits",
-        fmt_int(count),
-        exponent
-    )?;
+    writeln!(out, "\nFound {} perfect squares with up to 10^{} digits", fmt_int(count), exponent)?;
     writeln!(out, "Saved to {}", path.display())?;
-    write!(
-        out,
-        "Also display all {} perfect squares? (y/n): ",
-        fmt_int(count)
-    )?;
+    write!(out, "Also display all {} perfect squares? (y/n): ", fmt_int(count))?;
     out.flush()?;
     if matches!(read_line_from(reader)?.as_str(), "y" | "yes") {
         out.write_all(&buf)?;
@@ -128,6 +111,7 @@ fn run<R: BufRead, W: Write, E: Write>(
     Ok(0)
 }
 
+#[cfg(not(tarpaulin_include))]
 fn main() {
     let cli = Cli::parse();
     let stdin = io::stdin();

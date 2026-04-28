@@ -200,6 +200,7 @@ fn run<W: Write, E: Write>(digits: u32, out: &mut W, err: &mut E, dir: &Path) ->
 // Entry point
 // ---------------------------------------------------------------------------
 
+#[cfg(not(tarpaulin_include))]
 fn main() {
     let cli = Cli::parse();
     let stdout = io::stdout();

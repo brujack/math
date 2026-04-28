@@ -192,6 +192,7 @@ fn run<R: BufRead, W: Write, E: Write>(
 // Entry point
 // ---------------------------------------------------------------------------
 
+#[cfg(not(tarpaulin_include))]
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let n_arg = args.get(1).map(|s| s.as_str());

@@ -526,6 +526,7 @@ where
     Ok(0)
 }
 
+#[cfg(not(tarpaulin_include))]
 fn main() {
     let cli = Cli::parse();
     let stdin = io::stdin();

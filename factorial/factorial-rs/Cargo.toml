@@ -14,5 +14,8 @@ rayon = "1"
 [dev-dependencies]
 tempfile = "3"
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }
+
 [profile.release]
 opt-level = 3
