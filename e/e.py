@@ -129,7 +129,15 @@ def _calculate_e_gmpy2(digits):
     - P_int, Q_int are plain Python ints (picklable)
     """
     if digits > 1:
-        N = int(digits / math.log10(digits + 1)) + 50
+        # Need N such that log10(N!) > digits (truncation error < 10^-digits).
+        # Stirling: log10(N!) ≈ N*(log10(N) - log10(e)).  The naive estimate
+        # N = digits/log10(digits) ignores the -N*log10(e) term and undershoots
+        # for digits > ~340.  One Newton step corrects for it.
+        d = float(digits)
+        n0 = d / math.log10(d + 1)
+        log_n0 = max(math.log10(n0), 1.0)
+        deficit = max(0.0, d - n0 * (log_n0 - math.log10(math.e)))
+        N = int(n0 + deficit / log_n0) + 50
     else:
         N = 20
 

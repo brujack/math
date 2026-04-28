@@ -271,6 +271,26 @@ class TestEAccuracy(unittest.TestCase):
         result = _e_to_str(e_val, 1)
         self.assertEqual(result, "2.7")
 
+    @unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
+    def test_400_digits_accurate(self):
+        # digits=400 is above the ~340-digit threshold where the old term-count
+        # formula (N = digits/log10(digits) + 50) supplied too few Taylor terms,
+        # producing silently wrong tail digits in the gmpy2 fast path.
+        E_400 = (
+            "2."
+            "71828182845904523536028747135266249775724709369995"
+            "95749669676277240766303535475945713821785251664274"
+            "27466391932003059921817413596629043572900334295260"
+            "59563073813232862794349076323382988075319525101901"
+            "15738341879307021540891499348841675092447614606680"
+            "82264800168477411853742345442437107539077744992069"
+            "55170276183860626133138458300075204493382656029760"
+            "67371132007093287091274437470472306969772093101416"
+        )
+        e_val = _quiet_e(400)
+        result = _e_to_str(e_val, 400)
+        self.assertEqual(result, E_400, "tail digits wrong — check term count formula")
+
 
 # ---------------------------------------------------------------------------
 # TestMpmathFallback

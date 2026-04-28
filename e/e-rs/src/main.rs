@@ -128,10 +128,16 @@ fn bs_merge(l: Pq, r: Pq) -> Pq {
 
 /// Compute e to `digits` decimal places and return it as a formatted string.
 fn compute_e(digits: usize) -> String {
-    // Term count: enough terms so that N! > 10^digits.
-    // Each term contributes about log10(N) digits on average.
+    // Term count: need N such that log10(N!) > digits (truncation error < 10^-digits).
+    // Stirling: log10(N!) ≈ N*(log10(N) - log10(e)).  The naive estimate
+    // N = digits/log10(digits) ignores the -N*log10(e) term and undershoots
+    // for digits > ~340.  One Newton step corrects for it.
     let n: u64 = if digits > 1 {
-        (digits as f64 / (digits as f64 + 1.0).log10()) as u64 + 50
+        let d = digits as f64;
+        let n0 = d / (d + 1.0).log10();
+        let log_n0 = n0.log10().max(1.0);
+        let deficit = (d - n0 * (log_n0 - std::f64::consts::LOG10_E)).max(0.0);
+        (n0 + deficit / log_n0) as u64 + 50
     } else {
         20
     };
@@ -632,6 +638,30 @@ mod tests {
     fn test_compute_e_50_digits() {
         let s = compute_e(50);
         assert_eq!(s, E_REF);
+    }
+
+    #[test]
+    fn test_compute_e_400_digits_accurate() {
+        // digits=400 is above the ~340-digit threshold where the old formula
+        // (N = digits/log10(digits) + 50) supplied too few Taylor terms,
+        // producing silently wrong tail digits.
+        const E_400: &str = concat!(
+            "2.",
+            "71828182845904523536028747135266249775724709369995",
+            "95749669676277240766303535475945713821785251664274",
+            "27466391932003059921817413596629043572900334295260",
+            "59563073813232862794349076323382988075319525101901",
+            "15738341879307021540891499348841675092447614606680",
+            "82264800168477411853742345442437107539077744992069",
+            "55170276183860626133138458300075204493382656029760",
+            "67371132007093287091274437470472306969772093101416",
+        );
+        let s = compute_e(400);
+        assert_eq!(
+            s,
+            E_400,
+            "compute_e(400) tail digits wrong — check term count formula"
+        );
     }
 
     #[test]
