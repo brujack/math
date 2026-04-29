@@ -120,9 +120,18 @@ def _compute_swing(m, primes):
         return _compute_swing_chunk(m, chunks[0])
 
     ctx = multiprocessing.get_context("spawn" if sys.platform == "darwin" else "fork")
-    with concurrent.futures.ProcessPoolExecutor(max_workers=len(chunks), mp_context=ctx) as pool:
-        futures = [pool.submit(_compute_swing_chunk, m, chunk) for chunk in chunks]
-        partial_results = [f.result() for f in futures]
+    try:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=len(chunks), mp_context=ctx) as pool:
+            futures = [pool.submit(_compute_swing_chunk, m, chunk) for chunk in chunks]
+            partial_results = [f.result() for f in futures]
+    except (PermissionError, OSError) as err:
+        print(
+            "Parallel swing unavailable "
+            f"({err}); running in serial mode. "
+            "Install project requirements and ensure OS multiprocessing "
+            "semaphore support is available to re-enable parallel mode."
+        )
+        partial_results = [_compute_swing_chunk(m, chunk) for chunk in chunks]
 
     return int(_tree_combine_int(partial_results))
 

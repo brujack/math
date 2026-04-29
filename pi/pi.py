@@ -155,32 +155,41 @@ def _calculate_pi_gmpy2(digits):
             f"× ~{chunk_size:,} terms each"
         )
         bar_width = 30
-        with concurrent.futures.ProcessPoolExecutor(
-            max_workers=n_workers, mp_context=mp_context
-        ) as pool:
-            futures = [pool.submit(_bs_chunk_worker, a, b) for a, b in ranges]
-            completed = 0
-            for _ in concurrent.futures.as_completed(futures):
-                completed += 1
-                filled = completed * bar_width // n_workers
-                bar = '█' * filled + '░' * (bar_width - filled)
-                print(
-                    f"\r  [{bar}] {completed}/{n_workers} chunks",
-                    end="", flush=True,
-                )
-        print()
+        try:
+            with concurrent.futures.ProcessPoolExecutor(
+                max_workers=n_workers, mp_context=mp_context
+            ) as pool:
+                futures = [pool.submit(_bs_chunk_worker, a, b) for a, b in ranges]
+                completed = 0
+                for _ in concurrent.futures.as_completed(futures):
+                    completed += 1
+                    filled = completed * bar_width // n_workers
+                    bar = '█' * filled + '░' * (bar_width - filled)
+                    print(
+                        f"\r  [{bar}] {completed}/{n_workers} chunks",
+                        end="", flush=True,
+                    )
+            print()
 
-        # Collect results in submission order (all done; .result() is instant).
-        int_results = [f.result() for f in futures]
+            # Collect results in submission order (all done; .result() is instant).
+            int_results = [f.result() for f in futures]
 
-        # Convert to gmpy2.mpz and merge via tree reduction.
-        print("  Combining chunks...", end="", flush=True)
-        pqt_list = [
-            (_gmpy2.mpz(P), _gmpy2.mpz(Q), _gmpy2.mpz(T))
-            for P, Q, T in int_results
-        ]
-        _, Q, T = _tree_combine(pqt_list)
-        print("\r  Combination complete.   ")
+            # Convert to gmpy2.mpz and merge via tree reduction.
+            print("  Combining chunks...", end="", flush=True)
+            pqt_list = [
+                (_gmpy2.mpz(P), _gmpy2.mpz(Q), _gmpy2.mpz(T))
+                for P, Q, T in int_results
+            ]
+            _, Q, T = _tree_combine(pqt_list)
+            print("\r  Combination complete.   ")
+        except (PermissionError, OSError) as err:
+            print(
+                "\n  Parallel unavailable "
+                f"({err}); running in serial mode. "
+                "Install project requirements and ensure OS multiprocessing "
+                "semaphore support is available to re-enable parallel mode."
+            )
+            _, Q, T = _chudnovsky_bs(0, N)
     else:
         _, Q, T = _chudnovsky_bs(0, N)
 
@@ -522,24 +531,37 @@ def save_pi_to_file(pi_value, digits, filename):
     progress = ProgressIndicator(estimated_time)
     progress.start()
 
-    with concurrent.futures.ProcessPoolExecutor(
-        max_workers=1, mp_context=mp_context
-    ) as pool:
+    try:
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=1, mp_context=mp_context
+        ) as pool:
+            if using_gmpy2:
+                # Pass plain Python ints from the module-level cache — always
+                # picklable; the worker recomputes the final mpfr internally.
+                Q_int, T_int = _gmpy2_QT_cache
+                future = pool.submit(_convert_gmpy2_worker, Q_int, T_int, digits)
+            else:
+                future = pool.submit(_convert_mpmath_worker, pi_value, digits)
+
+            while not future.done():
+                progress.show_one_tick()
+                time.sleep(0.25)
+
+            pi_str = future.result()  # re-raises any subprocess exception
+    except (PermissionError, OSError) as err:
+        print(
+            "\nMultiprocessing conversion unavailable "
+            f"({err}); running in serial mode. "
+            "Install project requirements and ensure OS multiprocessing "
+            "semaphore support is available to re-enable parallel mode."
+        )
         if using_gmpy2:
-            # Pass plain Python ints from the module-level cache — always
-            # picklable; the worker recomputes the final mpfr internally.
             Q_int, T_int = _gmpy2_QT_cache
-            future = pool.submit(_convert_gmpy2_worker, Q_int, T_int, digits)
+            pi_str = _gmpy2_str_from_QT(Q_int, T_int, digits)
         else:
-            future = pool.submit(_convert_mpmath_worker, pi_value, digits)
-
-        while not future.done():
-            progress.show_one_tick()
-            time.sleep(0.25)
-
-        pi_str = future.result()  # re-raises any subprocess exception
-
-    progress.stop()
+            pi_str = _pi_to_str(pi_value, digits)
+    finally:
+        progress.stop()
     conversion_time = time.time() - conversion_start
     print(f"\rString conversion completed in {conversion_time:.2f} seconds" + " " * 50)
 
