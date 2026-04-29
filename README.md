@@ -135,6 +135,12 @@ This symlinks `scripts/pre-commit` into `.git/hooks/pre-commit`. The hook runs `
 
 Install ggshield: `brew install gitguardian/tap/ggshield && ggshield auth login`.
 
+Rust crates use `scripts/rust-check.sh` for `make lint` and `make test`. By default it sets `CARGO_HOME` to a repo-local writable cache path and can run offline when dependencies are cached:
+
+```bash
+RUST_CHECK_OFFLINE=1 make test
+```
+
 ---
 
 ## Architectural Decisions

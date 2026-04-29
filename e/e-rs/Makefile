@@ -5,10 +5,10 @@ e:
 	cp target/release/e ~/Downloads/e
 
 lint:
-	cargo clippy -- -D warnings
+	../../scripts/rust-check.sh lint
 
 test: lint
-	cargo test
+	../../scripts/rust-check.sh test
 
 clean:
 	cargo clean
