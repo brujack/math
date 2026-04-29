@@ -368,5 +368,10 @@ The sub-project files (`pi/CLAUDE.md`, `prime/CLAUDE.md`, `fib/CLAUDE.md`, `sq/C
 
 ## Notes
 
+- **PR learnings (2026-04-29, rust-offline-wrapper):**
+  - For Rust crates, route `make lint`/`make test` through `scripts/rust-check.sh` to keep cargo behavior deterministic across root checkouts and worktrees.
+  - Verify wrapper behavior at two levels: unit tests (`python3 scripts/test_rust_check.py`) plus a full online+offline crate matrix before merge.
+  - The wrapper creates a repo-local `.cache/cargo-home` when `CARGO_HOME` is unset. Treat `.cache/` as transient local state and remove it (`rm -rf .cache`) before final status checks and commits.
+
 - Generated output files (`pi_*_digits.txt`, `primes_1e*.txt`, `twin-primes_1e*.txt`, `e_*_digits.txt`, `factorial_*.txt`) are large artifacts — do not commit them.
 - See each project's `CLAUDE.md` for detailed implementation guidance, code layout, and editing rules.
