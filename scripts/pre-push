@@ -4,8 +4,11 @@
 # GitHub Actions is the final merge gate on PRs.
 set -e
 
-REPO_ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)" \
-    || { printf "pre-push: could not determine repo root\n" >&2; exit 1; }
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "${REPO_ROOT}" ]]; then
+    REPO_ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)" \
+        || { printf "pre-push: could not determine repo root\n" >&2; exit 1; }
+fi
 DIRS_TO_TEST=()
 
 while read -r local_ref local_sha remote_ref remote_sha; do
