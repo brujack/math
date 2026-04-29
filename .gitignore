@@ -24,6 +24,7 @@ factorial_*.txt
 
 # Claude Code local settings (machine-specific)
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # Credential files — never commit
 .aws/
