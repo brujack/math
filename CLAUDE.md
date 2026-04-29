@@ -224,6 +224,8 @@ Twenty workflow files. Project workflows run on PRs to `master` only — the pre
 
 **Pre-push hook** — `scripts/pre-push` is committed to the repo and installed as a symlink via `make install-hooks`. It detects which sub-projects have commits in the push range and runs `make test` for each. Skips branch deletions. Permanent — conserves GitHub Actions minutes by catching failures locally before the push reaches GitHub.
 
+**Worktree compatibility requirement:** `scripts/pre-push` must resolve the repository root with `git rev-parse --show-toplevel` first, with `git rev-parse --git-common-dir` parent only as a fallback. Using `git-common-dir` directly in worktrees can run tests against the shared checkout (`master`) instead of the active feature worktree.
+
 **Auto-merge gate:** The `auto-merge` workflow gates on `needs: [secret-scan]`, so a secret scan failure blocks the merge. GitHub branch protection required checks (which would enforce project test jobs) require GitHub Team and are not available on this free account. Project test workflows are therefore advisory — a PR can technically auto-merge with failing tests. Rely on reviewing CI status in the PR before it merges.
 
 **snyk-scan** runs `snyk code test` (SAST) against the Python and Rust source. It is advisory — not in `needs` for `auto-merge`. Requires `SNYK_TOKEN` in repository secrets.
@@ -300,6 +302,14 @@ gh pr create --title "..." --body "..."
 ```
 
 The pre-push hook runs `make test` for changed sub-projects locally before the push reaches GitHub. GitHub Actions CI runs on PRs only. The `auto-merge` workflow enables GitHub auto-merge when the PR is opened; it merges automatically once all required checks pass.
+
+### Multiprocessing fallback behavior
+
+For Python high-precision calculators (`pi`, `e`, `factorial`), `ProcessPoolExecutor` can fail in restricted environments (for example semaphore sysconf permission errors). Runtime behavior must be:
+
+1. Fall back to serial execution/conversion instead of hard-failing.
+2. Print an explicit user-facing message that serial mode is active.
+3. Tell the user to install/fix required runtime support (including multiprocessing semaphore support) to restore parallel mode.
 
 ### PR Review Gate
 
