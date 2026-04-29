@@ -160,6 +160,14 @@ make lint      # cargo clippy -- -D warnings
 make test      # lint, then cargo test
 ```
 
+### Rust lint/test wrapper (`scripts/rust-check.sh`)
+
+All Rust crate `make lint` and `make test` targets call `scripts/rust-check.sh` to enforce consistent cargo behavior in local checkouts and worktrees.
+
+- `CARGO_HOME` defaults to `<repo>/.cache/cargo-home` when unset, so checks do not rely on global cargo cache write access.
+- `RUST_CHECK_OFFLINE=1` enables `--offline` for local resilience when dependencies are already cached.
+- Failures are classified as either environment/setup problems (cache/index/network permissions) or code failures (lint/test defects).
+
 ## Testing Policy
 
 **TDD is required.** Write the failing test first, then write the minimum implementation to make it pass. Never write implementation before the test. Tests must be added in the same commit as the code they cover.

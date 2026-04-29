@@ -5,10 +5,10 @@ prime:
 	cp target/release/prime ~/Downloads/prime
 
 lint:
-	cargo clippy -- -D warnings
+	../../scripts/rust-check.sh lint
 
 test: lint
-	cargo test
+	../../scripts/rust-check.sh test
 
 clean:
 	cargo clean
