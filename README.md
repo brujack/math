@@ -117,7 +117,7 @@ make coverage  # coverage run + report
 ```bash
 cd factorial/factorial-rs
 make factorial # cargo build --release
-make lint      # cargo clippy -- -D warnings
+make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
 make test      # lint, then cargo test
 ```
 

@@ -62,7 +62,7 @@ make coverage  # coverage run + report
 ```bash
 cd pi/pi-rs
 make pi        # cargo build --release
-make lint      # cargo clippy -- -D warnings
+make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
 make test      # lint, then cargo test
 ```
 
@@ -71,7 +71,7 @@ make test      # lint, then cargo test
 ```bash
 cd prime/prime-rs
 make prime     # cargo build --release
-make lint      # cargo clippy -- -D warnings
+make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
 make test      # lint, then cargo test
 ```
 
@@ -90,7 +90,7 @@ make coverage  # coverage run + report
 ```bash
 cd fib/fib-rs
 make fib       # cargo build --release
-make lint      # cargo clippy -- -D warnings
+make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
 make test      # lint, then cargo test
 ```
 
@@ -109,7 +109,7 @@ make coverage  # coverage run + report
 ```bash
 cd sq/sq-rs
 make sq        # cargo build --release
-make lint      # cargo clippy -- -D warnings
+make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
 make test      # lint, then cargo test
 ```
 
@@ -118,7 +118,7 @@ make test      # lint, then cargo test
 ```bash
 cd twin-primes/twin-primes-rs
 make twin-primes  # cargo build --release
-make lint         # cargo clippy -- -D warnings
+make lint         # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
 make test         # lint, then cargo test
 ```
 
@@ -137,7 +137,7 @@ make coverage  # coverage run + report
 ```bash
 cd e/e-rs
 make e         # cargo build --release
-make lint      # cargo clippy -- -D warnings
+make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
 make test      # lint, then cargo test
 ```
 
@@ -156,7 +156,7 @@ make coverage  # coverage run + report
 ```bash
 cd factorial/factorial-rs
 make factorial # cargo build --release
-make lint      # cargo clippy -- -D warnings
+make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
 make test      # lint, then cargo test
 ```
 
