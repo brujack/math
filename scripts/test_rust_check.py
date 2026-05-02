@@ -35,12 +35,14 @@ class RustCheckWrapperTests(unittest.TestCase):
         return cargo_path
 
     def test_sets_repo_local_cargo_home_by_default(self) -> None:
+        # Print CARGO_HOME once per invocation; lint calls cargo twice (fmt + clippy),
+        # so assert the expected path appears in stdout rather than exact equality.
         fake_cargo = self._make_fake_cargo(
             textwrap.dedent(
                 """\
                 #!/usr/bin/env bash
                 set -euo pipefail
-                printf '%s' "${CARGO_HOME}"
+                printf '%s\\n' "${CARGO_HOME}"
                 """
             )
         )
@@ -50,7 +52,7 @@ class RustCheckWrapperTests(unittest.TestCase):
         result = self._run_wrapper(["lint"], env)
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         expected = str(REPO_ROOT / ".cache" / "cargo-home")
-        self.assertEqual(result.stdout.strip(), expected)
+        self.assertIn(expected, result.stdout.splitlines())
 
     def test_passes_offline_flag_when_enabled(self) -> None:
         fake_cargo = self._make_fake_cargo(
