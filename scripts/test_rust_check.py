@@ -71,6 +71,26 @@ class RustCheckWrapperTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("--offline", result.stdout)
 
+    def test_fmt_failure_is_not_swallowed_by_clippy_success(self) -> None:
+        # Regression: bash suppresses set -e inside functions called in an `if`
+        # condition, so sequential commands run regardless of prior exit codes.
+        # The lint case must use `&&` so a fmt failure propagates even when
+        # clippy would succeed.
+        fake_cargo = self._make_fake_cargo(
+            textwrap.dedent(
+                """\
+                #!/usr/bin/env bash
+                # fmt → exit 1 (fail); clippy → exit 0 (pass).
+                if [ "$1" = "fmt" ]; then exit 1; fi
+                exit 0
+                """
+            )
+        )
+        env = os.environ.copy()
+        env["RUST_CHECK_CARGO_BIN"] = str(fake_cargo)
+        result = self._run_wrapper(["lint"], env)
+        self.assertNotEqual(result.returncode, 0, msg="fmt failure must not be swallowed by clippy success")
+
     def test_classifies_environment_failures(self) -> None:
         fake_cargo = self._make_fake_cargo(
             textwrap.dedent(

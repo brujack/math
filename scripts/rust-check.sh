@@ -33,8 +33,8 @@ trap 'rm -f "${TMP_OUTPUT}"' EXIT
 run_cargo() {
     case "${MODE}" in
     lint)
-        "${CARGO_BIN}" fmt --all -- --check
-        "${CARGO_BIN}" clippy --all-targets "${OFFLINE_ARGS[@]}" -- -D warnings
+        "${CARGO_BIN}" fmt --all -- --check \
+            && "${CARGO_BIN}" clippy --all-targets "${OFFLINE_ARGS[@]}" -- -D warnings
         ;;
     test)
         "${CARGO_BIN}" test "${OFFLINE_ARGS[@]}"
