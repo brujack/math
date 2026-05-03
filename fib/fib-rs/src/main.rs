@@ -64,10 +64,7 @@ fn prompt_exponent_with<R: BufRead, W: Write, E: Write>(
     err: &mut E,
 ) -> io::Result<u32> {
     loop {
-        write!(
-            out,
-            "Enter X (finds all Fibonacci numbers with up to 10^X digits, max 5): "
-        )?;
+        write!(out, "Enter X (finds all Fibonacci numbers with up to 10^X digits, max 5): ")?;
         out.flush()?;
         match read_line_from(reader)?.parse::<u32>() {
             Ok(x) if (1..=5).contains(&x) => return Ok(x),
@@ -138,12 +135,8 @@ fn run<R: BufRead, W: Write, E: Write>(
         return Ok(0);
     }
 
-    writeln!(
-        out,
-        "Generating all Fibonacci numbers with up to 10^{} = {} digits",
-        exponent,
-        fmt_int(max_digits as u64)
-    )?;
+    let m = fmt_int(max_digits as u64);
+    writeln!(out, "Generating all Fibonacci numbers with up to 10^{exponent} = {m} digits")?;
 
     let t_total = Instant::now();
 
@@ -151,17 +144,9 @@ fn run<R: BufRead, W: Write, E: Write>(
         let mut buf: Vec<u8> = Vec::new();
         let count = generate_fibonacci(max_digits, &mut buf)?;
 
-        writeln!(
-            out,
-            "\nFound {} Fibonacci numbers with up to 10^{} digits",
-            fmt_int(count),
-            exponent
-        )?;
-        write!(
-            out,
-            "Display all {} Fibonacci numbers? (y/n): ",
-            fmt_int(count)
-        )?;
+        let c = fmt_int(count);
+        writeln!(out, "\nFound {c} Fibonacci numbers with up to 10^{exponent} digits")?;
+        write!(out, "Display all {c} Fibonacci numbers? (y/n): ")?;
         out.flush()?;
         if matches!(read_line_from(reader)?.as_str(), "y" | "yes") {
             out.write_all(&buf)?;
@@ -174,12 +159,8 @@ fn run<R: BufRead, W: Write, E: Write>(
         writeln!(out, "\nSaving to {}...", preview_path.display())?;
         let (path, count) = stream_fib_to_file(dir, exponent, max_digits)?;
 
-        writeln!(
-            out,
-            "Found {} Fibonacci numbers with up to 10^{} digits",
-            fmt_int(count),
-            exponent
-        )?;
+        let c = fmt_int(count);
+        writeln!(out, "Found {c} Fibonacci numbers with up to 10^{exponent} digits")?;
         writeln!(out, "Saved to {}", path.display())?;
     }
 
@@ -271,11 +252,7 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
         generate_fibonacci(2, &mut buf).unwrap();
         let output = String::from_utf8(buf).unwrap();
-        let nums: Vec<u64> = output
-            .lines()
-            .take(10)
-            .map(|l| l.parse().unwrap())
-            .collect();
+        let nums: Vec<u64> = output.lines().take(10).map(|l| l.parse().unwrap()).collect();
         assert_eq!(nums, vec![1, 1, 2, 3, 5, 8, 13, 21, 34, 55]);
     }
 
@@ -357,10 +334,7 @@ mod tests {
         let mut input = Cursor::new(b"1\n");
         let mut out: Vec<u8> = Vec::new();
         let mut err: Vec<u8> = Vec::new();
-        assert_eq!(
-            prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(),
-            1
-        );
+        assert_eq!(prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(), 1);
         assert!(err.is_empty());
     }
 
@@ -369,10 +343,7 @@ mod tests {
         let mut input = Cursor::new(b"5\n");
         let mut out: Vec<u8> = Vec::new();
         let mut err: Vec<u8> = Vec::new();
-        assert_eq!(
-            prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(),
-            5
-        );
+        assert_eq!(prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(), 5);
     }
 
     #[test]
@@ -380,10 +351,7 @@ mod tests {
         let mut input = Cursor::new(b"0\n3\n");
         let mut out: Vec<u8> = Vec::new();
         let mut err: Vec<u8> = Vec::new();
-        assert_eq!(
-            prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(),
-            3
-        );
+        assert_eq!(prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(), 3);
         assert!(String::from_utf8(err).unwrap().contains("between 1 and 5"));
     }
 
@@ -392,10 +360,7 @@ mod tests {
         let mut input = Cursor::new(b"6\n2\n");
         let mut out: Vec<u8> = Vec::new();
         let mut err: Vec<u8> = Vec::new();
-        assert_eq!(
-            prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(),
-            2
-        );
+        assert_eq!(prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(), 2);
         assert!(String::from_utf8(err).unwrap().contains("between 1 and 5"));
     }
 
@@ -404,10 +369,7 @@ mod tests {
         let mut input = Cursor::new(b"abc\n1\n");
         let mut out: Vec<u8> = Vec::new();
         let mut err: Vec<u8> = Vec::new();
-        assert_eq!(
-            prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(),
-            1
-        );
+        assert_eq!(prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(), 1);
         assert!(String::from_utf8(err).unwrap().contains("positive integer"));
     }
 
@@ -416,10 +378,7 @@ mod tests {
         let mut input = Cursor::new(b"-1\n2\n");
         let mut out: Vec<u8> = Vec::new();
         let mut err: Vec<u8> = Vec::new();
-        assert_eq!(
-            prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(),
-            2
-        );
+        assert_eq!(prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(), 2);
         assert!(String::from_utf8(err).unwrap().contains("positive integer"));
     }
 
@@ -522,9 +481,7 @@ mod tests {
         let mut err: Vec<u8> = Vec::new();
         let code = run(cli, &mut input, &mut out, &mut err, dir.path()).unwrap();
         assert_eq!(code, 1);
-        assert!(String::from_utf8(err)
-            .unwrap()
-            .contains("X must be between 1 and 5"));
+        assert!(String::from_utf8(err).unwrap().contains("X must be between 1 and 5"));
     }
 
     #[test]
@@ -644,23 +601,9 @@ mod tests {
         let mut err: Vec<u8> = Vec::new();
         let mut input1 = Cursor::new(b"n\n");
         let mut input2 = Cursor::new(b"n\n");
-        run(
-            Cli { exponent: Some(1) },
-            &mut input1,
-            &mut out1,
-            &mut err,
-            dir.path(),
-        )
-        .unwrap();
+        run(Cli { exponent: Some(1) }, &mut input1, &mut out1, &mut err, dir.path()).unwrap();
         let first = std::fs::read(dir.path().join("fib_1e1.txt")).unwrap();
-        run(
-            Cli { exponent: Some(1) },
-            &mut input2,
-            &mut out2,
-            &mut err,
-            dir.path(),
-        )
-        .unwrap();
+        run(Cli { exponent: Some(1) }, &mut input2, &mut out2, &mut err, dir.path()).unwrap();
         let second = std::fs::read(dir.path().join("fib_1e1.txt")).unwrap();
         assert_eq!(first, second);
     }
