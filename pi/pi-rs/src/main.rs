@@ -123,9 +123,7 @@ fn bs_leaf(a: u64) -> Pqt {
     } else {
         // P = (6a−5)(2a−1)(6a−1)
         // These factors fit in u64 for all practical a values (a ≤ ~7 M for 100 M digits).
-        let p = Integer::from(6 * a - 5)
-            * Integer::from(2 * a - 1)
-            * Integer::from(6 * a - 1);
+        let p = Integer::from(6 * a - 5) * Integer::from(2 * a - 1) * Integer::from(6 * a - 1);
 
         // Q = a³ × C³/24
         // a³ overflows u64 for a > ~2.6 M, so use Integer arithmetic.
@@ -133,8 +131,7 @@ fn bs_leaf(a: u64) -> Pqt {
         let q = Integer::from(&ai * &ai) * &ai * CHU_C3_24;
 
         // T = (−1)^a × P × (A + B×a)
-        let t_abs =
-            Integer::from(&p) * (Integer::from(CHU_A) + Integer::from(CHU_B) * &ai);
+        let t_abs = Integer::from(&p) * (Integer::from(CHU_A) + Integer::from(CHU_B) * &ai);
         let t = if a & 1 == 1 { -t_abs } else { t_abs };
 
         Pqt { p, q, t }
@@ -188,16 +185,14 @@ fn compute_pi(digits: usize) -> String {
     BS_LEAF_COUNT.store(0, Ordering::Relaxed);
     let series_done = Arc::new(AtomicBool::new(false));
     let series_done_c = Arc::clone(&series_done);
-    let series_thread = thread::spawn(move || {
-        loop {
-            thread::sleep(Duration::from_millis(200));
-            if series_done_c.load(Ordering::Relaxed) {
-                break;
-            }
-            let completed = BS_LEAF_COUNT.load(Ordering::Relaxed);
-            eprint!("\r{}", format_series_progress(completed, n));
-            let _ = io::stderr().flush();
+    let series_thread = thread::spawn(move || loop {
+        thread::sleep(Duration::from_millis(200));
+        if series_done_c.load(Ordering::Relaxed) {
+            break;
         }
+        let completed = BS_LEAF_COUNT.load(Ordering::Relaxed);
+        eprint!("\r{}", format_series_progress(completed, n));
+        let _ = io::stderr().flush();
     });
 
     let t0 = Instant::now();
@@ -216,10 +211,9 @@ fn compute_pi(digits: usize) -> String {
 
     let t1 = Instant::now();
     let sqrt10005 = Float::with_val(prec_bits, 10005).sqrt();
-    let pi = Float::with_val(prec_bits, 426_880_u32)
-        * sqrt10005
-        * Float::with_val(prec_bits, &pqt.q)
-        / Float::with_val(prec_bits, &pqt.t);
+    let pi =
+        Float::with_val(prec_bits, 426_880_u32) * sqrt10005 * Float::with_val(prec_bits, &pqt.q)
+            / Float::with_val(prec_bits, &pqt.t);
     eprintln!("  Value done in {:.2}s", t1.elapsed().as_secs_f64());
 
     eprintln!("  Converting to decimal string…");
@@ -301,12 +295,12 @@ fn write_pi_file(dir: &Path, pi_str: &str, digits: usize) -> io::Result<PathBuf>
     let footer = format!("\n\nTotal decimal places: {}", fmt_int(digits));
 
     let hdr = header.as_bytes();
-    let pi  = pi_str.as_bytes();   // ASCII digits — 1 byte per char
+    let pi = pi_str.as_bytes(); // ASCII digits — 1 byte per char
     let ftr = footer.as_bytes();
 
-    let total     = (hdr.len() + pi.len() + ftr.len()) as u64;
+    let total = (hdr.len() + pi.len() + ftr.len()) as u64;
     let pi_offset = hdr.len() as u64;
-    let pi_total  = pi.len() as u64;
+    let pi_total = pi.len() as u64;
 
     // Pre-allocate file; pwrite does not extend a file past its current size.
     let file = File::create(&path)?;
@@ -317,7 +311,7 @@ fn write_pi_file(dir: &Path, pi_str: &str, digits: usize) -> io::Result<PathBuf>
     file.write_at(ftr, pi_offset + pi_total)?;
 
     // Set up progress tracking for the parallel write.
-    let n_threads  = rayon::current_num_threads();
+    let n_threads = rayon::current_num_threads();
     let chunk_size = ((4 * 1024 * 1024) as usize).max(pi.len() / n_threads);
 
     let bytes_written = Arc::new(AtomicU64::new(0));
@@ -326,17 +320,15 @@ fn write_pi_file(dir: &Path, pi_str: &str, digits: usize) -> io::Result<PathBuf>
     let write_done_c = Arc::clone(&write_done);
     let t_write = Instant::now();
 
-    let progress_thread = thread::spawn(move || {
-        loop {
-            thread::sleep(Duration::from_millis(200));
-            if write_done_c.load(Ordering::Relaxed) {
-                break;
-            }
-            let written = bytes_written_c.load(Ordering::Relaxed);
-            let elapsed = t_write.elapsed().as_secs_f64();
-            eprint!("\r{}", format_write_progress(written, pi_total, elapsed));
-            let _ = io::stderr().flush();
+    let progress_thread = thread::spawn(move || loop {
+        thread::sleep(Duration::from_millis(200));
+        if write_done_c.load(Ordering::Relaxed) {
+            break;
         }
+        let written = bytes_written_c.load(Ordering::Relaxed);
+        let elapsed = t_write.elapsed().as_secs_f64();
+        eprint!("\r{}", format_write_progress(written, pi_total, elapsed));
+        let _ = io::stderr().flush();
     });
 
     // π digit bytes: parallel pwrite chunks.
@@ -348,8 +340,7 @@ fn write_pi_file(dir: &Path, pi_str: &str, digits: usize) -> io::Result<PathBuf>
             let base = pi_offset + (i * chunk_size) as u64;
             let mut written = 0;
             while written < chunk.len() {
-                written +=
-                    file.write_at(&chunk[written..], base + written as u64)?;
+                written += file.write_at(&chunk[written..], base + written as u64)?;
             }
             bytes_written.fetch_add(chunk.len() as u64, Ordering::Relaxed);
             Ok(())
@@ -421,11 +412,7 @@ where
     Ok(matches!(line.as_str(), "y" | "yes"))
 }
 
-fn prompt_digits_with<R, W, E>(
-    reader: &mut R,
-    out: &mut W,
-    err: &mut E,
-) -> io::Result<usize>
+fn prompt_digits_with<R, W, E>(reader: &mut R, out: &mut W, err: &mut E) -> io::Result<usize>
 where
     R: BufRead,
     W: Write,
@@ -454,13 +441,7 @@ where
 // Entry point
 // ---------------------------------------------------------------------------
 
-fn run<R, W, E>(
-    cli: Cli,
-    reader: &mut R,
-    out: &mut W,
-    err: &mut E,
-    dir: &Path,
-) -> io::Result<i32>
+fn run<R, W, E>(cli: Cli, reader: &mut R, out: &mut W, err: &mut E, dir: &Path) -> io::Result<i32>
 where
     R: BufRead,
     W: Write,
@@ -599,8 +580,7 @@ mod tests {
         assert_eq!(pqt.p, Integer::from(5u32));
         assert_eq!(pqt.q, Integer::from(CHU_C3_24));
         assert!(pqt.t < 0, "T should be negative for odd index");
-        let expected_abs =
-            Integer::from(5u32) * (Integer::from(CHU_A) + Integer::from(CHU_B));
+        let expected_abs = Integer::from(5u32) * (Integer::from(CHU_A) + Integer::from(CHU_B));
         assert_eq!(-pqt.t, expected_abs);
     }
 
@@ -618,7 +598,10 @@ mod tests {
         bs_leaf(0);
         bs_leaf(1);
         let after = BS_LEAF_COUNT.load(Ordering::Relaxed);
-        assert!(after >= before + 2, "expected counter to increase by at least 2");
+        assert!(
+            after >= before + 2,
+            "expected counter to increase by at least 2"
+        );
     }
 
     // --- bs_merge ---
@@ -730,7 +713,11 @@ mod tests {
     fn test_format_series_progress_zero_completed() {
         let s = format_series_progress(0, 100);
         assert!(s.contains("  0%"), "should show 0%: {}", s);
-        assert!(s.contains("0 / 100 terms"), "should show term counts: {}", s);
+        assert!(
+            s.contains("0 / 100 terms"),
+            "should show term counts: {}",
+            s
+        );
     }
 
     #[test]
@@ -1007,7 +994,9 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn test_run_with_arg_above_10k_auto_saves() {
-        let cli = Cli { digits: Some(20_000) };
+        let cli = Cli {
+            digits: Some(20_000),
+        };
         let mut r = &b""[..];
         let mut out = Vec::<u8>::new();
         let mut err = Vec::<u8>::new();

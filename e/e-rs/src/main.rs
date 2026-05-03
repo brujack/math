@@ -659,8 +659,7 @@ mod tests {
         );
         let s = compute_e(400);
         assert_eq!(
-            s,
-            E_400,
+            s, E_400,
             "compute_e(400) tail digits wrong — check term count formula"
         );
     }

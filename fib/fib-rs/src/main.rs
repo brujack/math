@@ -64,7 +64,10 @@ fn prompt_exponent_with<R: BufRead, W: Write, E: Write>(
     err: &mut E,
 ) -> io::Result<u32> {
     loop {
-        write!(out, "Enter X (finds all Fibonacci numbers with up to 10^X digits, max 5): ")?;
+        write!(
+            out,
+            "Enter X (finds all Fibonacci numbers with up to 10^X digits, max 5): "
+        )?;
         out.flush()?;
         match read_line_from(reader)?.parse::<u32>() {
             Ok(x) if (1..=5).contains(&x) => return Ok(x),
@@ -81,7 +84,12 @@ fn confirm_large_n_with<R: BufRead, W: Write, E: Write>(
     exponent: u32,
     max_digits: usize,
 ) -> io::Result<bool> {
-    writeln!(err, "Warning: X={} means Fibonacci numbers with up to {} digits — this may take a long time", exponent, fmt_int(max_digits as u64))?;
+    writeln!(
+        err,
+        "Warning: X={} means Fibonacci numbers with up to {} digits — this may take a long time",
+        exponent,
+        fmt_int(max_digits as u64)
+    )?;
     writeln!(err, "         and produce a very large output file.")?;
     write!(out, "Continue? (y/n): ")?;
     out.flush()?;
@@ -130,7 +138,12 @@ fn run<R: BufRead, W: Write, E: Write>(
         return Ok(0);
     }
 
-    writeln!(out, "Generating all Fibonacci numbers with up to 10^{} = {} digits", exponent, fmt_int(max_digits as u64))?;
+    writeln!(
+        out,
+        "Generating all Fibonacci numbers with up to 10^{} = {} digits",
+        exponent,
+        fmt_int(max_digits as u64)
+    )?;
 
     let t_total = Instant::now();
 
@@ -138,8 +151,17 @@ fn run<R: BufRead, W: Write, E: Write>(
         let mut buf: Vec<u8> = Vec::new();
         let count = generate_fibonacci(max_digits, &mut buf)?;
 
-        writeln!(out, "\nFound {} Fibonacci numbers with up to 10^{} digits", fmt_int(count), exponent)?;
-        write!(out, "Display all {} Fibonacci numbers? (y/n): ", fmt_int(count))?;
+        writeln!(
+            out,
+            "\nFound {} Fibonacci numbers with up to 10^{} digits",
+            fmt_int(count),
+            exponent
+        )?;
+        write!(
+            out,
+            "Display all {} Fibonacci numbers? (y/n): ",
+            fmt_int(count)
+        )?;
         out.flush()?;
         if matches!(read_line_from(reader)?.as_str(), "y" | "yes") {
             out.write_all(&buf)?;
@@ -152,7 +174,12 @@ fn run<R: BufRead, W: Write, E: Write>(
         writeln!(out, "\nSaving to {}...", preview_path.display())?;
         let (path, count) = stream_fib_to_file(dir, exponent, max_digits)?;
 
-        writeln!(out, "Found {} Fibonacci numbers with up to 10^{} digits", fmt_int(count), exponent)?;
+        writeln!(
+            out,
+            "Found {} Fibonacci numbers with up to 10^{} digits",
+            fmt_int(count),
+            exponent
+        )?;
         writeln!(out, "Saved to {}", path.display())?;
     }
 
