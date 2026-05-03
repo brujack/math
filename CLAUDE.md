@@ -190,16 +190,37 @@ Where to add tests:
 
 1. **`fn main()` body lines** — the thin stdio-wrapper `fn main()` is never exercised by unit tests. Add `#[cfg(not(tarpaulin_include))]` immediately before `fn main()` to exclude it. Tarpaulin sets `--cfg tarpaulin_include` when instrumenting, so the function compiles normally in regular builds but is invisible to tarpaulin's line counter.
 
-2. **Multi-line `write!/writeln!` argument lines** — when arguments are on separate lines, each line becomes a separate coverable unit on Linux. Collapse to a single line to remove those lines from the denominator.
+2. **Multi-line `write!/writeln!` argument lines** — when arguments are on separate lines, Linux ptrace counts the first argument (`out,` / `err,`) and the last positional argument as separate coverable probes, but neither probe fires during test execution. The result is uncovered lines that cannot be fixed by adding tests.
 
-Both patterns require a companion `[lints.rust]` entry in `Cargo.toml` so clippy does not reject `tarpaulin_include` as an unknown cfg:
+   To keep `write!/writeln!` macros single-line (so those probe points don't exist), two measures are needed together:
+   - Add a `rustfmt.toml` with `use_small_heuristics = "Max"` to raise rustfmt's `fn_call_width` threshold from 60% to 100% of `max_width`. Without this, cargo fmt expands any macro whose arguments exceed ~60 chars back to multi-line regardless of total line length.
+   - Use Rust's captured-variable format syntax (`{c}`, `{m}`, `{exponent}`) to reduce multi-argument macros to two-argument form (`dest, "format {c} {n}"`). This keeps the argument string short enough to stay single-line under the new threshold.
+
+   Note: format strings that are inherently long (e.g., the "Warning: X={} means…" writeln! in fib-rs, whose arguments total 131 chars) cannot be made single-line even with these settings. Accept 1–2 uncoverable lines per crate from unavoidably long macros.
+
+3. **Uncoverable `break;` statements** — Linux ptrace may count a `break;` inside a `while let Some(...)` loop as a coverable probe that never fires (even when the break IS executed). Eliminate the explicit break by folding the exit condition into the loop with `Option::filter`:
+
+   ```rust
+   // Before (break; uncoverable):
+   while let Some(sq) = k.checked_mul(k) {
+       if sq >= limit { break; }
+       ...
+   }
+
+   // After (no break):
+   while let Some(sq) = k.checked_mul(k).filter(|&sq| sq < limit) {
+       ...
+   }
+   ```
+
+Both patterns 1 and 2 require a companion `[lints.rust]` entry in `Cargo.toml` so clippy does not reject `tarpaulin_include` as an unknown cfg:
 
 ```toml
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }
 ```
 
-Apply fix 1 to every new Rust crate. Apply fix 2 only when fix 1 alone leaves coverage below 90% on Linux.
+Apply fix 1 (`#[cfg(not(tarpaulin_include))]` on `fn main()`) to every new Rust crate. Apply fixes 2 and 3 only when fix 1 alone leaves coverage below 90% on Linux.
 
 ## CI
 

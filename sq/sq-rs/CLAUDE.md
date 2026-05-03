@@ -34,7 +34,7 @@ Or directly:
 ## Code Layout (`src/main.rs`)
 
 - `struct Cli` — clap derive struct; `exponent: Option<u32>` optional positional arg.
-- `fn generate_squares<W: Write>(max_digits, out)` — iterates k=1,2,... writing `"k² | k"` per line until k²≥10^max_digits. Uses `checked_mul` for clarity. Returns total count.
+- `fn generate_squares<W: Write>(max_digits, out)` — iterates k=1,2,... writing `"k² | k"` per line until k²≥10^max_digits. Uses `k.checked_mul(k).filter(|&sq| sq < limit)` in the `while let` to avoid an explicit `break;` (Linux ptrace tarpaulin marks `break;` in `while let` loops as an uncoverable probe). Returns total count.
 - `fn fmt_int(n)` — formats `u64` with thousands separators.
 - `fn read_line_from<R: BufRead>(reader)` — reads one trimmed line from any `BufRead`.
 - `fn prompt_exponent_with<R: BufRead, W: Write, E: Write>(reader, out, err)` — interactive prompt loop; validates N=1 only. Writes prompts to `out` and errors to `err`.
