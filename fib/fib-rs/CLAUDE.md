@@ -41,7 +41,7 @@ Or directly:
 - `fn confirm_large_n_with<R, W, E>(reader, out, err, exponent, max_digits)` — emits the "this may take a long time" warning to `err`, the `Continue? (y/n)` prompt to `out`, returns `true` on `y`/`yes`.
 - `fn write_fib_file(dir, exponent, buf)` — buffered (X ≤ 2) save path; writes `<dir>/fib_1eX.txt` and returns the path.
 - `fn stream_fib_to_file(dir, exponent, max_digits)` — streaming (X ≥ 3) path; opens `<dir>/fib_1eX.txt` with an 8 MB `BufWriter`, runs `generate_fibonacci`, returns `(path, count)`.
-- `fn run<R: BufRead, W: Write, E: Write>(cli, reader, out, err, dir)` — full lifecycle: validates exponent, optionally warns/confirms for X ≥ 4, dispatches buffered or streaming path. Returns the process exit code (`0` success/aborted, `1` invalid X).
+- `fn run<R: BufRead, W: Write, E: Write>(cli, reader, out, err, dir)` — full lifecycle: validates exponent, optionally warns/confirms for X ≥ 4, dispatches buffered or streaming path. Returns the process exit code (`0` success/aborted, `1` invalid X). Uses captured-variable format syntax (`{c}`, `{m}`, `{exponent}`) in writeln!/write! calls to keep them single-line under `rustfmt.toml`'s `use_small_heuristics = "Max"` setting.
 - `fn main()` — thin wrapper: parses CLI, locks stdin/stdout/stderr, calls `run` against `current_dir()`, exits with the returned code.
 
 ## rug Integer Arithmetic
@@ -85,7 +85,7 @@ cd fib/fib-rs
 cargo test
 ```
 
-### Test coverage (95% line coverage, 47 tests)
+### Test coverage (97% line coverage, 43 tests)
 
 | Area                   | Tests                                                                                                                                                              |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
