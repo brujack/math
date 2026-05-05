@@ -1,5 +1,7 @@
 # Hook and Worktree Compatibility Hardening Implementation Plan
 
+> **Status: DONE** — merged in PR #44 (2026-05-05)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Establish BATS as the standard for shell script tests, migrate `test_rust_check.py` to BATS, add tests for both hook scripts, and harden `scripts/pre-commit` to use absolute paths.
