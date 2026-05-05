@@ -184,8 +184,7 @@ def _calculate_pi_gmpy2(digits):
             print("\r  Combination complete.   ")
         except (PermissionError, OSError) as err:
             print(
-                "\n  Parallel unavailable "
-                f"({err}); running in serial mode. "
+                f"\nParallel mode unavailable ({err}); falling back to serial.\n"
                 "Install project requirements and ensure OS multiprocessing "
                 "semaphore support is available to re-enable parallel mode."
             )
@@ -550,8 +549,7 @@ def save_pi_to_file(pi_value, digits, filename):
             pi_str = future.result()  # re-raises any subprocess exception
     except (PermissionError, OSError) as err:
         print(
-            "\nMultiprocessing conversion unavailable "
-            f"({err}); running in serial mode. "
+            f"\nParallel mode unavailable ({err}); falling back to serial.\n"
             "Install project requirements and ensure OS multiprocessing "
             "semaphore support is available to re-enable parallel mode."
         )
