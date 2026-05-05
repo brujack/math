@@ -126,8 +126,7 @@ def _compute_swing(m, primes):
             partial_results = [f.result() for f in futures]
     except (PermissionError, OSError) as err:
         print(
-            "Parallel swing unavailable "
-            f"({err}); running in serial mode. "
+            f"\nParallel mode unavailable ({err}); falling back to serial.\n"
             "Install project requirements and ensure OS multiprocessing "
             "semaphore support is available to re-enable parallel mode."
         )
