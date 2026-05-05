@@ -122,6 +122,22 @@ class TestTreeCombineInt(unittest.TestCase):
         self.assertEqual(_tree_combine_int([2, 3, 5]), 30)
 
 
+class TestComputeSwingFallback(unittest.TestCase):
+    """_compute_swing serial fallback when ProcessPoolExecutor raises OSError."""
+
+    def test_fallback_gives_correct_result_and_prints_message(self):
+        buf = io.StringIO()
+        # n=5: _compute_swing(5, [2,3,5]) -> 3 chunks with default _CPU_COUNT,
+        # triggering ProcessPoolExecutor. With it raising, serial fallback runs.
+        with unittest.mock.patch(
+            "factorial.concurrent.futures.ProcessPoolExecutor",
+            side_effect=OSError("semaphore unavailable"),
+        ), redirect_stdout(buf):
+            result = calculate_factorial(5)
+        self.assertEqual(int(result), FACTORIAL_REF[5])
+        self.assertIn("Parallel mode unavailable", buf.getvalue())
+
+
 class TestComputeSwing(unittest.TestCase):
 
     def test_swing_0(self):

@@ -329,6 +329,27 @@ class TestCalculateEParallel(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# TestCalculateEGmpy2PhaseAFallback
+# ---------------------------------------------------------------------------
+
+@unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
+class TestCalculateEGmpy2PhaseAFallback(unittest.TestCase):
+    """_calculate_e_gmpy2 serial fallback when ProcessPoolExecutor raises OSError."""
+
+    def test_fallback_result_correct_and_message_printed(self):
+        from e import _e_to_str
+        buf = io.StringIO()
+        # digits=2000 -> N large enough for n_workers > 1
+        with unittest.mock.patch(
+            "e.concurrent.futures.ProcessPoolExecutor",
+            side_effect=OSError("semaphore unavailable"),
+        ), redirect_stdout(buf):
+            e_val = calculate_e(2000)
+        self.assertEqual(_e_to_str(e_val, 20)[:22], E_REF[:22])
+        self.assertIn("Parallel mode unavailable", buf.getvalue())
+
+
+# ---------------------------------------------------------------------------
 # TestGetTargetDigits
 # ---------------------------------------------------------------------------
 
@@ -602,6 +623,38 @@ class TestSaveEEstimateAndProgress(unittest.TestCase):
                 save_e_to_file(e_val, d, path)
             self.assertTrue(os.path.exists(path))
             os.unlink(path)
+
+
+class TestSaveEToFilePhaseAFallback(unittest.TestCase):
+    """save_e_to_file serial fallback when ProcessPoolExecutor raises OSError."""
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        for f in os.listdir(self._tmp):
+            os.unlink(os.path.join(self._tmp, f))
+        os.rmdir(self._tmp)
+
+    def test_fallback_writes_file_and_prints_message(self):
+        import mpmath
+        from e import save_e_to_file
+        mpmath.mp.dps = 25
+        e_val = +mpmath.e
+        path = os.path.join(self._tmp, "e_fallback.txt")
+        buf = io.StringIO()
+        with unittest.mock.patch(
+            "e.concurrent.futures.ProcessPoolExecutor",
+            side_effect=OSError("semaphore unavailable"),
+        ), redirect_stdout(buf):
+            save_e_to_file(e_val, 20, path)
+        with open(path) as f:
+            content = f.read()
+        self.assertIn("2.71828182845904523536", content)
+        self.assertIn("Parallel mode unavailable", buf.getvalue())
 
 
 class TestGetTargetDigitsInteractive(unittest.TestCase):

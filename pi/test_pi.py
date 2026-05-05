@@ -604,6 +604,26 @@ class TestCalculatePiParallel(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# _calculate_pi_gmpy2 fallback message — requires gmpy2
+# ---------------------------------------------------------------------------
+
+@unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
+class TestCalculatePiGmpy2PhaseAFallback(unittest.TestCase):
+    """_calculate_pi_gmpy2 serial fallback when ProcessPoolExecutor raises OSError."""
+
+    def test_fallback_result_correct_and_message_printed(self):
+        buf = io.StringIO()
+        # digits=2000 -> N=152 terms -> n_workers=2, triggering the parallel path
+        with unittest.mock.patch(
+            "pi.concurrent.futures.ProcessPoolExecutor",
+            side_effect=OSError("semaphore unavailable"),
+        ), redirect_stdout(buf):
+            pi_val = calculate_pi_high_precision(2000)
+        self.assertEqual(_pi_to_str(pi_val, 20)[:22], PI_REF[:22])
+        self.assertIn("Parallel mode unavailable", buf.getvalue())
+
+
+# ---------------------------------------------------------------------------
 # get_target_digits — non-interactive paths
 # ---------------------------------------------------------------------------
 
@@ -778,6 +798,37 @@ class TestSavePiEstimateAndProgress(unittest.TestCase):
                 save_pi_to_file(pi_val, d, path)
             self.assertTrue(os.path.exists(path))
             os.unlink(path)
+
+
+class TestSavePiToFilePhaseAFallback(unittest.TestCase):
+    """save_pi_to_file serial fallback when ProcessPoolExecutor raises OSError."""
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        for f in os.listdir(self._tmp):
+            os.unlink(os.path.join(self._tmp, f))
+        os.rmdir(self._tmp)
+
+    def test_fallback_writes_file_and_prints_message(self):
+        import mpmath
+        mpmath.mp.dps = 25
+        pi_val = +mpmath.pi
+        path = os.path.join(self._tmp, "pi_fallback.txt")
+        buf = io.StringIO()
+        with unittest.mock.patch(
+            "pi.concurrent.futures.ProcessPoolExecutor",
+            side_effect=OSError("semaphore unavailable"),
+        ), redirect_stdout(buf):
+            save_pi_to_file(pi_val, 20, path)
+        with open(path) as f:
+            content = f.read()
+        self.assertIn("3.14159265358979323846", content)
+        self.assertIn("Parallel mode unavailable", buf.getvalue())
 
 
 class TestMain(unittest.TestCase):
