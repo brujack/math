@@ -604,6 +604,26 @@ class TestCalculatePiParallel(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# _calculate_pi_gmpy2 fallback message — requires gmpy2
+# ---------------------------------------------------------------------------
+
+@unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
+class TestCalculatePiGmpy2PhaseAFallback(unittest.TestCase):
+    """_calculate_pi_gmpy2 serial fallback when ProcessPoolExecutor raises OSError."""
+
+    def test_fallback_result_correct_and_message_printed(self):
+        buf = io.StringIO()
+        # digits=2000 -> N=152 terms -> n_workers=2, triggering the parallel path
+        with unittest.mock.patch(
+            "pi.concurrent.futures.ProcessPoolExecutor",
+            side_effect=OSError("semaphore unavailable"),
+        ), redirect_stdout(buf):
+            pi_val = calculate_pi_high_precision(2000)
+        self.assertEqual(_pi_to_str(pi_val, 20)[:22], PI_REF[:22])
+        self.assertIn("Parallel mode unavailable", buf.getvalue())
+
+
+# ---------------------------------------------------------------------------
 # get_target_digits — non-interactive paths
 # ---------------------------------------------------------------------------
 
