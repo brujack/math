@@ -149,18 +149,19 @@ python3 -m pytest test_factorial.py -v   # if pytest is installed
 
 gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 
-#### Test coverage (47 tests)
+#### Test coverage (49 tests)
 
-| Class                    | Tests | Notes                                                                        |
-| ------------------------ | ----- | ---------------------------------------------------------------------------- |
-| `TestSieve`              | 5     | n<2 empty, n=2, small primes, no composites, count to 100                    |
-| `TestComputeSwingChunk`  | 8     | empty, all-exceed-m, boundary, per-prime contributions, mixed chunk          |
-| `TestTreeCombineInt`     | 5     | empty, single, two, four, odd-length                                         |
-| `TestComputeSwing`       | 8     | swing(0..6), empty primes, identity check, return type                       |
-| `TestCalculateFactorial` | 9     | 0!..20! vs `FACTORIAL_REF`, negative raises, gmpy2 type (skipped without it) |
-| `TestParseArgs`          | 3     | no args, positional, --help exits                                            |
-| `TestGetTargetN`         | 5     | from args, zero, negative raises, interactive valid, retry on bad input      |
-| `TestOutputFile`         | 4     | file created, filename correct, content digits, idempotent overwrite         |
+| Class                      | Tests | Notes                                                                        |
+| -------------------------- | ----- | ---------------------------------------------------------------------------- |
+| `TestSieve`                | 5     | n<2 empty, n=2, small primes, no composites, count to 100                    |
+| `TestComputeSwingChunk`    | 8     | empty, all-exceed-m, boundary, per-prime contributions, mixed chunk          |
+| `TestTreeCombineInt`       | 5     | empty, single, two, four, odd-length                                         |
+| `TestComputeSwingFallback` | 1     | OSError triggers serial fallback, result correct, message printed            |
+| `TestComputeSwing`         | 8     | swing(0..6), empty primes, identity check, return type                       |
+| `TestCalculateFactorial`   | 9     | 0!..20! vs `FACTORIAL_REF`, negative raises, gmpy2 type (skipped without it) |
+| `TestParseArgs`            | 3     | no args, positional, --help exits                                            |
+| `TestGetTargetN`           | 5     | from args, zero, negative raises, interactive valid, retry on bad input      |
+| `TestOutputFile`           | 4     | file created, filename correct, content digits, idempotent overwrite         |
 
 #### Adding new tests
 

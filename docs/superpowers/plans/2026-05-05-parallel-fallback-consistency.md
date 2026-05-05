@@ -1,5 +1,7 @@
 # Parallel Fallback Consistency Implementation Plan
 
+> **Status: DONE** — merged in PR #43 (2026-05-05)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Standardize the parallel→serial fallback message across all five Python fallback sites and add a Backend/threads line to `factorial-rs` to match the other Rust crates.

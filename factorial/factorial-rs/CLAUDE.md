@@ -92,20 +92,20 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-### Test coverage (97.58% line coverage, 54 tests)
+### Test coverage (97%+ line coverage, 55 tests)
 
-| Area                  | Tests | Notes                                                                        |
-| --------------------- | ----- | ---------------------------------------------------------------------------- |
-| `sieve`               | 6     | empty (n<2), n=2, small known primes, no composites, π(100)=25, π(1000)=168  |
-| `compute_swing_chunk` | 6     | empty primes, prime exceeds m, m=2, p2/p3/p5 contributions for m=6           |
-| `compute_swing`       | 7     | swing(0..4,6), empty primes, factorial identity check (swing(6)×3!²=6!)      |
-| `factorial_rec`       | 4     | base cases 0 and 1, 2!, 5!                                                   |
-| `calculate_factorial` | 8     | 0!..5!, 10!, 20!                                                             |
-| `fmt_int`             | 5     | zero, sub-thousand, thousands, millions, large                               |
-| `read_line_from`      | 3     | trims newline, empty input, trims whitespace                                 |
-| `prompt_n_with`       | 4     | valid input, zero, retry on non-numeric, retry on negative                   |
-| `run` (unit)          | 5     | invalid arg exits 1, valid arg creates file, no arg prompts, 0!, idempotent  |
-| `run` (integration)   | 6     | invalid arg, 0!, 5!, no-arg prompt, retry on bad input, idempotent overwrite |
+| Area                  | Tests | Notes                                                                       |
+| --------------------- | ----- | --------------------------------------------------------------------------- |
+| `sieve`               | 6     | empty (n<2), n=2, small known primes, no composites, π(100)=25, π(1000)=168 |
+| `compute_swing_chunk` | 6     | empty primes, prime exceeds m, m=2, p2/p3/p5 contributions for m=6          |
+| `compute_swing`       | 7     | swing(0..4,6), empty primes, factorial identity check (swing(6)×3!²=6!)     |
+| `factorial_rec`       | 4     | base cases 0 and 1, 2!, 5!                                                  |
+| `calculate_factorial` | 8     | 0!..5!, 10!, 20!                                                            |
+| `fmt_int`             | 5     | zero, sub-thousand, thousands, millions, large                              |
+| `read_line_from`      | 3     | trims newline, empty input, trims whitespace                                |
+| `prompt_n_with`       | 4     | valid input, zero, retry on non-numeric, retry on negative                  |
+| `run` (unit)          | 5     | invalid arg exits 1, valid arg creates file, no arg prompts, 0!, idempotent |
+| `run` (integration)   | 7     | invalid arg, 0!, 5!, no-arg prompt, retry on bad input, idempotent, backend |
 
 Uncovered lines: 3 macro expansion artifacts in `prompt_n_with` loop and `run` error branch.
 
