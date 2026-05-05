@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 set -e
 
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "${REPO_ROOT}" ]]; then
+    REPO_ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)" \
+        || { printf "pre-commit: could not determine repo root\n" >&2; exit 1; }
+fi
+
 # Run lint for each sub-project that has staged changes
 for dir in pi pi/pi-rs prime/prime-rs fib fib/fib-rs sq sq/sq-rs twin-primes/twin-primes-rs e e/e-rs factorial factorial/factorial-rs; do
     if git diff --cached --name-only | grep -q "^${dir}/"; then
         printf "lint: %s\n" "${dir}"
-        make -C "${dir}" lint
+        make -C "${REPO_ROOT}/${dir}" lint
     fi
 done
 
