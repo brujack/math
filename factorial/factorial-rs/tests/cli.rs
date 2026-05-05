@@ -9,11 +9,7 @@ fn factorial_bin() -> std::path::PathBuf {
 #[test]
 fn cli_invalid_arg_exits_one() {
     let dir = tempdir().unwrap();
-    let output = Command::new(factorial_bin())
-        .arg("abc")
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
+    let output = Command::new(factorial_bin()).arg("abc").current_dir(dir.path()).output().unwrap();
     assert_ne!(output.status.code().unwrap(), 0);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("not a valid"), "stderr: {stderr}");
@@ -22,11 +18,7 @@ fn cli_invalid_arg_exits_one() {
 #[test]
 fn cli_arg_zero_creates_file() {
     let dir = tempdir().unwrap();
-    let output = Command::new(factorial_bin())
-        .arg("0")
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
+    let output = Command::new(factorial_bin()).arg("0").current_dir(dir.path()).output().unwrap();
     assert_eq!(output.status.code().unwrap(), 0);
     let file = dir.path().join("factorial_0.txt");
     assert!(file.exists(), "factorial_0.txt not created");
@@ -37,11 +29,7 @@ fn cli_arg_zero_creates_file() {
 #[test]
 fn cli_arg_five_creates_file_with_correct_value() {
     let dir = tempdir().unwrap();
-    let output = Command::new(factorial_bin())
-        .arg("5")
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
+    let output = Command::new(factorial_bin()).arg("5").current_dir(dir.path()).output().unwrap();
     assert_eq!(output.status.code().unwrap(), 0);
     let file = dir.path().join("factorial_5.txt");
     assert!(file.exists(), "factorial_5.txt not created");
@@ -78,12 +66,7 @@ fn cli_no_arg_retries_on_bad_input() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child
-        .stdin
-        .as_mut()
-        .unwrap()
-        .write_all(b"bad\n4\n")
-        .unwrap();
+    child.stdin.as_mut().unwrap().write_all(b"bad\n4\n").unwrap();
     let output = child.wait_with_output().unwrap();
     assert_eq!(output.status.code().unwrap(), 0);
     let file = dir.path().join("factorial_4.txt");
@@ -96,14 +79,23 @@ fn cli_no_arg_retries_on_bad_input() {
 fn cli_idempotent_overwrite() {
     let dir = tempdir().unwrap();
     for _ in 0..2 {
-        let output = Command::new(factorial_bin())
-            .arg("2")
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
+        let output =
+            Command::new(factorial_bin()).arg("2").current_dir(dir.path()).output().unwrap();
         assert_eq!(output.status.code().unwrap(), 0);
     }
     let file = dir.path().join("factorial_2.txt");
     let content = std::fs::read_to_string(&file).unwrap();
     assert_eq!(content.trim(), "2");
+}
+
+#[test]
+fn cli_backend_line_shows_thread_count() {
+    let dir = tempdir().unwrap();
+    let output = Command::new(factorial_bin()).arg("5").current_dir(dir.path()).output().unwrap();
+    assert_eq!(output.status.code().unwrap(), 0);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("rayon (") && stderr.contains("threads)"),
+        "expected Backend line with thread count in stderr, got: {stderr}",
+    );
 }

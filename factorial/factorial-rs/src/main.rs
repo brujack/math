@@ -23,10 +23,7 @@ fn sieve(n: u64) -> Vec<u32> {
         }
         p += 1;
     }
-    (2..=n)
-        .filter(|&i| !is_composite[i])
-        .map(|i| i as u32)
-        .collect()
+    (2..=n).filter(|&i| !is_composite[i]).map(|i| i as u32).collect()
 }
 
 fn compute_swing_chunk(m: u64, primes: &[u32]) -> Integer {
@@ -54,11 +51,7 @@ fn compute_swing_chunk(m: u64, primes: &[u32]) -> Integer {
 fn compute_swing(m: u64, primes: &[u32]) -> Integer {
     use rayon::prelude::*;
 
-    let relevant: Vec<u32> = primes
-        .iter()
-        .copied()
-        .take_while(|&p| p as u64 <= m)
-        .collect();
+    let relevant: Vec<u32> = primes.iter().copied().take_while(|&p| p as u64 <= m).collect();
     if relevant.is_empty() {
         return Integer::from(1u64);
     }
@@ -66,17 +59,14 @@ fn compute_swing(m: u64, primes: &[u32]) -> Integer {
     let num_threads = rayon::current_num_threads().max(1);
     let chunk_size = relevant.len().div_ceil(num_threads).max(1);
 
-    relevant
-        .par_chunks(chunk_size)
-        .map(|chunk| compute_swing_chunk(m, chunk))
-        .reduce(
-            || Integer::from(1u64),
-            |a, b| {
-                let mut r = a;
-                r *= b;
-                r
-            },
-        )
+    relevant.par_chunks(chunk_size).map(|chunk| compute_swing_chunk(m, chunk)).reduce(
+        || Integer::from(1u64),
+        |a, b| {
+            let mut r = a;
+            r *= b;
+            r
+        },
+    )
 }
 
 fn factorial_rec(n: u64, primes: &[u32]) -> Integer {
@@ -127,11 +117,9 @@ fn prompt_n_with<R: BufRead, W: Write, E: Write>(
         let line = read_line_from(reader)?;
         match line.parse::<u64>() {
             Ok(n) => return Ok(n),
-            Err(_) => writeln!(
-                err,
-                "Invalid input '{}'. Please enter a non-negative integer.",
-                line
-            )?,
+            Err(_) => {
+                writeln!(err, "Invalid input '{}'. Please enter a non-negative integer.", line)?
+            }
         }
     }
 }
@@ -158,6 +146,11 @@ fn run<R: BufRead, W: Write, E: Write>(
         None => prompt_n_with(reader, out, err)?,
     };
 
+    writeln!(
+        err,
+        "Backend: prime swing / rug+GMP / rayon ({} threads)",
+        rayon::current_num_threads()
+    )?;
     writeln!(err, "Computing {}! ...", fmt_int(n))?;
     let start = std::time::Instant::now();
     let result = calculate_factorial(n);
@@ -168,12 +161,7 @@ fn run<R: BufRead, W: Write, E: Write>(
     let digit_count = digits_str.len();
     let path = dir.join(format!("factorial_{}.txt", n));
 
-    writeln!(
-        err,
-        "Writing {} digits to {} ...",
-        fmt_int(digit_count as u64),
-        path.display()
-    )?;
+    writeln!(err, "Writing {} digits to {} ...", fmt_int(digit_count as u64), path.display())?;
     let write_start = std::time::Instant::now();
     std::fs::write(&path, &digits_str)?;
     let write_elapsed = write_start.elapsed();
@@ -430,10 +418,7 @@ mod tests {
 
     #[test]
     fn test_calculate_factorial_20() {
-        assert_eq!(
-            calculate_factorial(20),
-            Integer::from(2432902008176640000u64)
-        );
+        assert_eq!(calculate_factorial(20), Integer::from(2432902008176640000u64));
     }
 
     // --- read_line_from ---
