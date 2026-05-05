@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+printf "git %s\n" "$*" >> "${MOCK_CALLS_FILE:-/tmp/mock_calls}"
+if [[ "${MOCK_GIT_EXIT:-0}" -ne 0 ]]; then
+    exit "${MOCK_GIT_EXIT}"
+fi
+if [[ "$*" == *"--show-toplevel"* ]]; then
+    printf '%s\n' "${MOCK_GIT_SHOW_TOPLEVEL:-}"
+elif [[ "$*" == *"merge-base"* ]]; then
+    printf '%s\n' "${MOCK_GIT_MERGE_BASE:-abc123}"
+elif [[ "$*" == *"rev-list"* ]]; then
+    printf '%s\n' "${MOCK_GIT_REV_LIST:-abc123}"
+elif [[ "$*" == *"diff"* ]]; then
+    printf '%s\n' "${MOCK_GIT_DIFF_NAMES:-}"
+fi
