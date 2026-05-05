@@ -12,6 +12,7 @@
 [![e-rs](https://github.com/brujack/math/actions/workflows/e-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/e-rs.yml)
 [![factorial-py](https://github.com/brujack/math/actions/workflows/factorial-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/factorial-py.yml)
 [![factorial-rs](https://github.com/brujack/math/actions/workflows/factorial-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/factorial-rs.yml)
+[![scripts](https://github.com/brujack/math/actions/workflows/scripts.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/scripts.yml)
 
 High-performance mathematical computation tools.
 
