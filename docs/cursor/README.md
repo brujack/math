@@ -27,7 +27,7 @@ This file mirrors the active plan/spec history for Cursor sessions.
 | 2026-04-24 | [factorial](../superpowers/plans/2026-04-24-factorial.md)                                         | [spec](../superpowers/specs/2026-04-24-factorial-design.md)                                              | Done    |
 | 2026-04-29 | [rust-offline-dependency-robustness](plans/2026-04-29-rust-offline-dependency-robustness.md)      | [rust-offline-dependency-robustness](specs/2026-04-29-rust-offline-dependency-robustness-design.md)      | Done    |
 | 2026-05-05 | [parallel-fallback-consistency](../superpowers/plans/2026-05-05-parallel-fallback-consistency.md) | [parallel-fallback-consistency](../superpowers/specs/2026-05-05-parallel-fallback-consistency-design.md) | Done    |
-| 2026-05-05 | —                                                                                                 | [hook-worktree-hardening](../superpowers/specs/2026-05-05-hook-worktree-hardening-design.md)             | Pending |
+| 2026-05-05 | [hook-worktree-hardening](../superpowers/plans/2026-05-05-hook-worktree-hardening.md)             | [hook-worktree-hardening](../superpowers/specs/2026-05-05-hook-worktree-hardening-design.md)             | Pending |
 
 ---
 
