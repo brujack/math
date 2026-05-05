@@ -329,6 +329,27 @@ class TestCalculateEParallel(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# TestCalculateEGmpy2PhaseAFallback
+# ---------------------------------------------------------------------------
+
+@unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
+class TestCalculateEGmpy2PhaseAFallback(unittest.TestCase):
+    """_calculate_e_gmpy2 serial fallback when ProcessPoolExecutor raises OSError."""
+
+    def test_fallback_result_correct_and_message_printed(self):
+        from e import _e_to_str
+        buf = io.StringIO()
+        # digits=2000 -> N large enough for n_workers > 1
+        with unittest.mock.patch(
+            "e.concurrent.futures.ProcessPoolExecutor",
+            side_effect=OSError("semaphore unavailable"),
+        ), redirect_stdout(buf):
+            e_val = calculate_e(2000)
+        self.assertEqual(_e_to_str(e_val, 20)[:22], E_REF[:22])
+        self.assertIn("Parallel mode unavailable", buf.getvalue())
+
+
+# ---------------------------------------------------------------------------
 # TestGetTargetDigits
 # ---------------------------------------------------------------------------
 

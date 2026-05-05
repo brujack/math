@@ -189,8 +189,7 @@ def _calculate_e_gmpy2(digits):
             print("\r  Combination complete.   ")
         except (PermissionError, OSError) as err:
             print(
-                "\n  Parallel unavailable "
-                f"({err}); running in serial mode. "
+                f"\nParallel mode unavailable ({err}); falling back to serial.\n"
                 "Install project requirements and ensure OS multiprocessing "
                 "semaphore support is available to re-enable parallel mode."
             )
