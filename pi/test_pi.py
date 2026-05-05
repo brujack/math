@@ -800,6 +800,37 @@ class TestSavePiEstimateAndProgress(unittest.TestCase):
             os.unlink(path)
 
 
+class TestSavePiToFilePhaseAFallback(unittest.TestCase):
+    """save_pi_to_file serial fallback when ProcessPoolExecutor raises OSError."""
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        for f in os.listdir(self._tmp):
+            os.unlink(os.path.join(self._tmp, f))
+        os.rmdir(self._tmp)
+
+    def test_fallback_writes_file_and_prints_message(self):
+        import mpmath
+        mpmath.mp.dps = 25
+        pi_val = +mpmath.pi
+        path = os.path.join(self._tmp, "pi_fallback.txt")
+        buf = io.StringIO()
+        with unittest.mock.patch(
+            "pi.concurrent.futures.ProcessPoolExecutor",
+            side_effect=OSError("semaphore unavailable"),
+        ), redirect_stdout(buf):
+            save_pi_to_file(pi_val, 20, path)
+        with open(path) as f:
+            content = f.read()
+        self.assertIn("3.14159265358979323846", content)
+        self.assertIn("Parallel mode unavailable", buf.getvalue())
+
+
 class TestMain(unittest.TestCase):
     """Cover main() — small/large display branches and error handlers."""
 
