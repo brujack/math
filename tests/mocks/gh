@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+printf "gh %s\n" "$*" >> "${MOCK_CALLS_FILE:-/tmp/mock_calls}"
+
+if [[ "${MOCK_GH_EXIT:-0}" -ne 0 ]]; then
+    exit "${MOCK_GH_EXIT}"
+fi
+
+if [[ "$*" == *"pr checks"* && "$*" == *"--json"* ]]; then
+    _counter_file="${MOCK_GH_COUNTER_FILE:-/tmp/gh_counter}"
+    _count=$(cat "${_counter_file}" 2>/dev/null || printf "0")
+    _count=$((_count + 1))
+    printf "%d\n" "${_count}" > "${_counter_file}"
+    _var="MOCK_GH_PR_CHECKS_${_count}"
+    _fallback="MOCK_GH_PR_CHECKS"
+    printf '%s\n' "${!_var:-${!_fallback:-[]}}"
+else
+    printf '%s\n' "${MOCK_GH_OUTPUT:-}"
+fi
