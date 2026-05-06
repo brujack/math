@@ -247,7 +247,7 @@ Twenty workflow files. Project workflows run on PRs to `master` only — the pre
 | factorial.py           | `.github/workflows/factorial-py.yml`           | test                                                                         |
 | factorial-rs           | `.github/workflows/factorial-rs.yml`           | test → build + artifact                                                      |
 | release-factorial-rs   | `.github/workflows/release-factorial-rs.yml`   | release (manual dispatch)                                                    |
-| auto-merge             | `.github/workflows/auto-merge.yml`             | secret-scan → snyk-scan (advisory) → auto-merge (secret-scan is a hard gate) |
+| auto-merge             | `.github/workflows/auto-merge.yml`             | secret-scan → ci-gate (polls required checks, merges on pass) → snyk-scan (advisory, not gated) |
 | scripts                | `.github/workflows/scripts.yml`                | test (bats --recursive tests/)                                               |
 
 **Pre-commit hook** — `scripts/pre-commit` is committed to the repo and installed as a symlink via `make install-hooks`. It runs `make lint` on staged sub-projects and `ggshield secret scan pre-commit` (skipped if not installed). CI gitleaks is a backstop — install and activate ggshield locally so secrets are caught before they leave the machine.
@@ -259,10 +259,12 @@ Twenty workflow files. Project workflows run on PRs to `master` only — the pre
 **Shell script testing** — BATS (`bats --recursive tests/`) is the standard for all shell script tests in this repo. Run with `make test-hooks`. Requires system-installed bats-core: `brew install bats-core` (macOS) or `sudo apt-get install -y bats` (Linux).
 
 - `tests/helpers/common.bash` — shared REPO_ROOT export and `load_mocks()` (prepends `tests/mocks/` to PATH)
-- `tests/mocks/` — PATH-injected mock executables: `make` (logs calls, exits `$MOCK_MAKE_EXIT`), `git` (dispatches by subcommand, outputs from per-subcommand env vars), `ggshield` (logs calls, exits `$MOCK_GGSHIELD_EXIT`)
-- `tests/scripts/` — BATS test files; one per script tested (`rust_check.bats`, `pre_commit.bats`, `pre_push.bats`)
+- `tests/mocks/` — PATH-injected mock executables: `make` (logs calls, exits `$MOCK_MAKE_EXIT`), `git` (dispatches by subcommand, outputs from per-subcommand env vars), `ggshield` (logs calls, exits `$MOCK_GGSHIELD_EXIT`), `gh` (sequential JSON responses via `MOCK_GH_PR_CHECKS_N`, exits `$MOCK_GH_EXIT`)
+- `tests/scripts/` — BATS test files; one per script tested (`rust_check.bats`, `pre_commit.bats`, `pre_push.bats`, `ci_gate.bats`, `makefile.bats`)
 
-**Auto-merge gate:** The `auto-merge` workflow gates on `needs: [secret-scan]`, so a secret scan failure blocks the merge. GitHub branch protection required checks (which would enforce project test jobs) require GitHub Team and are not available on this free account. Project test workflows are therefore advisory — a PR can technically auto-merge with failing tests. Rely on reviewing CI status in the PR before it merges.
+**Auto-merge gate:** `scripts/ci-gate.sh <PR>` is called by the `auto-merge` job before merging. It polls `gh pr checks` until all checks are terminal, then verifies no check outside the advisory list (`snyk-scan`) and self-checks (`secret-scan`, `auto-merge`) has failed. Docs-only PRs trigger no project workflows and merge immediately. The gate is tested via `tests/scripts/ci_gate.bats` using the `tests/mocks/gh` mock (runs fully offline).
+
+**Paths-filtered workflows** — each project workflow fires only when files in its directory change. The root `Makefile` is covered by `scripts.yml`. Release workflows and `auto-merge.yml` trigger unconditionally. When a new project is added, create its workflow with a `paths:` block — the gate automatically requires it for relevant PRs.
 
 **snyk-scan** runs `snyk code test` (SAST) against the Python and Rust source. It is advisory — not in `needs` for `auto-merge`. Requires `SNYK_TOKEN` in repository secrets.
 
