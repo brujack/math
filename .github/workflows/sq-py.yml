@@ -4,6 +4,11 @@ on:
   pull_request:
     branches:
       - master
+    paths:
+      - "sq/*.py"
+      - "sq/install_deps.sh"
+      - "sq/Makefile"
+      - ".github/workflows/sq-py.yml"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
