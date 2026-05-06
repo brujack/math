@@ -61,3 +61,15 @@ setup() {
     run bash -c "${REPO_ROOT}/scripts/ci-gate.sh 42 2>&1"
     [ "$status" -eq 1 ]
 }
+
+@test "self-check (auto-merge) in-progress does not block polling → exit 0" {
+    export MOCK_GH_PR_CHECKS_1='[{"name":"Test pi-rs","state":"success"},{"name":"auto-merge","state":"in_progress"}]'
+    run "${REPO_ROOT}/scripts/ci-gate.sh" 42
+    [ "$status" -eq 0 ]
+}
+
+@test "required check in skipped state → exit 0" {
+    export MOCK_GH_PR_CHECKS_1='[{"name":"Test pi-rs","state":"skipped"}]'
+    run "${REPO_ROOT}/scripts/ci-gate.sh" 42
+    [ "$status" -eq 0 ]
+}
