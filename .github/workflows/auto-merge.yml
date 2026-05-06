@@ -55,14 +55,16 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      checks: read
     steps:
       - uses: actions/checkout@v5
 
-      - name: Auto-merge passing PRs
+      - name: Gate and merge
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PR=$(gh pr list --head "${{ github.head_ref || github.ref_name }}" --json number --jq '.[0].number' 2>/dev/null || echo "")
+          PR=$(gh pr list --head "${{ github.head_ref || github.ref_name }}" \
+            --json number --jq '.[0].number' 2>/dev/null || echo "")
           if [[ -n "${PR}" ]]; then
-            gh pr merge "${PR}" --squash
+            ./scripts/ci-gate.sh "${PR}" && gh pr merge "${PR}" --squash
           fi

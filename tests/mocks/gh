@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+printf "gh %s\n" "$*" >> "${MOCK_CALLS_FILE:-/tmp/mock_calls}"
+
+if [[ "${MOCK_GH_EXIT:-0}" -ne 0 ]]; then
+    exit "${MOCK_GH_EXIT}"
+fi
+
+if [[ "$*" == *"check-runs"* ]]; then
+    _counter_file="${MOCK_GH_COUNTER_FILE:-/tmp/gh_counter}"
+    _count=$(cat "${_counter_file}" 2>/dev/null || printf "0")
+    _count=$((_count + 1))
+    printf "%d\n" "${_count}" > "${_counter_file}"
+    _var="MOCK_GH_CHECK_RUNS_${_count}"
+    _fallback="MOCK_GH_CHECK_RUNS"
+    printf '%s\n' "${!_var:-${!_fallback:-}}"
+elif [[ "$*" == *"pulls"* ]]; then
+    printf '%s\n' "${MOCK_GH_PR_SHA:-abc123def456}"
+else
+    printf '%s\n' "${MOCK_GH_OUTPUT:-}"
+fi

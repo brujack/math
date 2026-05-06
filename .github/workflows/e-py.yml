@@ -4,6 +4,11 @@ on:
   pull_request:
     branches:
       - master
+    paths:
+      - "e/*.py"
+      - "e/install_deps.sh"
+      - "e/Makefile"
+      - ".github/workflows/e-py.yml"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

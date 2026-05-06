@@ -14,16 +14,17 @@ Master status index for all specs and implementation plans in this directory.
 
 ## All Plans
 
-| Date       | Plan                                                                               | Spec                                                             | Status |
-| ---------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ------ |
-| 2026-03-30 | [fibonacci](plans/2026-03-30-fibonacci.md)                                         | [spec](specs/2026-03-30-fibonacci-design.md)                     | Done   |
-| 2026-04-10 | [perfect-squares](plans/2026-04-10-perfect-squares.md)                             | [spec](specs/2026-04-10-perfect-squares-design.md)               | Done   |
-| 2026-04-11 | [twin-primes](plans/2026-04-11-twin-primes.md)                                     | [spec](specs/2026-04-11-twin-primes-design.md)                   | Done   |
-| 2026-04-21 | [github-releases](plans/2026-04-21-github-releases.md)                             | [spec](specs/2026-04-21-github-releases-design.md)               | Done   |
-| 2026-04-23 | [euler-number](plans/2026-04-23-euler-number.md)                                   | [spec](specs/2026-04-23-euler-number-design.md)                  | Done   |
-| 2026-04-24 | [factorial](plans/2026-04-24-factorial.md)                                         | [spec](specs/2026-04-24-factorial-design.md)                     | Done   |
-| 2026-05-05 | [parallel-fallback-consistency](plans/2026-05-05-parallel-fallback-consistency.md) | [spec](specs/2026-05-05-parallel-fallback-consistency-design.md) | Done   |
-| 2026-05-05 | [hook-worktree-hardening](plans/2026-05-05-hook-worktree-hardening.md)             | [spec](specs/2026-05-05-hook-worktree-hardening-design.md)       | Done   |
+| Date       | Plan                                                                               | Spec                                                             | Status      |
+| ---------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ----------- |
+| 2026-03-30 | [fibonacci](plans/2026-03-30-fibonacci.md)                                         | [spec](specs/2026-03-30-fibonacci-design.md)                     | Done        |
+| 2026-04-10 | [perfect-squares](plans/2026-04-10-perfect-squares.md)                             | [spec](specs/2026-04-10-perfect-squares-design.md)               | Done        |
+| 2026-04-11 | [twin-primes](plans/2026-04-11-twin-primes.md)                                     | [spec](specs/2026-04-11-twin-primes-design.md)                   | Done        |
+| 2026-04-21 | [github-releases](plans/2026-04-21-github-releases.md)                             | [spec](specs/2026-04-21-github-releases-design.md)               | Done        |
+| 2026-04-23 | [euler-number](plans/2026-04-23-euler-number.md)                                   | [spec](specs/2026-04-23-euler-number-design.md)                  | Done        |
+| 2026-04-24 | [factorial](plans/2026-04-24-factorial.md)                                         | [spec](specs/2026-04-24-factorial-design.md)                     | Done        |
+| 2026-05-05 | [parallel-fallback-consistency](plans/2026-05-05-parallel-fallback-consistency.md) | [spec](specs/2026-05-05-parallel-fallback-consistency-design.md) | Done        |
+| 2026-05-05 | [hook-worktree-hardening](plans/2026-05-05-hook-worktree-hardening.md)             | [spec](specs/2026-05-05-hook-worktree-hardening-design.md)       | Done        |
+| 2026-05-06 | [auto-merge-gate-integrity](plans/2026-05-06-auto-merge-gate-integrity.md)         | [spec](specs/2026-05-06-auto-merge-gate-integrity-design.md)     | In Progress |
 
 ---
 
