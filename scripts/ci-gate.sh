@@ -17,12 +17,21 @@ ci_gate() {
     excluded_json=$(printf '"%s",' "${ADVISORY_CHECKS[@]}" "${SELF_CHECKS[@]}")
     excluded_json="[${excluded_json%,}]"
 
-    local checks non_terminal timed_out=1
+    # GITHUB_REPOSITORY is set automatically in Actions; fall back to gh for local use
+    local repo="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner --jq '.nameWithOwner')}"
+
+    # Get HEAD SHA for this PR (REST API, no workflowRun access needed)
+    local sha
+    sha=$(gh api "repos/${repo}/pulls/${pr}" --jq '.head.sha') || return 1
+
+    local check_runs non_terminal timed_out=1
 
     for (( poll=0; poll<max_polls; poll++ )); do
-        checks=$(gh pr checks "${pr}" --json name,state) || return 1
-        non_terminal=$(printf '%s' "${checks}" | jq -r --argjson excl "${excluded_json}" \
-            '.[] | select([.name] | inside($excl) | not) | select(.state == "queued" or .state == "in_progress" or .state == "pending" or .state == "waiting" or .state == "requested") | .name')
+        # REST check-runs API: status=in_progress/queued/completed, conclusion=success/failure/skipped/...
+        check_runs=$(gh api --paginate "repos/${repo}/commits/${sha}/check-runs" \
+            --jq '.check_runs[] | {name: .name, status: .status, conclusion: (.conclusion // "")}') || return 1
+        non_terminal=$(printf '%s' "${check_runs}" | jq -r --argjson excl "${excluded_json}" \
+            'select([.name] | inside($excl) | not) | select(.status != "completed") | .name')
         if [[ -z "${non_terminal}" ]]; then
             timed_out=0
             break
@@ -36,8 +45,8 @@ ci_gate() {
     fi
 
     local required
-    required=$(printf '%s' "${checks}" | jq -r --argjson excl "${excluded_json}" \
-        '.[] | select([.name] | inside($excl) | not) | .name')
+    required=$(printf '%s' "${check_runs}" | jq -r --argjson excl "${excluded_json}" \
+        'select([.name] | inside($excl) | not) | .name')
 
     if [[ -z "${required}" ]]; then
         printf "No required checks triggered. Proceeding.\n"
@@ -45,8 +54,8 @@ ci_gate() {
     fi
 
     local failures
-    failures=$(printf '%s' "${checks}" | jq -r --argjson excl "${excluded_json}" \
-        '.[] | select([.name] | inside($excl) | not) | select(.state != "success" and .state != "skipped") | .name')
+    failures=$(printf '%s' "${check_runs}" | jq -r --argjson excl "${excluded_json}" \
+        'select([.name] | inside($excl) | not) | select(.conclusion != "success" and .conclusion != "skipped") | .name')
 
     if [[ -n "${failures}" ]]; then
         printf "Required checks failed:\n%s\n" "${failures}" >&2
