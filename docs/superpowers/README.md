@@ -24,7 +24,7 @@ Master status index for all specs and implementation plans in this directory.
 | 2026-04-24 | [factorial](plans/2026-04-24-factorial.md)                                         | [spec](specs/2026-04-24-factorial-design.md)                     | Done        |
 | 2026-05-05 | [parallel-fallback-consistency](plans/2026-05-05-parallel-fallback-consistency.md) | [spec](specs/2026-05-05-parallel-fallback-consistency-design.md) | Done        |
 | 2026-05-05 | [hook-worktree-hardening](plans/2026-05-05-hook-worktree-hardening.md)             | [spec](specs/2026-05-05-hook-worktree-hardening-design.md)       | Done        |
-| 2026-05-06 | —                                                                                  | [spec](specs/2026-05-06-auto-merge-gate-integrity-design.md)     | In Progress |
+| 2026-05-06 | [auto-merge-gate-integrity](plans/2026-05-06-auto-merge-gate-integrity.md)         | [spec](specs/2026-05-06-auto-merge-gate-integrity-design.md)     | In Progress |
 
 ---
 
