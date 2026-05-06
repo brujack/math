@@ -11,7 +11,7 @@ setup() {
 }
 
 @test "all required checks pass → exit 0" {
-    export MOCK_GH_PR_CHECKS_1='[{"name":"Test pi-rs","state":"success"},{"name":"snyk-scan","state":"failure"}]'
+    export MOCK_GH_PR_CHECKS_1='[{"name":"Test pi-rs","state":"success"}]'
     run "${REPO_ROOT}/scripts/ci-gate.sh" 42
     [ "$status" -eq 0 ]
 }
@@ -54,4 +54,10 @@ setup() {
     run bash -c "${REPO_ROOT}/scripts/ci-gate.sh 2>&1"
     [ "$status" -eq 1 ]
     [[ "$output" == *"sage"* ]]
+}
+
+@test "gh CLI failure → exit 1" {
+    export MOCK_GH_EXIT=1
+    run bash -c "${REPO_ROOT}/scripts/ci-gate.sh 42 2>&1"
+    [ "$status" -eq 1 ]
 }

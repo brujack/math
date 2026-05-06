@@ -15,7 +15,7 @@ ci_gate() {
     local checks non_terminal timed_out=1
 
     for (( poll=0; poll<max_polls; poll++ )); do
-        checks=$(gh pr checks "${pr}" --json name,state)
+        checks=$(gh pr checks "${pr}" --json name,state) || return 1
         non_terminal=$(printf '%s' "${checks}" | jq -r \
             '.[] | select(.state == "queued" or .state == "in_progress" or .state == "pending" or .state == "waiting" or .state == "requested") | .name')
         if [[ -z "${non_terminal}" ]]; then
