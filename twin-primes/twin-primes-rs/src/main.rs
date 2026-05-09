@@ -516,4 +516,21 @@ mod tests {
         let content = std::fs::read_to_string(&file).unwrap();
         assert_eq!(content.lines().count(), 8);
     }
+
+    #[test]
+    fn run_returns_err_on_stdout_failure() {
+        let dir = tempdir().unwrap();
+        let mut err = Vec::new();
+        let result = run(1, &mut FailWriter, &mut err, dir.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn run_returns_err_on_stderr_failure() {
+        // digits=0 is out of range; run() writes error to stderr
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let result = run(0, &mut out, &mut FailWriter, dir.path());
+        assert!(result.is_err());
+    }
 }
