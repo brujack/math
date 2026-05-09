@@ -227,7 +227,7 @@ python3 -m pytest test_pi.py -v   # if pytest is installed
 
 gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 
-#### Test coverage (93% line coverage, 79 tests)
+#### Test coverage (97% line coverage, 84 tests)
 
 | Class                                | Tests | Notes                                                                   |
 | ------------------------------------ | ----- | ----------------------------------------------------------------------- |
@@ -255,6 +255,10 @@ gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 | `TestSavePiToFilePhaseAFallback`     | 1     | OSError triggers serial fallback in `save_pi_to_file`                   |
 | `TestMain`                           | 5     | Display/save branches, ValueError, KeyboardInterrupt, generic exception |
 | `TestEntryPointGuard`                | 1     | Module runs via subprocess (`if __name__ == "__main__"` block)          |
+| `TestProcessPoolPermissionError`     | 1     | PermissionError triggers serial fallback in `save_pi_to_file`           |
+| `TestProcessPoolSemaphoreExhaustion` | 2     | OSError and errno.ENOSPC trigger serial fallback in `save_pi_to_file`   |
+| `TestMissingGmpy2`                   | 1     | mpmath path used when `_HAS_GMPY2` is False                             |
+| `TestFileWritePermissionError`       | 1     | `main()` exits 1 on `PermissionError` when creating output file         |
 
 #### Adding new tests
 
@@ -281,25 +285,27 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-#### Test coverage (92.41% line coverage, 57 tests: 53 unit + 4 integration)
+#### Test coverage (91.87% line coverage, 60 tests: 55 unit + 5 integration)
 
-| Area                                    | Tests | Notes                                                                                               |
-| --------------------------------------- | ----- | --------------------------------------------------------------------------------------------------- |
-| `fmt_int`                               | 5     | zero, sub-thousand, thousands, millions, billions                                                   |
-| `bs_leaf`                               | 4     | base case, index-1 formulas, even/odd sign, counter delta                                           |
-| `bs_merge`                              | 1     | result matches manual merge of two leaves                                                           |
-| `bs` split consistency                  | 3     | n=4, n=8, and n=600 (exercises rayon::join branch above 512 threshold)                              |
-| `pi_to_string`                          | 7     | format, exact length, no exponent, known digits, single decimal place, exponent strip, no-dot path  |
-| `compute_pi`                            | 2     | end-to-end accuracy at 10 and 50 decimal places                                                     |
-| `format_series_progress`                | 4     | zero/partial/complete/zero-total                                                                    |
-| `format_write_progress`                 | 4     | normal speed, zero-elapsed, zero-total, complete                                                    |
-| `read_line_from`                        | 3     | trims newline, empty input, trims whitespace                                                        |
-| `confirm_large_digits_with`             | 4     | "y", "yes", "n", other input                                                                        |
-| `prompt_digits_with`                    | 6     | valid, minimum=1, zero retry, non-numeric retry, large decline + accept                             |
-| `write_pi_file`                         | 4     | contents, filename format, idempotency, missing-dir error                                           |
-| `save_pi`                               | 1     | writes file + announces                                                                             |
-| `run`                                   | 5     | digits=0 → exit 1, display=y, save=n, no-arg prompts, digits>10000 auto-saves                       |
-| `tests/cli.rs` (subprocess integration) | 4     | arg=0 exit 1, arg=10 + "y" displays, arg=10 + "n" saves, no-arg + "10\\ny\\n" prompts then displays |
+| Area                                    | Tests | Notes                                                                                                 |
+| --------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------- |
+| `fmt_int`                               | 5     | zero, sub-thousand, thousands, millions, billions                                                     |
+| `bs_leaf`                               | 4     | base case, index-1 formulas, even/odd sign, counter delta                                             |
+| `bs_merge`                              | 1     | result matches manual merge of two leaves                                                             |
+| `bs` split consistency                  | 3     | n=4, n=8, and n=600 (exercises rayon::join branch above 512 threshold)                                |
+| `pi_to_string`                          | 7     | format, exact length, no exponent, known digits, single decimal place, exponent strip, no-dot path    |
+| `compute_pi`                            | 2     | end-to-end accuracy at 10 and 50 decimal places                                                       |
+| `format_series_progress`                | 4     | zero/partial/complete/zero-total                                                                      |
+| `format_write_progress`                 | 4     | normal speed, zero-elapsed, zero-total, complete                                                      |
+| `read_line_from`                        | 3     | trims newline, empty input, trims whitespace                                                          |
+| `confirm_large_digits_with`             | 4     | "y", "yes", "n", other input                                                                          |
+| `prompt_digits_with`                    | 6     | valid, minimum=1, zero retry, non-numeric retry, large decline + accept                               |
+| `write_pi_file`                         | 4     | contents, filename format, idempotency, missing-dir error                                             |
+| `save_pi`                               | 1     | writes file + announces                                                                               |
+| `run`                                   | 5     | digits=0 → exit 1, display=y, save=n, no-arg prompts, digits>10000 auto-saves                         |
+| `run_returns_err_on_stdout_failure`     | 1     | `run()` propagates Err when stdout write fails (FailWriter injection)                                 |
+| `run_returns_err_on_stderr_failure`     | 1     | `run()` propagates Err when stderr write fails (FailWriter injection)                                 |
+| `tests/cli.rs` (subprocess integration) | 5     | arg=0 exit 1, arg=10 + "y" displays, arg=10 + "n" saves, no-arg + "10\\ny\\n" prompts, unwritable dir |
 
 Uncovered lines (~17/224):
 

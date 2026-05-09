@@ -69,53 +69,60 @@ def main() -> None:
     print("Fibonacci Number Generator (Python)")
     print("=" * 40)
 
-    if x >= 4:
+    try:
+        if x >= 4:
+            print(
+                f"Warning: X={x} means Fibonacci numbers with up to {max_digits:,} digits "
+                f"— this may take a long time"
+            )
+            print("         and produce a very large output file.")
+            answer = input("Continue? (y/n): ").strip().lower()
+            if answer not in ("y", "yes"):
+                return
+
         print(
-            f"Warning: X={x} means Fibonacci numbers with up to {max_digits:,} digits "
-            f"— this may take a long time"
+            f"Generating all Fibonacci numbers with up to 10^{x} = {max_digits:,} digits"
         )
-        print("         and produce a very large output file.")
-        answer = input("Continue? (y/n): ").strip().lower()
-        if answer not in ("y", "yes"):
-            return
 
-    print(
-        f"Generating all Fibonacci numbers with up to 10^{x} = {max_digits:,} digits"
-    )
-
-    if x <= 2:
-        # Small result: buffer in memory, let user choose to display or save.
-        buf = io.StringIO()
-        count = 0
-        for fib in generate_fibonacci(max_digits):
-            buf.write(str(fib))
-            buf.write("\n")
-            count += 1
-
-        print(f"\nFound {count:,} Fibonacci numbers with up to 10^{x} digits")
-        answer = input(
-            f"Display all {count:,} Fibonacci numbers? (y/n): "
-        ).strip().lower()
-        if answer in ("y", "yes"):
-            print(buf.getvalue(), end="")
-        else:
-            filename = f"fib_1e{x}.txt"
-            with open(filename, "w") as f:
-                f.write(buf.getvalue())
-            print(f"Saved to {filename}")
-    else:
-        # Large result: stream directly to file.
-        filename = f"fib_1e{x}.txt"
-        print(f"\nSaving to {filename}...")
-        count = 0
-        with open(filename, "w", buffering=8 * 1024 * 1024) as f:
+        if x <= 2:
+            # Small result: buffer in memory, let user choose to display or save.
+            buf = io.StringIO()
+            count = 0
             for fib in generate_fibonacci(max_digits):
-                f.write(str(fib))
-                f.write("\n")
+                buf.write(str(fib))
+                buf.write("\n")
                 count += 1
 
-        print(f"Found {count:,} Fibonacci numbers with up to 10^{x} digits")
-        print(f"Saved to {filename}")
+            print(f"\nFound {count:,} Fibonacci numbers with up to 10^{x} digits")
+            answer = input(
+                f"Display all {count:,} Fibonacci numbers? (y/n): "
+            ).strip().lower()
+            if answer in ("y", "yes"):
+                print(buf.getvalue(), end="")
+            else:
+                filename = f"fib_1e{x}.txt"
+                with open(filename, "w") as f:
+                    f.write(buf.getvalue())
+                print(f"Saved to {filename}")
+        else:
+            # Large result: stream directly to file.
+            filename = f"fib_1e{x}.txt"
+            print(f"\nSaving to {filename}...")
+            count = 0
+            with open(filename, "w", buffering=8 * 1024 * 1024) as f:
+                for fib in generate_fibonacci(max_digits):
+                    f.write(str(fib))
+                    f.write("\n")
+                    count += 1
+
+            print(f"Found {count:,} Fibonacci numbers with up to 10^{x} digits")
+            print(f"Saved to {filename}")
+    except KeyboardInterrupt:
+        print("\nGeneration interrupted.")
+        sys.exit(1)
+    except PermissionError as err:
+        print(f"Error: {err}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

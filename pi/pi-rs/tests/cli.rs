@@ -79,3 +79,34 @@ fn cli_no_arg_prompts_then_saves() {
         stdout
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn cli_unwritable_output_dir() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempdir().unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pi"))
+        .arg("10")
+        .current_dir(dir.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(b"n\n");
+    }
+
+    let output = child.wait_with_output().unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert_ne!(
+        output.status.code().unwrap_or(0),
+        0,
+        "expected non-zero exit for unwritable directory, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

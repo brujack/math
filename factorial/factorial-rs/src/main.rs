@@ -552,4 +552,35 @@ mod tests {
         let content = std::fs::read_to_string(dir.path().join("factorial_3.txt")).unwrap();
         assert_eq!(content.trim(), "6");
     }
+
+    struct FailWriter;
+
+    impl std::io::Write for FailWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("injected write failure"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn run_returns_err_on_stdout_failure() {
+        // n_arg=None triggers prompt_n_with, which writes to out → FailWriter → Err
+        let dir = tempdir().unwrap();
+        let mut err = Vec::new();
+        let mut reader = std::io::Cursor::new("5\n");
+        let result = run(None, &mut reader, &mut FailWriter, &mut err, dir.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn run_returns_err_on_stderr_failure() {
+        // "abc" is invalid; run() writes parse error to stderr
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut reader = std::io::Cursor::new("");
+        let result = run(Some("abc"), &mut reader, &mut out, &mut FailWriter, dir.path());
+        assert!(result.is_err());
+    }
 }

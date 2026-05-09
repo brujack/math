@@ -1,5 +1,7 @@
 # Auto-Merge Gate Integrity Implementation Plan
 
+> **Status: DONE** — Merged in PR #45 (2026-05-06)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ensure PRs only auto-merge when all test workflows relevant to the PR's changed files

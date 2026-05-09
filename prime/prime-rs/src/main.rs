@@ -861,4 +861,25 @@ mod tests {
         assert!(stdout.contains("Enter N"), "stdout: {}", stdout);
         assert!(stdout.contains("2\n"), "stdout: {}", stdout);
     }
+
+    #[test]
+    fn run_returns_err_on_stdout_failure() {
+        let dir = tempdir().unwrap();
+        let mut err = Vec::new();
+        let mut reader = io::Cursor::new(b"n\n");
+        let cli = Cli { digits: Some(1) };
+        let result = run(cli, &mut reader, &mut FailWriter, &mut err, dir.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn run_returns_err_on_stderr_failure() {
+        // digits=0 is invalid; run() writes error to stderr
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut reader = io::Cursor::new(b"");
+        let cli = Cli { digits: Some(0) };
+        let result = run(cli, &mut reader, &mut out, &mut FailWriter, dir.path());
+        assert!(result.is_err());
+    }
 }

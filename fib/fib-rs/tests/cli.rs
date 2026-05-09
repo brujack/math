@@ -79,3 +79,29 @@ fn cli_no_arg_prompts_then_succeeds() {
     assert!(output.status.success());
     assert!(dir.path().join("fib_1e1.txt").exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn cli_unwritable_output_dir() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempdir().unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+
+    let output = Command::new(bin())
+        .arg("3")
+        .current_dir(dir.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .unwrap();
+
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert_ne!(
+        output.status.code().unwrap_or(0),
+        0,
+        "expected non-zero exit for unwritable directory, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

@@ -522,4 +522,25 @@ mod tests {
         let second = std::fs::read(dir.path().join("sq_1e1.txt")).unwrap();
         assert_eq!(first, second);
     }
+
+    #[test]
+    fn run_returns_err_on_stdout_failure() {
+        let dir = tempdir().unwrap();
+        let mut err = Vec::new();
+        let mut reader = std::io::Cursor::new("n\n");
+        let cli = Cli { exponent: Some(1) };
+        let result = run(cli, &mut reader, &mut FailWriter, &mut err, dir.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn run_returns_err_on_stderr_failure() {
+        // exponent=2 is invalid for sq (only 1 is valid)
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut reader = std::io::Cursor::new("");
+        let cli = Cli { exponent: Some(2) };
+        let result = run(cli, &mut reader, &mut out, &mut FailWriter, dir.path());
+        assert!(result.is_err());
+    }
 }
