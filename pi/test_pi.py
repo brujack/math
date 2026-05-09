@@ -831,6 +831,127 @@ class TestSavePiToFilePhaseAFallback(unittest.TestCase):
         self.assertIn("Parallel mode unavailable", buf.getvalue())
 
 
+class TestProcessPoolPermissionError(unittest.TestCase):
+    """save_pi_to_file serial fallback when ProcessPoolExecutor raises PermissionError."""
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        for f in os.listdir(self._tmp):
+            os.unlink(os.path.join(self._tmp, f))
+        os.rmdir(self._tmp)
+
+    def test_falls_back_to_serial(self):
+        import mpmath
+        mpmath.mp.dps = 25
+        pi_val = +mpmath.pi
+        path = os.path.join(self._tmp, "pi_perm_error.txt")
+        buf = io.StringIO()
+        with unittest.mock.patch(
+            "pi.concurrent.futures.ProcessPoolExecutor",
+            side_effect=PermissionError("permission denied"),
+        ), redirect_stdout(buf):
+            save_pi_to_file(pi_val, 20, path)
+        with open(path) as f:
+            content = f.read()
+        self.assertIn("3.14159265358979323846", content)
+        self.assertIn("Parallel mode unavailable", buf.getvalue())
+
+
+class TestProcessPoolSemaphoreExhaustion(unittest.TestCase):
+    """save_pi_to_file serial fallback: generic OSError + macOS semaphore errno."""
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        for f in os.listdir(self._tmp):
+            os.unlink(os.path.join(self._tmp, f))
+        os.rmdir(self._tmp)
+
+    def _pi_val(self):
+        import mpmath
+        mpmath.mp.dps = 25
+        return +mpmath.pi
+
+    def test_oserror_falls_back_to_serial(self):
+        path = os.path.join(self._tmp, "pi_sem1.txt")
+        buf = io.StringIO()
+        with unittest.mock.patch(
+            "pi.concurrent.futures.ProcessPoolExecutor",
+            side_effect=OSError("semaphore limit"),
+        ), redirect_stdout(buf):
+            save_pi_to_file(self._pi_val(), 20, path)
+        self.assertIn("Parallel mode unavailable", buf.getvalue())
+        with open(path) as f:
+            self.assertIn("3.14159265358979323846", f.read())
+
+    def test_semaphore_exhaustion_enospc_falls_back_to_serial(self):
+        import errno
+        path = os.path.join(self._tmp, "pi_sem2.txt")
+        buf = io.StringIO()
+        with unittest.mock.patch(
+            "pi.concurrent.futures.ProcessPoolExecutor",
+            side_effect=OSError(errno.ENOSPC, "No space left on device"),
+        ), redirect_stdout(buf):
+            save_pi_to_file(self._pi_val(), 20, path)
+        self.assertIn("Parallel mode unavailable", buf.getvalue())
+        with open(path) as f:
+            self.assertIn("3.14159265358979323846", f.read())
+
+
+class TestMissingGmpy2(unittest.TestCase):
+    """calculate_pi_high_precision uses mpmath path when gmpy2 is absent."""
+
+    def test_missing_gmpy2_uses_mpmath_fallback(self):
+        import pi as pi_module
+        buf = io.StringIO()
+        with unittest.mock.patch.object(pi_module, "_HAS_GMPY2", False), \
+             unittest.mock.patch.object(pi_module, "_gmpy2", None), \
+             redirect_stdout(buf):
+            pi_val = calculate_pi_high_precision(20)
+        result = _pi_to_str(pi_val, 20)
+        self.assertTrue(result.startswith("3.141592653589793"), f"got: {result!r}")
+        self.assertNotIn("Error", buf.getvalue())
+
+
+class TestFileWritePermissionError(unittest.TestCase):
+    """main() handles PermissionError when the output file cannot be created."""
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        for f in os.listdir(self._tmp):
+            os.unlink(os.path.join(self._tmp, f))
+        os.rmdir(self._tmp)
+
+    def test_exits_nonzero_on_permission_error(self):
+        from pi import main
+        buf = io.StringIO()
+        with unittest.mock.patch("sys.argv", ["pi.py", "10"]), \
+             unittest.mock.patch("builtins.input", return_value="n"), \
+             unittest.mock.patch(
+                 "pi.os.open",
+                 side_effect=PermissionError("[Errno 13] Permission denied: 'pi_10_digits.txt'"),
+             ), \
+             redirect_stdout(buf):
+            with self.assertRaises(SystemExit) as cm:
+                main()
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("Error", buf.getvalue())
+
+
 class TestMain(unittest.TestCase):
     """Cover main() — small/large display branches and error handlers."""
 
