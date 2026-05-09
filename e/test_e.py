@@ -657,6 +657,130 @@ class TestSaveEToFilePhaseAFallback(unittest.TestCase):
         self.assertIn("Parallel mode unavailable", buf.getvalue())
 
 
+class TestProcessPoolPermissionError(unittest.TestCase):
+    """save_e_to_file serial fallback when ProcessPoolExecutor raises PermissionError."""
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        for f in os.listdir(self._tmp):
+            os.unlink(os.path.join(self._tmp, f))
+        os.rmdir(self._tmp)
+
+    def test_falls_back_to_serial(self):
+        import mpmath
+        from e import save_e_to_file
+        mpmath.mp.dps = 25
+        e_val = +mpmath.e
+        path = os.path.join(self._tmp, "e_perm_error.txt")
+        buf = io.StringIO()
+        with unittest.mock.patch(
+            "e.concurrent.futures.ProcessPoolExecutor",
+            side_effect=PermissionError("permission denied"),
+        ), redirect_stdout(buf):
+            save_e_to_file(e_val, 20, path)
+        with open(path) as f:
+            content = f.read()
+        self.assertIn("2.71828182845904523536", content)
+        self.assertIn("Parallel mode unavailable", buf.getvalue())
+
+
+class TestProcessPoolSemaphoreExhaustion(unittest.TestCase):
+    """save_e_to_file serial fallback: generic OSError + macOS semaphore errno."""
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        for f in os.listdir(self._tmp):
+            os.unlink(os.path.join(self._tmp, f))
+        os.rmdir(self._tmp)
+
+    def _e_val(self):
+        import mpmath
+        mpmath.mp.dps = 25
+        return +mpmath.e
+
+    def test_oserror_falls_back_to_serial(self):
+        from e import save_e_to_file
+        path = os.path.join(self._tmp, "e_sem1.txt")
+        buf = io.StringIO()
+        with unittest.mock.patch(
+            "e.concurrent.futures.ProcessPoolExecutor",
+            side_effect=OSError("semaphore limit"),
+        ), redirect_stdout(buf):
+            save_e_to_file(self._e_val(), 20, path)
+        self.assertIn("Parallel mode unavailable", buf.getvalue())
+        with open(path) as f:
+            self.assertIn("2.71828182845904523536", f.read())
+
+    def test_semaphore_exhaustion_enospc_falls_back_to_serial(self):
+        import errno
+        from e import save_e_to_file
+        path = os.path.join(self._tmp, "e_sem2.txt")
+        buf = io.StringIO()
+        with unittest.mock.patch(
+            "e.concurrent.futures.ProcessPoolExecutor",
+            side_effect=OSError(errno.ENOSPC, "No space left on device"),
+        ), redirect_stdout(buf):
+            save_e_to_file(self._e_val(), 20, path)
+        self.assertIn("Parallel mode unavailable", buf.getvalue())
+        with open(path) as f:
+            self.assertIn("2.71828182845904523536", f.read())
+
+
+class TestMissingGmpy2(unittest.TestCase):
+    """calculate_e uses mpmath path when gmpy2 is absent."""
+
+    def test_missing_gmpy2_uses_mpmath_fallback(self):
+        import e as e_module
+        buf = io.StringIO()
+        with unittest.mock.patch.object(e_module, "_HAS_GMPY2", False), \
+             unittest.mock.patch.object(e_module, "_gmpy2", None), \
+             redirect_stdout(buf):
+            e_val = calculate_e(20)
+        result = _e_to_str(e_val, 20)
+        self.assertTrue(result.startswith("2.718281828459045"), f"got: {result!r}")
+        self.assertNotIn("Error", buf.getvalue())
+
+
+class TestFileWritePermissionError(unittest.TestCase):
+    """main() handles PermissionError when the output file cannot be created."""
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        for f in os.listdir(self._tmp):
+            os.unlink(os.path.join(self._tmp, f))
+        os.rmdir(self._tmp)
+
+    def test_exits_nonzero_on_permission_error(self):
+        from e import main
+        buf = io.StringIO()
+        with unittest.mock.patch("sys.argv", ["e.py", "10"]), \
+             unittest.mock.patch("builtins.input", return_value="n"), \
+             unittest.mock.patch(
+                 "e.os.open",
+                 side_effect=PermissionError("[Errno 13] Permission denied: 'e_10_digits.txt'"),
+             ), \
+             redirect_stdout(buf):
+            with self.assertRaises(SystemExit) as cm:
+                main()
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("Error", buf.getvalue())
+
+
 class TestGetTargetDigitsInteractive(unittest.TestCase):
     """Cover the interactive prompt loop (lines 524-538)."""
 
