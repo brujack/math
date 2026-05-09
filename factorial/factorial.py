@@ -202,13 +202,20 @@ def get_target_n(args):
 def main():
     """Entry point: parse args, compute factorial, write to file."""
     args = parse_args()
-    n = get_target_n(args)
-    print(f"Computing {n:,}! ...")
-    start = time.time()
-    result = calculate_factorial(n)
-    elapsed = time.time() - start
-    print(f"Computed in {elapsed:.2f}s")
-    _write_factorial_file(result, n)
+    try:
+        n = get_target_n(args)
+        print(f"Computing {n:,}! ...")
+        start = time.time()
+        result = calculate_factorial(n)
+        elapsed = time.time() - start
+        print(f"Computed in {elapsed:.2f}s")
+        _write_factorial_file(result, n)
+    except KeyboardInterrupt:
+        print("\nComputation interrupted.")
+        sys.exit(1)
+    except PermissionError as err:
+        print(f"Error: {err}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
