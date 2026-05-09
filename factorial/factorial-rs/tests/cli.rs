@@ -99,3 +99,29 @@ fn cli_backend_line_shows_thread_count() {
         "expected Backend line with thread count in stderr, got: {stderr}",
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn cli_unwritable_output_dir() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempdir().unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+
+    let output = Command::new(factorial_bin())
+        .arg("5")
+        .current_dir(dir.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .unwrap();
+
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert_ne!(
+        output.status.code().unwrap_or(0),
+        0,
+        "expected non-zero exit for unwritable directory, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

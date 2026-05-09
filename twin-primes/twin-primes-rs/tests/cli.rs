@@ -88,3 +88,30 @@ fn cli_idempotent_overwrite() {
     let content = std::fs::read_to_string(&file).unwrap();
     assert_eq!(content, "3 | 5\n5 | 7\n");
 }
+
+#[cfg(unix)]
+#[test]
+fn cli_unwritable_output_dir() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Stdio;
+    let dir = tempdir().unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+
+    let output = Command::new(twin_primes_bin())
+        .arg("1")
+        .current_dir(dir.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .unwrap();
+
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert_ne!(
+        output.status.code().unwrap_or(0),
+        0,
+        "expected non-zero exit for unwritable directory, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
