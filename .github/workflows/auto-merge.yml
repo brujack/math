@@ -62,8 +62,9 @@ jobs:
       - name: Gate and merge
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_REF: ${{ github.head_ref || github.ref_name }}
         run: |
-          PR=$(gh pr list --head "${{ github.head_ref || github.ref_name }}" \
+          PR=$(gh pr list --head "${HEAD_REF}" \
             --json number --jq '.[0].number' 2>/dev/null || echo "")
           if [[ -n "${PR}" ]]; then
             ./scripts/ci-gate.sh "${PR}" && gh pr merge "${PR}" --squash
