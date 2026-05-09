@@ -203,6 +203,68 @@ class TestMain(unittest.TestCase):
         self.assertFalse(os.path.exists("fib_1e5.txt"))
 
 
+class TestFileWritePermissionError(unittest.TestCase):
+    """main() handles PermissionError when the output file cannot be written."""
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        for f in os.listdir(self._tmp):
+            os.unlink(os.path.join(self._tmp, f))
+        os.rmdir(self._tmp)
+
+    def test_exits_nonzero_on_permission_error(self):
+        old_argv = sys.argv
+        sys.argv = ["fib.py", "1"]
+        try:
+            buf = io.StringIO()
+            with patch("builtins.input", return_value="n"), \
+                 patch(
+                     "builtins.open",
+                     side_effect=PermissionError("[Errno 13] Permission denied: 'fib_1e1.txt'"),
+                 ), \
+                 redirect_stdout(buf):
+                with self.assertRaises(SystemExit) as cm:
+                    main()
+            self.assertEqual(cm.exception.code, 1)
+            self.assertIn("Error", buf.getvalue())
+        finally:
+            sys.argv = old_argv
+
+
+class TestKeyboardInterrupt(unittest.TestCase):
+    """main() handles KeyboardInterrupt during generation."""
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        for f in os.listdir(self._tmp):
+            os.unlink(os.path.join(self._tmp, f))
+        os.rmdir(self._tmp)
+
+    def test_exits_nonzero_on_keyboard_interrupt(self):
+        old_argv = sys.argv
+        sys.argv = ["fib.py", "1"]
+        try:
+            buf = io.StringIO()
+            with patch("fib.generate_fibonacci", side_effect=KeyboardInterrupt), \
+                 redirect_stdout(buf):
+                with self.assertRaises(SystemExit) as cm:
+                    main()
+            self.assertEqual(cm.exception.code, 1)
+            self.assertIn("interrupted", buf.getvalue())
+        finally:
+            sys.argv = old_argv
+
+
 class TestEntryPoint(unittest.TestCase):
     """Cover the `if __name__ == "__main__"` guard."""
 
