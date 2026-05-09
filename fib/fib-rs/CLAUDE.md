@@ -85,19 +85,21 @@ cd fib/fib-rs
 cargo test
 ```
 
-### Test coverage (97% line coverage, 43 tests)
+### Test coverage (97% line coverage, 47 tests)
 
-| Area                   | Tests                                                                                                                                                              |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `fmt_int`              | 4 — zero, sub-thousand, thousands, millions                                                                                                                        |
-| `generate_fibonacci`   | 9 — single-digit sequence, two-digit count, last value, first 10 values, Fibonacci property, all positive, max_digits=0 empty, write error propagates, idempotency |
-| `read_line_from`       | 4 — trims newline, trims whitespace, EOF on empty, only first line                                                                                                 |
-| `prompt_exponent_with` | 6 — accepts low/high boundary (1, 5), retries on 0/6/non-integer/negative                                                                                          |
-| `confirm_large_n_with` | 4 — "y", "yes", "n", blank treated as no                                                                                                                           |
-| `write_fib_file`       | 4 — creates file, overwrites, exponent in filename, error on bad dir                                                                                               |
-| `stream_fib_to_file`   | 2 — writes all values, error on bad dir                                                                                                                            |
-| `run`                  | 10 — arg=0/6 returns 1, X=1 save/display, X=2 yes alias, X=3 streams, X=4 warning aborts on "n"/blank, no-arg prompts, idempotency on save                         |
-| `tests/cli.rs`         | 4 subprocess tests — X=1 save (stdin "n"), X=6 exits 1, X=3 streams, no-arg prompts then succeeds                                                                  |
+| Area                                | Tests                                                                                                                                                              |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `fmt_int`                           | 4 — zero, sub-thousand, thousands, millions                                                                                                                        |
+| `generate_fibonacci`                | 9 — single-digit sequence, two-digit count, last value, first 10 values, Fibonacci property, all positive, max_digits=0 empty, write error propagates, idempotency |
+| `read_line_from`                    | 4 — trims newline, trims whitespace, EOF on empty, only first line                                                                                                 |
+| `prompt_exponent_with`              | 6 — accepts low/high boundary (1, 5), retries on 0/6/non-integer/negative                                                                                          |
+| `confirm_large_n_with`              | 4 — "y", "yes", "n", blank treated as no                                                                                                                           |
+| `write_fib_file`                    | 4 — creates file, overwrites, exponent in filename, error on bad dir                                                                                               |
+| `stream_fib_to_file`                | 2 — writes all values, error on bad dir                                                                                                                            |
+| `run`                               | 10 — arg=0/6 returns 1, X=1 save/display, X=2 yes alias, X=3 streams, X=4 warning aborts on "n"/blank, no-arg prompts, idempotency on save                         |
+| `run_returns_err_on_stdout_failure` | 1 — `run()` propagates Err when stdout write fails (FailWriter injection)                                                                                          |
+| `run_returns_err_on_stderr_failure` | 1 — `run()` propagates Err when stderr write fails (FailWriter injection)                                                                                          |
+| `tests/cli.rs`                      | 5 subprocess tests — X=1 save (stdin "n"), X=6 exits 1, X=3 streams, no-arg prompts then succeeds, unwritable dir                                                  |
 
 `main()` itself is a thin wrapper around `run`; the subprocess tests in `tests/cli.rs` exercise it end-to-end.
 

@@ -137,20 +137,22 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-### Test coverage (96.24% line coverage, 52 tests: 48 unit + 4 integration)
+### Test coverage (96.24% line coverage, 55 tests: 48 unit + 7 integration)
 
-| Area                                    | Tests | Notes                                                                                                                              |
-| --------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `fmt_int`                               | 5     | zero, sub-thousand, thousands, millions, large                                                                                     |
-| `small_sieve`                           | 6     | empty, single prime, known lists, π(100)=25, π(1000)=168                                                                           |
-| `sieve_segment`                         | 5     | known range, no even numbers, empty when lo > limit, lo == limit (prime)                                                           |
-| `format_phase2_progress`                | 4     | zero, partial, complete, zero-total                                                                                                |
-| `find_primes`                           | 9     | below-2, limit=2 exactly, up-to-10 exact output, π(100), π(1000), π(10^6)=78498, last prime, no even non-2, write error propagates |
-| `read_line_from`                        | 3     | trims newline, empty, trims whitespace                                                                                             |
-| `confirm_large_n_with`                  | 4     | "y", "yes", "n", other input                                                                                                       |
-| `prompt_n_with`                         | 6     | valid, minimum=1, maximum=18, zero retry, non-numeric retry, above-max retry                                                       |
-| `run`                                   | 6     | invalid N → exit 1, N=1 display y, N=1 save n, N=7 streams to file, N=11 decline, no-arg prompts                                   |
-| `tests/cli.rs` (subprocess integration) | 4     | arg=0 exit 1, arg=1 + "y" displays, arg=1 + "n" saves, no-arg + "1\\ny\\n" prompts then displays                                   |
+| Area                                    | Tests | Notes                                                                                                                                  |
+| --------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `fmt_int`                               | 5     | zero, sub-thousand, thousands, millions, large                                                                                         |
+| `small_sieve`                           | 6     | empty, single prime, known lists, π(100)=25, π(1000)=168                                                                               |
+| `sieve_segment`                         | 5     | known range, no even numbers, empty when lo > limit, lo == limit (prime)                                                               |
+| `format_phase2_progress`                | 4     | zero, partial, complete, zero-total                                                                                                    |
+| `find_primes`                           | 9     | below-2, limit=2 exactly, up-to-10 exact output, π(100), π(1000), π(10^6)=78498, last prime, no even non-2, write error propagates     |
+| `read_line_from`                        | 3     | trims newline, empty, trims whitespace                                                                                                 |
+| `confirm_large_n_with`                  | 4     | "y", "yes", "n", other input                                                                                                           |
+| `prompt_n_with`                         | 6     | valid, minimum=1, maximum=18, zero retry, non-numeric retry, above-max retry                                                           |
+| `run`                                   | 6     | invalid N → exit 1, N=1 display y, N=1 save n, N=7 streams to file, N=11 decline, no-arg prompts                                       |
+| `tests/cli.rs` (subprocess integration) | 5     | arg=0 exit 1, arg=1 + "y" displays, arg=1 + "n" saves, no-arg + "1\\ny\\n" prompts then displays, unwritable output dir exits non-zero |
+| `run_returns_err_on_stdout_failure`     | 1     | `run()` propagates `Err` when stdout write fails                                                                                       |
+| `run_returns_err_on_stderr_failure`     | 1     | `run()` propagates `Err` when stderr write fails for digits=0                                                                          |
 
 Uncovered lines (~7/186):
 
