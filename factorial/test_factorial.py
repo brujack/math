@@ -312,5 +312,98 @@ class TestOutputFile(unittest.TestCase):
                 os.chdir(original_dir)
 
 
+class TestProcessPoolPermissionError(unittest.TestCase):
+    """_compute_swing serial fallback when ProcessPoolExecutor raises PermissionError."""
+
+    def test_falls_back_to_serial(self):
+        with patch(
+            "factorial.concurrent.futures.ProcessPoolExecutor",
+            side_effect=PermissionError("permission denied"),
+        ), patch("builtins.print"):
+            result = calculate_factorial(10)
+        self.assertEqual(int(result), FACTORIAL_REF[10])
+
+
+class TestProcessPoolSemaphoreExhaustion(unittest.TestCase):
+    """_compute_swing serial fallback for semaphore exhaustion (both patterns)."""
+
+    def test_oserror_falls_back_to_serial(self):
+        with patch(
+            "factorial.concurrent.futures.ProcessPoolExecutor",
+            side_effect=OSError("semaphore limit"),
+        ), patch("builtins.print"):
+            result = calculate_factorial(10)
+        self.assertEqual(int(result), FACTORIAL_REF[10])
+
+    def test_semaphore_exhaustion_enospc_falls_back_to_serial(self):
+        import errno
+        with patch(
+            "factorial.concurrent.futures.ProcessPoolExecutor",
+            side_effect=OSError(errno.ENOSPC, "No space left on device"),
+        ), patch("builtins.print"):
+            result = calculate_factorial(10)
+        self.assertEqual(int(result), FACTORIAL_REF[10])
+
+
+class TestMissingGmpy2(unittest.TestCase):
+    """calculate_factorial uses plain int when gmpy2 is absent."""
+
+    def test_missing_gmpy2_uses_int_fallback(self):
+        import factorial as factorial_module
+        with unittest.mock.patch.object(factorial_module, "_HAS_GMPY2", False), \
+             unittest.mock.patch.object(factorial_module, "_gmpy2", None), \
+             unittest.mock.patch("builtins.print"):
+            result = calculate_factorial(5)
+        self.assertIsInstance(result, int)
+        self.assertEqual(result, FACTORIAL_REF[5])
+
+
+class TestFileWritePermissionError(unittest.TestCase):
+    """main() handles PermissionError when the output file cannot be written."""
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        for f in os.listdir(self._tmp):
+            os.unlink(os.path.join(self._tmp, f))
+        os.rmdir(self._tmp)
+
+    def test_exits_nonzero_on_permission_error(self):
+        from factorial import main
+        buf = io.StringIO()
+        with unittest.mock.patch("sys.argv", ["factorial.py", "5"]), \
+             unittest.mock.patch(
+                 "builtins.open",
+                 side_effect=PermissionError("[Errno 13] Permission denied: 'factorial_5.txt'"),
+             ), \
+             redirect_stdout(buf):
+            with self.assertRaises(SystemExit) as cm:
+                main()
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("Error", buf.getvalue())
+
+
+class TestKeyboardInterruptDuringCompute(unittest.TestCase):
+    """main() handles KeyboardInterrupt during calculation."""
+
+    def test_exits_nonzero_on_keyboard_interrupt(self):
+        from factorial import main
+        buf = io.StringIO()
+        with unittest.mock.patch("sys.argv", ["factorial.py", "5"]), \
+             unittest.mock.patch(
+                 "factorial.calculate_factorial",
+                 side_effect=KeyboardInterrupt,
+             ), \
+             redirect_stdout(buf):
+            with self.assertRaises(SystemExit) as cm:
+                main()
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("interrupted", buf.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

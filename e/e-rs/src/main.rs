@@ -1014,4 +1014,36 @@ mod tests {
         let saved = dir.path().join("e_10_digits.txt");
         assert!(saved.exists());
     }
+
+    struct FailWriter;
+
+    impl std::io::Write for FailWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("injected write failure"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn run_returns_err_on_stdout_failure() {
+        let dir = tempdir().unwrap();
+        let mut err = Vec::new();
+        let mut reader = std::io::Cursor::new("n\n");
+        let cli = Cli { digits: Some(10) };
+        let result = run(cli, &mut reader, &mut FailWriter, &mut err, dir.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn run_returns_err_on_stderr_failure() {
+        // digits=0 is invalid; run() writes error to stderr
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut reader = std::io::Cursor::new("");
+        let cli = Cli { digits: Some(0) };
+        let result = run(cli, &mut reader, &mut out, &mut FailWriter, dir.path());
+        assert!(result.is_err());
+    }
 }

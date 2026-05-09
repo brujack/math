@@ -53,18 +53,20 @@ Functions:
 
 Tests in `#[cfg(test)] mod tests`. Run with `make test`.
 
-### Test coverage (95.45% line coverage, 38 tests)
+### Test coverage (98.02% line coverage, 41 tests)
 
-| Area                | Tests | Notes                                                                                         |
-| ------------------- | ----- | --------------------------------------------------------------------------------------------- |
-| `fmt_int`           | 4     | zero, sub-thousand, thousands, millions                                                       |
-| `small_sieve`       | 6     | empty, n=2, n=10, n=30, π(100)=25, π(1000)=168                                                |
-| `sieve_segment`     | 5     | known range, lo>limit, single prime, all-odd, small known                                     |
-| `find_twin_primes`  | 9     | limit<5, limit=5, limit=6, N=1, N=2, N=3, N=4, line-count, FailWriter, idempotent             |
-| `run` (unit)        | 7     | invalid 0, invalid 16, valid N=1, stdout header+count, idempotent, boundary N=1, boundary N=2 |
-| `run` (integration) | 6     | invalid 0, invalid 16, N=1 file, N=2 file, stdout header, idempotent                          |
+| Area                                | Tests | Notes                                                                                         |
+| ----------------------------------- | ----- | --------------------------------------------------------------------------------------------- |
+| `fmt_int`                           | 4     | zero, sub-thousand, thousands, millions                                                       |
+| `small_sieve`                       | 6     | empty, n=2, n=10, n=30, π(100)=25, π(1000)=168                                                |
+| `sieve_segment`                     | 5     | known range, lo>limit, single prime, all-odd, small known                                     |
+| `find_twin_primes`                  | 9     | limit<5, limit=5, limit=6, N=1, N=2, N=3, N=4, line-count, FailWriter, idempotent             |
+| `run` (unit)                        | 7     | invalid 0, invalid 16, valid N=1, stdout header+count, idempotent, boundary N=1, boundary N=2 |
+| `run_returns_err_on_stdout_failure` | 1     | `run()` propagates Err when stdout write fails (FailWriter injection)                         |
+| `run_returns_err_on_stderr_failure` | 1     | `run()` propagates Err when stderr write fails (FailWriter injection)                         |
+| `run` (integration)                 | 7     | invalid 0, invalid 16, N=1 file, N=2 file, stdout header, idempotent, unwritable dir          |
 
-Uncovered lines: 5 — two multi-line `writeln!` continuation artifacts, and the `File::create` error branch (requires write-protected directory).
+Uncovered lines: 2 — two multi-line `writeln!` continuation artifacts.
 
 Known twin prime counts:
 

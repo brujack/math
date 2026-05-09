@@ -59,17 +59,19 @@ Every test must cover more than the happy path. Three categories are required fo
 - **Error path tests** — what happens on failure, dependency failure, partial failure
 - **State transition tests** — before/after assertions, no unintended side effects, idempotency
 
-### Test coverage (96% line coverage, 41 tests)
+### Test coverage (95.31% line coverage, 45 tests)
 
-| Area                   | Tests                                                                                                                                                                                    |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `fmt_int`              | 4 — zero, sub-thousand, thousands, millions                                                                                                                                              |
-| `generate_squares`     | 12 — empty (max_digits=0), 1-digit exact, 2-digit count/last/exclusion, perfect-square property, strictly increasing, 10-digit count/last/exclusion, write error propagates, idempotency |
-| `read_line_from`       | 4 — trims trailing newline, trims whitespace, EOF on empty, returns only first line                                                                                                      |
-| `prompt_exponent_with` | 5 — accepts 1, retries on 0/too-high/non-integer/negative                                                                                                                                |
-| `write_squares_file`   | 4 — creates file, overwrites, exponent in filename, error on bad dir                                                                                                                     |
-| `run`                  | 8 — arg=1 writes file, arg=0/2 returns 1, no-arg prompts then succeeds, "y"/"yes"/"n" branches, idempotency                                                                              |
-| `tests/cli.rs`         | 4 subprocess tests — arg=1 writes file (stdin "n"), arg=2 exits 1, no-arg prompts then succeeds, "y" displays buffer                                                                     |
+| Area                                | Tests                                                                                                                                                                                    |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fmt_int`                           | 4 — zero, sub-thousand, thousands, millions                                                                                                                                              |
+| `generate_squares`                  | 12 — empty (max_digits=0), 1-digit exact, 2-digit count/last/exclusion, perfect-square property, strictly increasing, 10-digit count/last/exclusion, write error propagates, idempotency |
+| `read_line_from`                    | 4 — trims trailing newline, trims whitespace, EOF on empty, returns only first line                                                                                                      |
+| `prompt_exponent_with`              | 5 — accepts 1, retries on 0/too-high/non-integer/negative                                                                                                                                |
+| `write_squares_file`                | 4 — creates file, overwrites, exponent in filename, error on bad dir                                                                                                                     |
+| `run`                               | 8 — arg=1 writes file, arg=0/2 returns 1, no-arg prompts then succeeds, "y"/"yes"/"n" branches, idempotency                                                                              |
+| `run_returns_err_on_stdout_failure` | 1 — `run()` propagates Err when stdout write fails (FailWriter injection)                                                                                                                |
+| `run_returns_err_on_stderr_failure` | 1 — `run()` propagates Err when stderr write fails (FailWriter injection)                                                                                                                |
+| `tests/cli.rs`                      | 5 subprocess tests — arg=1 writes file (stdin "n"), arg=2 exits 1, no-arg prompts then succeeds, "y" displays buffer, unwritable dir                                                     |
 
 `main()` itself is a thin wrapper around `run`; the subprocess tests in `tests/cli.rs` exercise it end-to-end.
 

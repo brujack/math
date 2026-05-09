@@ -65,23 +65,30 @@ def main() -> None:
         f"Generating all perfect squares with up to 10^{x} = {max_digits:,} digits"
     )
 
-    buf = io.StringIO()
-    count = 0
-    for sq, root in generate_squares(max_digits):
-        buf.write(f"{sq} | {root}\n")
-        count += 1
+    try:
+        buf = io.StringIO()
+        count = 0
+        for sq, root in generate_squares(max_digits):
+            buf.write(f"{sq} | {root}\n")
+            count += 1
 
-    filename = f"sq_1e{x}.txt"
-    with open(filename, "w") as f:
-        f.write(buf.getvalue())
+        filename = f"sq_1e{x}.txt"
+        with open(filename, "w") as f:
+            f.write(buf.getvalue())
 
-    print(f"\nFound {count:,} perfect squares with up to 10^{x} digits")
-    print(f"Saved to {filename}")
-    answer = input(
-        f"Also display all {count:,} perfect squares? (y/n): "
-    ).strip().lower()
-    if answer in ("y", "yes"):
-        print(buf.getvalue(), end="")
+        print(f"\nFound {count:,} perfect squares with up to 10^{x} digits")
+        print(f"Saved to {filename}")
+        answer = input(
+            f"Also display all {count:,} perfect squares? (y/n): "
+        ).strip().lower()
+        if answer in ("y", "yes"):
+            print(buf.getvalue(), end="")
+    except KeyboardInterrupt:
+        print("\nGeneration interrupted.")
+        sys.exit(1)
+    except PermissionError as err:
+        print(f"Error: {err}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

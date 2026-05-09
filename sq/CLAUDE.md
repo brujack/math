@@ -60,16 +60,18 @@ make coverage  # coverage run + report
 
 ### Test coverage
 
-98% line coverage (`sq.py`).
+98% line coverage (`sq.py`), 28 tests.
 
-| Class                        | Tests                                                                                                                     |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `TestGenerateSquares`        | 10 — boundary (empty, 1-digit, 2-digit, 10-digit), correctness (perfect square, increasing), count, last value, exclusion |
-| `TestParseArgs`              | 3 — no-arg, with-arg, invalid non-integer exits                                                                           |
-| `TestGetExponent`            | 4 — valid (1), zero exits, too-high exits, negative exits                                                                 |
-| `TestGetExponentInteractive` | 4 — interactive prompt: valid, retries on too-high/zero/non-integer                                                       |
-| `TestMain`                   | 3 — file-only branch ("n"), display branch ("y"), idempotency on second run                                               |
-| `TestEntryPoint`             | 1 — module runs via subprocess (exercises `if __name__ == "__main__"`)                                                    |
+| Class                          | Tests                                                                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `TestGenerateSquares`          | 10 — boundary (empty, 1-digit, 2-digit, 10-digit), correctness (perfect square, increasing), count, last value, exclusion |
+| `TestParseArgs`                | 3 — no-arg, with-arg, invalid non-integer exits                                                                           |
+| `TestGetExponent`              | 4 — valid (1), zero exits, too-high exits, negative exits                                                                 |
+| `TestGetExponentInteractive`   | 4 — interactive prompt: valid, retries on too-high/zero/non-integer                                                       |
+| `TestMain`                     | 3 — file-only branch ("n"), display branch ("y"), idempotency on second run                                               |
+| `TestEntryPoint`               | 1 — module runs via subprocess (exercises `if __name__ == "__main__"`)                                                    |
+| `TestFileWritePermissionError` | 1 — `main()` exits 1 on `PermissionError` when writing output file                                                        |
+| `TestKeyboardInterrupt`        | 1 — `main()` exits 1 on KeyboardInterrupt during generation                                                               |
 
 ## Keeping This File Up To Date
 

@@ -86,25 +86,27 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-### Test coverage (94.76% line coverage, 59 tests: 55 unit + 4 integration)
+### Test coverage (94.58% line coverage, 63 tests: 58 unit + 5 integration)
 
-| Area                                    | Tests | Notes                                                                                               |
-| --------------------------------------- | ----- | --------------------------------------------------------------------------------------------------- |
-| `fmt_int`                               | 5     | zero, sub-thousand, thousands, millions, billions                                                   |
-| `bs_leaf`                               | 4     | base case, index-1, index-2, counter delta                                                          |
-| `bs_merge`                              | 1     | result matches manual merge of two leaves                                                           |
-| `bs` split consistency                  | 3     | n=4, n=8, and n=600 (exercises rayon::join branch above 512 threshold)                              |
-| `e_to_string`                           | 7     | format, exact length, no exponent, known digits, single decimal place, exponent strip, no-dot path  |
-| `compute_e`                             | 4     | digits=1 (else branch), end-to-end accuracy at 10 / 50, long enough to fire compute progress thread |
-| `format_series_progress`                | 4     | zero/partial/complete/zero-total                                                                    |
-| `format_write_progress`                 | 4     | normal speed, zero-elapsed, zero-total, complete                                                    |
-| `read_line_from`                        | 3     | trims newline, empty input, trims whitespace                                                        |
-| `prompt_digits_with`                    | 6     | valid, minimum=1, zero retry, non-numeric retry, large decline + accept                             |
-| `confirm_large_digits_with`             | 4     | "y", "yes", "n", other input                                                                        |
-| `write_e_file`                          | 4     | contents, filename format, idempotency, missing-dir error                                           |
-| `save_e`                                | 1     | writes file + announces                                                                             |
-| `run`                                   | 5     | digits=0 → exit 1, display=y, save=n, no-arg prompts, digits>10000 auto-saves                       |
-| `tests/cli.rs` (subprocess integration) | 4     | arg=0 exit 1, arg=10 + "y" displays, arg=10 + "n" saves, no-arg + "10\\nn\\n" prompts then saves    |
+| Area                                    | Tests | Notes                                                                                                 |
+| --------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------- |
+| `fmt_int`                               | 5     | zero, sub-thousand, thousands, millions, billions                                                     |
+| `bs_leaf`                               | 4     | base case, index-1, index-2, counter delta                                                            |
+| `bs_merge`                              | 1     | result matches manual merge of two leaves                                                             |
+| `bs` split consistency                  | 3     | n=4, n=8, and n=600 (exercises rayon::join branch above 512 threshold)                                |
+| `e_to_string`                           | 7     | format, exact length, no exponent, known digits, single decimal place, exponent strip, no-dot path    |
+| `compute_e`                             | 4     | digits=1 (else branch), end-to-end accuracy at 10 / 50, long enough to fire compute progress thread   |
+| `format_series_progress`                | 4     | zero/partial/complete/zero-total                                                                      |
+| `format_write_progress`                 | 4     | normal speed, zero-elapsed, zero-total, complete                                                      |
+| `read_line_from`                        | 3     | trims newline, empty input, trims whitespace                                                          |
+| `prompt_digits_with`                    | 6     | valid, minimum=1, zero retry, non-numeric retry, large decline + accept                               |
+| `confirm_large_digits_with`             | 4     | "y", "yes", "n", other input                                                                          |
+| `write_e_file`                          | 4     | contents, filename format, idempotency, missing-dir error                                             |
+| `save_e`                                | 1     | writes file + announces                                                                               |
+| `run`                                   | 5     | digits=0 → exit 1, display=y, save=n, no-arg prompts, digits>10000 auto-saves                         |
+| `run_returns_err_on_stdout_failure`     | 1     | `run()` propagates Err when stdout write fails (FailWriter injection)                                 |
+| `run_returns_err_on_stderr_failure`     | 1     | `run()` propagates Err when stderr write fails (FailWriter injection)                                 |
+| `tests/cli.rs` (subprocess integration) | 5     | arg=0 exit 1, arg=10 + "y" displays, arg=10 + "n" saves, no-arg + "10\\nn\\n" prompts, unwritable dir |
 
 Uncovered lines (10/210):
 

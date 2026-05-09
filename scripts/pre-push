@@ -36,5 +36,9 @@ fi
 
 for dir in $(printf '%s\n' "${DIRS_TO_TEST[@]}" | sort -u); do
     printf "test: %s\n" "${dir}"
-    make -C "${REPO_ROOT}/${dir}" test
+    # Redirect stdin from /dev/null so spawned test subprocesses (e.g. Python
+    # multiprocessing resource_tracker) do not inherit the live git push pipe.
+    # Without this, the resource_tracker blocks on stdin reads, git waits for
+    # the hook, and both deadlock.
+    make -C "${REPO_ROOT}/${dir}" test < /dev/null
 done
