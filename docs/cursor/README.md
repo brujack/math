@@ -29,7 +29,8 @@ This file mirrors the active plan/spec history for Cursor sessions.
 | 2026-05-05 | [parallel-fallback-consistency](../superpowers/plans/2026-05-05-parallel-fallback-consistency.md) | [parallel-fallback-consistency](../superpowers/specs/2026-05-05-parallel-fallback-consistency-design.md) | Done    |
 | 2026-05-05 | [hook-worktree-hardening](../superpowers/plans/2026-05-05-hook-worktree-hardening.md)             | [hook-worktree-hardening](../superpowers/specs/2026-05-05-hook-worktree-hardening-design.md)             | Done    |
 | 2026-05-06 | [auto-merge-gate-integrity](../superpowers/plans/2026-05-06-auto-merge-gate-integrity.md)         | [auto-merge-gate-integrity](../superpowers/specs/2026-05-06-auto-merge-gate-integrity-design.md)         | Done    |
-| 2026-05-09 | [failure-mode-test-matrix](../superpowers/plans/2026-05-09-failure-mode-test-matrix.md)           | [failure-mode-test-matrix](../superpowers/specs/2026-05-09-failure-mode-test-matrix-design.md)           | Pending |
+| 2026-05-09 | [failure-mode-test-matrix](../superpowers/plans/2026-05-09-failure-mode-test-matrix.md)           | [failure-mode-test-matrix](../superpowers/specs/2026-05-09-failure-mode-test-matrix-design.md)           | Done    |
+| 2026-05-11 | —                                                                                                 | [perfect-numbers](../superpowers/specs/2026-05-11-perfect-numbers-design.md)                             | Pending |
 
 ---
 
@@ -40,7 +41,6 @@ Ideas approved for future specs, in no particular order:
 | Feature           | Notes                                                                |
 | ----------------- | -------------------------------------------------------------------- |
 | Collatz sequences | For each number up to 10^N find chain length; identify longest chain |
-| Perfect numbers   | Find all perfect numbers up to 10^N; connected to Mersenne primes    |
 
 ---
 
