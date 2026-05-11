@@ -160,3 +160,7 @@ def is_prime(n: int) -> bool:
             return False
         i += 2
     return True
+
+
+if __name__ == "__main__":
+    main()

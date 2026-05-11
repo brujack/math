@@ -246,7 +246,7 @@ Apply fix 1 (`#[cfg(not(tarpaulin_include))]` on `fn main()`) to every new Rust 
 
 ## CI
 
-Twenty workflow files. Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail.
+Twenty-three workflow files. Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail.
 
 | Workflow               | File                                           | Jobs                                                                                            |
 | ---------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------- |
