@@ -120,3 +120,90 @@ class TestGeneratePerfectNumbers(unittest.TestCase):
         result = list(generate_perfect_numbers(10 ** 20))
         ns = [n for _, n in result]
         self.assertEqual(ns, sorted(ns))
+
+
+class TestGetExponent(unittest.TestCase):
+    def _ns(self, exponent):
+        return argparse.Namespace(exponent=exponent)
+
+    def test_valid_minimum(self):
+        self.assertEqual(get_exponent(self._ns(1)), 1)
+
+    def test_valid_maximum(self):
+        self.assertEqual(get_exponent(self._ns(54)), 54)
+
+    def test_valid_mid(self):
+        self.assertEqual(get_exponent(self._ns(10)), 10)
+
+    def test_zero_exits(self):
+        with self.assertRaises(SystemExit):
+            get_exponent(self._ns(0))
+
+    def test_55_exits(self):
+        with self.assertRaises(SystemExit):
+            get_exponent(self._ns(55))
+
+    def test_negative_exits(self):
+        with self.assertRaises(SystemExit):
+            get_exponent(self._ns(-1))
+
+    def test_interactive_valid_first_try(self):
+        with unittest.mock.patch("builtins.input", return_value="8"):
+            self.assertEqual(get_exponent(self._ns(None)), 8)
+
+    def test_interactive_invalid_then_valid(self):
+        with unittest.mock.patch("builtins.input", side_effect=["0", "abc", "5"]), \
+             unittest.mock.patch("builtins.print"):
+            self.assertEqual(get_exponent(self._ns(None)), 5)
+
+
+class TestMain(unittest.TestCase):
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        for f in os.listdir(self._tmp):
+            os.unlink(os.path.join(self._tmp, f))
+        os.rmdir(self._tmp)
+
+    def test_n1_creates_file_with_6(self):
+        with unittest.mock.patch("sys.argv", ["perfect_numbers.py", "1"]), \
+             redirect_stdout(io.StringIO()):
+            main()
+        with open("perfect-numbers_1e1.txt") as f:
+            self.assertEqual(f.read().splitlines(), ["6"])
+
+    def test_n4_creates_file_with_4_numbers(self):
+        with unittest.mock.patch("sys.argv", ["perfect_numbers.py", "4"]), \
+             redirect_stdout(io.StringIO()):
+            main()
+        with open("perfect-numbers_1e4.txt") as f:
+            self.assertEqual(f.read().splitlines(), ["6", "28", "496", "8128"])
+
+    def test_keyboard_interrupt_exits_1(self):
+        with unittest.mock.patch("sys.argv", ["perfect_numbers.py", "1"]), \
+             unittest.mock.patch(
+                 "perfect_numbers.lucas_lehmer", side_effect=KeyboardInterrupt
+             ), \
+             redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as cm:
+                main()
+        self.assertEqual(cm.exception.code, 1)
+
+    def test_permission_error_exits_1(self):
+        with unittest.mock.patch("sys.argv", ["perfect_numbers.py", "1"]), \
+             unittest.mock.patch(
+                 "builtins.open",
+                 side_effect=PermissionError("Permission denied"),
+             ), \
+             redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as cm:
+                main()
+        self.assertEqual(cm.exception.code, 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -62,14 +62,88 @@ def generate_perfect_numbers(limit: int):
         yield p, n
 
 
-def get_exponent(n: int) -> int:
-    """Stub — not yet implemented."""
-    raise NotImplementedError
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Find all perfect numbers up to 10^N",
+        epilog="Run without arguments for an interactive prompt.",
+    )
+    parser.add_argument(
+        "exponent",
+        type=int,
+        nargs="?",
+        help="N: finds perfect numbers up to 10^N (1-54)",
+    )
+    return parser.parse_args()
+
+
+def get_exponent(args: argparse.Namespace) -> int:
+    """Return validated N from CLI args, or prompt interactively."""
+    if args.exponent is not None:
+        n = args.exponent
+        if n < 1 or n > 54:
+            print("Error: N must be between 1 and 54.", file=sys.stderr)
+            sys.exit(1)
+        return n
+    while True:
+        try:
+            raw = input("Enter N (finds perfect numbers up to 10^N, max 54): ")
+            n = int(raw)
+            if 1 <= n <= 54:
+                return n
+            print("N must be between 1 and 54.")
+        except ValueError:
+            print("Please enter a positive integer.")
 
 
 def main() -> None:
-    """Stub — not yet implemented."""
-    raise NotImplementedError
+    args = parse_args()
+    n = get_exponent(args)
+    limit = 10 ** n
+
+    print("Perfect Number Finder (Python)")
+    print("=" * 40)
+    print(f"Finding perfect numbers up to 10^{n} = {limit:,}")
+    print()
+
+    try:
+        results = []
+        max_p = (limit.bit_length() // 2) + 3
+        for p in range(2, max_p + 1):
+            if not is_prime(p):
+                continue
+            mp = (1 << p) - 1
+            if not lucas_lehmer(p):
+                print(f"p={p}: M_{p}={mp} [not prime]")
+                continue
+            pn = (1 << (p - 1)) * mp
+            digits = len(str(pn))
+            s = "digit" if digits == 1 else "digits"
+            if pn > limit:
+                print(f"p={p}: M_{p}={mp} [Mersenne prime] -> {pn} ({digits} {s}, exceeds limit)")
+                break
+            verified = verify_perfect(p)
+            status = "verified" if verified else "FAILED"
+            print(f"p={p}: M_{p}={mp} [Mersenne prime] -> {pn} ({digits} {s}, {status})")
+            results.append(pn)
+
+        count = len(results)
+        print()
+        s = "number" if count == 1 else "numbers"
+        print(f"Found {count} perfect {s} up to 10^{n}")
+
+        filename = f"perfect-numbers_1e{n}.txt"
+        with open(filename, "w") as f:
+            for pn in results:
+                f.write(str(pn))
+                f.write("\n")
+        print(f"Saved to {filename}")
+
+    except KeyboardInterrupt:
+        print("\nGeneration interrupted.")
+        sys.exit(1)
+    except PermissionError as err:
+        print(f"Error: {err}")
+        sys.exit(1)
 
 
 def is_prime(n: int) -> bool:
