@@ -1,7 +1,6 @@
 import argparse
 import io
 import os
-import sys
 import tempfile
 import unittest
 import unittest.mock
