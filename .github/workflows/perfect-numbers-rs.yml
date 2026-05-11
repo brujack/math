@@ -62,7 +62,7 @@ jobs:
         run: cargo build --release
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v5
         with:
           name: perfect-numbers
           path: perfect-numbers/perfect-numbers-rs/target/release/perfect-numbers
