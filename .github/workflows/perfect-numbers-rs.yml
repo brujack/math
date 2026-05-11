@@ -1,0 +1,69 @@
+name: perfect-numbers-rs
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - "perfect-numbers/perfect-numbers-rs/**"
+      - ".github/workflows/perfect-numbers-rs.yml"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    name: Test perfect-numbers-rs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: perfect-numbers/perfect-numbers-rs
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GMP
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: perfect-numbers/perfect-numbers-rs
+
+      - name: Run tests
+        run: make test
+
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+
+      - name: Check coverage (>=90%)
+        run: cargo tarpaulin --fail-under 90
+
+  build:
+    name: Build perfect-numbers-rs
+    runs-on: ubuntu-latest
+    needs: [test]
+    defaults:
+      run:
+        working-directory: perfect-numbers/perfect-numbers-rs
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GMP
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: perfect-numbers/perfect-numbers-rs
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: perfect-numbers
+          path: perfect-numbers/perfect-numbers-rs/target/release/perfect-numbers
+          retention-days: 7

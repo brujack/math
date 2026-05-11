@@ -6,15 +6,16 @@ This file provides guidance to Claude when working with code in this repository.
 
 High-performance mathematical computation tools.
 
-| Project                        | Language      | Description                                               | CLAUDE.md                                                                      |
-| ------------------------------ | ------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| [`pi/`](pi/)                   | Python + Rust | Calculate π to N decimal places (Chudnovsky algorithm)    | [`pi/CLAUDE.md`](pi/CLAUDE.md)                                                 |
-| [`prime/`](prime/)             | Rust          | Find all primes up to 10^N (segmented sieve)              | [`prime/CLAUDE.md`](prime/CLAUDE.md)                                           |
-| [`fib/`](fib/)                 | Python + Rust | Generate all Fibonacci numbers with up to 10^X digits     | [`fib/CLAUDE.md`](fib/CLAUDE.md)                                               |
-| [`sq/`](sq/)                   | Python + Rust | Find all perfect squares with up to 10^N digits (N=1 max) | [`sq/CLAUDE.md`](sq/CLAUDE.md)                                                 |
-| [`twin-primes/`](twin-primes/) | Rust          | Find all twin prime pairs up to 10^N                      | [`twin-primes/twin-primes-rs/CLAUDE.md`](twin-primes/twin-primes-rs/CLAUDE.md) |
-| [`e/`](e/)                     | Python + Rust | Calculate e to N decimal places (Taylor series)           | [`e/CLAUDE.md`](e/CLAUDE.md)                                                   |
-| [`factorial/`](factorial/)     | Python + Rust | Compute N! to arbitrary precision (prime swing)           | [`factorial/CLAUDE.md`](factorial/CLAUDE.md)                                   |
+| Project                                | Language      | Description                                                | CLAUDE.md                                                                      |
+| -------------------------------------- | ------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| [`pi/`](pi/)                           | Python + Rust | Calculate π to N decimal places (Chudnovsky algorithm)     | [`pi/CLAUDE.md`](pi/CLAUDE.md)                                                 |
+| [`prime/`](prime/)                     | Rust          | Find all primes up to 10^N (segmented sieve)               | [`prime/CLAUDE.md`](prime/CLAUDE.md)                                           |
+| [`fib/`](fib/)                         | Python + Rust | Generate all Fibonacci numbers with up to 10^X digits      | [`fib/CLAUDE.md`](fib/CLAUDE.md)                                               |
+| [`sq/`](sq/)                           | Python + Rust | Find all perfect squares with up to 10^N digits (N=1 max)  | [`sq/CLAUDE.md`](sq/CLAUDE.md)                                                 |
+| [`twin-primes/`](twin-primes/)         | Rust          | Find all twin prime pairs up to 10^N                       | [`twin-primes/twin-primes-rs/CLAUDE.md`](twin-primes/twin-primes-rs/CLAUDE.md) |
+| [`e/`](e/)                             | Python + Rust | Calculate e to N decimal places (Taylor series)            | [`e/CLAUDE.md`](e/CLAUDE.md)                                                   |
+| [`factorial/`](factorial/)             | Python + Rust | Compute N! to arbitrary precision (prime swing)            | [`factorial/CLAUDE.md`](factorial/CLAUDE.md)                                   |
+| [`perfect-numbers/`](perfect-numbers/) | Python + Rust | Find all perfect numbers up to 10^N (Lucas-Lehmer + sigma) | [`perfect-numbers/CLAUDE.md`](perfect-numbers/CLAUDE.md)                       |
 
 ## Architectural Decision Records
 
@@ -24,20 +25,22 @@ Significant architectural decisions are recorded in [`docs/adr/`](docs/adr/READM
 
 Each project has its own installer:
 
-| Script                                       | Installs                                          |
-| -------------------------------------------- | ------------------------------------------------- |
-| `pi/install_deps.sh`                         | GMP + MPFR, `mpmath`, `gmpy2`, `coverage`         |
-| `pi/pi-rs/install_deps.sh`                   | GMP + MPFR, Rust toolchain, `cargo-tarpaulin`     |
-| `prime/prime-rs/install_deps.sh`             | Rust toolchain, `cargo-tarpaulin`                 |
-| `fib/install_deps.sh`                        | `ruff`, `coverage`                                |
-| `fib/fib-rs/install_deps.sh`                 | GMP, Rust toolchain, `cargo-tarpaulin`            |
-| `sq/install_deps.sh`                         | `ruff`, `coverage`                                |
-| `sq/sq-rs/install_deps.sh`                   | Rust toolchain                                    |
-| `twin-primes/twin-primes-rs/install_deps.sh` | Rust toolchain, `cargo-tarpaulin`                 |
-| `e/install_deps.sh`                          | GMP + MPFR, `mpmath`, `gmpy2`, `ruff`, `coverage` |
-| `e/e-rs/install_deps.sh`                     | GMP + MPFR, Rust toolchain, `cargo-tarpaulin`     |
-| `factorial/install_deps.sh`                  | GMP + MPFR, `gmpy2`, `mpmath`, `ruff`, `coverage` |
-| `factorial/factorial-rs/install_deps.sh`     | GMP + MPFR, Rust toolchain, `cargo-tarpaulin`     |
+| Script                                               | Installs                                          |
+| ---------------------------------------------------- | ------------------------------------------------- |
+| `pi/install_deps.sh`                                 | GMP + MPFR, `mpmath`, `gmpy2`, `coverage`         |
+| `pi/pi-rs/install_deps.sh`                           | GMP + MPFR, Rust toolchain, `cargo-tarpaulin`     |
+| `prime/prime-rs/install_deps.sh`                     | Rust toolchain, `cargo-tarpaulin`                 |
+| `fib/install_deps.sh`                                | `ruff`, `coverage`                                |
+| `fib/fib-rs/install_deps.sh`                         | GMP, Rust toolchain, `cargo-tarpaulin`            |
+| `sq/install_deps.sh`                                 | `ruff`, `coverage`                                |
+| `sq/sq-rs/install_deps.sh`                           | Rust toolchain                                    |
+| `twin-primes/twin-primes-rs/install_deps.sh`         | Rust toolchain, `cargo-tarpaulin`                 |
+| `e/install_deps.sh`                                  | GMP + MPFR, `mpmath`, `gmpy2`, `ruff`, `coverage` |
+| `e/e-rs/install_deps.sh`                             | GMP + MPFR, Rust toolchain, `cargo-tarpaulin`     |
+| `factorial/install_deps.sh`                          | GMP + MPFR, `gmpy2`, `mpmath`, `ruff`, `coverage` |
+| `factorial/factorial-rs/install_deps.sh`             | GMP + MPFR, Rust toolchain, `cargo-tarpaulin`     |
+| `perfect-numbers/install_deps.sh`                    | `ruff`, `coverage`                                |
+| `perfect-numbers/perfect-numbers-rs/install_deps.sh` | GMP, Rust toolchain, `cargo-tarpaulin`            |
 
 ## Quick Reference
 
@@ -160,6 +163,25 @@ make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnin
 make test      # lint, then cargo test
 ```
 
+### Python (`perfect-numbers/`)
+
+```bash
+cd perfect-numbers
+make run       # python3 perfect_numbers.py
+make lint      # ruff check .
+make test      # lint, then python3 -m unittest test_perfect_numbers -v
+make coverage  # coverage run + report
+```
+
+### Rust (`perfect-numbers/perfect-numbers-rs/`)
+
+```bash
+cd perfect-numbers/perfect-numbers-rs
+make perfect-numbers  # cargo build --release
+make lint             # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
+make test             # lint, then cargo test
+```
+
 ### Rust lint/test wrapper (`scripts/rust-check.sh`)
 
 All Rust crate `make lint` and `make test` targets call `scripts/rust-check.sh` to enforce consistent cargo behavior in local checkouts and worktrees.
@@ -224,31 +246,31 @@ Apply fix 1 (`#[cfg(not(tarpaulin_include))]` on `fn main()`) to every new Rust 
 
 ## CI
 
-Twenty workflow files. Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail.
+Twenty-three workflow files. Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail.
 
-| Workflow               | File                                           | Jobs                                                                         |
-| ---------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------- |
-| pi.py                  | `.github/workflows/pi-py.yml`                  | test                                                                         |
-| pi-rs                  | `.github/workflows/pi-rs.yml`                  | test → build + artifact                                                      |
-| prime-rs               | `.github/workflows/prime-rs.yml`               | test → build + artifact                                                      |
-| fib.py                 | `.github/workflows/fib-py.yml`                 | test                                                                         |
-| fib-rs                 | `.github/workflows/fib-rs.yml`                 | test → build + artifact                                                      |
-| sq.py                  | `.github/workflows/sq-py.yml`                  | test                                                                         |
-| sq-rs                  | `.github/workflows/sq-rs.yml`                  | test → build + artifact                                                      |
-| twin-primes-rs         | `.github/workflows/twin-primes-rs.yml`         | test → build + artifact                                                      |
-| release-pi-rs          | `.github/workflows/release-pi-rs.yml`          | release (manual dispatch)                                                    |
-| release-prime-rs       | `.github/workflows/release-prime-rs.yml`       | release (manual dispatch)                                                    |
-| release-fib-rs         | `.github/workflows/release-fib-rs.yml`         | release (manual dispatch)                                                    |
-| release-sq-rs          | `.github/workflows/release-sq-rs.yml`          | release (manual dispatch)                                                    |
-| release-twin-primes-rs | `.github/workflows/release-twin-primes-rs.yml` | release (manual dispatch)                                                    |
-| e.py                   | `.github/workflows/e-py.yml`                   | test                                                                         |
-| e-rs                   | `.github/workflows/e-rs.yml`                   | test → build + artifact                                                      |
-| release-e-rs           | `.github/workflows/release-e-rs.yml`           | release (manual dispatch)                                                    |
-| factorial.py           | `.github/workflows/factorial-py.yml`           | test                                                                         |
-| factorial-rs           | `.github/workflows/factorial-rs.yml`           | test → build + artifact                                                      |
-| release-factorial-rs   | `.github/workflows/release-factorial-rs.yml`   | release (manual dispatch)                                                    |
+| Workflow               | File                                           | Jobs                                                                                            |
+| ---------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| pi.py                  | `.github/workflows/pi-py.yml`                  | test                                                                                            |
+| pi-rs                  | `.github/workflows/pi-rs.yml`                  | test → build + artifact                                                                         |
+| prime-rs               | `.github/workflows/prime-rs.yml`               | test → build + artifact                                                                         |
+| fib.py                 | `.github/workflows/fib-py.yml`                 | test                                                                                            |
+| fib-rs                 | `.github/workflows/fib-rs.yml`                 | test → build + artifact                                                                         |
+| sq.py                  | `.github/workflows/sq-py.yml`                  | test                                                                                            |
+| sq-rs                  | `.github/workflows/sq-rs.yml`                  | test → build + artifact                                                                         |
+| twin-primes-rs         | `.github/workflows/twin-primes-rs.yml`         | test → build + artifact                                                                         |
+| release-pi-rs          | `.github/workflows/release-pi-rs.yml`          | release (manual dispatch)                                                                       |
+| release-prime-rs       | `.github/workflows/release-prime-rs.yml`       | release (manual dispatch)                                                                       |
+| release-fib-rs         | `.github/workflows/release-fib-rs.yml`         | release (manual dispatch)                                                                       |
+| release-sq-rs          | `.github/workflows/release-sq-rs.yml`          | release (manual dispatch)                                                                       |
+| release-twin-primes-rs | `.github/workflows/release-twin-primes-rs.yml` | release (manual dispatch)                                                                       |
+| e.py                   | `.github/workflows/e-py.yml`                   | test                                                                                            |
+| e-rs                   | `.github/workflows/e-rs.yml`                   | test → build + artifact                                                                         |
+| release-e-rs           | `.github/workflows/release-e-rs.yml`           | release (manual dispatch)                                                                       |
+| factorial.py           | `.github/workflows/factorial-py.yml`           | test                                                                                            |
+| factorial-rs           | `.github/workflows/factorial-rs.yml`           | test → build + artifact                                                                         |
+| release-factorial-rs   | `.github/workflows/release-factorial-rs.yml`   | release (manual dispatch)                                                                       |
 | auto-merge             | `.github/workflows/auto-merge.yml`             | secret-scan → ci-gate (polls required checks, merges on pass) → snyk-scan (advisory, not gated) |
-| scripts                | `.github/workflows/scripts.yml`                | test (bats --recursive tests/)                                               |
+| scripts                | `.github/workflows/scripts.yml`                | test (bats --recursive tests/)                                                                  |
 
 **Pre-commit hook** — `scripts/pre-commit` is committed to the repo and installed as a symlink via `make install-hooks`. It runs `make lint` on staged sub-projects and `ggshield secret scan pre-commit` (skipped if not installed). CI gitleaks is a backstop — install and activate ggshield locally so secrets are caught before they leave the machine.
 

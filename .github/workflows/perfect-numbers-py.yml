@@ -1,0 +1,30 @@
+name: perfect-numbers.py
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - "perfect-numbers/*.py"
+      - "perfect-numbers/install_deps.sh"
+      - "perfect-numbers/Makefile"
+      - ".github/workflows/perfect-numbers-py.yml"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    name: Test perfect-numbers.py
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: perfect-numbers
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Python dependencies
+        run: pip install ruff coverage
+
+      - name: Run tests
+        run: make test
