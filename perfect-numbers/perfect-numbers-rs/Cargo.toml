@@ -1,0 +1,24 @@
+[package]
+name = "perfect-numbers"
+version = "0.1.0"
+edition = "2021"
+description = "Find all perfect numbers up to 10^N via Lucas-Lehmer + sigma verification"
+
+[[bin]]
+name = "perfect-numbers"
+path = "src/main.rs"
+
+[dependencies]
+rug = { version = "1", features = ["integer"] }
+clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }
+
+[profile.release]
+opt-level     = 3
+lto           = "thin"
+codegen-units = 1
