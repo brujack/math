@@ -9,7 +9,9 @@ Run without arguments for an interactive prompt, or supply N directly:
     python3 collatz.py [N]
 """
 
+import argparse
 import array
+import sys
 
 
 def collatz_next(n: int) -> int:
@@ -51,12 +53,46 @@ def generate_records(limit: int):
             yield n, length
 
 
-def get_exponent() -> int:
-    pass
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Find Collatz chain record-setters up to 10^N",
+        epilog="Run without arguments for an interactive prompt.",
+    )
+    parser.add_argument(
+        "exponent",
+        type=int,
+        nargs="?",
+        help="N: scans 1..10^N for chain-length records (1-12)",
+    )
+    return parser.parse_args()
 
 
-def parse_args():
-    pass
+def get_exponent(args: argparse.Namespace) -> int:
+    """Return validated N from CLI args, or prompt interactively."""
+    if args.exponent is not None:
+        n = args.exponent
+        if n < 1 or n > 12:
+            print("Error: N must be between 1 and 12.", file=sys.stderr)
+            sys.exit(1)
+        if n > 7:
+            mb = 4 * 10**n // 1_000_000
+            print(
+                f"Warning: N={n} requires ~{mb} MB and may be very slow in Python.",
+                file=sys.stderr,
+            )
+        return n
+    while True:
+        try:
+            raw = input("Enter N (scans 1..10^N for Collatz records, max 12): ")
+            n = int(raw)
+            if 1 <= n <= 12:
+                if n > 7:
+                    mb = 4 * 10**n // 1_000_000
+                    print(f"Warning: N={n} requires ~{mb} MB and may be very slow.")
+                return n
+            print("N must be between 1 and 12.")
+        except ValueError:
+            print("Please enter a positive integer.")
 
 
 def main():

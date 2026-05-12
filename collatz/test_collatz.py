@@ -1,7 +1,9 @@
+import argparse
 import array
 import unittest
+import unittest.mock
 
-from collatz import collatz_length, collatz_next, generate_records
+from collatz import collatz_length, collatz_next, generate_records, get_exponent
 
 
 class TestCollatzNext(unittest.TestCase):
@@ -65,6 +67,41 @@ class TestGenerateRecords(unittest.TestCase):
         records = list(generate_records(10))
         lengths = [r[1] for r in records]
         self.assertEqual(lengths, sorted(lengths))
+
+
+class TestGetExponent(unittest.TestCase):
+    def _ns(self, exponent):
+        return argparse.Namespace(exponent=exponent)
+
+    def test_valid_minimum(self):
+        self.assertEqual(get_exponent(self._ns(1)), 1)
+
+    def test_valid_mid(self):
+        self.assertEqual(get_exponent(self._ns(7)), 7)
+
+    def test_valid_maximum(self):
+        self.assertEqual(get_exponent(self._ns(12)), 12)
+
+    def test_zero_exits(self):
+        with self.assertRaises(SystemExit):
+            get_exponent(self._ns(0))
+
+    def test_13_exits(self):
+        with self.assertRaises(SystemExit):
+            get_exponent(self._ns(13))
+
+    def test_negative_exits(self):
+        with self.assertRaises(SystemExit):
+            get_exponent(self._ns(-1))
+
+    def test_interactive_valid(self):
+        with unittest.mock.patch("builtins.input", return_value="5"):
+            self.assertEqual(get_exponent(self._ns(None)), 5)
+
+    def test_interactive_invalid_then_valid(self):
+        with unittest.mock.patch("builtins.input", side_effect=["0", "abc", "3"]), \
+             unittest.mock.patch("builtins.print"):
+            self.assertEqual(get_exponent(self._ns(None)), 3)
 
 
 if __name__ == "__main__":
