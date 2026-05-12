@@ -15,10 +15,14 @@ struct Cli {
 // ---------------------------------------------------------------------------
 
 fn collatz_next(n: u64) -> u64 {
-    if n % 2 == 0 { n / 2 } else { 3 * n + 1 }
+    if n.is_multiple_of(2) {
+        n / 2
+    } else {
+        3 * n + 1
+    }
 }
 
-fn chain_length(n: u64, cache: &mut Vec<u32>, limit: u64) -> u32 {
+fn chain_length(n: u64, cache: &mut [u32], limit: u64) -> u32 {
     let mut path: Vec<u64> = Vec::new();
     let mut curr = n;
     loop {
@@ -57,13 +61,65 @@ fn generate_records<W: Write, E: Write>(
     Ok(records)
 }
 
+// ---------------------------------------------------------------------------
+// I/O helpers
+// ---------------------------------------------------------------------------
+
+fn prompt_n<R: BufRead, W: Write>(reader: &mut R, out: &mut W) -> io::Result<u64> {
+    loop {
+        write!(out, "Enter N (scans 1..10^N for Collatz records, max 12): ")?;
+        out.flush()?;
+        let mut line = String::new();
+        reader.read_line(&mut line)?;
+        match line.trim().parse::<u64>() {
+            Ok(v) if (1..=12).contains(&v) => return Ok(v),
+            _ => writeln!(out, "N must be between 1 and 12.")?,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Orchestration
+// ---------------------------------------------------------------------------
+
 fn run<R: BufRead, W: Write, E: Write>(
-    _cli: Cli,
-    _reader: &mut R,
-    _out: &mut W,
-    _err: &mut E,
-    _dir: &Path,
+    cli: Cli,
+    reader: &mut R,
+    out: &mut W,
+    err: &mut E,
+    dir: &Path,
 ) -> io::Result<i32> {
+    let exp: u64 = match cli.exponent {
+        Some(v) => {
+            if !(1..=12).contains(&v) {
+                writeln!(err, "Error: N must be between 1 and 12.")?;
+                return Ok(1);
+            }
+            if v > 9 {
+                writeln!(err, "Warning: N={v} may require significant time and memory.")?;
+            }
+            v as u64
+        }
+        None => prompt_n(reader, out)?,
+    };
+
+    let limit = 10u64.pow(exp as u32);
+    writeln!(out, "Collatz Record Finder (Rust)")?;
+    writeln!(out, "{}", "=".repeat(40))?;
+    writeln!(out, "Scanning 1..10^{exp} = {limit} for chain-length records")?;
+    writeln!(out)?;
+
+    let records = generate_records(limit, out, err)?;
+
+    let path = dir.join(format!("collatz_1e{exp}.txt"));
+    let mut file = std::fs::File::create(&path)?;
+    for (n, length) in &records {
+        writeln!(file, "{n} {length}")?;
+    }
+
+    let count = records.len();
+    writeln!(out)?;
+    writeln!(out, "Found {count} records. Saved to {}", path.display())?;
     Ok(0)
 }
 
@@ -177,13 +233,88 @@ mod tests {
         assert_eq!(records[5], (9, 19));
     }
 
+    // --- run ---
     #[test]
-    fn test_stub_compiles() {
+    fn test_run_n0_returns_1() {
         let dir = tempdir().unwrap();
         let mut out = Vec::new();
         let mut err_buf = Vec::new();
         let mut reader = Cursor::new("");
-        let code = run(Cli { exponent: Some(1) }, &mut reader, &mut out, &mut err_buf, dir.path()).unwrap();
+        let code = run(Cli { exponent: Some(0) }, &mut reader, &mut out, &mut err_buf, dir.path())
+            .unwrap();
+        assert_eq!(code, 1);
+        assert!(String::from_utf8_lossy(&err_buf).contains("between 1 and 12"));
+    }
+
+    #[test]
+    fn test_run_n13_returns_1() {
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut err_buf = Vec::new();
+        let mut reader = Cursor::new("");
+        let code = run(Cli { exponent: Some(13) }, &mut reader, &mut out, &mut err_buf, dir.path())
+            .unwrap();
+        assert_eq!(code, 1);
+    }
+
+    #[test]
+    fn test_run_n1_creates_file() {
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut err_buf = Vec::new();
+        let mut reader = Cursor::new("");
+        let code = run(Cli { exponent: Some(1) }, &mut reader, &mut out, &mut err_buf, dir.path())
+            .unwrap();
+        assert_eq!(code, 0);
+        let path = dir.path().join("collatz_1e1.txt");
+        assert!(path.exists());
+        let content = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = content.trim().lines().collect();
+        assert_eq!(lines[0], "1 0");
+        assert_eq!(lines[2], "3 7");
+        assert_eq!(lines.len(), 6);
+    }
+
+    #[test]
+    fn test_run_no_arg_prompts() {
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut err_buf = Vec::new();
+        let mut reader = Cursor::new("1\n");
+        let code =
+            run(Cli { exponent: None }, &mut reader, &mut out, &mut err_buf, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        assert!(String::from_utf8_lossy(&out).contains("Enter N"));
+    }
+
+    #[test]
+    fn test_run_err_on_stdout_failure() {
+        let dir = tempdir().unwrap();
+        let mut err_buf = Vec::new();
+        let mut reader = Cursor::new("");
+        let result =
+            run(Cli { exponent: Some(1) }, &mut reader, &mut FailWriter, &mut err_buf, dir.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_run_err_on_stderr_failure() {
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut reader = Cursor::new("");
+        let result =
+            run(Cli { exponent: Some(0) }, &mut reader, &mut out, &mut FailWriter, dir.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_run_invalid_stdin_prompt() {
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut err_buf = Vec::new();
+        let mut reader = Cursor::new("0\nabc\n5\n");
+        let code =
+            run(Cli { exponent: None }, &mut reader, &mut out, &mut err_buf, dir.path()).unwrap();
         assert_eq!(code, 0);
     }
 }
