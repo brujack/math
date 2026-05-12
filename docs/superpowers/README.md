@@ -35,8 +35,14 @@ Master status index for all specs and implementation plans in this directory.
 
 Ideas approved for future specs, in no particular order:
 
-| Feature | Notes |
-| ------- | ----- |
+| Feature                    | Notes                                                                                                      |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Goldbach pairs             | For each even n up to 10^N, find two primes that sum to it; output "hardest" pairs; reuses prime sieve     |
+| Euler's totient (φ)        | Compute φ(n) for all n up to 10^N via sieve; sum of totients grows as 3N²/π²                               |
+| Highly composite numbers   | Numbers with more divisors than any smaller integer; same record-setter pattern as Collatz; only ~96 known |
+| Amicable pairs             | Pairs (a,b) where σ(a)=b and σ(b)=a; sigma function already implemented in perfect-numbers                 |
+| Abundant/deficient numbers | For every n up to 10^N classify as abundant/perfect/deficient; output counts and examples                  |
+| Happy numbers              | Iterate sum of squared digits; find all happy numbers up to 10^N; simple algorithm, rich structure         |
 
 ---
 
