@@ -26,7 +26,8 @@ Master status index for all specs and implementation plans in this directory.
 | 2026-05-05 | [hook-worktree-hardening](plans/2026-05-05-hook-worktree-hardening.md)             | [spec](specs/2026-05-05-hook-worktree-hardening-design.md)       | Done        |
 | 2026-05-06 | [auto-merge-gate-integrity](plans/2026-05-06-auto-merge-gate-integrity.md)         | [spec](specs/2026-05-06-auto-merge-gate-integrity-design.md)     | Done        |
 | 2026-05-09 | [failure-mode-test-matrix](plans/2026-05-09-failure-mode-test-matrix.md)           | [spec](specs/2026-05-09-failure-mode-test-matrix-design.md)      | Done        |
-| 2026-05-11 | [perfect-numbers](plans/2026-05-11-perfect-numbers.md)                             | [spec](specs/2026-05-11-perfect-numbers-design.md)               | In Progress |
+| 2026-05-11 | [perfect-numbers](plans/2026-05-11-perfect-numbers.md)                             | [spec](specs/2026-05-11-perfect-numbers-design.md)               | Done        |
+| 2026-05-12 | [collatz](plans/2026-05-12-collatz.md)                                             | [spec](specs/2026-05-12-collatz-design.md)                       | In Progress |
 
 ---
 
@@ -34,9 +35,8 @@ Master status index for all specs and implementation plans in this directory.
 
 Ideas approved for future specs, in no particular order:
 
-| Feature           | Notes                                                                |
-| ----------------- | -------------------------------------------------------------------- |
-| Collatz sequences | For each number up to 10^N find chain length; identify longest chain |
+| Feature | Notes |
+| ------- | ----- |
 
 ---
 

@@ -16,6 +16,7 @@ High-performance mathematical computation tools.
 | [`e/`](e/)                             | Python + Rust | Calculate e to N decimal places (Taylor series)            | [`e/CLAUDE.md`](e/CLAUDE.md)                                                   |
 | [`factorial/`](factorial/)             | Python + Rust | Compute N! to arbitrary precision (prime swing)            | [`factorial/CLAUDE.md`](factorial/CLAUDE.md)                                   |
 | [`perfect-numbers/`](perfect-numbers/) | Python + Rust | Find all perfect numbers up to 10^N (Lucas-Lehmer + sigma) | [`perfect-numbers/CLAUDE.md`](perfect-numbers/CLAUDE.md)                       |
+| [`collatz/`](collatz/)                 | Python + Rust | Find Collatz chain record-setters up to 10^N (vector memoization) | [`collatz/CLAUDE.md`](collatz/CLAUDE.md)                                       |
 
 ## Architectural Decision Records
 
@@ -41,6 +42,8 @@ Each project has its own installer:
 | `factorial/factorial-rs/install_deps.sh`             | GMP + MPFR, Rust toolchain, `cargo-tarpaulin`     |
 | `perfect-numbers/install_deps.sh`                    | `ruff`, `coverage`                                |
 | `perfect-numbers/perfect-numbers-rs/install_deps.sh` | GMP, Rust toolchain, `cargo-tarpaulin`            |
+| `collatz/install_deps.sh`                            | `ruff`, `coverage`                                |
+| `collatz/collatz-rs/install_deps.sh`                 | Rust toolchain, `cargo-tarpaulin`                 |
 
 ## Quick Reference
 
@@ -182,6 +185,25 @@ make lint             # cargo fmt --check, then cargo clippy --all-targets -- -D
 make test             # lint, then cargo test
 ```
 
+### Python (`collatz/`)
+
+```bash
+cd collatz
+make run       # python3 collatz.py
+make lint      # ruff check .
+make test      # lint, then python3 -m unittest test_collatz -v
+make coverage  # coverage run + report
+```
+
+### Rust (`collatz/collatz-rs/`)
+
+```bash
+cd collatz/collatz-rs
+make collatz   # cargo build --release
+make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
+make test      # lint, then cargo test
+```
+
 ### Rust lint/test wrapper (`scripts/rust-check.sh`)
 
 All Rust crate `make lint` and `make test` targets call `scripts/rust-check.sh` to enforce consistent cargo behavior in local checkouts and worktrees.
@@ -246,7 +268,7 @@ Apply fix 1 (`#[cfg(not(tarpaulin_include))]` on `fn main()`) to every new Rust 
 
 ## CI
 
-Twenty-three workflow files. Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail.
+Twenty-five workflow files. Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail.
 
 | Workflow               | File                                           | Jobs                                                                                            |
 | ---------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------- |
@@ -269,6 +291,8 @@ Twenty-three workflow files. Project workflows run on PRs to `master` only — t
 | factorial.py           | `.github/workflows/factorial-py.yml`           | test                                                                                            |
 | factorial-rs           | `.github/workflows/factorial-rs.yml`           | test → build + artifact                                                                         |
 | release-factorial-rs   | `.github/workflows/release-factorial-rs.yml`   | release (manual dispatch)                                                                       |
+| collatz.py             | `.github/workflows/collatz-py.yml`             | test                                                                                            |
+| collatz-rs             | `.github/workflows/collatz-rs.yml`             | test → build + artifact                                                                         |
 | auto-merge             | `.github/workflows/auto-merge.yml`             | secret-scan → ci-gate (polls required checks, merges on pass) → snyk-scan (advisory, not gated) |
 | scripts                | `.github/workflows/scripts.yml`                | test (bats --recursive tests/)                                                                  |
 
