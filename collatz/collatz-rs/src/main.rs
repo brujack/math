@@ -37,6 +37,26 @@ fn chain_length(n: u64, cache: &mut Vec<u32>, limit: u64) -> u32 {
     cache[n as usize] - 1
 }
 
+fn generate_records<W: Write, E: Write>(
+    limit: u64,
+    out: &mut W,
+    _err: &mut E,
+) -> io::Result<Vec<(u64, u32)>> {
+    let mut cache = vec![0u32; (limit + 1) as usize];
+    cache[1] = 1;
+    let mut max_len: i64 = -1;
+    let mut records = Vec::new();
+    for n in 1..=limit {
+        let length = chain_length(n, &mut cache, limit);
+        if length as i64 > max_len {
+            max_len = length as i64;
+            writeln!(out, "{n} {length}")?;
+            records.push((n, length));
+        }
+    }
+    Ok(records)
+}
+
 fn run<R: BufRead, W: Write, E: Write>(
     _cli: Cli,
     _reader: &mut R,
@@ -132,6 +152,29 @@ mod tests {
         // n=3's chain passes through 10, 16, 8 which exceed limit=5
         let mut cache = make_cache(5);
         assert_eq!(chain_length(3, &mut cache, 5), 7);
+    }
+
+    // --- generate_records ---
+    #[test]
+    fn test_generate_records_limit_1() {
+        let mut out = Vec::new();
+        let mut err_buf = Vec::new();
+        let records = generate_records(1, &mut out, &mut err_buf).unwrap();
+        assert_eq!(records, vec![(1u64, 0u32)]);
+        assert_eq!(String::from_utf8_lossy(&out).trim(), "1 0");
+    }
+
+    #[test]
+    fn test_generate_records_limit_10() {
+        let mut out = Vec::new();
+        let mut err_buf = Vec::new();
+        let records = generate_records(10, &mut out, &mut err_buf).unwrap();
+        assert_eq!(records[0], (1, 0));
+        assert_eq!(records[1], (2, 1));
+        assert_eq!(records[2], (3, 7));
+        assert_eq!(records[3], (6, 8));
+        assert_eq!(records[4], (7, 16));
+        assert_eq!(records[5], (9, 19));
     }
 
     #[test]
