@@ -1,0 +1,63 @@
+name: goldbach-rs
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - "goldbach/goldbach-rs/**"
+      - ".github/workflows/goldbach-rs.yml"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    name: Test goldbach-rs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: goldbach/goldbach-rs
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: goldbach/goldbach-rs
+
+      - name: Run tests
+        run: make test
+
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+
+      - name: Check coverage (>=90%)
+        run: cargo tarpaulin --fail-under 90
+
+  build:
+    name: Build goldbach-rs
+    runs-on: ubuntu-latest
+    needs: [test]
+    defaults:
+      run:
+        working-directory: goldbach/goldbach-rs
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: goldbach/goldbach-rs
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: goldbach
+          path: goldbach/goldbach-rs/target/release/goldbach
+          retention-days: 7

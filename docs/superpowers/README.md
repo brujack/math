@@ -27,7 +27,8 @@ Master status index for all specs and implementation plans in this directory.
 | 2026-05-06 | [auto-merge-gate-integrity](plans/2026-05-06-auto-merge-gate-integrity.md)         | [spec](specs/2026-05-06-auto-merge-gate-integrity-design.md)     | Done        |
 | 2026-05-09 | [failure-mode-test-matrix](plans/2026-05-09-failure-mode-test-matrix.md)           | [spec](specs/2026-05-09-failure-mode-test-matrix-design.md)      | Done        |
 | 2026-05-11 | [perfect-numbers](plans/2026-05-11-perfect-numbers.md)                             | [spec](specs/2026-05-11-perfect-numbers-design.md)               | Done        |
-| 2026-05-12 | [collatz](plans/2026-05-12-collatz.md)                                             | [spec](specs/2026-05-12-collatz-design.md)                       | In Progress |
+| 2026-05-12 | [collatz](plans/2026-05-12-collatz.md)                                             | [spec](specs/2026-05-12-collatz-design.md)                       | Done        |
+| 2026-05-12 | [goldbach](plans/2026-05-12-goldbach.md)                                           | [spec](specs/2026-05-12-goldbach-design.md)                      | In Progress |
 
 ---
 
@@ -35,8 +36,13 @@ Master status index for all specs and implementation plans in this directory.
 
 Ideas approved for future specs, in no particular order:
 
-| Feature | Notes |
-| ------- | ----- |
+| Feature                    | Notes                                                                                                      |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Euler's totient (φ)        | Compute φ(n) for all n up to 10^N via sieve; sum of totients grows as 3N²/π²                               |
+| Highly composite numbers   | Numbers with more divisors than any smaller integer; same record-setter pattern as Collatz; only ~96 known |
+| Amicable pairs             | Pairs (a,b) where σ(a)=b and σ(b)=a; sigma function already implemented in perfect-numbers                 |
+| Abundant/deficient numbers | For every n up to 10^N classify as abundant/perfect/deficient; output counts and examples                  |
+| Happy numbers              | Iterate sum of squared digits; find all happy numbers up to 10^N; simple algorithm, rich structure         |
 
 ---
 
