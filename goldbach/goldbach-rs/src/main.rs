@@ -17,7 +17,7 @@ struct Cli {
 /// Build a packed bitset covering odd numbers 3..=limit.
 /// Bit index i represents 2i+3. Bit set (1) = composite; clear (0) = prime.
 /// Callers must only pass n ≤ limit to is_prime; no bounds check is performed.
-#[allow(dead_code)] // used by goldbach_pairs added in the next task
+#[allow(dead_code)] // called by goldbach_pairs; run() wired in the next task
 fn build_sieve(limit: u64) -> Vec<u64> {
     if limit < 3 {
         return vec![];
@@ -43,7 +43,7 @@ fn build_sieve(limit: u64) -> Vec<u64> {
 
 /// Return true if n is prime, using the sieve built for the same limit.
 /// Panics if n > limit (caller's responsibility to stay in range).
-#[allow(dead_code)] // used by goldbach_pairs added in the next task
+#[allow(dead_code)] // called by goldbach_pairs; run() wired in the next task
 fn is_prime(n: u64, sieve: &[u64]) -> bool {
     match n {
         0 | 1 => false,
@@ -54,6 +54,35 @@ fn is_prime(n: u64, sieve: &[u64]) -> bool {
             (sieve[idx / 64] >> (idx % 64)) & 1 == 0
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Core algorithm
+// ---------------------------------------------------------------------------
+
+/// Write all Goldbach pairs for even n in 4..=limit to `out`.
+/// Each line: `n p q\n` with p ≤ q and p + q = n, ordered by n then p.
+/// Returns the total number of pairs written.
+#[allow(dead_code)] // called by run() in the next task
+fn goldbach_pairs<W: Write>(limit: u64, sieve: &[u64], out: &mut W) -> io::Result<u64> {
+    let mut count = 0u64;
+    let mut n = 4u64;
+    while n <= limit {
+        if is_prime(n - 2, sieve) {
+            writeln!(out, "{n} 2 {}", n - 2)?;
+            count += 1;
+        }
+        let mut p = 3u64;
+        while p <= n / 2 {
+            if is_prime(p, sieve) && is_prime(n - p, sieve) {
+                writeln!(out, "{n} {p} {}", n - p)?;
+                count += 1;
+            }
+            p += 2;
+        }
+        n += 2;
+    }
+    Ok(count)
 }
 
 fn run<R: BufRead, W: Write, E: Write>(
@@ -134,6 +163,41 @@ mod tests {
         let sieve = build_sieve(100);
         assert!(is_prime(97, &sieve));
         assert!(!is_prime(91, &sieve)); // 7 × 13
+    }
+
+    // --- goldbach_pairs ---
+    #[test]
+    fn test_goldbach_pairs_limit_4() {
+        let sieve = build_sieve(4);
+        let mut out = Vec::new();
+        let count = goldbach_pairs(4, &sieve, &mut out).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(String::from_utf8_lossy(&out).trim(), "4 2 2");
+    }
+
+    #[test]
+    fn test_goldbach_pairs_limit_10_exact() {
+        let sieve = build_sieve(10);
+        let mut out = Vec::new();
+        let count = goldbach_pairs(10, &sieve, &mut out).unwrap();
+        assert_eq!(count, 5);
+        let output = String::from_utf8_lossy(&out).into_owned();
+        let lines: Vec<&str> = output.trim().lines().collect();
+        assert_eq!(lines[0], "4 2 2");
+        assert_eq!(lines[1], "6 3 3");
+        assert_eq!(lines[2], "8 3 5");
+        assert_eq!(lines[3], "10 3 7");
+        assert_eq!(lines[4], "10 5 5");
+    }
+
+    #[test]
+    fn test_goldbach_pairs_count_matches_lines() {
+        let sieve = build_sieve(10);
+        let mut out = Vec::new();
+        let count = goldbach_pairs(10, &sieve, &mut out).unwrap();
+        let output = String::from_utf8_lossy(&out).into_owned();
+        let line_count = output.trim().lines().count() as u64;
+        assert_eq!(count, line_count);
     }
 
     #[test]
