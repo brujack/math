@@ -1,9 +1,13 @@
 import argparse
 import array
+import io
+import os
+import tempfile
 import unittest
 import unittest.mock
+from contextlib import redirect_stdout
 
-from collatz import collatz_length, collatz_next, generate_records, get_exponent
+from collatz import collatz_length, collatz_next, generate_records, get_exponent, main
 
 
 class TestCollatzNext(unittest.TestCase):
@@ -102,6 +106,56 @@ class TestGetExponent(unittest.TestCase):
         with unittest.mock.patch("builtins.input", side_effect=["0", "abc", "3"]), \
              unittest.mock.patch("builtins.print"):
             self.assertEqual(get_exponent(self._ns(None)), 3)
+
+
+class TestMain(unittest.TestCase):
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        for f in os.listdir(self._tmp):
+            os.unlink(os.path.join(self._tmp, f))
+        os.rmdir(self._tmp)
+
+    def test_n1_creates_file(self):
+        with unittest.mock.patch("sys.argv", ["collatz.py", "1"]), \
+             redirect_stdout(io.StringIO()):
+            main()
+        with open("collatz_1e1.txt") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(lines, ["1 0", "2 1", "3 7", "6 8", "7 16", "9 19"])
+
+    def test_n3_file_contains_27(self):
+        with unittest.mock.patch("sys.argv", ["collatz.py", "3"]), \
+             redirect_stdout(io.StringIO()):
+            main()
+        with open("collatz_1e3.txt") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(lines[0], "1 0")
+        self.assertIn("27 111", lines)
+
+    def test_keyboard_interrupt_exits_1(self):
+        with unittest.mock.patch("sys.argv", ["collatz.py", "1"]), \
+             unittest.mock.patch(
+                 "collatz.generate_records", side_effect=KeyboardInterrupt
+             ), \
+             redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as cm:
+                main()
+        self.assertEqual(cm.exception.code, 1)
+
+    def test_permission_error_exits_1(self):
+        with unittest.mock.patch("sys.argv", ["collatz.py", "1"]), \
+             unittest.mock.patch(
+                 "builtins.open", side_effect=PermissionError("Permission denied")
+             ), \
+             redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as cm:
+                main()
+        self.assertEqual(cm.exception.code, 1)
 
 
 if __name__ == "__main__":

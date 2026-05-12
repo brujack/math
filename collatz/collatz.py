@@ -95,9 +95,35 @@ def get_exponent(args: argparse.Namespace) -> int:
             print("Please enter a positive integer.")
 
 
-def main():
-    pass
+def main() -> None:
+    args = parse_args()
+    n = get_exponent(args)
+    limit = 10**n
+
+    print("Collatz Record Finder (Python)")
+    print("=" * 40)
+    print(f"Scanning 1..10^{n} = {limit:,} for chain-length records")
+    print()
+
+    try:
+        records = []
+        for num, length in generate_records(limit):
+            print(f"{num} {length}")
+            records.append((num, length))
+
+        filename = f"collatz_1e{n}.txt"
+        with open(filename, "w") as f:
+            for num, length in records:
+                f.write(f"{num} {length}\n")
+        print(f"\nSaved {len(records)} records to {filename}")
+
+    except KeyboardInterrupt:
+        print("\nInterrupted.")
+        sys.exit(1)
+    except PermissionError as err:
+        print(f"Error: {err}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    pass
+    main()
