@@ -1,4 +1,4 @@
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, BufWriter, Write};
 use std::path::Path;
 
 use clap::Parser;
@@ -17,7 +17,6 @@ struct Cli {
 /// Build a packed bitset covering odd numbers 3..=limit.
 /// Bit index i represents 2i+3. Bit set (1) = composite; clear (0) = prime.
 /// Callers must only pass n ≤ limit to is_prime; no bounds check is performed.
-#[allow(dead_code)] // called by goldbach_pairs; run() wired in the next task
 fn build_sieve(limit: u64) -> Vec<u64> {
     if limit < 3 {
         return vec![];
@@ -43,7 +42,6 @@ fn build_sieve(limit: u64) -> Vec<u64> {
 
 /// Return true if n is prime, using the sieve built for the same limit.
 /// Panics if n > limit (caller's responsibility to stay in range).
-#[allow(dead_code)] // called by goldbach_pairs; run() wired in the next task
 fn is_prime(n: u64, sieve: &[u64]) -> bool {
     match n {
         0 | 1 => false,
@@ -63,7 +61,6 @@ fn is_prime(n: u64, sieve: &[u64]) -> bool {
 /// Write all Goldbach pairs for even n in 4..=limit to `out`.
 /// Each line: `n p q\n` with p ≤ q and p + q = n, ordered by n then p.
 /// Returns the total number of pairs written.
-#[allow(dead_code)] // called by run() in the next task
 fn goldbach_pairs<W: Write>(limit: u64, sieve: &[u64], out: &mut W) -> io::Result<u64> {
     let mut count = 0u64;
     let mut n = 4u64;
@@ -85,13 +82,67 @@ fn goldbach_pairs<W: Write>(limit: u64, sieve: &[u64], out: &mut W) -> io::Resul
     Ok(count)
 }
 
+// ---------------------------------------------------------------------------
+// I/O helpers
+// ---------------------------------------------------------------------------
+
+fn prompt_n<R: BufRead, W: Write>(reader: &mut R, out: &mut W) -> io::Result<u64> {
+    loop {
+        write!(out, "Enter N (finds all Goldbach pairs up to 10^N, max 8): ")?;
+        out.flush()?;
+        let mut line = String::new();
+        reader.read_line(&mut line)?;
+        match line.trim().parse::<u64>() {
+            Ok(v) if (1..=8).contains(&v) => return Ok(v),
+            _ => writeln!(out, "N must be between 1 and 8.")?,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Orchestration
+// ---------------------------------------------------------------------------
+
 fn run<R: BufRead, W: Write, E: Write>(
-    _cli: Cli,
-    _reader: &mut R,
-    _out: &mut W,
-    _err: &mut E,
-    _dir: &Path,
+    cli: Cli,
+    reader: &mut R,
+    out: &mut W,
+    err: &mut E,
+    dir: &Path,
 ) -> io::Result<i32> {
+    let exp: u64 = match cli.exponent {
+        Some(v) => {
+            if !(1..=8).contains(&v) {
+                writeln!(err, "Error: N must be between 1 and 8.")?;
+                return Ok(1);
+            }
+            if v > 6 {
+                writeln!(err, "Warning: N={v} output may exceed 20 GB and take hours or days.")?;
+            }
+            v as u64
+        }
+        None => prompt_n(reader, out)?,
+    };
+
+    let limit = 10u64.pow(exp as u32);
+    writeln!(out, "Goldbach Pair Finder (Rust)")?;
+    writeln!(out, "{}", "=".repeat(40))?;
+    writeln!(out, "Finding all Goldbach pairs for even n in 4..10^{exp} = {limit}")?;
+    writeln!(out)?;
+    writeln!(out, "Building sieve...")?;
+
+    let sieve = build_sieve(limit);
+
+    let path = dir.join(format!("goldbach_1e{exp}.txt"));
+    writeln!(out, "Writing pairs to {}...", path.display())?;
+
+    let file = std::fs::File::create(&path)?;
+    let mut writer = BufWriter::new(file);
+    let count = goldbach_pairs(limit, &sieve, &mut writer)?;
+    writer.flush()?;
+
+    writeln!(out)?;
+    writeln!(out, "Found {count} pairs. Saved to {}", path.display())?;
     Ok(0)
 }
 
@@ -200,8 +251,42 @@ mod tests {
         assert_eq!(count, line_count);
     }
 
+    struct FailWriter;
+    impl Write for FailWriter {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(io::Error::other("injected write failure"))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    // --- run ---
     #[test]
-    fn test_stub_compiles() {
+    fn test_run_n0_returns_1() {
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut err_buf = Vec::new();
+        let mut reader = Cursor::new("");
+        let code = run(Cli { exponent: Some(0) }, &mut reader, &mut out, &mut err_buf, dir.path())
+            .unwrap();
+        assert_eq!(code, 1);
+        assert!(String::from_utf8_lossy(&err_buf).contains("between 1 and 8"));
+    }
+
+    #[test]
+    fn test_run_n9_returns_1() {
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut err_buf = Vec::new();
+        let mut reader = Cursor::new("");
+        let code = run(Cli { exponent: Some(9) }, &mut reader, &mut out, &mut err_buf, dir.path())
+            .unwrap();
+        assert_eq!(code, 1);
+    }
+
+    #[test]
+    fn test_run_n1_creates_file() {
         let dir = tempdir().unwrap();
         let mut out = Vec::new();
         let mut err_buf = Vec::new();
@@ -209,5 +294,71 @@ mod tests {
         let code = run(Cli { exponent: Some(1) }, &mut reader, &mut out, &mut err_buf, dir.path())
             .unwrap();
         assert_eq!(code, 0);
+        let path = dir.path().join("goldbach_1e1.txt");
+        assert!(path.exists());
+        let content = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = content.trim().lines().collect();
+        assert_eq!(lines.len(), 5);
+        assert_eq!(lines[0], "4 2 2");
+        assert_eq!(lines[4], "10 5 5");
+    }
+
+    #[test]
+    fn test_run_n2_last_line() {
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut err_buf = Vec::new();
+        let mut reader = Cursor::new("");
+        let code = run(Cli { exponent: Some(2) }, &mut reader, &mut out, &mut err_buf, dir.path())
+            .unwrap();
+        assert_eq!(code, 0);
+        let path = dir.path().join("goldbach_1e2.txt");
+        let content = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = content.trim().lines().collect();
+        assert!(lines.len() > 5);
+        assert_eq!(*lines.last().unwrap(), "100 47 53");
+    }
+
+    #[test]
+    fn test_run_no_arg_prompts() {
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut err_buf = Vec::new();
+        let mut reader = Cursor::new("1\n");
+        let code =
+            run(Cli { exponent: None }, &mut reader, &mut out, &mut err_buf, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        assert!(String::from_utf8_lossy(&out).contains("Enter N"));
+    }
+
+    #[test]
+    fn test_run_invalid_stdin_prompt() {
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut err_buf = Vec::new();
+        let mut reader = Cursor::new("0\nabc\n2\n");
+        let code =
+            run(Cli { exponent: None }, &mut reader, &mut out, &mut err_buf, dir.path()).unwrap();
+        assert_eq!(code, 0);
+    }
+
+    #[test]
+    fn test_run_err_on_stdout_failure() {
+        let dir = tempdir().unwrap();
+        let mut err_buf = Vec::new();
+        let mut reader = Cursor::new("");
+        let result =
+            run(Cli { exponent: Some(1) }, &mut reader, &mut FailWriter, &mut err_buf, dir.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_run_err_on_stderr_failure() {
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut reader = Cursor::new("");
+        let result =
+            run(Cli { exponent: Some(0) }, &mut reader, &mut out, &mut FailWriter, dir.path());
+        assert!(result.is_err());
     }
 }
