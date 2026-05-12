@@ -14,6 +14,8 @@
 [![factorial-rs](https://github.com/brujack/math/actions/workflows/factorial-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/factorial-rs.yml)
 [![perfect-numbers-py](https://github.com/brujack/math/actions/workflows/perfect-numbers-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/perfect-numbers-py.yml)
 [![perfect-numbers-rs](https://github.com/brujack/math/actions/workflows/perfect-numbers-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/perfect-numbers-rs.yml)
+[![collatz-py](https://github.com/brujack/math/actions/workflows/collatz-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/collatz-py.yml)
+[![collatz-rs](https://github.com/brujack/math/actions/workflows/collatz-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/collatz-rs.yml)
 [![scripts](https://github.com/brujack/math/actions/workflows/scripts.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/scripts.yml)
 
 High-performance mathematical computation tools.
@@ -28,6 +30,7 @@ High-performance mathematical computation tools.
 | [`e/`](e/README.md)                             | Calculate e to N decimal places                               | Python + Rust  | [![e.py](https://github.com/brujack/math/actions/workflows/e-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/e-py.yml) [![e-rs](https://github.com/brujack/math/actions/workflows/e-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/e-rs.yml)                                                                                     |
 | [`factorial/`](factorial/README.md)             | Compute N! to arbitrary precision (prime swing algorithm)     | Python + Rust  | [![factorial-py](https://github.com/brujack/math/actions/workflows/factorial-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/factorial-py.yml) [![factorial-rs](https://github.com/brujack/math/actions/workflows/factorial-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/factorial-rs.yml)                                     |
 | [`perfect-numbers/`](perfect-numbers/README.md) | Find all perfect numbers up to 10^N (Lucas-Lehmer + sigma)    | Python + Rust  | [![perfect-numbers-py](https://github.com/brujack/math/actions/workflows/perfect-numbers-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/perfect-numbers-py.yml) [![perfect-numbers-rs](https://github.com/brujack/math/actions/workflows/perfect-numbers-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/perfect-numbers-rs.yml) |
+| [`collatz/`](collatz/README.md) | Find Collatz chain record-setters up to 10^N | Python + Rust | [![collatz-py](https://github.com/brujack/math/actions/workflows/collatz-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/collatz-py.yml) [![collatz-rs](https://github.com/brujack/math/actions/workflows/collatz-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/collatz-rs.yml) |
 
 ---
 
@@ -154,6 +157,17 @@ make perfect-numbers  # cargo build --release
 make lint             # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
 make test             # lint, then cargo test
 ```
+
+---
+
+## collatz
+
+Finds Collatz chain record-setters up to 10^N using vector memoization.
+
+- Python implementation (`collatz/collatz.py`) — stdlib only, practical for N≤7
+- Rust implementation (`collatz/collatz-rs/`) — `Vec<u32>` memoization, handles N≤9 comfortably
+
+See [`collatz/README.md`](collatz/README.md) for full details.
 
 ---
 
