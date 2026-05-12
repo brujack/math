@@ -1,0 +1,30 @@
+name: collatz.py
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - "collatz/*.py"
+      - "collatz/install_deps.sh"
+      - "collatz/Makefile"
+      - ".github/workflows/collatz-py.yml"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    name: Test collatz.py
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: collatz
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Python dependencies
+        run: pip install ruff coverage
+
+      - name: Run tests
+        run: make test
