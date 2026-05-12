@@ -10,5 +10,29 @@ Run without arguments for an interactive prompt, or supply N directly:
 """
 
 
+def collatz_next(n: int) -> int:
+    return n // 2 if n % 2 == 0 else 3 * n + 1
+
+
+def collatz_length(n: int) -> int:
+    pass
+
+
+def generate_records(N: int) -> dict:
+    pass
+
+
+def get_exponent() -> int:
+    pass
+
+
+def parse_args():
+    pass
+
+
+def main():
+    pass
+
+
 if __name__ == "__main__":
     pass
