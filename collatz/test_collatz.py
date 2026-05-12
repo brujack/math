@@ -1,7 +1,7 @@
 import array
 import unittest
 
-from collatz import collatz_length, collatz_next
+from collatz import collatz_length, collatz_next, generate_records
 
 
 class TestCollatzNext(unittest.TestCase):
@@ -44,6 +44,27 @@ class TestCollatzLength(unittest.TestCase):
         # They count toward chain length but are not stored in cache.
         cache = self._make_cache(6)   # indices 0..5, limit = 5
         self.assertEqual(collatz_length(3, cache), 7)
+
+
+class TestGenerateRecords(unittest.TestCase):
+    def test_limit_1_yields_one_record(self):
+        self.assertEqual(list(generate_records(1)), [(1, 0)])
+
+    def test_limit_10_known_records(self):
+        self.assertEqual(
+            list(generate_records(10)),
+            [(1, 0), (2, 1), (3, 7), (6, 8), (7, 16), (9, 19)],
+        )
+
+    def test_ascending_n_order(self):
+        records = list(generate_records(10))
+        ns = [r[0] for r in records]
+        self.assertEqual(ns, sorted(ns))
+
+    def test_ascending_length_order(self):
+        records = list(generate_records(10))
+        lengths = [r[1] for r in records]
+        self.assertEqual(lengths, sorted(lengths))
 
 
 if __name__ == "__main__":

@@ -36,8 +36,19 @@ def collatz_length(n: int, cache: array.array) -> int:
     return cache[n] - 1
 
 
-def generate_records(N: int) -> dict:
-    pass
+def generate_records(limit: int):
+    """Yield (n, chain_length) for each record-setter in 1..limit.
+
+    Allocates array.array('I', ...) of size limit+1 (4 bytes per entry).
+    """
+    cache: array.array = array.array("I", [0] * (limit + 1))
+    cache[1] = 1
+    max_len = -1
+    for n in range(1, limit + 1):
+        length = collatz_length(n, cache)
+        if length > max_len:
+            max_len = length
+            yield n, length
 
 
 def get_exponent() -> int:
