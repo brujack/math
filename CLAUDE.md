@@ -18,6 +18,7 @@ High-performance mathematical computation tools.
 | [`perfect-numbers/`](perfect-numbers/) | Python + Rust | Find all perfect numbers up to 10^N (Lucas-Lehmer + sigma)        | [`perfect-numbers/CLAUDE.md`](perfect-numbers/CLAUDE.md)                       |
 | [`collatz/`](collatz/)                 | Python + Rust | Find Collatz chain record-setters up to 10^N (vector memoization) | [`collatz/CLAUDE.md`](collatz/CLAUDE.md)                                       |
 | [`goldbach/`](goldbach/)               | Rust          | Find all Goldbach pairs for even n up to 10^N (bitset sieve)      | [`goldbach/CLAUDE.md`](goldbach/CLAUDE.md)                                     |
+| [`amicable/`](amicable/)               | Python + Rust | Find all amicable pairs (a,b) with b ≤ 10^N (proper-divisor sum sieve) | [`amicable/CLAUDE.md`](amicable/CLAUDE.md)                                |
 
 ## Architectural Decision Records
 
@@ -52,6 +53,8 @@ Each project has its own installer:
 | `collatz/install_deps.sh`                            | `ruff`, `coverage`                                |
 | `collatz/collatz-rs/install_deps.sh`                 | Rust toolchain, `cargo-tarpaulin`                 |
 | `goldbach/goldbach-rs/install_deps.sh`               | Rust toolchain, `cargo-tarpaulin`                 |
+| `amicable/install_deps.sh`                           | `ruff`, `coverage`                                |
+| `amicable/amicable-rs/install_deps.sh`               | Rust toolchain, `cargo-tarpaulin`                 |
 
 ## Quick Reference
 
@@ -221,6 +224,25 @@ make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnin
 make test      # lint, then cargo test
 ```
 
+### Python (`amicable/`)
+
+```bash
+cd amicable
+make run       # python3 amicable.py
+make lint      # ruff check .
+make test      # lint, then python3 -m unittest test_amicable -v
+make coverage  # coverage run + report
+```
+
+### Rust (`amicable/amicable-rs/`)
+
+```bash
+cd amicable/amicable-rs
+make amicable  # cargo build --release
+make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
+make test      # lint, then cargo test
+```
+
 ### Rust lint/test wrapper (`scripts/rust-check.sh`)
 
 All Rust crate `make lint` and `make test` targets call `scripts/rust-check.sh` to enforce consistent cargo behavior in local checkouts and worktrees.
@@ -285,7 +307,7 @@ Apply fix 1 (`#[cfg(not(tarpaulin_include))]` on `fn main()`) to every new Rust 
 
 ## CI
 
-Twenty-six workflow files. Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail.
+Twenty-eight workflow files. Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail.
 
 | Workflow               | File                                           | Jobs                                                                                            |
 | ---------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------- |
@@ -311,6 +333,8 @@ Twenty-six workflow files. Project workflows run on PRs to `master` only — the
 | collatz.py             | `.github/workflows/collatz-py.yml`             | test                                                                                            |
 | collatz-rs             | `.github/workflows/collatz-rs.yml`             | test → build + artifact                                                                         |
 | goldbach-rs            | `.github/workflows/goldbach-rs.yml`            | test → build + artifact                                                                         |
+| amicable.py            | `.github/workflows/amicable-py.yml`            | test                                                                                            |
+| amicable-rs            | `.github/workflows/amicable-rs.yml`            | test → build + artifact                                                                         |
 | auto-merge             | `.github/workflows/auto-merge.yml`             | secret-scan → ci-gate (polls required checks, merges on pass) → snyk-scan (advisory, not gated) |
 | scripts                | `.github/workflows/scripts.yml`                | test (bats --recursive tests/)                                                                  |
 

@@ -17,6 +17,8 @@
 [![collatz-py](https://github.com/brujack/math/actions/workflows/collatz-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/collatz-py.yml)
 [![collatz-rs](https://github.com/brujack/math/actions/workflows/collatz-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/collatz-rs.yml)
 [![goldbach-rs](https://github.com/brujack/math/actions/workflows/goldbach-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/goldbach-rs.yml)
+[![amicable.py](https://github.com/brujack/math/actions/workflows/amicable-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/amicable-py.yml)
+[![amicable-rs](https://github.com/brujack/math/actions/workflows/amicable-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/amicable-rs.yml)
 [![scripts](https://github.com/brujack/math/actions/workflows/scripts.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/scripts.yml)
 
 High-performance mathematical computation tools.
@@ -33,6 +35,7 @@ High-performance mathematical computation tools.
 | [`perfect-numbers/`](perfect-numbers/README.md) | Find all perfect numbers up to 10^N (Lucas-Lehmer + sigma)    | Python + Rust  | [![perfect-numbers-py](https://github.com/brujack/math/actions/workflows/perfect-numbers-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/perfect-numbers-py.yml) [![perfect-numbers-rs](https://github.com/brujack/math/actions/workflows/perfect-numbers-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/perfect-numbers-rs.yml) |
 | [`collatz/`](collatz/README.md)                 | Find Collatz chain record-setters up to 10^N                  | Python + Rust  | [![collatz-py](https://github.com/brujack/math/actions/workflows/collatz-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/collatz-py.yml) [![collatz-rs](https://github.com/brujack/math/actions/workflows/collatz-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/collatz-rs.yml)                                                 |
 | [`goldbach/`](goldbach/README.md)               | Find all Goldbach pairs for even numbers up to 10^N           | Rust           | [![goldbach-rs](https://github.com/brujack/math/actions/workflows/goldbach-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/goldbach-rs.yml)                                                                                                                                                                                                                               |
+| [`amicable/`](amicable/README.md)               | Find all amicable pairs (a,b) with b ≤ 10^N (proper-divisor sum sieve) | Python + Rust  | [![amicable.py](https://github.com/brujack/math/actions/workflows/amicable-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/amicable-py.yml) [![amicable-rs](https://github.com/brujack/math/actions/workflows/amicable-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/amicable-rs.yml)                                           |
 
 ---
 
