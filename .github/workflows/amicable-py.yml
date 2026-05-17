@@ -1,0 +1,22 @@
+name: amicable.py
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - "amicable/**"
+      - ".github/workflows/amicable-py.yml"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: pip install ruff coverage
+      - run: make test
+        working-directory: amicable
+      - run: make coverage
+        working-directory: amicable
