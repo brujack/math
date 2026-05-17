@@ -1,4 +1,4 @@
-.PHONY: amicable lint test clean
+.PHONY: amicable lint test mutants clean
 
 amicable:
 	cargo build --release
@@ -8,6 +8,9 @@ lint:
 
 test:
 	../../scripts/rust-check.sh test
+
+mutants:
+	cargo mutants --timeout 120 --no-shuffle
 
 clean:
 	cargo clean
