@@ -469,3 +469,16 @@ The sub-project files (`pi/CLAUDE.md`, `prime/CLAUDE.md`, `fib/CLAUDE.md`, `sq/C
 
 - Generated output files (`pi_*_digits.txt`, `primes_1e*.txt`, `twin-primes_1e*.txt`, `e_*_digits.txt`, `factorial_*.txt`) are large artifacts — do not commit them.
 - See each project's `CLAUDE.md` for detailed implementation guidance, code layout, and editing rules.
+
+## Definition of Done
+
+A PR or direct master commit is complete when **all** of the following are true:
+
+- [ ] `make test` passes for each modified CLI (Python + Rust separately)
+- [ ] Python coverage ≥90% (`make coverage` in the CLI directory)
+- [ ] Rust coverage ≥90% on Linux CI — verify from CI output (`gh run view --repo brujack/math <id> --log | grep Coverage`)
+- [ ] BATS failure-mode tests added/updated for any new or modified CLI
+- [ ] `pr-review` skill PASS verdict obtained before push
+- [ ] Plan index updated (`docs/superpowers/README.md`) if this PR implements a tracked spec
+- [ ] Root `README.md` CLI table updated if a new CLI was added
+- [ ] Learning analysis complete (session-end or post-merge)
