@@ -1,0 +1,41 @@
+name: cargo-audit
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - ".github/workflows/cargo-audit.yml"
+  schedule:
+    # Weekly run catches newly-published advisories against existing lockfiles
+    - cron: "0 6 * * 1"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  audit:
+    name: Audit Rust crates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Audit each Rust crate
+        run: |
+          set -e
+          failed=0
+          for cargo_toml in $(find . -name Cargo.toml -not -path '*/target/*' -not -path '*/.cache/*'); do
+            crate_dir=$(dirname "${cargo_toml}")
+            printf "\n=== Auditing %s ===\n" "${crate_dir}"
+            (cd "${crate_dir}" && cargo audit) || failed=1
+          done
+          exit "${failed}"

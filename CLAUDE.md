@@ -245,6 +245,17 @@ Where to add tests:
 - Rust tests: add to the `#[cfg(test)] mod tests` block in `src/main.rs`, run with `make test`
 - Coverage tools: `make coverage` (Python), `cargo tarpaulin` (Rust)
 
+### Mutation testing (Rust)
+
+For a mathematical library, **correctness is the primary quality metric** — coverage % is necessary but not sufficient. Mutation testing measures whether tests actually catch behavior changes by making small code mutations (flipping operators, changing constants) and verifying the test suite catches them.
+
+- **Tool:** `cargo-mutants` (install: `cargo install cargo-mutants --locked`)
+- **Per-crate:** `make mutants` in any Rust crate directory
+- **CI:** `.github/workflows/mutation-testing.yml` runs monthly (`cron: "0 4 1 * *"`) and on-demand via `workflow_dispatch`
+- **Interpretation:** A "surviving mutant" means a code change went undetected by tests — strengthen the test to kill it. 100% kill rate is the goal but rarely achievable; >80% is good for math code.
+
+When adding a new Rust crate, include `mutants` in its `Makefile` `.PHONY` list and target. Periodically run mutation testing per crate; investigate any surviving mutants in `lib/`-style code (logic, not main glue).
+
 **Coverage floor: ≥90% line coverage is required for all Rust crates.** This is enforced in CI — each Rust workflow runs `cargo tarpaulin --fail-under 90` in the `test` job after `make test`. A PR that drops any crate below 90% will fail CI and cannot auto-merge. The pre-push hook does not check coverage locally (too slow); CI is the gate.
 
 **Linux vs macOS tarpaulin divergence.** Linux ptrace tarpaulin (used in CI) counts more lines as coverable than macOS tarpaulin (used locally). Two patterns that inflate the Linux denominator:
