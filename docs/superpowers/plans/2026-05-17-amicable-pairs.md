@@ -1,5 +1,7 @@
 # Amicable Pairs Implementation Plan
 
+> **Status: DONE**
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement a Python + Rust CLI that finds all amicable pairs (a, b) with a < b and b ≤ 10^N using a proper-divisor sum sieve (O(N log N) time, O(N) space).
