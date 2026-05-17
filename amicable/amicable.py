@@ -39,19 +39,45 @@ def find_amicable_pairs(limit: int):
             yield a, b
 
 
+def parse_args(argv=None) -> argparse.Namespace:
+    """
+    Parse command-line arguments.
+
+    Returns an argparse.Namespace with N attribute (int or None).
+    """
+    parser = argparse.ArgumentParser(
+        description="Find all amicable pairs with b <= 10^N"
+    )
+    parser.add_argument("N", nargs="?", type=int, help="exponent (limit = 10^N)")
+    return parser.parse_args(argv)
+
+
+def get_exponent(args: argparse.Namespace) -> int:
+    """
+    Get and validate the exponent N from args.
+
+    If args.N is None, prompt interactively. Validate that 1 <= N <= 7.
+    Exit with code 1 if validation fails.
+
+    Returns the validated exponent.
+    """
+    n = args.N
+    if n is None:
+        try:
+            n = int(input("Enter exponent N (limit = 10^N, max 7): "))
+        except (ValueError, EOFError):
+            print("Invalid input.", file=sys.stderr)
+            sys.exit(1)
+    if n < 1 or n > 7:
+        print(f"N must be between 1 and 7, got {n}.", file=sys.stderr)
+        sys.exit(1)
+    return n
+
+
 def main() -> None:
     """Main entry point."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("n", nargs="?", type=int, help="Find amicable pairs up to 10^N")
-    args = parser.parse_args()
-
-    if args.n is None:
-        try:
-            _n = int(input("Enter N (find pairs up to 10^N): "))
-        except (ValueError, EOFError):
-            sys.exit(1)
-    else:
-        _n = args.n
+    args = parse_args()
+    _n = get_exponent(args)
     # TODO: use _n to compute amicable pairs
 
 

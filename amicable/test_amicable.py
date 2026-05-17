@@ -1,6 +1,11 @@
 import unittest
 
-from amicable import find_amicable_pairs, proper_divisor_sum_sieve
+from amicable import (
+    find_amicable_pairs,
+    get_exponent,
+    parse_args,
+    proper_divisor_sum_sieve,
+)
 
 
 class TestProperDivisorSumSieve(unittest.TestCase):
@@ -59,6 +64,47 @@ class TestFindAmicablePairs(unittest.TestCase):
             [(220, 284), (1184, 1210), (2620, 2924), (5020, 5564), (6232, 6368)],
         )
         self.assertEqual(pairs, sorted(pairs))
+
+
+class TestParseArgs(unittest.TestCase):
+    def test_with_n(self):
+        args = parse_args(["3"])
+        self.assertEqual(args.N, 3)
+
+    def test_without_n(self):
+        args = parse_args([])
+        self.assertIsNone(args.N)
+
+
+class TestGetExponent(unittest.TestCase):
+    def test_valid_min(self):
+        args = parse_args(["1"])
+        self.assertEqual(get_exponent(args), 1)
+
+    def test_valid_max(self):
+        args = parse_args(["7"])
+        self.assertEqual(get_exponent(args), 7)
+
+    def test_zero_exits(self):
+        args = parse_args(["0"])
+        with self.assertRaises(SystemExit):
+            get_exponent(args)
+
+    def test_too_large_exits(self):
+        args = parse_args(["8"])
+        with self.assertRaises(SystemExit):
+            get_exponent(args)
+
+    def test_negative_exits(self):
+        args = parse_args(["-1"])
+        with self.assertRaises(SystemExit):
+            get_exponent(args)
+
+    def test_interactive_prompt(self):
+        import unittest.mock
+        args = parse_args([])
+        with unittest.mock.patch("builtins.input", return_value="3"):
+            self.assertEqual(get_exponent(args), 3)
 
 
 if __name__ == "__main__":
