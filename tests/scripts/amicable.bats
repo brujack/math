@@ -33,28 +33,35 @@ setup() {
 }
 
 # ── Rust CLI ──────────────────────────────────────────────────────────────────
+# Rust tests require the release binary. Skip gracefully when not built
+# (scripts.yml runs BATS without building Rust crates).
 
 @test "rust: missing argument exits non-zero" {
+    [[ -x "${RUST_BIN}" ]] || skip "Rust binary not built"
     run "${RUST_BIN}"
     [ "${status}" -ne 0 ]
 }
 
 @test "rust: N=0 exits non-zero" {
+    [[ -x "${RUST_BIN}" ]] || skip "Rust binary not built"
     run "${RUST_BIN}" 0
     [ "${status}" -ne 0 ]
 }
 
 @test "rust: N=9 exits non-zero (exceeds max)" {
+    [[ -x "${RUST_BIN}" ]] || skip "Rust binary not built"
     run "${RUST_BIN}" 9
     [ "${status}" -ne 0 ]
 }
 
 @test "rust: non-integer argument exits non-zero" {
+    [[ -x "${RUST_BIN}" ]] || skip "Rust binary not built"
     run "${RUST_BIN}" abc
     [ "${status}" -ne 0 ]
 }
 
 @test "rust: N=3 produces exactly one pair" {
+    [[ -x "${RUST_BIN}" ]] || skip "Rust binary not built"
     tmp=$(mktemp -d)
     run bash -c "cd '${tmp}' && '${RUST_BIN}' 3"
     [ "${status}" -eq 0 ]
