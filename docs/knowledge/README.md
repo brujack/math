@@ -47,6 +47,6 @@ Reference sheets for algorithms, library choices, or cross-cutting patterns that
 
 Add a row to this table when you create a file:
 
-| File         | Category | Contents |
-| ------------ | -------- | -------- |
-| _(none yet)_ | —        | —        |
+| File                                                         | Category      | Contents                                                 |
+| ------------------------------------------------------------ | ------------- | -------------------------------------------------------- |
+| [retrospectives/2026-05-17.md](retrospectives/2026-05-17.md) | Retrospective | 30-day review: coverage push + 5 new CLI velocity sprint |

@@ -41,10 +41,7 @@ fn small_sieve(limit: u64) -> Vec<u64> {
         }
         i += 1;
     }
-    (2..=n)
-        .filter(|&i| !composite[i])
-        .map(|i| i as u64)
-        .collect()
+    (2..=n).filter(|&i| !composite[i]).map(|i| i as u64).collect()
 }
 
 fn fmt_int(n: u64) -> String {
@@ -185,12 +182,7 @@ fn run<W: Write, E: Write>(digits: u32, out: &mut W, err: &mut E, dir: &Path) ->
     let count = find_twin_primes(limit, &mut writer)?;
     writer.flush()?;
 
-    writeln!(
-        out,
-        "Found {} twin prime pairs up to 10^{}",
-        fmt_int(count),
-        digits
-    )?;
+    writeln!(out, "Found {} twin prime pairs up to 10^{}", fmt_int(count), digits)?;
     writeln!(out, "Saved to {}", path.display())?;
 
     Ok(0)
@@ -471,10 +463,7 @@ mod tests {
         run(1, &mut out, &mut err, dir.path()).unwrap();
         let stdout = String::from_utf8(out).unwrap();
         assert!(stdout.contains("Twin Prime Sieve"), "stdout: {stdout}");
-        assert!(
-            stdout.contains("Found 2 twin prime pairs"),
-            "stdout: {stdout}"
-        );
+        assert!(stdout.contains("Found 2 twin prime pairs"), "stdout: {stdout}");
     }
 
     #[test]

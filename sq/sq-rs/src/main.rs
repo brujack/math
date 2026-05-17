@@ -53,10 +53,7 @@ fn prompt_exponent_with<R: BufRead, W: Write, E: Write>(
     err: &mut E,
 ) -> io::Result<u32> {
     loop {
-        write!(
-            out,
-            "Enter N (finds all perfect squares with up to 10^N digits, max 1): "
-        )?;
+        write!(out, "Enter N (finds all perfect squares with up to 10^N digits, max 1): ")?;
         out.flush()?;
         match read_line_from(reader)?.parse::<u32>() {
             Ok(1) => return Ok(1),
@@ -106,18 +103,9 @@ fn run<R: BufRead, W: Write, E: Write>(
 
     let path = write_squares_file(dir, exponent, &buf)?;
 
-    writeln!(
-        out,
-        "\nFound {} perfect squares with up to 10^{} digits",
-        fmt_int(count),
-        exponent
-    )?;
+    writeln!(out, "\nFound {} perfect squares with up to 10^{} digits", fmt_int(count), exponent)?;
     writeln!(out, "Saved to {}", path.display())?;
-    write!(
-        out,
-        "Also display all {} perfect squares? (y/n): ",
-        fmt_int(count)
-    )?;
+    write!(out, "Also display all {} perfect squares? (y/n): ", fmt_int(count))?;
     out.flush()?;
     if matches!(read_line_from(reader)?.as_str(), "y" | "yes") {
         out.write_all(&buf)?;
@@ -238,10 +226,8 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
         generate_squares(3, &mut buf).unwrap();
         let output = String::from_utf8(buf).unwrap();
-        let nums: Vec<u64> = output
-            .lines()
-            .map(|l| l.split(" | ").next().unwrap().parse().unwrap())
-            .collect();
+        let nums: Vec<u64> =
+            output.lines().map(|l| l.split(" | ").next().unwrap().parse().unwrap()).collect();
         for i in 1..nums.len() {
             assert!(nums[i] > nums[i - 1]);
         }
@@ -355,9 +341,7 @@ mod tests {
         let mut err: Vec<u8> = Vec::new();
         let n = prompt_exponent_with(&mut input, &mut out, &mut err).unwrap();
         assert_eq!(n, 1);
-        assert!(String::from_utf8(err)
-            .unwrap()
-            .contains("Please enter a positive integer."));
+        assert!(String::from_utf8(err).unwrap().contains("Please enter a positive integer."));
     }
 
     #[test]
@@ -367,9 +351,7 @@ mod tests {
         let mut err: Vec<u8> = Vec::new();
         let n = prompt_exponent_with(&mut input, &mut out, &mut err).unwrap();
         assert_eq!(n, 1);
-        assert!(String::from_utf8(err)
-            .unwrap()
-            .contains("Please enter a positive integer."));
+        assert!(String::from_utf8(err).unwrap().contains("Please enter a positive integer."));
     }
 
     // --- write_squares_file ---
@@ -433,9 +415,7 @@ mod tests {
         let mut err: Vec<u8> = Vec::new();
         let code = run(cli, &mut input, &mut out, &mut err, dir.path()).unwrap();
         assert_eq!(code, 1);
-        assert!(String::from_utf8(err)
-            .unwrap()
-            .contains("Error: N must be 1."));
+        assert!(String::from_utf8(err).unwrap().contains("Error: N must be 1."));
         assert!(!dir.path().join("sq_1e0.txt").exists());
     }
 
@@ -448,9 +428,7 @@ mod tests {
         let mut err: Vec<u8> = Vec::new();
         let code = run(cli, &mut input, &mut out, &mut err, dir.path()).unwrap();
         assert_eq!(code, 1);
-        assert!(String::from_utf8(err)
-            .unwrap()
-            .contains("Error: N must be 1."));
+        assert!(String::from_utf8(err).unwrap().contains("Error: N must be 1."));
     }
 
     #[test]

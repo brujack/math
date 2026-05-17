@@ -84,10 +84,7 @@ fn small_sieve(limit: u64) -> Vec<u64> {
         }
         i += 1;
     }
-    (2..=n)
-        .filter(|&i| !composite[i])
-        .map(|i| i as u64)
-        .collect()
+    (2..=n).filter(|&i| !composite[i]).map(|i| i as u64).collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -151,11 +148,7 @@ fn sieve_segment(lo: u64, limit: u64, small_primes: &[u64]) -> Vec<u64> {
 /// Pure formatter for the phase-2 progress line (allows unit testing of format).
 fn format_phase2_progress(n: u64, phase2_total: u64, elapsed: f64) -> String {
     let pct = n * 100 / phase2_total.max(1);
-    let rate = if elapsed > 0.001 {
-        n as f64 / elapsed / 1e6
-    } else {
-        0.0
-    };
+    let rate = if elapsed > 0.001 { n as f64 / elapsed / 1e6 } else { 0.0 };
     format!(
         "\r  Phase 2: {:3}%  ({} / {} numbers sieved)  {:.1} M/s   ",
         pct,
@@ -232,10 +225,8 @@ fn find_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
         .collect();
 
         // Sieve all segments in this block in parallel.
-        let batch: Vec<Vec<u64>> = seg_starts
-            .par_iter()
-            .map(|&lo| sieve_segment(lo, block_hi, &small_primes))
-            .collect();
+        let batch: Vec<Vec<u64>> =
+            seg_starts.par_iter().map(|&lo| sieve_segment(lo, block_hi, &small_primes)).collect();
 
         // Stream this block's primes to output.
         for seg_primes in batch {
@@ -258,11 +249,7 @@ fn find_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
     progress_thread.join().unwrap();
 
     let elapsed2 = t2.elapsed().as_secs_f64();
-    let rate2 = if elapsed2 > 0.001 {
-        phase2_total as f64 / elapsed2 / 1e6
-    } else {
-        0.0
-    };
+    let rate2 = if elapsed2 > 0.001 { phase2_total as f64 / elapsed2 / 1e6 } else { 0.0 };
     eprintln!(
         "\r  Phase 2: 100%  ({} numbers sieved)  {:.1} M/s              ",
         fmt_int(phase2_total),
@@ -361,12 +348,7 @@ fn run<R: BufRead, W: Write, E: Write>(
         return Ok(0);
     }
 
-    writeln!(
-        out,
-        "Finding all primes up to 10^{} = {}",
-        digits,
-        fmt_int(limit)
-    )?;
+    writeln!(out, "Finding all primes up to 10^{} = {}", digits, fmt_int(limit))?;
     writeln!(
         out,
         "Backend: segmented sieve / packed bitset / rayon ({} threads)",

@@ -96,16 +96,10 @@ fn bs(a: u64, b: u64) -> Pq {
 
 fn bs_leaf(a: u64) -> Pq {
     let result = if a == 0 {
-        Pq {
-            p: Integer::from(1u32),
-            q: Integer::from(1u32),
-        }
+        Pq { p: Integer::from(1u32), q: Integer::from(1u32) }
     } else {
         let val = a + 1;
-        Pq {
-            p: Integer::from(val),
-            q: Integer::from(val),
-        }
+        Pq { p: Integer::from(val), q: Integer::from(val) }
     };
 
     BS_LEAF_COUNT.fetch_add(1, Ordering::Relaxed);
@@ -116,10 +110,7 @@ fn bs_leaf(a: u64) -> Pq {
 ///   P(a,b) = P(a,m) × P(m,b)
 ///   Q(a,b) = Q(a,m) × P(m,b) + Q(m,b)
 fn bs_merge(l: Pq, r: Pq) -> Pq {
-    Pq {
-        p: Integer::from(&l.p * &r.p),
-        q: Integer::from(&l.q * &r.p) + &r.q,
-    }
+    Pq { p: Integer::from(&l.p * &r.p), q: Integer::from(&l.q * &r.p) + &r.q }
 }
 
 // ---------------------------------------------------------------------------
@@ -168,10 +159,7 @@ fn compute_e(digits: usize) -> String {
     let pq = bs(0, n);
     series_done.store(true, Ordering::Relaxed);
     series_thread.join().unwrap();
-    eprintln!(
-        "\r  Computing series:  100%  ({} terms)   ",
-        fmt_int(n as usize)
-    );
+    eprintln!("\r  Computing series:  100%  ({} terms)   ", fmt_int(n as usize));
     eprintln!("  Series done in {:.2}s", t0.elapsed().as_secs_f64());
 
     // e = Q / P
@@ -265,28 +253,21 @@ fn write_e_file(dir: &Path, e_str: &str, digits: usize) -> io::Result<PathBuf> {
         let _ = io::stderr().flush();
     });
 
-    e_bytes
-        .par_chunks(chunk_size)
-        .enumerate()
-        .try_for_each(|(i, chunk)| -> io::Result<()> {
-            let base = e_offset + (i * chunk_size) as u64;
-            let mut written = 0;
-            while written < chunk.len() {
-                written += file.write_at(&chunk[written..], base + written as u64)?;
-            }
-            bytes_written.fetch_add(chunk.len() as u64, Ordering::Relaxed);
-            Ok(())
-        })?;
+    e_bytes.par_chunks(chunk_size).enumerate().try_for_each(|(i, chunk)| -> io::Result<()> {
+        let base = e_offset + (i * chunk_size) as u64;
+        let mut written = 0;
+        while written < chunk.len() {
+            written += file.write_at(&chunk[written..], base + written as u64)?;
+        }
+        bytes_written.fetch_add(chunk.len() as u64, Ordering::Relaxed);
+        Ok(())
+    })?;
 
     write_done.store(true, Ordering::Relaxed);
     progress_thread.join().unwrap();
 
     let elapsed = t_write.elapsed().as_secs_f64();
-    let speed = if elapsed > 0.001 {
-        e_total as f64 / elapsed / 1_048_576.0
-    } else {
-        0.0
-    };
+    let speed = if elapsed > 0.001 { e_total as f64 / elapsed / 1_048_576.0 } else { 0.0 };
     eprintln!(
         "\r  Writing: 100%  ({:.1} MB)  {:.1} MB/s              ",
         e_total as f64 / 1_048_576.0,
@@ -314,11 +295,7 @@ fn format_series_progress(completed: u64, n: u64) -> String {
 /// Format the file-write progress status line shown by write_e_file's progress
 /// thread. `elapsed` is wall-clock seconds since write started.
 fn format_write_progress(written: u64, e_total: u64, elapsed: f64) -> String {
-    let speed = if elapsed > 0.001 {
-        written as f64 / elapsed / 1_048_576.0
-    } else {
-        0.0
-    };
+    let speed = if elapsed > 0.001 { written as f64 / elapsed / 1_048_576.0 } else { 0.0 };
     let pct = (written * 100).checked_div(e_total).unwrap_or(100);
     format!(
         "  Writing: {:3}%  ({:.1} / {:.1} MB)  {:.1} MB/s   ",
@@ -414,11 +391,7 @@ fn run<R: BufRead, W: Write, E: Write>(
         None => prompt_digits_with(reader, out, err)?,
     };
 
-    writeln!(
-        out,
-        "Calculating e to {} decimal places...",
-        fmt_int(digits)
-    )?;
+    writeln!(out, "Calculating e to {} decimal places...", fmt_int(digits))?;
     writeln!(
         out,
         "Backend: Taylor / rug+GMP+MPFR / rayon ({} threads)",
@@ -548,10 +521,7 @@ mod tests {
         bs_leaf(0);
         bs_leaf(1);
         let after = BS_LEAF_COUNT.load(Ordering::Relaxed);
-        assert!(
-            after >= before + 2,
-            "expected counter to increase by at least 2"
-        );
+        assert!(after >= before + 2, "expected counter to increase by at least 2");
     }
 
     // --- bs_merge ---
@@ -658,10 +628,7 @@ mod tests {
             "67371132007093287091274437470472306969772093101416",
         );
         let s = compute_e(400);
-        assert_eq!(
-            s, E_400,
-            "compute_e(400) tail digits wrong — check term count formula"
-        );
+        assert_eq!(s, E_400, "compute_e(400) tail digits wrong — check term count formula");
     }
 
     #[test]
@@ -983,9 +950,7 @@ mod tests {
     fn test_run_with_arg_above_10k_auto_saves() {
         // digits > 10_000 takes the auto-save branch (no display prompt).
         let dir = tempdir().unwrap();
-        let cli = Cli {
-            digits: Some(10_001),
-        };
+        let cli = Cli { digits: Some(10_001) };
         let mut reader = &b""[..];
         let mut out = Vec::new();
         let mut err = Vec::new();

@@ -7,21 +7,11 @@ const PI_10: &str = "3.1415926535";
 
 #[test]
 fn cli_arg_zero_exits_one() {
-    let out = Command::new(env!("CARGO_BIN_EXE_pi"))
-        .arg("0")
-        .output()
-        .expect("failed to run binary");
-    assert_ne!(
-        out.status.code().unwrap_or(0),
-        0,
-        "exit code should be non-zero"
-    );
+    let out =
+        Command::new(env!("CARGO_BIN_EXE_pi")).arg("0").output().expect("failed to run binary");
+    assert_ne!(out.status.code().unwrap_or(0), 0, "exit code should be non-zero");
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        stderr.contains("≥ 1") || stderr.contains(">= 1"),
-        "stderr: {}",
-        stderr
-    );
+    assert!(stderr.contains("≥ 1") || stderr.contains(">= 1"), "stderr: {}", stderr);
 }
 
 #[test]
@@ -73,11 +63,7 @@ fn cli_no_arg_prompts_then_saves() {
     let out = child.wait_with_output().unwrap();
     assert_eq!(out.status.code().unwrap_or(1), 0);
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(
-        stdout.contains("decimal places to calculate"),
-        "stdout: {}",
-        stdout
-    );
+    assert!(stdout.contains("decimal places to calculate"), "stdout: {}", stdout);
 }
 
 #[cfg(unix)]

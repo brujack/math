@@ -9,11 +9,7 @@ fn bin() -> &'static str {
 #[test]
 fn cli_arg_zero_exits_one() {
     let dir = tempdir().unwrap();
-    let output = Command::new(bin())
-        .arg("0")
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
+    let output = Command::new(bin()).arg("0").current_dir(dir.path()).output().unwrap();
     assert!(!output.status.success());
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8(output.stderr).unwrap();

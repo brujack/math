@@ -4,15 +4,9 @@ use tempfile::tempdir;
 
 #[test]
 fn cli_arg_zero_exits_one() {
-    let out = Command::new(env!("CARGO_BIN_EXE_prime"))
-        .arg("0")
-        .output()
-        .expect("failed to run binary");
-    assert_ne!(
-        out.status.code().unwrap_or(0),
-        0,
-        "exit code should be non-zero"
-    );
+    let out =
+        Command::new(env!("CARGO_BIN_EXE_prime")).arg("0").output().expect("failed to run binary");
+    assert_ne!(out.status.code().unwrap_or(0), 0, "exit code should be non-zero");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("between 1 and 18"), "stderr: {}", stderr);
 }

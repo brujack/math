@@ -115,11 +115,7 @@ fn bs(a: u64, b: u64) -> Pqt {
 
 fn bs_leaf(a: u64) -> Pqt {
     let result = if a == 0 {
-        Pqt {
-            p: Integer::from(1u32),
-            q: Integer::from(1u32),
-            t: Integer::from(CHU_A),
-        }
+        Pqt { p: Integer::from(1u32), q: Integer::from(1u32), t: Integer::from(CHU_A) }
     } else {
         // P = (6a−5)(2a−1)(6a−1)
         // These factors fit in u64 for all practical a values (a ≤ ~7 M for 100 M digits).
@@ -199,10 +195,7 @@ fn compute_pi(digits: usize) -> String {
     let pqt = bs(0, n);
     series_done.store(true, Ordering::Relaxed);
     series_thread.join().unwrap();
-    eprintln!(
-        "\r  Computing series:  100%  ({} terms)   ",
-        fmt_int(n as usize)
-    );
+    eprintln!("\r  Computing series:  100%  ({} terms)   ", fmt_int(n as usize));
     eprintln!("  Series done in {:.2}s", t0.elapsed().as_secs_f64());
 
     // π = 426_880 × √10_005 × Q / T
@@ -261,11 +254,7 @@ fn pi_to_string(pi: Float, digits: usize) -> String {
 /// Format the file-write progress status line shown by write_pi_file's progress
 /// thread. `elapsed` is wall-clock seconds since write started.
 fn format_write_progress(written: u64, pi_total: u64, elapsed: f64) -> String {
-    let speed = if elapsed > 0.001 {
-        written as f64 / elapsed / 1_048_576.0
-    } else {
-        0.0
-    };
+    let speed = if elapsed > 0.001 { written as f64 / elapsed / 1_048_576.0 } else { 0.0 };
     let pct = (written * 100).checked_div(pi_total).unwrap_or(100);
     format!(
         "  Writing: {:3}%  ({:.1} / {:.1} MB)  {:.1} MB/s   ",
@@ -334,27 +323,21 @@ fn write_pi_file(dir: &Path, pi_str: &str, digits: usize) -> io::Result<PathBuf>
     // π digit bytes: parallel pwrite chunks.
     // File: Sync on Unix (wraps OwnedFd which is Send + Sync). pwrite is
     // thread-safe — it does not move the file pointer. ✓
-    pi.par_chunks(chunk_size)
-        .enumerate()
-        .try_for_each(|(i, chunk)| -> io::Result<()> {
-            let base = pi_offset + (i * chunk_size) as u64;
-            let mut written = 0;
-            while written < chunk.len() {
-                written += file.write_at(&chunk[written..], base + written as u64)?;
-            }
-            bytes_written.fetch_add(chunk.len() as u64, Ordering::Relaxed);
-            Ok(())
-        })?;
+    pi.par_chunks(chunk_size).enumerate().try_for_each(|(i, chunk)| -> io::Result<()> {
+        let base = pi_offset + (i * chunk_size) as u64;
+        let mut written = 0;
+        while written < chunk.len() {
+            written += file.write_at(&chunk[written..], base + written as u64)?;
+        }
+        bytes_written.fetch_add(chunk.len() as u64, Ordering::Relaxed);
+        Ok(())
+    })?;
 
     write_done.store(true, Ordering::Relaxed);
     progress_thread.join().unwrap();
 
     let elapsed = t_write.elapsed().as_secs_f64();
-    let speed = if elapsed > 0.001 {
-        pi_total as f64 / elapsed / 1_048_576.0
-    } else {
-        0.0
-    };
+    let speed = if elapsed > 0.001 { pi_total as f64 / elapsed / 1_048_576.0 } else { 0.0 };
     eprintln!(
         "\r  Writing: 100%  ({:.1} MB)  {:.1} MB/s              ",
         pi_total as f64 / 1_048_576.0,
@@ -598,10 +581,7 @@ mod tests {
         bs_leaf(0);
         bs_leaf(1);
         let after = BS_LEAF_COUNT.load(Ordering::Relaxed);
-        assert!(
-            after >= before + 2,
-            "expected counter to increase by at least 2"
-        );
+        assert!(after >= before + 2, "expected counter to increase by at least 2");
     }
 
     // --- bs_merge ---
@@ -713,11 +693,7 @@ mod tests {
     fn test_format_series_progress_zero_completed() {
         let s = format_series_progress(0, 100);
         assert!(s.contains("  0%"), "should show 0%: {}", s);
-        assert!(
-            s.contains("0 / 100 terms"),
-            "should show term counts: {}",
-            s
-        );
+        assert!(s.contains("0 / 100 terms"), "should show term counts: {}", s);
     }
 
     #[test]
@@ -877,10 +853,7 @@ mod tests {
         let mut r = &input[..];
         let mut out = Vec::<u8>::new();
         let mut err = Vec::<u8>::new();
-        assert_eq!(
-            prompt_digits_with(&mut r, &mut out, &mut err).unwrap(),
-            2_000_001
-        );
+        assert_eq!(prompt_digits_with(&mut r, &mut out, &mut err).unwrap(), 2_000_001);
     }
 
     // --- write_pi_file ---
@@ -994,9 +967,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn test_run_with_arg_above_10k_auto_saves() {
-        let cli = Cli {
-            digits: Some(20_000),
-        };
+        let cli = Cli { digits: Some(20_000) };
         let mut r = &b""[..];
         let mut out = Vec::<u8>::new();
         let mut err = Vec::<u8>::new();
