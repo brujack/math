@@ -15,5 +15,21 @@
         ]
       }
     ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(cargo clippy *)",
+      "Bash(cargo tarpaulin *)",
+      "Bash(cargo test)",
+      "Bash(cargo test *)",
+      "Bash(git check-ignore *)",
+      "Bash(git fetch *)",
+      "Bash(make coverage)",
+      "Bash(make test)",
+      "Bash(make test-hooks)",
+      "mcp__plugin_context-mode_context-mode__ctx_batch_execute",
+      "mcp__plugin_context-mode_context-mode__ctx_execute",
+      "mcp__plugin_context-mode_context-mode__ctx_fetch_and_index"
+    ]
   }
 }
