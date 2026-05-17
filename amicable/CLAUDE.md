@@ -23,6 +23,12 @@ make coverage  # coverage run + report
 - `get_exponent(args)` — validates N in [1,7]; interactive prompt if None
 - `main()` — entry point; writes to stdout and amicable_1eN.txt
 
+## Important Behavior
+
+- **Valid N range:** Python 1–7; Rust allows N up to 8. Python exits with an error for N>7 because the sieve at N=8 (100M entries) is marginal in pure Python (~800MB list overhead). Rust handles N=8 comfortably (~400MB Vec<u32>).
+- **Output file:** `amicable_1eN.txt` — one pair per line, `a b` format.
+- **No pairs for N≤2:** The smallest pair is (220, 284), so b=284 > 10^2=100.
+
 ## Testing
 
 ≥90% line coverage required. Run `make coverage` to check.
