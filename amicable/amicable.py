@@ -77,8 +77,18 @@ def get_exponent(args: argparse.Namespace) -> int:
 def main() -> None:
     """Main entry point."""
     args = parse_args()
-    _n = get_exponent(args)
-    # TODO: use _n to compute amicable pairs
+    n = get_exponent(args)
+    limit = 10 ** n
+    filename = f"amicable_1e{n}.txt"
+    try:
+        with open(filename, "w") as f:
+            for a, b in find_amicable_pairs(limit):
+                line = f"{a} {b}"
+                print(line)
+                f.write(line + "\n")
+    except PermissionError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

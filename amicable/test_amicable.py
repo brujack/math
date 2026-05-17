@@ -1,8 +1,13 @@
+import io
+import os
+import tempfile
 import unittest
+import unittest.mock
 
 from amicable import (
     find_amicable_pairs,
     get_exponent,
+    main,
     parse_args,
     proper_divisor_sum_sieve,
 )
@@ -101,10 +106,46 @@ class TestGetExponent(unittest.TestCase):
             get_exponent(args)
 
     def test_interactive_prompt(self):
-        import unittest.mock
         args = parse_args([])
         with unittest.mock.patch("builtins.input", return_value="3"):
             self.assertEqual(get_exponent(args), 3)
+
+
+class TestMain(unittest.TestCase):
+    def test_n3_writes_file_and_stdout(self):
+        with tempfile.TemporaryDirectory() as d:
+            old = os.getcwd()
+            os.chdir(d)
+            try:
+                with unittest.mock.patch("sys.argv", ["amicable.py", "3"]):
+                    with unittest.mock.patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                        main()
+                        output = mock_out.getvalue()
+                self.assertIn("220 284", output)
+                with open("amicable_1e3.txt") as f:
+                    self.assertEqual(f.read(), "220 284\n")
+            finally:
+                os.chdir(old)
+
+    def test_n1_empty_output(self):
+        with tempfile.TemporaryDirectory() as d:
+            old = os.getcwd()
+            os.chdir(d)
+            try:
+                with unittest.mock.patch("sys.argv", ["amicable.py", "1"]):
+                    with unittest.mock.patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                        main()
+                        self.assertEqual(mock_out.getvalue(), "")
+                with open("amicable_1e1.txt") as f:
+                    self.assertEqual(f.read(), "")
+            finally:
+                os.chdir(old)
+
+    def test_permission_error_exits(self):
+        with unittest.mock.patch("sys.argv", ["amicable.py", "1"]):
+            with unittest.mock.patch("builtins.open", side_effect=PermissionError):
+                with self.assertRaises(SystemExit):
+                    main()
 
 
 if __name__ == "__main__":
