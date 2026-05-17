@@ -1,0 +1,45 @@
+name: amicable-rs
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - "amicable/amicable-rs/**"
+      - ".github/workflows/amicable-rs.yml"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: amicable/amicable-rs
+      - name: Install tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+      - run: make test
+        working-directory: amicable/amicable-rs
+      - name: Coverage
+        run: cargo tarpaulin --fail-under 90
+        working-directory: amicable/amicable-rs
+
+  build:
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: amicable/amicable-rs
+      - run: cargo build --release
+        working-directory: amicable/amicable-rs
+      - uses: actions/upload-artifact@v5
+        with:
+          name: amicable
+          path: amicable/amicable-rs/target/release/amicable
+          retention-days: 7
