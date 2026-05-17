@@ -13,6 +13,19 @@ import argparse
 import sys
 
 
+def proper_divisor_sum_sieve(limit: int) -> list[int]:
+    """
+    Compute the sum of proper divisors for all integers up to limit.
+
+    Returns a list s where s[n] = sum of proper divisors of n.
+    """
+    s = [0] * (limit + 1)
+    for d in range(1, limit // 2 + 1):
+        for multiple in range(2 * d, limit + 1, d):
+            s[multiple] += d
+    return s
+
+
 def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -21,11 +34,12 @@ def main() -> None:
 
     if args.n is None:
         try:
-            n = int(input("Enter N (find pairs up to 10^N): "))
+            _n = int(input("Enter N (find pairs up to 10^N): "))
         except (ValueError, EOFError):
             sys.exit(1)
     else:
-        n = args.n
+        _n = args.n
+    # TODO: use _n to compute amicable pairs
 
 
 if __name__ == "__main__":
