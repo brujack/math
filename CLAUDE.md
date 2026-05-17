@@ -23,6 +23,12 @@ High-performance mathematical computation tools.
 
 Significant architectural decisions are recorded in [`docs/adr/`](docs/adr/README.md). When making a significant choice (algorithm, library, CI structure), write an ADR before or alongside the implementation.
 
+## Knowledge Directory
+
+Reference material lives in `docs/knowledge/`. These documents capture algorithm reference sheets, numerical library notes, and curated research findings — things too detailed for CLAUDE.md but useful to look up. See `docs/knowledge/README.md` for what belongs there and what doesn't.
+
+When web research (web-research skill) or context-mode fetches produce findings worth preserving, save them to `docs/knowledge/<topic>.md`.
+
 ## Dependency Installation
 
 Each project has its own installer:
