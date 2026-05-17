@@ -26,6 +26,19 @@ def proper_divisor_sum_sieve(limit: int) -> list[int]:
     return s
 
 
+def find_amicable_pairs(limit: int):
+    """
+    Find all amicable pairs (a, b) with a < b and b <= limit.
+
+    Yields tuples (a, b) in ascending order of a.
+    """
+    s = proper_divisor_sum_sieve(limit)
+    for a in range(2, limit + 1):
+        b = s[a]
+        if b > a and b <= limit and s[b] == a:
+            yield a, b
+
+
 def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser(description=__doc__)
