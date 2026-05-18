@@ -36,7 +36,21 @@ if [[ "${#DIRS_TO_TEST[@]}" -eq 0 ]]; then
     exit 0
 fi
 
-for dir in $(printf '%s\n' "${DIRS_TO_TEST[@]}" | sort -u); do
+# Cross-cutting changes (>6 sub-projects) cause Python multiprocessing
+# resource_tracker daemons to accumulate across sequential suites on macOS,
+# exhausting semaphores and hanging. CI runs each job in isolation — it is
+# the correct gate for large-scope changes. Skip locally and let CI handle it.
+UNIQUE_DIRS=()
+while IFS= read -r d; do UNIQUE_DIRS+=("$d"); done \
+    < <(printf '%s\n' "${DIRS_TO_TEST[@]}" | sort -u)
+
+if [[ "${#UNIQUE_DIRS[@]}" -gt 6 ]]; then
+    printf "pre-push: %d sub-projects changed — skipping local tests (too many for macOS process isolation).\n" "${#UNIQUE_DIRS[@]}"
+    printf "CI will run all suites in isolation. Push proceeding.\n"
+    exit 0
+fi
+
+for dir in "${UNIQUE_DIRS[@]}"; do
     printf "test: %s\n" "${dir}"
     # Redirect stdin from /dev/null — prevents Python multiprocessing
     # resource_tracker from inheriting git's push pipe and deadlocking.
