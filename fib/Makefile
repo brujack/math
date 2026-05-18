@@ -13,5 +13,8 @@ coverage:
 	python3 -m coverage run -m unittest test_fib
 	python3 -m coverage report --fail-under=90
 
+
+benchmark:
+	timeout 30 python3 fib.py 5000
 clean:
 	rm -rf __pycache__ .coverage

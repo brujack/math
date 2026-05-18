@@ -30,3 +30,6 @@ jobs:
         run: make test
       - name: Check coverage (>=90%)
         run: make coverage
+      - name: Benchmark (timeout gate)
+        run: make benchmark
+        continue-on-error: true

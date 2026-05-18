@@ -13,5 +13,8 @@ coverage:
 	python3 -m coverage run -m unittest test_factorial
 	python3 -m coverage report --fail-under=90
 
+
+benchmark:
+	timeout 30 python3 factorial.py 1000
 clean:
 	rm -rf __pycache__ .coverage

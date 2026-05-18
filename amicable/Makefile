@@ -13,5 +13,8 @@ coverage:
 	python3 -m coverage run -m unittest test_amicable
 	python3 -m coverage report --fail-under=90
 
+
+benchmark:
+	printf "100000\n" | timeout 60 python3 amicable.py
 clean:
 	rm -rf __pycache__ .coverage amicable_1e*.txt

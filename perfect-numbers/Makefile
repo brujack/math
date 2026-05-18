@@ -13,5 +13,8 @@ coverage:
 	python3 -m coverage run -m unittest test_perfect_numbers
 	python3 -m coverage report --fail-under=90
 
+
+benchmark:
+	timeout 60 python3 perfect_numbers.py 6
 clean:
 	rm -rf __pycache__ .coverage

@@ -20,3 +20,6 @@ jobs:
         working-directory: amicable
       - run: make coverage
         working-directory: amicable
+      - name: Benchmark (timeout gate)
+        run: make benchmark
+        continue-on-error: true
