@@ -43,7 +43,7 @@ for dir in $(printf '%s\n' "${DIRS_TO_TEST[@]}" | sort -u); do
     # we time-box the test run and then kill any lingering resource_tracker or
     # spawn_main daemons after make exits. The timeout (120s) is a safety net —
     # normal test runs finish in seconds. The pkill is a no-op if nothing lingers.
-    local _rc=0
+    _rc=0
     timeout 120 make -C "${REPO_ROOT}/${dir}" test < /dev/null || _rc=$?
     pkill -f "multiprocessing.resource_tracker" 2>/dev/null || true
     pkill -f "multiprocessing.spawn_main"        2>/dev/null || true
