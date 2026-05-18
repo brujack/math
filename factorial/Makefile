@@ -1,4 +1,4 @@
-.PHONY: run lint test coverage clean
+.PHONY: run lint test coverage mutants clean
 
 run:
 	python3 factorial.py
@@ -16,5 +16,8 @@ coverage:
 
 benchmark:
 	timeout 30 python3 factorial.py 1000
+mutants:
+	mutmut run || true
+	mutmut results
 clean:
 	rm -rf __pycache__ .coverage

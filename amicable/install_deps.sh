@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-pip install ruff coverage
+pip install ruff coverage mutmut
