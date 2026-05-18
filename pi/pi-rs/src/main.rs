@@ -511,6 +511,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use tempfile::tempdir;
 
     /// First 50 decimal places of π — used as a reference for accuracy tests.
@@ -1022,5 +1023,14 @@ mod tests {
         let cli = Cli { digits: Some(0) };
         let result = run(cli, &mut reader, &mut out, &mut FailWriter, dir.path());
         assert!(result.is_err());
+    }
+
+    proptest! {
+        #[test]
+        fn prop_generate_succeeds(max_digits in 1usize..=5usize) {
+            let result = compute_pi(max_digits);
+            prop_assert!(!result.is_empty());
+            prop_assert!(result.starts_with("3."));
+        }
     }
 }

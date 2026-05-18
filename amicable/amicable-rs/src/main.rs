@@ -61,6 +61,7 @@ fn main() {
 mod tests {
     use crate::proper_divisor_sum_sieve;
     use crate::run;
+    use proptest::prelude::*;
 
     #[test]
     fn sieve_zero_and_one() {
@@ -144,6 +145,22 @@ mod tests {
         run(&mut out, &mut err, &path, 10).unwrap();
         let output = String::from_utf8(out).unwrap();
         assert!(output.is_empty());
+    }
+
+    proptest! {
+        #[test]
+        fn prop_sieve_length(limit in 4usize..=500usize) {
+            let sieve = proper_divisor_sum_sieve(limit);
+            prop_assert_eq!(sieve.len(), limit + 1);
+        }
+
+        #[test]
+        fn prop_sieve_nonnegative(limit in 4usize..=200usize) {
+            let sieve = proper_divisor_sum_sieve(limit);
+            for &s in &sieve {
+                prop_assert!(s < u32::MAX);
+            }
+        }
     }
 
     #[test]

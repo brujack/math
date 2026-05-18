@@ -211,6 +211,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use tempfile::tempdir;
 
     #[test]
@@ -311,6 +312,16 @@ mod tests {
         // lo == limit == 31 (a prime): returns exactly [31].
         let sp = small_sieve(5);
         assert_eq!(sieve_segment(31, 31, &sp), vec![31u64]);
+    }
+
+    proptest! {
+        #[test]
+        fn prop_sieve_elements_are_primes(limit in 2u64..=1_000u64) {
+            let primes = small_sieve(limit);
+            for &p in &primes {
+                prop_assert!(p >= 2, "prime {} should be >= 2", p);
+            }
+        }
     }
 
     // --- FailWriter ---

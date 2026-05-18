@@ -185,6 +185,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use std::io::Cursor;
     use tempfile::tempdir;
 
@@ -627,5 +628,15 @@ mod tests {
         let cli = Cli { exponent: Some(6) };
         let result = run(cli, &mut reader, &mut out, &mut FailWriter, dir.path());
         assert!(result.is_err());
+    }
+
+    proptest! {
+        #[test]
+        fn prop_generate_succeeds(max_digits in 1usize..=5usize) {
+            let mut out = Vec::new();
+            let result = generate_fibonacci(max_digits, &mut out);
+            prop_assert!(result.is_ok());
+            prop_assert!(!out.is_empty());
+        }
     }
 }

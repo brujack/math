@@ -459,6 +459,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use tempfile::tempdir;
 
     /// First 50 decimal places of e — used as a reference for accuracy tests.
@@ -978,6 +979,15 @@ mod tests {
         assert!(out_s.contains("Enter the number"));
         let saved = dir.path().join("e_10_digits.txt");
         assert!(saved.exists());
+    }
+
+    proptest! {
+        #[test]
+        fn prop_generate_succeeds(max_digits in 1usize..=5usize) {
+            let result = compute_e(max_digits);
+            prop_assert!(!result.is_empty());
+            prop_assert!(result.starts_with("2."));
+        }
     }
 
     struct FailWriter;
