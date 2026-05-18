@@ -39,6 +39,9 @@ perfect-numbers_1e*.txt
 # Git worktrees
 .worktrees/
 
+# Local cargo cache (rust-check.sh transient artifact)
+.cache/
+
 # Claude Code local settings (machine-specific)
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
