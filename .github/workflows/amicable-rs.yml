@@ -21,6 +21,8 @@ jobs:
           workspaces: amicable/amicable-rs
       - name: Install tarpaulin
         run: cargo install cargo-tarpaulin --locked
+      - name: Install cargo-nextest
+        run: cargo install cargo-nextest --locked
       - run: make test
         working-directory: amicable/amicable-rs
       - name: Coverage
