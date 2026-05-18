@@ -6,19 +6,19 @@ This file provides guidance to Claude when working with code in this repository.
 
 High-performance mathematical computation tools.
 
-| Project                                | Language      | Description                                                       | CLAUDE.md                                                                      |
-| -------------------------------------- | ------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| [`pi/`](pi/)                           | Python + Rust | Calculate π to N decimal places (Chudnovsky algorithm)            | [`pi/CLAUDE.md`](pi/CLAUDE.md)                                                 |
-| [`prime/`](prime/)                     | Rust          | Find all primes up to 10^N (segmented sieve)                      | [`prime/CLAUDE.md`](prime/CLAUDE.md)                                           |
-| [`fib/`](fib/)                         | Python + Rust | Generate all Fibonacci numbers with up to 10^X digits             | [`fib/CLAUDE.md`](fib/CLAUDE.md)                                               |
-| [`sq/`](sq/)                           | Python + Rust | Find all perfect squares with up to 10^N digits (N=1 max)         | [`sq/CLAUDE.md`](sq/CLAUDE.md)                                                 |
-| [`twin-primes/`](twin-primes/)         | Rust          | Find all twin prime pairs up to 10^N                              | [`twin-primes/twin-primes-rs/CLAUDE.md`](twin-primes/twin-primes-rs/CLAUDE.md) |
-| [`e/`](e/)                             | Python + Rust | Calculate e to N decimal places (Taylor series)                   | [`e/CLAUDE.md`](e/CLAUDE.md)                                                   |
-| [`factorial/`](factorial/)             | Python + Rust | Compute N! to arbitrary precision (prime swing)                   | [`factorial/CLAUDE.md`](factorial/CLAUDE.md)                                   |
-| [`perfect-numbers/`](perfect-numbers/) | Python + Rust | Find all perfect numbers up to 10^N (Lucas-Lehmer + sigma)        | [`perfect-numbers/CLAUDE.md`](perfect-numbers/CLAUDE.md)                       |
-| [`collatz/`](collatz/)                 | Python + Rust | Find Collatz chain record-setters up to 10^N (vector memoization) | [`collatz/CLAUDE.md`](collatz/CLAUDE.md)                                       |
-| [`goldbach/`](goldbach/)               | Rust          | Find all Goldbach pairs for even n up to 10^N (bitset sieve)      | [`goldbach/CLAUDE.md`](goldbach/CLAUDE.md)                                     |
-| [`amicable/`](amicable/)               | Python + Rust | Find all amicable pairs (a,b) with b ≤ 10^N (proper-divisor sum sieve) | [`amicable/CLAUDE.md`](amicable/CLAUDE.md)                                |
+| Project                                | Language      | Description                                                            | CLAUDE.md                                                                      |
+| -------------------------------------- | ------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| [`pi/`](pi/)                           | Python + Rust | Calculate π to N decimal places (Chudnovsky algorithm)                 | [`pi/CLAUDE.md`](pi/CLAUDE.md)                                                 |
+| [`prime/`](prime/)                     | Rust          | Find all primes up to 10^N (segmented sieve)                           | [`prime/CLAUDE.md`](prime/CLAUDE.md)                                           |
+| [`fib/`](fib/)                         | Python + Rust | Generate all Fibonacci numbers with up to 10^X digits                  | [`fib/CLAUDE.md`](fib/CLAUDE.md)                                               |
+| [`sq/`](sq/)                           | Python + Rust | Find all perfect squares with up to 10^N digits (N=1 max)              | [`sq/CLAUDE.md`](sq/CLAUDE.md)                                                 |
+| [`twin-primes/`](twin-primes/)         | Rust          | Find all twin prime pairs up to 10^N                                   | [`twin-primes/twin-primes-rs/CLAUDE.md`](twin-primes/twin-primes-rs/CLAUDE.md) |
+| [`e/`](e/)                             | Python + Rust | Calculate e to N decimal places (Taylor series)                        | [`e/CLAUDE.md`](e/CLAUDE.md)                                                   |
+| [`factorial/`](factorial/)             | Python + Rust | Compute N! to arbitrary precision (prime swing)                        | [`factorial/CLAUDE.md`](factorial/CLAUDE.md)                                   |
+| [`perfect-numbers/`](perfect-numbers/) | Python + Rust | Find all perfect numbers up to 10^N (Lucas-Lehmer + sigma)             | [`perfect-numbers/CLAUDE.md`](perfect-numbers/CLAUDE.md)                       |
+| [`collatz/`](collatz/)                 | Python + Rust | Find Collatz chain record-setters up to 10^N (vector memoization)      | [`collatz/CLAUDE.md`](collatz/CLAUDE.md)                                       |
+| [`goldbach/`](goldbach/)               | Rust          | Find all Goldbach pairs for even n up to 10^N (bitset sieve)           | [`goldbach/CLAUDE.md`](goldbach/CLAUDE.md)                                     |
+| [`amicable/`](amicable/)               | Python + Rust | Find all amicable pairs (a,b) with b ≤ 10^N (proper-divisor sum sieve) | [`amicable/CLAUDE.md`](amicable/CLAUDE.md)                                     |
 
 ## Architectural Decision Records
 
@@ -463,6 +463,8 @@ WARNING and INFO findings are advisory — surface them but do not block the pus
 ## Committing Work
 
 **Create a git commit at the end of each logical unit of work.** A unit of work is a self-contained change: a new feature, a bug fix, a docs update, a refactor, or any combination that belongs together. Do not batch unrelated changes into one commit and do not leave work uncommitted.
+
+Invoke `caveman:caveman-commit` skill to generate the commit message — do this before running `git commit`, not after.
 
 Commit message format:
 
