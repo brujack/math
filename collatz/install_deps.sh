@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 set -e
-pip install ruff coverage mutmut
+pip install ruff coverage mutmut hypothesis

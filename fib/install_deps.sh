@@ -14,7 +14,7 @@ set -euo pipefail
 echo "=== fib.py dependency installer ==="
 echo ""
 echo "==> Installing Python packages..."
-python3 -m pip install --upgrade ruff coverage mutmut
+python3 -m pip install --upgrade ruff coverage mutmut hypothesis
 
 echo ""
 echo "==> Verifying installation..."

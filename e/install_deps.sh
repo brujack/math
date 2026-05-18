@@ -74,7 +74,7 @@ esac
 
 echo ""
 echo "==> Installing Python packages..."
-python3 -m pip install --upgrade mpmath gmpy2 coverage ruff mutmut
+python3 -m pip install --upgrade mpmath gmpy2 coverage ruff mutmut hypothesis
 
 echo ""
 echo "==> Verifying installation..."
