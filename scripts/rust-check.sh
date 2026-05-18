@@ -37,7 +37,11 @@ run_cargo() {
             && "${CARGO_BIN}" clippy --all-targets "${OFFLINE_ARGS[@]}" -- -D warnings
         ;;
     test)
-        "${CARGO_BIN}" test "${OFFLINE_ARGS[@]}"
+        if ! command -v cargo-nextest >/dev/null 2>&1; then
+            printf "cargo-nextest not found. Install with: cargo install cargo-nextest --locked\n" >&2
+            return 1
+        fi
+        "${CARGO_BIN}" nextest run "${OFFLINE_ARGS[@]}"
         ;;
     *)
         usage
