@@ -27,6 +27,9 @@ jobs:
         with:
           workspaces: twin-primes/twin-primes-rs
 
+      - name: Install cargo-nextest
+        run: cargo install cargo-nextest --locked
+
       - name: Run tests
         run: make test
 

@@ -30,6 +30,9 @@ jobs:
         with:
           workspaces: factorial/factorial-rs
 
+      - name: Install cargo-nextest
+        run: cargo install cargo-nextest --locked
+
       - name: Run tests
         run: make test
 
