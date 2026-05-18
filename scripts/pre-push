@@ -36,11 +36,16 @@ fi
 
 for dir in $(printf '%s\n' "${DIRS_TO_TEST[@]}" | sort -u); do
     printf "test: %s\n" "${dir}"
-    # Close stdin + extra fds (3-9) that git's push protocol may leave open.
+    # Run tests with stdin redirected and a hard timeout.
     # On macOS, Python's multiprocessing spawn context starts a resource_tracker
-    # daemon that inherits open fds from the hook process. If any of those fds
-    # are connected to git's push pipe, the resource_tracker blocks waiting for
-    # EOF, git waits for the hook, and both deadlock. Closing fds 3-9 and
-    # redirecting stdin breaks the cycle.
-    make -C "${REPO_ROOT}/${dir}" test < /dev/null 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&-
+    # daemon that can deadlock with git's push pipe. Closing extra fds alone does
+    # not reliably prevent this because Python reopens fds internally. Instead,
+    # we time-box the test run and then kill any lingering resource_tracker or
+    # spawn_main daemons after make exits. The timeout (120s) is a safety net —
+    # normal test runs finish in seconds. The pkill is a no-op if nothing lingers.
+    local _rc=0
+    timeout 120 make -C "${REPO_ROOT}/${dir}" test < /dev/null || _rc=$?
+    pkill -f "multiprocessing.resource_tracker" 2>/dev/null || true
+    pkill -f "multiprocessing.spawn_main"        2>/dev/null || true
+    [[ "${_rc}" -ne 0 ]] && exit "${_rc}"
 done
