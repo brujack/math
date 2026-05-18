@@ -1,0 +1,53 @@
+name: mutation-testing-python
+
+# Runs mutmut against Python sub-projects to verify tests catch behavior changes.
+# Triggered manually or monthly. Not on every PR — runs take minutes per sub-project.
+
+on:
+  workflow_dispatch:
+    inputs:
+      subproject:
+        description: "Specific sub-project to test (e.g. 'fib'). Leave empty for all."
+        required: false
+        default: ""
+  schedule:
+    # Monthly — 2 hours after Rust mutation-testing cron (0 4 1 * *)
+    - cron: "0 6 1 * *"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  mutants:
+    name: Python mutation testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install mutmut
+        run: pip install mutmut
+
+      - name: Run mutants
+        env:
+          TARGET: ${{ github.event.inputs.subproject }}
+        run: |
+          set -e
+          PYTHON_DIRS=(fib amicable collatz e factorial perfect-numbers pi sq)
+          if [[ -n "${TARGET}" ]]; then
+            printf "Mutation testing single sub-project: %s\n" "${TARGET}"
+            make -C "${TARGET}" mutants
+          else
+            for dir in "${PYTHON_DIRS[@]}"; do
+              printf "\n=== Mutation testing %s ===\n" "${dir}"
+              make -C "${dir}" mutants || true
+            done
+          fi
+
+      - name: Upload mutmut results
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: mutmut-output
+          path: "**/.mutmut-cache"
+          retention-days: 30
