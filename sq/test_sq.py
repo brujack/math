@@ -13,6 +13,9 @@ from unittest.mock import patch
 import sq as sq_module
 from sq import generate_squares, parse_args, get_exponent, main
 
+from hypothesis import given
+from hypothesis import strategies as st
+
 
 class TestGenerateSquares(unittest.TestCase):
 
@@ -261,6 +264,25 @@ class TestEntryPoint(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("Perfect Square", proc.stdout)
+
+
+class TestSquaresProperties(unittest.TestCase):
+
+    @given(st.integers(min_value=1, max_value=6))
+    def test_all_perfect_squares(self, max_digits):
+        for n, root in generate_squares(max_digits):
+            self.assertEqual(root * root, n)
+
+    @given(st.integers(min_value=1, max_value=6))
+    def test_all_positive(self, max_digits):
+        for n, root in generate_squares(max_digits):
+            self.assertGreater(n, 0)
+
+    @given(st.integers(min_value=1, max_value=6))
+    def test_strictly_increasing(self, max_digits):
+        seq = [n for n, _ in generate_squares(max_digits)]
+        for i in range(1, len(seq)):
+            self.assertGreater(seq[i], seq[i - 1])
 
 
 if __name__ == "__main__":

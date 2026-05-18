@@ -12,6 +12,9 @@ from amicable import (
     proper_divisor_sum_sieve,
 )
 
+from hypothesis import given
+from hypothesis import strategies as st
+
 
 class TestProperDivisorSumSieve(unittest.TestCase):
     def test_zero_and_one(self):
@@ -146,6 +149,30 @@ class TestMain(unittest.TestCase):
             with unittest.mock.patch("builtins.open", side_effect=PermissionError):
                 with self.assertRaises(SystemExit):
                     main()
+
+
+class TestAmicableProperties(unittest.TestCase):
+
+    @given(st.integers(min_value=4, max_value=500))
+    def test_sieve_nonnegative(self, limit):
+        sieve = proper_divisor_sum_sieve(limit)
+        self.assertTrue(all(s >= 0 for s in sieve))
+
+    @given(st.integers(min_value=4, max_value=500))
+    def test_sieve_length(self, limit):
+        sieve = proper_divisor_sum_sieve(limit)
+        # sieve is indexed 0..limit inclusive, so length is limit + 1
+        self.assertEqual(len(sieve), limit + 1)
+
+    @given(st.integers(min_value=300, max_value=2_000))
+    def test_pairs_ordered(self, limit):
+        for a, b in find_amicable_pairs(limit):
+            self.assertLess(a, b)
+
+    @given(st.integers(min_value=300, max_value=2_000))
+    def test_pairs_within_limit(self, limit):
+        for a, b in find_amicable_pairs(limit):
+            self.assertLess(b, limit)
 
 
 if __name__ == "__main__":
