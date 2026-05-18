@@ -11,7 +11,7 @@ test: lint
 
 coverage:
 	python3 -m coverage run -m unittest test_perfect_numbers
-	python3 -m coverage report
+	python3 -m coverage report --fail-under=90
 
 clean:
 	rm -rf __pycache__ .coverage

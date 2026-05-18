@@ -11,4 +11,4 @@ test: lint
 
 coverage:
 	coverage run -m unittest test_sq -v
-	coverage report -m
+	coverage report -m --fail-under=90

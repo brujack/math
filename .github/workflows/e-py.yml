@@ -31,3 +31,5 @@ jobs:
 
       - name: Run tests
         run: make test
+      - name: Check coverage (>=90%)
+        run: make coverage
