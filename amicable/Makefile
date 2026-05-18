@@ -1,4 +1,4 @@
-.PHONY: run lint test coverage clean
+.PHONY: run lint test coverage mutants clean
 
 run:
 	python3 amicable.py
@@ -16,5 +16,8 @@ coverage:
 
 benchmark:
 	printf "100000\n" | timeout 60 python3 amicable.py
+mutants:
+	mutmut run || true
+	mutmut results
 clean:
 	rm -rf __pycache__ .coverage amicable_1e*.txt

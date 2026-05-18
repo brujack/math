@@ -1,4 +1,4 @@
-.PHONY: run lint test coverage clean
+.PHONY: run lint test coverage mutants
 
 run:
 	python3 sq.py
@@ -14,3 +14,6 @@ coverage:
 	coverage report -m --fail-under=90
 benchmark:
 	printf "999999999\n" | timeout 30 python3 sq.py
+mutants:
+	mutmut run || true
+	mutmut results
