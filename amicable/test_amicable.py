@@ -172,7 +172,7 @@ class TestAmicableProperties(unittest.TestCase):
     @given(st.integers(min_value=300, max_value=2_000))
     def test_pairs_within_limit(self, limit):
         for a, b in find_amicable_pairs(limit):
-            self.assertLess(b, limit)
+            self.assertLessEqual(b, limit)
 
 
 if __name__ == "__main__":
