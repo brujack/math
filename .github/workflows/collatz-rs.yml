@@ -15,6 +15,8 @@ jobs:
   test:
     name: Test collatz-rs
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: collatz/collatz-rs
@@ -37,7 +39,35 @@ jobs:
         run: cargo install cargo-tarpaulin --locked
 
       - name: Check coverage (>=90%)
-        run: cargo tarpaulin --fail-under 90
+        run: cargo tarpaulin --out Json --fail-under 90
+
+      - name: Publish coverage badge
+        working-directory: ${{ github.workspace }}
+        run: |
+          PCT=$(python3 -c "import json,math; d=json.load(open('collatz/collatz-rs/tarpaulin-report.json')); print(math.floor(d['coverage']))")
+          if   [ "$PCT" -ge 90 ]; then COLOR="brightgreen"
+          elif [ "$PCT" -ge 80 ]; then COLOR="green"
+          elif [ "$PCT" -ge 70 ]; then COLOR="yellow"
+          elif [ "$PCT" -ge 60 ]; then COLOR="orange"
+          else                         COLOR="red"
+          fi
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git fetch origin coverage-data 2>/dev/null && \
+            git worktree add /tmp/cov-data coverage-data || \
+            git worktree add /tmp/cov-data --orphan coverage-data
+          mkdir -p /tmp/cov-data/collatz
+          printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' \
+            "$PCT" "$COLOR" > /tmp/cov-data/collatz/rust.json
+          cd /tmp/cov-data
+          git add .
+          git diff --staged --quiet && exit 0
+          for i in 1 2 3; do
+            git pull origin coverage-data --rebase 2>/dev/null || true
+            git diff --staged --quiet || git commit -m "coverage: collatz/rust.json → ${PCT}%"
+            git push origin coverage-data && break
+            sleep $((RANDOM % 5 + 1))
+          done
 
   build:
     name: Build collatz-rs
