@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Install Python dependencies
-        run: pip install ruff coverage
+        run: pip install ruff coverage hypothesis
 
       - name: Run tests
         run: make test
