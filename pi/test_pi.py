@@ -21,6 +21,9 @@ from contextlib import redirect_stdout
 # Ensure the pi module is importable from this directory.
 sys.path.insert(0, os.path.dirname(__file__))
 
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
 import pi as pi_module
 from pi import (
     _HAS_GMPY2,
@@ -1029,6 +1032,16 @@ class TestEntryPointGuard(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("3.14159", proc.stdout)
+
+
+class TestPiProperties(unittest.TestCase):
+
+    @given(st.integers(min_value=1, max_value=20))
+    @settings(max_examples=10)
+    def test_output_starts_with_three(self, digits):
+        pi_val = _quiet_pi(digits)
+        result = _pi_to_str(pi_val, digits)
+        self.assertTrue(result.startswith("3."), msg=f"Expected '3.' prefix, got: {result[:5]}")
 
 
 if __name__ == "__main__":

@@ -13,6 +13,9 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
 from factorial import (
     _HAS_GMPY2,
     _gmpy2,
@@ -403,6 +406,19 @@ class TestKeyboardInterruptDuringCompute(unittest.TestCase):
                 main()
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("interrupted", buf.getvalue())
+
+
+class TestFactorialProperties(unittest.TestCase):
+
+    @given(st.integers(min_value=1, max_value=50))
+    @settings(deadline=None)
+    def test_recurrence(self, n):
+        self.assertEqual(int(_quiet_factorial(n)), n * int(_quiet_factorial(n - 1)))
+
+    @given(st.integers(min_value=0, max_value=50))
+    @settings(deadline=None)
+    def test_always_positive(self, n):
+        self.assertGreaterEqual(int(_quiet_factorial(n)), 1)
 
 
 if __name__ == "__main__":

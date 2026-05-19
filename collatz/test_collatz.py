@@ -9,6 +9,9 @@ from contextlib import redirect_stdout
 
 from collatz import collatz_length, collatz_next, generate_records, get_exponent, main
 
+from hypothesis import given
+from hypothesis import strategies as st
+
 
 class TestCollatzNext(unittest.TestCase):
     def test_even_input(self):
@@ -156,6 +159,25 @@ class TestMain(unittest.TestCase):
             with self.assertRaises(SystemExit) as cm:
                 main()
         self.assertEqual(cm.exception.code, 1)
+
+
+class TestCollatzProperties(unittest.TestCase):
+
+    @given(st.integers(min_value=1, max_value=5_000))
+    def test_next_even(self, n):
+        even = n * 2
+        self.assertEqual(collatz_next(even), even // 2)
+
+    @given(st.integers(min_value=0, max_value=5_000))
+    def test_next_odd(self, n):
+        odd = n * 2 + 1
+        self.assertEqual(collatz_next(odd), 3 * odd + 1)
+
+    @given(st.integers(min_value=2, max_value=10_000))
+    def test_length_positive(self, n):
+        cache = array.array("I", [0] * (n + 1))
+        cache[1] = 1
+        self.assertGreaterEqual(collatz_length(n, cache), 1)
 
 
 if __name__ == "__main__":

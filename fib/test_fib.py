@@ -13,6 +13,9 @@ from unittest.mock import patch
 import fib
 from fib import generate_fibonacci, parse_args, get_exponent, main
 
+from hypothesis import given
+from hypothesis import strategies as st
+
 
 class TestGenerateFibonacci(unittest.TestCase):
 
@@ -281,6 +284,26 @@ class TestEntryPoint(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("Fibonacci", proc.stdout)
+
+
+class TestFibonacciProperties(unittest.TestCase):
+
+    @given(st.integers(min_value=1, max_value=6))
+    def test_recurrence_holds(self, max_digits):
+        seq = list(generate_fibonacci(max_digits))
+        for i in range(2, len(seq)):
+            self.assertEqual(seq[i], seq[i - 1] + seq[i - 2])
+
+    @given(st.integers(min_value=1, max_value=6))
+    def test_all_elements_positive(self, max_digits):
+        for n in generate_fibonacci(max_digits):
+            self.assertGreater(n, 0)
+
+    @given(st.integers(min_value=2, max_value=6))
+    def test_strictly_increasing_after_first_two(self, max_digits):
+        seq = list(generate_fibonacci(max_digits))
+        for i in range(2, len(seq)):
+            self.assertGreater(seq[i], seq[i - 1])
 
 
 if __name__ == "__main__":

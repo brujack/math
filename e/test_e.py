@@ -21,6 +21,9 @@ from contextlib import redirect_stdout
 # Ensure the e module is importable from this directory.
 sys.path.insert(0, os.path.dirname(__file__))
 
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
 import e as e_module
 from e import (
     _HAS_GMPY2,
@@ -908,6 +911,25 @@ class TestEntryPointGuard(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("e", proc.stdout)
+
+
+class TestEProperties(unittest.TestCase):
+
+    @given(st.integers(min_value=1, max_value=20))
+    @settings(max_examples=10)
+    def test_output_starts_with_two(self, digits):
+        e_val = _quiet_e(digits)
+        result = _e_to_str(e_val, digits)
+        self.assertTrue(result.startswith("2."), msg=f"Expected '2.' prefix, got: {result[:5]}")
+
+    @given(st.integers(min_value=1, max_value=20))
+    @settings(max_examples=10)
+    def test_output_length_covers_digits(self, digits):
+        e_val = _quiet_e(digits)
+        result = _e_to_str(e_val, digits)
+        # Result is "2.DDDD..." — strip "2." and check remaining chars >= digits
+        decimal_part = result[2:] if result.startswith("2.") else result
+        self.assertGreaterEqual(len(decimal_part), digits)
 
 
 if __name__ == "__main__":

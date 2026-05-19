@@ -140,6 +140,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use std::io::Cursor;
     use tempfile::tempdir;
 
@@ -305,6 +306,20 @@ mod tests {
         let result =
             run(Cli { exponent: Some(0) }, &mut reader, &mut out, &mut FailWriter, dir.path());
         assert!(result.is_err());
+    }
+
+    proptest! {
+        #[test]
+        fn prop_collatz_next_even(n in 1u64..=5_000u64) {
+            let even = n * 2;
+            assert_eq!(collatz_next(even), even / 2);
+        }
+
+        #[test]
+        fn prop_collatz_next_odd(n in 0u64..=5_000u64) {
+            let odd = n * 2 + 1;
+            assert_eq!(collatz_next(odd), 3 * odd + 1);
+        }
     }
 
     #[test]

@@ -15,6 +15,9 @@ from perfect_numbers import (
     verify_perfect,
 )
 
+from hypothesis import given
+from hypothesis import strategies as st
+
 PERFECT_NUMBERS = {
     2: 6,
     3: 28,
@@ -202,6 +205,23 @@ class TestMain(unittest.TestCase):
             with self.assertRaises(SystemExit) as cm:
                 main()
         self.assertEqual(cm.exception.code, 1)
+
+
+class TestPerfectNumbersProperties(unittest.TestCase):
+
+    @given(st.integers(min_value=2, max_value=500))
+    def test_even_composites_not_prime(self, n):
+        self.assertFalse(is_prime(n * 2))
+
+    @given(st.integers(min_value=0, max_value=500))
+    def test_perfect_numbers_below_limit(self, limit):
+        for _p, num in generate_perfect_numbers(limit):
+            self.assertLess(num, limit)
+
+    @given(st.integers(min_value=0, max_value=500))
+    def test_perfect_numbers_positive(self, limit):
+        for _p, num in generate_perfect_numbers(limit):
+            self.assertGreater(num, 0)
 
 
 if __name__ == "__main__":

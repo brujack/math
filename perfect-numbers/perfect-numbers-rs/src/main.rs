@@ -249,6 +249,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use std::io::Cursor;
     use tempfile::tempdir;
 
@@ -339,6 +340,14 @@ mod tests {
         let result = generate_perfect_numbers(&limit);
         assert_eq!(result.len(), 10);
         assert_eq!(result[9].0, 89u64);
+    }
+
+    proptest! {
+        #[test]
+        fn prop_even_composites_not_prime(n in 2u64..=1_000u64) {
+            // all even numbers except 2 are composite
+            prop_assert!(!is_prime(n * 2));
+        }
     }
 
     // --- run ---

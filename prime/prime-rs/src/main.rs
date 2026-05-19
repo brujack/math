@@ -413,6 +413,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use tempfile::tempdir;
 
     // --- FailWriter helper ---
@@ -674,6 +675,16 @@ mod tests {
         let mut out = Vec::new();
         let mut err = Vec::new();
         assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 6);
+    }
+
+    proptest! {
+        #[test]
+        fn prop_sieve_elements_are_primes(limit in 2u64..=1_000u64) {
+            let primes = small_sieve(limit);
+            for &p in &primes {
+                prop_assert!(p >= 2, "prime {} should be >= 2", p);
+            }
+        }
     }
 
     // --- find_primes (end-to-end) ---

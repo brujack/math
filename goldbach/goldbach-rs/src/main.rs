@@ -163,6 +163,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use std::io::Cursor;
     use tempfile::tempdir;
 
@@ -249,6 +250,15 @@ mod tests {
         let output = String::from_utf8_lossy(&out).into_owned();
         let line_count = output.trim().lines().count() as u64;
         assert_eq!(count, line_count);
+    }
+
+    proptest! {
+        #[test]
+        fn prop_even_composites_not_prime(n in 2u64..=500u64) {
+            let limit = n * 2 + 1;
+            let sieve = build_sieve(limit);
+            prop_assert!(!is_prime(n * 2, &sieve));
+        }
     }
 
     struct FailWriter;

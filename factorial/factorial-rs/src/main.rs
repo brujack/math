@@ -202,6 +202,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use tempfile::tempdir;
 
     // --- sieve ---
@@ -551,6 +552,14 @@ mod tests {
         }
         let content = std::fs::read_to_string(dir.path().join("factorial_3.txt")).unwrap();
         assert_eq!(content.trim(), "6");
+    }
+
+    proptest! {
+        #[test]
+        fn prop_generate_succeeds(n in 1u64..=20u64) {
+            let result = calculate_factorial(n);
+            prop_assert!(result > 0u64);
+        }
     }
 
     struct FailWriter;
