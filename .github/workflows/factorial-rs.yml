@@ -47,7 +47,7 @@ jobs:
           python3 scripts/test_metrics.py \
             --repo math \
             --run-id "${GH_RUN_ID}" \
-            --junit factorial/factorial-rs/junit.xml \
+            --junit factorial/factorial-rs/target/nextest/ci/junit.xml \
             --artifact-name test-metrics-factorial-rs
       - name: Upload test metrics
         if: always()
