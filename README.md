@@ -225,3 +225,26 @@ RUST_CHECK_OFFLINE=1 make test
 ## Architectural Decisions
 
 Key decisions are recorded in [`docs/adr/`](docs/adr/README.md): algorithm choices (Chudnovsky, segmented sieve), language strategy (Python vs Rust), library choices (GMP/rug, rayon), and CI structure.
+
+---
+
+## Verifying releases
+
+Release binaries are signed with [cosign](https://docs.sigstore.dev/cosign/overview/) using keyless Sigstore signing. Each release includes the binary plus:
+
+- `{name}.sig` — detached signature
+- `{name}.pem` — signing certificate
+- `{name}.sbom.spdx.json` — SPDX bill of materials
+
+To verify a release binary (example for `factorial`):
+
+```bash
+cosign verify-blob factorial \
+  --signature factorial.sig \
+  --certificate factorial.pem \
+  --certificate-identity \
+    "https://github.com/brujack/math/.github/workflows/release-sign.yml@refs/tags/factorial-vTAG" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+```
+
+Replace `factorial` and `factorial-vTAG` with the sub-project name and tag (e.g. `fib`, `fib-v1.0.0`).
