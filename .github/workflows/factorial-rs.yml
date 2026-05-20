@@ -36,7 +36,27 @@ jobs:
         run: cargo install cargo-nextest --locked
 
       - name: Run tests
-        run: make test
+        working-directory: factorial/factorial-rs
+        run: make lint && cargo nextest run --profile ci
+      - name: Generate test metrics
+        if: always()
+        working-directory: ${{ github.workspace }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_RUN_ID: ${{ github.run_id }}
+        run: |
+          python3 scripts/test_metrics.py \
+            --repo math \
+            --run-id "${GH_RUN_ID}" \
+            --junit factorial/factorial-rs/target/nextest/ci/junit.xml \
+            --artifact-name test-metrics-factorial-rs
+      - name: Upload test metrics
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-metrics-factorial-rs
+          path: test-metrics.json
+          retention-days: 90
 
       - name: Install cargo-tarpaulin
         run: cargo install cargo-tarpaulin --locked
