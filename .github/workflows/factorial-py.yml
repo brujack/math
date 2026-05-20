@@ -33,6 +33,26 @@ jobs:
 
       - name: Run tests
         run: make test
+      - name: Generate test metrics
+        if: always()
+        working-directory: factorial
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_RUN_ID: ${{ github.run_id }}
+          GH_WORKSPACE: ${{ github.workspace }}
+        run: |
+          python3 "${GH_WORKSPACE}/scripts/time_tests.py" \
+            --repo math \
+            --run-id "${GH_RUN_ID}" \
+            --module test_factorial \
+            --artifact-name test-metrics-factorial-py
+      - name: Upload test metrics
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-metrics-factorial-py
+          path: factorial/test-metrics.json
+          retention-days: 90
       - name: Check coverage (>=90%)
         run: make coverage
 
