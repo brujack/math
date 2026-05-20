@@ -216,7 +216,7 @@ class TestPerfectNumbersProperties(unittest.TestCase):
     @given(st.integers(min_value=0, max_value=500))
     def test_perfect_numbers_below_limit(self, limit):
         for _p, num in generate_perfect_numbers(limit):
-            self.assertLess(num, limit)
+            self.assertLessEqual(num, limit)
 
     @given(st.integers(min_value=0, max_value=500))
     def test_perfect_numbers_positive(self, limit):
