@@ -13,6 +13,7 @@ env:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   release:
@@ -69,3 +70,13 @@ jobs:
           name: "prime v${{ inputs.version }}"
           body: "${{ steps.notes.outputs.notes }}"
           files: prime/prime-rs/target/release/prime
+
+  sign:
+    needs: [release]
+    uses: ./.github/workflows/release-sign.yml
+    with:
+      release_tag: "prime-v${{ inputs.version }}"
+      binary_name: "prime"
+    permissions:
+      id-token: write
+      contents: write
