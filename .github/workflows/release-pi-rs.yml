@@ -13,6 +13,7 @@ env:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   release:
@@ -72,3 +73,13 @@ jobs:
           name: "pi v${{ inputs.version }}"
           body: "${{ steps.notes.outputs.notes }}"
           files: pi/pi-rs/target/release/pi
+
+  sign:
+    needs: [release]
+    uses: ./.github/workflows/release-sign.yml
+    with:
+      release_tag: "pi-v${{ inputs.version }}"
+      binary_name: "pi"
+    permissions:
+      id-token: write
+      contents: write
