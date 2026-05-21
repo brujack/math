@@ -94,6 +94,8 @@ Generates every perfect square with at most 10^N decimal digits. N=1 is the only
 - Python implementation (`sq/sq.py`) — Python stdlib only, no external dependencies
 - Rust implementation (`sq/sq-rs/`) — plain u64 arithmetic, no GMP required
 
+See [`sq/README.md`](sq/README.md) for full details.
+
 ---
 
 ## twin-primes
@@ -141,6 +143,100 @@ See [`perfect-numbers/README.md`](perfect-numbers/README.md) for full details.
 
 ## Quick Reference
 
+### Python (`pi/`)
+
+```bash
+cd pi
+make run       # python3 pi.py
+make lint      # ruff check .
+make test      # lint, then python3 -m unittest test_pi -v
+make coverage  # coverage run + report
+```
+
+### Rust (`pi/pi-rs/`)
+
+```bash
+cd pi/pi-rs
+make pi        # cargo build --release
+make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
+make test      # lint, then cargo test
+```
+
+### Rust (`prime/prime-rs/`)
+
+```bash
+cd prime/prime-rs
+make prime     # cargo build --release
+make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
+make test      # lint, then cargo test
+```
+
+### Python (`fib/`)
+
+```bash
+cd fib
+make run       # python3 fib.py
+make lint      # ruff check .
+make test      # lint, then python3 -m unittest test_fib -v
+make coverage  # coverage run + report
+```
+
+### Rust (`fib/fib-rs/`)
+
+```bash
+cd fib/fib-rs
+make fib       # cargo build --release
+make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
+make test      # lint, then cargo test
+```
+
+### Python (`sq/`)
+
+```bash
+cd sq
+make run       # python3 sq.py
+make lint      # ruff check .
+make test      # lint, then python3 -m unittest test_sq -v
+make coverage  # coverage run + report
+```
+
+### Rust (`sq/sq-rs/`)
+
+```bash
+cd sq/sq-rs
+make sq        # cargo build --release
+make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
+make test      # lint, then cargo test
+```
+
+### Rust (`twin-primes/twin-primes-rs/`)
+
+```bash
+cd twin-primes/twin-primes-rs
+make twin-primes  # cargo build --release
+make lint         # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
+make test         # lint, then cargo test
+```
+
+### Python (`e/`)
+
+```bash
+cd e
+make run       # python3 e.py
+make lint      # ruff check .
+make test      # lint, then python3 -m unittest test_e -v
+make coverage  # coverage run + report
+```
+
+### Rust (`e/e-rs/`)
+
+```bash
+cd e/e-rs
+make e         # cargo build --release
+make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
+make test      # lint, then cargo test
+```
+
 ### Python (`factorial/`)
 
 ```bash
@@ -179,6 +275,53 @@ make lint             # cargo fmt --check, then cargo clippy --all-targets -- -D
 make test             # lint, then cargo test
 ```
 
+### Python (`collatz/`)
+
+```bash
+cd collatz
+make run       # python3 collatz.py
+make lint      # ruff check .
+make test      # lint, then python3 -m unittest test_collatz -v
+make coverage  # coverage run + report
+```
+
+### Rust (`collatz/collatz-rs/`)
+
+```bash
+cd collatz/collatz-rs
+make collatz   # cargo build --release
+make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
+make test      # lint, then cargo test
+```
+
+### Rust (`goldbach/goldbach-rs/`)
+
+```bash
+cd goldbach/goldbach-rs
+make goldbach  # cargo build --release
+make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
+make test      # lint, then cargo test
+```
+
+### Python (`amicable/`)
+
+```bash
+cd amicable
+make run       # python3 amicable.py
+make lint      # ruff check .
+make test      # lint, then python3 -m unittest test_amicable -v
+make coverage  # coverage run + report
+```
+
+### Rust (`amicable/amicable-rs/`)
+
+```bash
+cd amicable/amicable-rs
+make amicable  # cargo build --release
+make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
+make test      # lint, then cargo test
+```
+
 ---
 
 ## collatz
@@ -199,6 +342,17 @@ Finds all Goldbach pairs for even numbers up to 10^N.
 - Rust implementation (`goldbach/goldbach-rs/`) — packed bitset sieve, BufWriter streaming, practical up to N=6 (~20 GB output)
 
 See [`goldbach/README.md`](goldbach/README.md) for full details.
+
+---
+
+## amicable
+
+Finds all amicable pairs (a, b) where a < b ≤ 10^N using a **proper-divisor sum sieve** (sigma function over all numbers up to the limit, then cross-checking pairs).
+
+- Python implementation (`amicable/amicable.py`) — stdlib only, no external dependencies
+- Rust implementation (`amicable/amicable-rs/`) — plain u64 arithmetic with a pre-computed sigma sieve
+
+See [`amicable/README.md`](amicable/README.md) for full details.
 
 ---
 
