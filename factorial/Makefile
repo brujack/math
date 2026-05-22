@@ -5,6 +5,7 @@ run:
 
 lint:
 	ruff check .
+	pyright .
 
 test: lint
 	python3 -m unittest test_factorial -v

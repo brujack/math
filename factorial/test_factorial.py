@@ -222,7 +222,7 @@ class TestCalculateFactorial(unittest.TestCase):
         if not _HAS_GMPY2:
             self.skipTest("gmpy2 not installed")
         result = _quiet_factorial(5)
-        self.assertIsInstance(result, _gmpy2.mpz)
+        self.assertIsInstance(result, _gmpy2.mpz)  # type: ignore[union-attr]
 
 
 class TestParseArgs(unittest.TestCase):

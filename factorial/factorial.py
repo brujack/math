@@ -33,7 +33,7 @@ _CPU_COUNT = os.cpu_count() or 1
 # Sieve of Eratosthenes
 # ---------------------------------------------------------------------------
 
-def _sieve(n):
+def _sieve(n: int) -> list[int]:
     """Return sorted list of all primes <= n."""
     if n < 2:
         return []
@@ -55,7 +55,7 @@ def _sieve(n):
 # Stubs — will be replaced in later tasks
 # ---------------------------------------------------------------------------
 
-def _compute_swing_chunk(m, prime_chunk):
+def _compute_swing_chunk(m: int, prime_chunk: list[int]) -> int:
     """
     Compute product of p^e_p for each prime in prime_chunk, for swing(m).
 
@@ -77,7 +77,7 @@ def _compute_swing_chunk(m, prime_chunk):
     return result
 
 
-def _tree_combine_int(values):
+def _tree_combine_int(values: list[int]) -> int:
     """
     Pairwise tree reduction of a list of integers (plain int or gmpy2.mpz).
     Returns 1 for an empty list.
@@ -96,7 +96,7 @@ def _tree_combine_int(values):
     return values[0]
 
 
-def _compute_swing(m, primes):
+def _compute_swing(m: int, primes: list[int]) -> int:
     """Compute swing(m) = product of p^e_p for all primes p <= m.
 
     Splits the prime list into _CPU_COUNT chunks and dispatches each chunk
@@ -135,10 +135,10 @@ def _compute_swing(m, primes):
     return int(_tree_combine_int(partial_results))
 
 
-def _write_factorial_file(result, n):
+def _write_factorial_file(result: object, n: int) -> str:
     """Write factorial result to factorial_<n>.txt. Returns filename."""
     filename = f"factorial_{n}.txt"
-    digits_str = str(int(result))
+    digits_str = str(int(result))  # type: ignore[arg-type]
     start = time.time()
     with open(filename, "w") as f:
         f.write(digits_str)
@@ -148,7 +148,7 @@ def _write_factorial_file(result, n):
     return filename
 
 
-def _factorial_rec(n, primes):
+def _factorial_rec(n: int, primes: list[int]) -> int:
     """Recursive prime swing factorial: n! = swing(n) * (n//2)!^2."""
     if n <= 1:
         return 1
@@ -157,7 +157,7 @@ def _factorial_rec(n, primes):
     return half_factorial * half_factorial * swing
 
 
-def calculate_factorial(n):
+def calculate_factorial(n: int) -> int:
     """Compute n! using the prime swing algorithm. Returns gmpy2.mpz if available, int otherwise."""
     if n < 0:
         raise ValueError(f"factorial not defined for negative integers: {n}")
@@ -167,11 +167,11 @@ def calculate_factorial(n):
         primes = _sieve(n)
         result = _factorial_rec(n, primes)
     if _HAS_GMPY2:
-        return _gmpy2.mpz(result)
+        return _gmpy2.mpz(result)  # type: ignore[union-attr]
     return result
 
 
-def parse_args(argv=None):
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments. Returns namespace with optional positional 'n'."""
     parser = argparse.ArgumentParser(
         description="Compute N! to arbitrary precision using the prime swing algorithm."
@@ -180,7 +180,7 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
-def get_target_n(args):
+def get_target_n(args: argparse.Namespace) -> int:
     """Return n from args or interactive prompt. Validates positive integer (0 allowed)."""
     if args.n is not None:
         if args.n < 0:
@@ -199,7 +199,7 @@ def get_target_n(args):
         return n
 
 
-def main():
+def main() -> None:
     """Entry point: parse args, compute factorial, write to file."""
     args = parse_args()
     try:

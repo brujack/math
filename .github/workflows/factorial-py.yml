@@ -8,6 +8,7 @@ on:
       - "factorial/*.py"
       - "factorial/install_deps.sh"
       - "factorial/Makefile"
+      - "factorial/pyrightconfig.json"
       - ".github/workflows/factorial-py.yml"
 
 env:
@@ -29,7 +30,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
 
       - name: Install Python dependencies
-        run: pip install mpmath gmpy2 coverage ruff hypothesis
+        run: pip install mpmath gmpy2 coverage ruff hypothesis pyright
 
       - name: Run tests
         run: make test
