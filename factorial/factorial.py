@@ -27,6 +27,8 @@ except ImportError:
     _HAS_GMPY2 = False
 
 _CPU_COUNT = os.cpu_count() or 1
+# spawn overhead on macOS is ~100-200ms per worker; only parallel when worth it
+_MIN_PARALLEL_PRIMES = 1000
 
 
 # ---------------------------------------------------------------------------
@@ -115,9 +117,9 @@ def _compute_swing(m: int, primes: list[int]) -> int:
     chunk_size = max(1, (len(relevant) + _CPU_COUNT - 1) // _CPU_COUNT)
     chunks = [relevant[i : i + chunk_size] for i in range(0, len(relevant), chunk_size)]
 
-    if len(chunks) == 1:
-        # No benefit from subprocess overhead for a single chunk
-        return _compute_swing_chunk(m, chunks[0])
+    if len(chunks) == 1 or len(relevant) < _MIN_PARALLEL_PRIMES:
+        # Serial: single chunk or too few primes to justify spawn overhead
+        return _compute_swing_chunk(m, relevant)
 
     ctx = multiprocessing.get_context("spawn" if sys.platform == "darwin" else "fork")
     try:

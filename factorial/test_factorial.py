@@ -130,9 +130,10 @@ class TestComputeSwingFallback(unittest.TestCase):
 
     def test_fallback_gives_correct_result_and_prints_message(self):
         buf = io.StringIO()
-        # n=5: _compute_swing(5, [2,3,5]) -> 3 chunks with default _CPU_COUNT,
-        # triggering ProcessPoolExecutor. With it raising, serial fallback runs.
-        with unittest.mock.patch(
+        # _MIN_PARALLEL_PRIMES=0 forces parallel path for any prime count;
+        # ProcessPoolExecutor raising OSError triggers serial fallback.
+        with unittest.mock.patch("factorial._MIN_PARALLEL_PRIMES", 0), \
+                unittest.mock.patch(
             "factorial.concurrent.futures.ProcessPoolExecutor",
             side_effect=OSError("semaphore unavailable"),
         ), redirect_stdout(buf):
@@ -319,7 +320,7 @@ class TestProcessPoolPermissionError(unittest.TestCase):
     """_compute_swing serial fallback when ProcessPoolExecutor raises PermissionError."""
 
     def test_falls_back_to_serial(self):
-        with patch(
+        with patch("factorial._MIN_PARALLEL_PRIMES", 0), patch(
             "factorial.concurrent.futures.ProcessPoolExecutor",
             side_effect=PermissionError("permission denied"),
         ), patch("builtins.print"):
@@ -331,7 +332,7 @@ class TestProcessPoolSemaphoreExhaustion(unittest.TestCase):
     """_compute_swing serial fallback for semaphore exhaustion (both patterns)."""
 
     def test_oserror_falls_back_to_serial(self):
-        with patch(
+        with patch("factorial._MIN_PARALLEL_PRIMES", 0), patch(
             "factorial.concurrent.futures.ProcessPoolExecutor",
             side_effect=OSError("semaphore limit"),
         ), patch("builtins.print"):
@@ -340,7 +341,7 @@ class TestProcessPoolSemaphoreExhaustion(unittest.TestCase):
 
     def test_semaphore_exhaustion_enospc_falls_back_to_serial(self):
         import errno
-        with patch(
+        with patch("factorial._MIN_PARALLEL_PRIMES", 0), patch(
             "factorial.concurrent.futures.ProcessPoolExecutor",
             side_effect=OSError(errno.ENOSPC, "No space left on device"),
         ), patch("builtins.print"):
