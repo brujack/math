@@ -33,6 +33,7 @@ Master status index for all specs and implementation plans in this directory.
 | 2026-05-19 | [test-metrics](plans/2026-05-19-test-metrics.md)                                   | [spec](https://github.com/brujack/ai-config/blob/master/docs/superpowers/specs/2026-05-19-flaky-test-tracking-design.md) | Done   |
 | 2026-05-20 | [sbom-cosign](plans/2026-05-20-sbom-cosign.md)                                     | [spec](https://github.com/brujack/ai-config/blob/master/docs/superpowers/specs/2026-05-20-sbom-cosign-design.md)         | Done   |
 | 2026-05-23 | [pip-audit-ci](plans/2026-05-23-pip-audit-ci.md)                                   | [spec](specs/2026-05-23-pip-audit-ci-design.md)                                                                          | Done   |
+| 2026-05-23 | [cli-integration-tests](plans/2026-05-23-cli-integration-tests.md)                 | [spec](specs/2026-05-23-cli-integration-tests-design.md)                                                                 | Done   |
 
 ---
 
