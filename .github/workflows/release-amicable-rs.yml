@@ -1,0 +1,82 @@
+name: release-amicable-rs
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version number without the v prefix (e.g. 1.2.0)"
+        required: true
+        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    name: Release amicable-rs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: amicable/amicable-rs
+
+      - name: Run tests
+        run: make test
+        working-directory: amicable/amicable-rs
+
+      - name: Build release binary
+        run: cargo build --release
+        working-directory: amicable/amicable-rs
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 --match="amicable-v*" 2>/dev/null || true)
+          if [ -n "$PREV_TAG" ]; then
+            NOTES=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s" -- amicable/amicable-rs/ || true)
+          else
+            NOTES=$(git log HEAD --pretty=format:"- %s" -- amicable/amicable-rs/ || true)
+          fi
+          DELIMITER="EOF_$(openssl rand -hex 8)"
+          {
+            printf 'notes<<%s\n' "${DELIMITER}"
+            printf '%s\n' "${NOTES}"
+            printf '%s\n' "${DELIMITER}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "amicable-v${VERSION}"
+          git push origin "amicable-v${VERSION}"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: "amicable-v${{ inputs.version }}"
+          name: "amicable v${{ inputs.version }}"
+          body: "${{ steps.notes.outputs.notes }}"
+          files: amicable/amicable-rs/target/release/amicable
+
+  sign:
+    needs: [release]
+    uses: ./.github/workflows/release-sign.yml
+    with:
+      release_tag: "amicable-v${{ inputs.version }}"
+      binary_name: "amicable"
+    permissions:
+      id-token: write
+      contents: write
