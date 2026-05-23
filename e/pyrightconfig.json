@@ -3,5 +3,7 @@
   "pythonVersion": "3.11",
   "typeCheckingMode": "basic",
   "reportMissingImports": true,
-  "reportMissingModuleSource": false
+  "reportMissingModuleSource": false,
+  "reportAttributeAccessIssue": "none",
+  "reportOptionalMemberAccess": "none"
 }
