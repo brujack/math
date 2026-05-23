@@ -267,6 +267,19 @@ Where to add tests:
 - Rust tests: add to the `#[cfg(test)] mod tests` block in `src/main.rs`, run with `make test`
 - Coverage tools: `make coverage` (Python), `cargo tarpaulin` (Rust)
 
+### Type checking (Python — pyright)
+
+Every Python sub-project has a `pyrightconfig.json` and a `Run pyright` step in its CI workflow.
+
+| Mode       | Sub-projects                                                                                              |
+| ---------- | --------------------------------------------------------------------------------------------------------- |
+| `standard` | amicable, collatz, fib, sq, factorial, perfect-numbers, scripts                                           |
+| `basic`    | pi, e (gmpy2 has no type stubs; `reportAttributeAccessIssue` and `reportOptionalMemberAccess` suppressed) |
+
+Pyright runs in CI only — not in `make lint` (spawn overhead on macOS makes it slow locally). To run manually: `cd <sub-project> && pyright`.
+
+When adding a new Python sub-project, add `pyrightconfig.json` (copy from any `standard`-mode sub-project) and a `Run pyright` step to the CI workflow. Start with `standard` mode; fall back to `basic` only if the dependency has no stubs.
+
 ### Mutation testing (Rust)
 
 For a mathematical library, **correctness is the primary quality metric** — coverage % is necessary but not sufficient. Mutation testing measures whether tests actually catch behavior changes by making small code mutations (flipping operators, changing constants) and verifying the test suite catches them.
