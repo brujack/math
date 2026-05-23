@@ -1,4 +1,4 @@
-.PHONY: install-hooks test-hooks
+.PHONY: install-hooks test-hooks changelog
 
 install-hooks:
 	ln -sf "../../scripts/pre-commit" "$$(git rev-parse --git-path hooks)/pre-commit"
@@ -8,3 +8,6 @@ install-hooks:
 
 test-hooks:
 	bats --recursive tests/
+
+changelog:
+	git-cliff -o CHANGELOG.md
