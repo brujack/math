@@ -30,13 +30,17 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
 
       - name: Install Python dependencies
-        run: pip install mpmath gmpy2 coverage ruff hypothesis pyright
+        run: pip install mpmath gmpy2 coverage ruff hypothesis pyright pip-audit
 
       - name: Run tests
         run: make test
 
       - name: Run pyright
         run: pyright
+
+      - name: Run pip-audit
+        run: pip-audit
+        continue-on-error: true
 
       - name: Generate test metrics
         if: always()
