@@ -177,3 +177,24 @@ class TestAmicableProperties(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestEntryPointGuard(unittest.TestCase):
+    """Cover the `if __name__ == "__main__"` block."""
+
+    def test_module_runs_via_subprocess(self):
+        import pathlib
+        import subprocess
+        import sys
+
+        module_path = pathlib.Path(__file__).parent / "amicable.py"
+        proc = subprocess.run(
+            [sys.executable, str(module_path), "3"],
+            input="n\n",
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=tempfile.gettempdir(),
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("220", proc.stdout)
