@@ -294,6 +294,16 @@ Every Python sub-project CI workflow must include `pip-audit` in the pip install
 
 When adding a new Python sub-project, copy this step from any existing workflow.
 
+### CLI integration tests (Python)
+
+Each Python sub-project should have a `TestEntryPointGuard` class that invokes the CLI as a subprocess and asserts exit 0 plus a known value in stdout. Use `pathlib.Path(__file__).parent / "module.py"` to get the module path (avoids importing the whole module). Use `cwd=tempfile.gettempdir()` to isolate output files the CLI may write.
+
+**Two gotchas:**
+
+1. **`sys` may not be imported** — amicable, collatz, and perfect-numbers test files don't have `import sys` at the top. Add `import sys` inside the test method alongside `import pathlib, subprocess`.
+
+2. **factorial writes the result to a file, not stdout** — `factorial.py 5` prints `"Computing 5! ...\nComputed in 0.00s\n3 digits written to factorial_5.txt"`. Assert `"Computing 5!"` not `"120"`. Other CLIs (amicable, collatz, perfect-numbers) print their results directly to stdout.
+
 ### Mutation testing (Rust)
 
 For a mathematical library, **correctness is the primary quality metric** — coverage % is necessary but not sufficient. Mutation testing measures whether tests actually catch behavior changes by making small code mutations (flipping operators, changing constants) and verifying the test suite catches them.
