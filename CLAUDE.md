@@ -417,7 +417,7 @@ This gives a per-project badge in the README and keeps each project's CI self-co
 
 **All jobs must run on Node.js 24.** Use action versions that natively support Node.js 24:
 
-- `actions/checkout@v5` — natively runs on Node.js 24 (v4 used Node.js 20 and is deprecated)
+- `actions/checkout@v6` — natively runs on Node.js 24 (v5 was the previous version; v4 used Node.js 20 and is deprecated)
 
 The workflow also sets `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` as a belt-and-suspenders fallback for any third-party actions (e.g. `dtolnay/rust-toolchain`, `Swatinem/rust-cache`) that have not yet released a Node.js 24 native version.
 

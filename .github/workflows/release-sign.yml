@@ -21,7 +21,7 @@ jobs:
       RELEASE_TAG: ${{ inputs.release_tag }}
       BINARY_NAME: ${{ inputs.binary_name }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Download binary from release
         env:
@@ -40,7 +40,7 @@ jobs:
             --file "${BINARY_NAME}.sbom.spdx.json"
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@v4
 
       - name: Sign binary (keyless)
         run: |
