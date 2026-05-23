@@ -34,6 +34,10 @@ jobs:
 
       - name: Run tests
         run: make test
+
+      - name: Run pyright
+        run: pyright
+
       - name: Generate test metrics
         if: always()
         continue-on-error: true

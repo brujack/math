@@ -1,0 +1,7 @@
+{
+  "include": ["collatz.py", "test_collatz.py"],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": true,
+  "reportMissingModuleSource": false
+}

@@ -8,6 +8,7 @@ on:
       - "e/*.py"
       - "e/install_deps.sh"
       - "e/Makefile"
+      - "e/pyrightconfig.json"
       - ".github/workflows/e-py.yml"
 
 env:
@@ -29,10 +30,12 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
 
       - name: Install Python dependencies
-        run: pip install mpmath gmpy2 coverage ruff hypothesis
+        run: pip install mpmath gmpy2 coverage ruff hypothesis pyright
 
       - name: Run tests
         run: make test
+      - name: Run pyright
+        run: pyright
       - name: Check coverage (>=90%)
         run: make coverage
 
