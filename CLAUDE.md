@@ -423,11 +423,11 @@ The workflow also sets `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` as a belt-and-
 
 Do **not** add `actions/setup-node` to jobs — these are Rust/Python projects that don't need Node.js at the user-code level, and older versions of `setup-node` are themselves Node.js 20 actions.
 
-**Every Rust build job must upload its release binary as an artifact** using `actions/upload-artifact@v5` with 7-day retention:
+**Every Rust build job must upload its release binary as an artifact** using `actions/upload-artifact@v7` with 7-day retention:
 
 ```yaml
 - name: Upload artifact
-  uses: actions/upload-artifact@v5
+  uses: actions/upload-artifact@v7
   with:
     name: <binary-name>
     path: <project>/target/release/<binary-name>
