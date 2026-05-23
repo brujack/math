@@ -18,7 +18,7 @@ jobs:
       - name: Install bats-core
         run: sudo apt-get install -y bats
       - name: Install Python dependencies
-        run: pip install pyright pip-audit
+        run: pip install defusedxml pyright pip-audit
       - name: Run hook and script tests
         run: bats --recursive tests/
       - name: Run pyright
