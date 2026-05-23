@@ -280,6 +280,20 @@ Pyright runs in CI only — not in `make lint` (spawn overhead on macOS makes it
 
 When adding a new Python sub-project, add `pyrightconfig.json` (copy from any `standard`-mode sub-project) and a `Run pyright` step to the CI workflow. Start with `standard` mode; fall back to `basic` only if the dependency has no stubs.
 
+### Security audit (Python — pip-audit)
+
+Every Python sub-project CI workflow must include `pip-audit` in the pip install step and a `Run pip-audit` step with `continue-on-error: true` after the test step.
+
+`pip-audit` scans the installed Python environment for known CVEs. It is advisory — findings surface in CI logs but do not block auto-merge. The step is identical across all sub-projects:
+
+```yaml
+- name: Run pip-audit
+  run: pip-audit
+  continue-on-error: true
+```
+
+When adding a new Python sub-project, copy this step from any existing workflow.
+
 ### Mutation testing (Rust)
 
 For a mathematical library, **correctness is the primary quality metric** — coverage % is necessary but not sufficient. Mutation testing measures whether tests actually catch behavior changes by making small code mutations (flipping operators, changing constants) and verifying the test suite catches them.
