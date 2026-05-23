@@ -17,10 +17,12 @@ import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime, timezone
 
+from defusedxml import ElementTree as _defused_ET
+
 
 def parse_junit(path: str):
-    tree = ET.parse(path)
-    root = tree.getroot()
+    tree = _defused_ET.parse(path)
+    root: ET.Element = tree.getroot()  # type: ignore[union-attr]
     suites = root.findall("testsuite") if root.tag == "testsuites" else [root]
 
     flaky, timings = [], {}
