@@ -27,10 +27,15 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Install Python dependencies
-        run: pip install ruff coverage hypothesis pyright
+        run: pip install ruff coverage hypothesis pyright pip-audit
 
       - name: Run tests
         run: make test
+
+      - name: Run pip-audit
+        run: pip-audit
+        continue-on-error: true
+
       - name: Run pyright
         run: pyright
       - name: Check coverage (>=90%)
