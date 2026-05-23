@@ -368,6 +368,8 @@ This symlinks `scripts/pre-commit` into `.git/hooks/pre-commit`. The hook runs `
 
 Install ggshield: `brew install gitguardian/tap/ggshield && ggshield auth login`.
 
+- `brew install git-cliff` — CHANGELOG generation (`make changelog`)
+
 Rust crates use `scripts/rust-check.sh` for `make lint` and `make test`. By default it sets `CARGO_HOME` to a repo-local writable cache path and can run offline when dependencies are cached:
 
 ```bash
