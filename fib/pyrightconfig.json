@@ -1,0 +1,7 @@
+{
+  "include": ["fib.py", "test_fib.py"],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": true,
+  "reportMissingModuleSource": false
+}

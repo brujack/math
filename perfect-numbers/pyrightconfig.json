@@ -1,0 +1,7 @@
+{
+  "include": ["perfect_numbers.py", "test_perfect_numbers.py"],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": true,
+  "reportMissingModuleSource": false
+}

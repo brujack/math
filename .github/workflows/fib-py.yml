@@ -8,6 +8,7 @@ on:
       - "fib/*.py"
       - "fib/install_deps.sh"
       - "fib/Makefile"
+      - "fib/pyrightconfig.json"
       - ".github/workflows/fib-py.yml"
 
 env:
@@ -26,10 +27,12 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Install Python dependencies
-        run: pip install ruff coverage hypothesis
+        run: pip install ruff coverage hypothesis pyright
 
       - name: Run tests
         run: make test
+      - name: Run pyright
+        run: pyright
       - name: Check coverage (>=90%)
         run: make coverage
 

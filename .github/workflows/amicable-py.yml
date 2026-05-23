@@ -17,8 +17,11 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v5
-      - run: pip install ruff coverage hypothesis
+      - run: pip install ruff coverage hypothesis pyright
       - run: make test
+        working-directory: amicable
+      - name: Run pyright
+        run: pyright
         working-directory: amicable
       - run: make coverage
         working-directory: amicable

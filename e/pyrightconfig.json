@@ -1,0 +1,9 @@
+{
+  "include": ["e.py", "test_e.py"],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": true,
+  "reportMissingModuleSource": false,
+  "reportAttributeAccessIssue": "none",
+  "reportOptionalMemberAccess": "none"
+}

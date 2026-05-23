@@ -383,6 +383,8 @@ def save_e_to_file(e_value, digits, filename):
             self.running = False
 
         def show_one_tick(self):
+            if self.start_time is None:
+                return
             elapsed = time.time() - self.start_time
             if elapsed <= self.estimated_duration:
                 remaining = max(0, self.estimated_duration - elapsed)
