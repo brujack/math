@@ -1,7 +1,7 @@
 {
   "include": ["factorial.py", "test_factorial.py"],
   "pythonVersion": "3.11",
-  "typeCheckingMode": "basic",
+  "typeCheckingMode": "standard",
   "reportMissingImports": true,
   "reportMissingModuleSource": false
 }

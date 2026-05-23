@@ -1,5 +1,5 @@
 {
-  "include": ["collatz.py", "test_collatz.py"],
+  "include": ["time_tests.py", "test_metrics.py"],
   "pythonVersion": "3.11",
   "typeCheckingMode": "standard",
   "reportMissingImports": true,
