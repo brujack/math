@@ -1,0 +1,85 @@
+name: release-perfect-numbers-rs
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version number without the v prefix (e.g. 1.2.0)"
+        required: true
+        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    name: Release perfect-numbers-rs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install GMP and MPFR
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: perfect-numbers/perfect-numbers-rs
+
+      - name: Run tests
+        run: make test
+        working-directory: perfect-numbers/perfect-numbers-rs
+
+      - name: Build release binary
+        run: cargo build --release
+        working-directory: perfect-numbers/perfect-numbers-rs
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 --match="perfect-numbers-v*" 2>/dev/null || true)
+          if [ -n "$PREV_TAG" ]; then
+            NOTES=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s" -- perfect-numbers/perfect-numbers-rs/ || true)
+          else
+            NOTES=$(git log HEAD --pretty=format:"- %s" -- perfect-numbers/perfect-numbers-rs/ || true)
+          fi
+          DELIMITER="EOF_$(openssl rand -hex 8)"
+          {
+            printf 'notes<<%s\n' "${DELIMITER}"
+            printf '%s\n' "${NOTES}"
+            printf '%s\n' "${DELIMITER}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "perfect-numbers-v${VERSION}"
+          git push origin "perfect-numbers-v${VERSION}"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: "perfect-numbers-v${{ inputs.version }}"
+          name: "perfect-numbers v${{ inputs.version }}"
+          body: "${{ steps.notes.outputs.notes }}"
+          files: perfect-numbers/perfect-numbers-rs/target/release/perfect-numbers
+
+  sign:
+    needs: [release]
+    uses: ./.github/workflows/release-sign.yml
+    with:
+      release_tag: "perfect-numbers-v${{ inputs.version }}"
+      binary_name: "perfect-numbers"
+    permissions:
+      id-token: write
+      contents: write
