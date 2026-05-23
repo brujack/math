@@ -1,7 +1,7 @@
 {
   "include": ["sq.py", "test_sq.py"],
   "pythonVersion": "3.11",
-  "typeCheckingMode": "basic",
+  "typeCheckingMode": "standard",
   "reportMissingImports": true,
   "reportMissingModuleSource": false
 }
