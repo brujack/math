@@ -8,6 +8,10 @@ description = "Find all perfect numbers up to 10^N via Lucas-Lehmer + sigma veri
 name = "perfect-numbers"
 path = "src/main.rs"
 
+[lib]
+name = "perfect_numbers"
+path = "src/lib.rs"
+
 [dependencies]
 rug = { version = "1", features = ["integer"] }
 clap = { version = "4", features = ["derive"] }
@@ -15,6 +19,11 @@ clap = { version = "4", features = ["derive"] }
 [dev-dependencies]
 tempfile = "3"
 proptest = "1"
+criterion = "0.5"
+
+[[bench]]
+name = "perfect_numbers"
+harness = false
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }

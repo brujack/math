@@ -38,6 +38,10 @@ jobs:
       - name: Run tests
         working-directory: factorial/factorial-rs
         run: make lint && cargo nextest run --profile ci
+      - name: Install Python dependencies
+        if: always()
+        run: pip install defusedxml
+
       - name: Generate test metrics
         if: always()
         working-directory: ${{ github.workspace }}

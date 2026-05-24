@@ -8,6 +8,10 @@ description = "High-precision π calculator — Chudnovsky + Rayon + GMP"
 name = "pi"
 path = "src/main.rs"
 
+[lib]
+name = "pi"
+path = "src/lib.rs"
+
 [dependencies]
 # rug wraps GMP (big integers) and MPFR (arbitrary-precision floats).
 # Same C libraries as Python's gmpy2, but zero Python overhead and
@@ -24,6 +28,11 @@ clap = { version = "4", features = ["derive"] }
 [dev-dependencies]
 tempfile = "3"
 proptest = "1"
+criterion = "0.5"
+
+[[bench]]
+name = "pi"
+harness = false
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }

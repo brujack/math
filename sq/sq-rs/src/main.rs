@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 
 use clap::Parser;
 
+use sq::generate_squares;
+
 #[derive(Parser)]
 #[command(
     name = "sq",
@@ -13,20 +15,6 @@ use clap::Parser;
 struct Cli {
     /// N: generates perfect squares with up to 10^N digits (max 1)
     exponent: Option<u32>,
-}
-
-/// Generate all perfect squares with at most max_digits decimal digits,
-/// writing one square per line to `out`. Returns the total count.
-fn generate_squares<W: Write>(max_digits: u32, out: &mut W) -> io::Result<u64> {
-    let limit: u64 = 10u64.pow(max_digits);
-    let mut k: u64 = 1;
-    let mut count: u64 = 0;
-    while let Some(sq) = k.checked_mul(k).filter(|&sq| sq < limit) {
-        writeln!(out, "{} | {}", sq, k)?;
-        count += 1;
-        k += 1;
-    }
-    Ok(count)
 }
 
 fn fmt_int(n: u64) -> String {
@@ -131,6 +119,7 @@ fn main() {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+    use sq::generate_squares;
     use std::io::Cursor;
     use tempfile::tempdir;
 

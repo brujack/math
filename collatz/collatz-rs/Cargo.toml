@@ -8,12 +8,21 @@ description = "Find Collatz chain record-setters up to 10^N"
 name = "collatz"
 path = "src/main.rs"
 
+[lib]
+name = "collatz"
+path = "src/lib.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 
 [dev-dependencies]
 tempfile = "3"
 proptest = "1"
+criterion = "0.5"
+
+[[bench]]
+name = "collatz"
+harness = false
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }

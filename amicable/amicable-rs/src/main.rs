@@ -4,24 +4,14 @@ use std::io::{self, BufWriter, Write};
 use std::path::Path;
 use std::process;
 
+use amicable::proper_divisor_sum_sieve;
+
 #[derive(Parser)]
 #[command(about = "Find all amicable pairs (a,b) with b <= 10^N")]
 struct Args {
     /// Exponent N: find pairs up to 10^N (1-8)
     #[arg(value_parser = clap::value_parser!(u32).range(1..=8))]
     n: u32,
-}
-
-fn proper_divisor_sum_sieve(limit: usize) -> Vec<u32> {
-    let mut s = vec![0u32; limit + 1];
-    for d in 1..=(limit / 2) {
-        let mut m = 2 * d;
-        while m <= limit {
-            s[m] += d as u32;
-            m += d;
-        }
-    }
-    s
 }
 
 fn run<W: Write, E: Write>(
@@ -59,8 +49,8 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use crate::proper_divisor_sum_sieve;
-    use crate::run;
+    use super::run;
+    use amicable::proper_divisor_sum_sieve;
     use proptest::prelude::*;
 
     #[test]

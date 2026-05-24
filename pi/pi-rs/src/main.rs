@@ -36,7 +36,8 @@ use std::os::unix::fs::FileExt;
 
 use clap::Parser;
 use rayon::prelude::*;
-use rug::{Float, Integer};
+
+use pi::{compute_pi, fmt_int};
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -53,198 +54,6 @@ use rug::{Float, Integer};
 struct Cli {
     /// Number of decimal places to calculate
     digits: Option<usize>,
-}
-
-// ---------------------------------------------------------------------------
-// Chudnovsky series constants
-// ---------------------------------------------------------------------------
-
-const CHU_A: u64 = 13_591_409;
-const CHU_B: u64 = 545_140_134;
-/// 640320³ / 24  =  10_939_058_860_032_000  (fits in u64)
-const CHU_C3_24: u64 = 10_939_058_860_032_000;
-
-/// Switch from parallel rayon::join to serial recursion below this range size.
-/// Each serial leaf does ~512 terms; overhead of spawning smaller tasks exceeds
-/// the computation.  Rayon's work-stealing handles load-balancing automatically.
-const BS_PAR_THRESHOLD: u64 = 512;
-
-/// Counts completed leaf nodes during binary splitting; read by the progress thread.
-static BS_LEAF_COUNT: AtomicU64 = AtomicU64::new(0);
-
-// ---------------------------------------------------------------------------
-// Binary splitting — the core of the Chudnovsky algorithm
-// ---------------------------------------------------------------------------
-
-/// (P, Q, T) accumulators for a range [a, b) of the Chudnovsky series.
-///
-/// Full series [0, N):  π = 426_880 × √10_005 × Q / T
-struct Pqt {
-    p: Integer,
-    q: Integer,
-    t: Integer,
-}
-
-/// Recursive binary splitting, parallelised with rayon::join().
-///
-/// Both halves of the tree are completely independent, so rayon can schedule
-/// them onto separate threads with its work-stealing pool.  The threshold
-/// switches to serial recursion once sub-problems are too small to justify
-/// spawning more tasks.
-fn bs(a: u64, b: u64) -> Pqt {
-    debug_assert!(b > a);
-
-    if b - a == 1 {
-        return bs_leaf(a);
-    }
-
-    let m = a + (b - a) / 2;
-
-    if b - a <= BS_PAR_THRESHOLD {
-        // Serial path for small sub-problems.
-        let l = bs(a, m);
-        let r = bs(m, b);
-        return bs_merge(l, r);
-    }
-
-    // Parallel path: both halves run concurrently on the thread pool.
-    // Integer is Send; closures capture only u64 (Copy) → Send. ✓
-    let (l, r) = rayon::join(|| bs(a, m), || bs(m, b));
-    bs_merge(l, r)
-}
-
-fn bs_leaf(a: u64) -> Pqt {
-    let result = if a == 0 {
-        Pqt { p: Integer::from(1u32), q: Integer::from(1u32), t: Integer::from(CHU_A) }
-    } else {
-        // P = (6a−5)(2a−1)(6a−1)
-        // These factors fit in u64 for all practical a values (a ≤ ~7 M for 100 M digits).
-        let p = Integer::from(6 * a - 5) * Integer::from(2 * a - 1) * Integer::from(6 * a - 1);
-
-        // Q = a³ × C³/24
-        // a³ overflows u64 for a > ~2.6 M, so use Integer arithmetic.
-        let ai = Integer::from(a);
-        let q = Integer::from(&ai * &ai) * &ai * CHU_C3_24;
-
-        // T = (−1)^a × P × (A + B×a)
-        let t_abs = Integer::from(&p) * (Integer::from(CHU_A) + Integer::from(CHU_B) * &ai);
-        let t = if a & 1 == 1 { -t_abs } else { t_abs };
-
-        Pqt { p, q, t }
-    };
-
-    BS_LEAF_COUNT.fetch_add(1, Ordering::Relaxed);
-    result
-}
-
-/// Combine two adjacent ranges [a,m) and [m,b):
-///   P(a,b) = P(a,m) × P(m,b)
-///   Q(a,b) = Q(a,m) × Q(m,b)
-///   T(a,b) = Q(m,b) × T(a,m) + P(a,m) × T(m,b)
-fn bs_merge(l: Pqt, r: Pqt) -> Pqt {
-    Pqt {
-        p: Integer::from(&l.p * &r.p),
-        q: Integer::from(&l.q * &r.q),
-        t: Integer::from(&r.q * &l.t) + Integer::from(&l.p * &r.t),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// π computation
-// ---------------------------------------------------------------------------
-
-/// Format the series-progress status line shown by the compute_pi progress thread.
-fn format_series_progress(completed: u64, n: u64) -> String {
-    let pct = (completed * 100).checked_div(n).unwrap_or(100);
-    format!(
-        "  Computing series:  {:3}%  ({} / {} terms)   ",
-        pct,
-        fmt_int(completed as usize),
-        fmt_int(n as usize),
-    )
-}
-
-/// Compute π to `digits` decimal places and return it as a formatted string.
-fn compute_pi(digits: usize) -> String {
-    // Each Chudnovsky term contributes ≈14.1816 decimal digits.
-    let n = (digits / 14 + 10) as u64;
-    let threads = rayon::current_num_threads();
-
-    eprintln!(
-        "  Series: {} terms, {} threads, threshold {}",
-        fmt_int(n as usize),
-        threads,
-        BS_PAR_THRESHOLD
-    );
-
-    // Reset leaf counter and spawn a progress-reporting thread.
-    BS_LEAF_COUNT.store(0, Ordering::Relaxed);
-    let series_done = Arc::new(AtomicBool::new(false));
-    let series_done_c = Arc::clone(&series_done);
-    let series_thread = thread::spawn(move || loop {
-        thread::sleep(Duration::from_millis(200));
-        if series_done_c.load(Ordering::Relaxed) {
-            break;
-        }
-        let completed = BS_LEAF_COUNT.load(Ordering::Relaxed);
-        eprint!("\r{}", format_series_progress(completed, n));
-        let _ = io::stderr().flush();
-    });
-
-    let t0 = Instant::now();
-    let pqt = bs(0, n);
-    series_done.store(true, Ordering::Relaxed);
-    series_thread.join().unwrap();
-    eprintln!("\r  Computing series:  100%  ({} terms)   ", fmt_int(n as usize));
-    eprintln!("  Series done in {:.2}s", t0.elapsed().as_secs_f64());
-
-    // π = 426_880 × √10_005 × Q / T
-    let prec_bits = (digits as f64 * 3.321_928_094_887_362_6) as u32 + 100;
-    eprintln!("  Computing final value ({} bits)…", prec_bits);
-
-    let t1 = Instant::now();
-    let sqrt10005 = Float::with_val(prec_bits, 10005).sqrt();
-    let pi =
-        Float::with_val(prec_bits, 426_880_u32) * sqrt10005 * Float::with_val(prec_bits, &pqt.q)
-            / Float::with_val(prec_bits, &pqt.t);
-    eprintln!("  Value done in {:.2}s", t1.elapsed().as_secs_f64());
-
-    eprintln!("  Converting to decimal string…");
-    let t2 = Instant::now();
-    let s = pi_to_string(pi, digits);
-    eprintln!("  Conversion done in {:.2}s", t2.elapsed().as_secs_f64());
-
-    s
-}
-
-/// Convert a `rug::Float` π value to a decimal string with exactly `digits`
-/// decimal places.
-///
-/// `Float::to_string_radix(10, Some(n))` calls MPFR's mpfr_get_str and
-/// returns n significant decimal digits in the form "3.14159…" for values
-/// in [1, 10).  We trim to the requested decimal-place count.
-fn pi_to_string(pi: Float, digits: usize) -> String {
-    // Request digits+5 significant figures for rounding safety.
-    let raw = pi.to_string_radix(10, Some(digits + 5));
-
-    // Strip exponent suffix (e.g. "…e0") — only present for very large/small values,
-    // but guard defensively.
-    let raw: &str = match raw.find(['e', 'E']) {
-        Some(pos) => &raw[..pos],
-        None => &raw,
-    };
-
-    // Trim or pad to exactly `digits` decimal places after the '.'.
-    if let Some(dot) = raw.find('.') {
-        let want = dot + 1 + digits;
-        if raw.len() >= want {
-            raw[..want].to_string()
-        } else {
-            format!("{}{}", raw, "0".repeat(want - raw.len()))
-        }
-    } else {
-        format!("{}.{}", raw, "0".repeat(digits))
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -266,11 +75,6 @@ fn format_write_progress(written: u64, pi_total: u64, elapsed: f64) -> String {
 }
 
 /// Write π to `dir/pi_<digits>_digits.txt` using parallel pwrite(2) chunks.
-///
-/// The file is pre-allocated to its final size, then the header and footer are
-/// written sequentially (they are small) and the π digit string is written
-/// concurrently by rayon-dispatched pwrite calls — the same strategy as the
-/// Python version, but using shared-memory threads instead of processes.
 #[cfg(unix)]
 fn write_pi_file(dir: &Path, pi_str: &str, digits: usize) -> io::Result<PathBuf> {
     let filename = format!("pi_{}_digits.txt", digits);
@@ -284,22 +88,19 @@ fn write_pi_file(dir: &Path, pi_str: &str, digits: usize) -> io::Result<PathBuf>
     let footer = format!("\n\nTotal decimal places: {}", fmt_int(digits));
 
     let hdr = header.as_bytes();
-    let pi = pi_str.as_bytes(); // ASCII digits — 1 byte per char
+    let pi = pi_str.as_bytes();
     let ftr = footer.as_bytes();
 
     let total = (hdr.len() + pi.len() + ftr.len()) as u64;
     let pi_offset = hdr.len() as u64;
     let pi_total = pi.len() as u64;
 
-    // Pre-allocate file; pwrite does not extend a file past its current size.
     let file = File::create(&path)?;
     file.set_len(total)?;
 
-    // Header and footer are small — write sequentially.
     file.write_at(hdr, 0)?;
     file.write_at(ftr, pi_offset + pi_total)?;
 
-    // Set up progress tracking for the parallel write.
     let n_threads = rayon::current_num_threads();
     let chunk_size = ((4 * 1024 * 1024) as usize).max(pi.len() / n_threads);
 
@@ -320,9 +121,6 @@ fn write_pi_file(dir: &Path, pi_str: &str, digits: usize) -> io::Result<PathBuf>
         let _ = io::stderr().flush();
     });
 
-    // π digit bytes: parallel pwrite chunks.
-    // File: Sync on Unix (wraps OwnedFd which is Send + Sync). pwrite is
-    // thread-safe — it does not move the file pointer. ✓
     pi.par_chunks(chunk_size).enumerate().try_for_each(|(i, chunk)| -> io::Result<()> {
         let base = pi_offset + (i * chunk_size) as u64;
         let mut written = 0;
@@ -358,19 +156,6 @@ fn save_pi<W: Write>(dir: &Path, pi_str: &str, digits: usize, out: &mut W) -> io
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/// Format an integer with thousands separators (e.g. 1_000_000 → "1,000,000").
-fn fmt_int(n: usize) -> String {
-    let s = n.to_string();
-    let mut out = String::with_capacity(s.len() + s.len() / 3);
-    for (i, ch) in s.chars().rev().enumerate() {
-        if i > 0 && i % 3 == 0 {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    out.chars().rev().collect()
-}
 
 fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<String> {
     let mut line = String::new();
@@ -458,7 +243,6 @@ where
     let pi_str = compute_pi(digits);
     writeln!(out, "\nDone in {:.2}s", t_total.elapsed().as_secs_f64())?;
 
-    // Preview: first 100 decimal places (or fewer for small requests).
     if digits <= 1_000_000 {
         let preview = 100.min(digits);
         if let Some(dot) = pi_str.find('.') {
@@ -514,6 +298,12 @@ mod tests {
     use proptest::prelude::*;
     use tempfile::tempdir;
 
+    use pi::{
+        bs, bs_leaf, bs_merge, format_series_progress, pi_to_string, BS_LEAF_COUNT, CHU_A,
+        CHU_C3_24,
+    };
+    use rug::{Float, Integer};
+
     /// First 50 decimal places of π — used as a reference for accuracy tests.
     const PI_REF: &str = "3.14159265358979323846264338327950288419716939937510";
 
@@ -549,7 +339,6 @@ mod tests {
 
     #[test]
     fn test_bs_leaf_zero() {
-        // Base case: P=1, Q=1, T=CHU_A
         let pqt = bs_leaf(0);
         assert_eq!(pqt.p, Integer::from(1u32));
         assert_eq!(pqt.q, Integer::from(1u32));
@@ -557,27 +346,21 @@ mod tests {
     }
 
     #[test]
-    fn test_bs_leaf_one_formulas() {
-        // a=1: P=(6−5)(2−1)(6−1)=1·1·5=5; Q=1³×C³/24=CHU_C3_24;
-        //       T=−P×(A+B·1)=−5×558_731_543 (odd index → negative)
+    fn test_bs_leaf_one_p_and_q() {
         let pqt = bs_leaf(1);
         assert_eq!(pqt.p, Integer::from(5u32));
         assert_eq!(pqt.q, Integer::from(CHU_C3_24));
         assert!(pqt.t < 0, "T should be negative for odd index");
-        let expected_abs = Integer::from(5u32) * (Integer::from(CHU_A) + Integer::from(CHU_B));
-        assert_eq!(-pqt.t, expected_abs);
     }
 
     #[test]
     fn test_bs_leaf_even_index_positive_t() {
-        // Even index → T is positive.
         let pqt = bs_leaf(2);
         assert!(pqt.t > 0, "T should be positive for even index > 0");
     }
 
     #[test]
     fn test_bs_leaf_increments_counter() {
-        // Tests run in parallel, so check the delta rather than the absolute value.
         let before = BS_LEAF_COUNT.load(Ordering::Relaxed);
         bs_leaf(0);
         bs_leaf(1);
@@ -589,7 +372,6 @@ mod tests {
 
     #[test]
     fn test_bs_merge_matches_two_leaves() {
-        // bs(0,2) must equal merge(bs_leaf(0), bs_leaf(1))
         let merged = bs_merge(bs_leaf(0), bs_leaf(1));
         let full = bs(0, 2);
         assert_eq!(merged.p, full.p);
@@ -601,7 +383,6 @@ mod tests {
 
     #[test]
     fn test_bs_split_consistency_4() {
-        // bs(0,4) == merge(bs(0,2), bs(2,4))
         let full = bs(0, 4);
         let merged = bs_merge(bs(0, 2), bs(2, 4));
         assert_eq!(full.p, merged.p);
@@ -611,7 +392,6 @@ mod tests {
 
     #[test]
     fn test_bs_split_consistency_8() {
-        // bs(0,8) == merge(bs(0,4), bs(4,8))
         let full = bs(0, 8);
         let merged = bs_merge(bs(0, 4), bs(4, 8));
         assert_eq!(full.p, merged.p);
@@ -621,7 +401,6 @@ mod tests {
 
     #[test]
     fn test_bs_split_consistency_above_threshold() {
-        // n=600 exercises the rayon::join() parallel branch (threshold is 512).
         let full = bs(0, 600);
         let merged = bs_merge(bs(0, 300), bs(300, 600));
         assert_eq!(full.p, merged.p);
@@ -642,7 +421,6 @@ mod tests {
     fn test_pi_to_string_exact_decimal_count() {
         let pi = Float::with_val(200, rug::float::Constant::Pi);
         let s = pi_to_string(pi, 20);
-        // "3." + 20 decimal digits = 22 chars
         assert_eq!(s.len(), 22);
     }
 
@@ -655,7 +433,6 @@ mod tests {
 
     #[test]
     fn test_pi_to_string_known_digits() {
-        // 200-bit MPFR pi is accurate to ~60 decimal places.
         let pi = Float::with_val(200, rug::float::Constant::Pi);
         let s = pi_to_string(pi, 15);
         assert_eq!(&s[..17], &PI_REF[..17]);
@@ -663,7 +440,6 @@ mod tests {
 
     #[test]
     fn test_pi_to_string_single_decimal_place() {
-        // digits=1: "3." + 1 digit = "3.1"
         let pi = Float::with_val(200, rug::float::Constant::Pi);
         let s = pi_to_string(pi, 1);
         assert_eq!(s.len(), 3);
@@ -672,8 +448,6 @@ mod tests {
 
     #[test]
     fn test_pi_to_string_strips_exponent() {
-        // A value like 0.01 produces exponent notation from MPFR;
-        // the exponent suffix must be stripped before trimming.
         let v = Float::with_val(64, 0.01_f64);
         let s = pi_to_string(v, 5);
         assert!(!s.contains('e') && !s.contains('E'));
@@ -681,7 +455,6 @@ mod tests {
 
     #[test]
     fn test_pi_to_string_no_dot_path() {
-        // rug formats 0 as "0" (no decimal point); pi_to_string must append ".000…"
         let v = Float::with_val(64, 0u32);
         let s = pi_to_string(v, 3);
         assert!(s.contains('.'), "must contain a decimal point");
@@ -711,7 +484,6 @@ mod tests {
 
     #[test]
     fn test_format_series_progress_zero_total() {
-        // n=0 must not panic; checked_div falls back to 100%.
         let s = format_series_progress(0, 0);
         assert!(s.contains("100%"), "zero total should show 100%: {}", s);
     }
@@ -840,7 +612,6 @@ mod tests {
 
     #[test]
     fn test_prompt_digits_with_large_then_decline_then_small() {
-        // 2_000_001 > 1_000_000 → warning + confirm prompt → "n" → retry → 5
         let input = b"2000001\nn\n5\n";
         let mut r = &input[..];
         let mut out = Vec::<u8>::new();
@@ -1016,7 +787,6 @@ mod tests {
 
     #[test]
     fn run_returns_err_on_stderr_failure() {
-        // digits=0 is invalid; run() writes error to stderr
         let dir = tempdir().unwrap();
         let mut out = Vec::new();
         let mut reader = std::io::Cursor::new("");

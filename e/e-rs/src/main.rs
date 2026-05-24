@@ -33,7 +33,8 @@ use std::os::unix::fs::FileExt;
 
 use clap::Parser;
 use rayon::prelude::*;
-use rug::{Float, Integer};
+
+use e::{compute_e, fmt_int, format_write_progress};
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -50,156 +51,6 @@ use rug::{Float, Integer};
 struct Cli {
     /// Number of decimal places to calculate
     digits: Option<usize>,
-}
-
-// ---------------------------------------------------------------------------
-// Taylor series constants
-// ---------------------------------------------------------------------------
-
-/// Switch from parallel rayon::join to serial recursion below this range size.
-const BS_PAR_THRESHOLD: u64 = 512;
-
-/// Counts completed leaf nodes during binary splitting; read by the progress thread.
-static BS_LEAF_COUNT: AtomicU64 = AtomicU64::new(0);
-
-// ---------------------------------------------------------------------------
-// Binary splitting — the core of the Taylor series for e
-// ---------------------------------------------------------------------------
-
-/// (P, Q) accumulators for a range [a, b) of the Taylor series.
-///
-/// Full series [0, N):  e = Q / P
-struct Pq {
-    p: Integer,
-    q: Integer,
-}
-
-/// Recursive binary splitting, parallelised with rayon::join().
-fn bs(a: u64, b: u64) -> Pq {
-    debug_assert!(b > a);
-
-    if b - a == 1 {
-        return bs_leaf(a);
-    }
-
-    let m = a + (b - a) / 2;
-
-    if b - a <= BS_PAR_THRESHOLD {
-        let l = bs(a, m);
-        let r = bs(m, b);
-        return bs_merge(l, r);
-    }
-
-    let (l, r) = rayon::join(|| bs(a, m), || bs(m, b));
-    bs_merge(l, r)
-}
-
-fn bs_leaf(a: u64) -> Pq {
-    let result = if a == 0 {
-        Pq { p: Integer::from(1u32), q: Integer::from(1u32) }
-    } else {
-        let val = a + 1;
-        Pq { p: Integer::from(val), q: Integer::from(val) }
-    };
-
-    BS_LEAF_COUNT.fetch_add(1, Ordering::Relaxed);
-    result
-}
-
-/// Combine two adjacent ranges [a,m) and [m,b):
-///   P(a,b) = P(a,m) × P(m,b)
-///   Q(a,b) = Q(a,m) × P(m,b) + Q(m,b)
-fn bs_merge(l: Pq, r: Pq) -> Pq {
-    Pq { p: Integer::from(&l.p * &r.p), q: Integer::from(&l.q * &r.p) + &r.q }
-}
-
-// ---------------------------------------------------------------------------
-// e computation
-// ---------------------------------------------------------------------------
-
-/// Compute e to `digits` decimal places and return it as a formatted string.
-fn compute_e(digits: usize) -> String {
-    // Term count: need N such that log10(N!) > digits (truncation error < 10^-digits).
-    // Stirling: log10(N!) ≈ N*(log10(N) - log10(e)).  The naive estimate
-    // N = digits/log10(digits) ignores the -N*log10(e) term and undershoots
-    // for digits > ~340.  One Newton step corrects for it.
-    let n: u64 = if digits > 1 {
-        let d = digits as f64;
-        let n0 = d / (d + 1.0).log10();
-        let log_n0 = n0.log10().max(1.0);
-        let deficit = (d - n0 * (log_n0 - std::f64::consts::LOG10_E)).max(0.0);
-        (n0 + deficit / log_n0) as u64 + 50
-    } else {
-        20
-    };
-    let threads = rayon::current_num_threads();
-
-    eprintln!(
-        "  Series: {} terms, {} threads, threshold {}",
-        fmt_int(n as usize),
-        threads,
-        BS_PAR_THRESHOLD
-    );
-
-    // Reset leaf counter and spawn a progress-reporting thread.
-    BS_LEAF_COUNT.store(0, Ordering::Relaxed);
-    let series_done = Arc::new(AtomicBool::new(false));
-    let series_done_c = Arc::clone(&series_done);
-    let series_thread = thread::spawn(move || loop {
-        thread::sleep(Duration::from_millis(200));
-        if series_done_c.load(Ordering::Relaxed) {
-            break;
-        }
-        let completed = BS_LEAF_COUNT.load(Ordering::Relaxed);
-        eprint!("\r{}", format_series_progress(completed, n));
-        let _ = io::stderr().flush();
-    });
-
-    let t0 = Instant::now();
-    let pq = bs(0, n);
-    series_done.store(true, Ordering::Relaxed);
-    series_thread.join().unwrap();
-    eprintln!("\r  Computing series:  100%  ({} terms)   ", fmt_int(n as usize));
-    eprintln!("  Series done in {:.2}s", t0.elapsed().as_secs_f64());
-
-    // e = Q / P
-    let prec_bits = (digits as f64 * 3.321_928_094_887_362_6) as u32 + 100;
-    eprintln!("  Computing final value ({} bits)...", prec_bits);
-
-    let t1 = Instant::now();
-    let e = Float::with_val(prec_bits, &pq.q) / Float::with_val(prec_bits, &pq.p);
-    eprintln!("  Value done in {:.2}s", t1.elapsed().as_secs_f64());
-
-    eprintln!("  Converting to decimal string...");
-    let t2 = Instant::now();
-    let s = e_to_string(e, digits);
-    eprintln!("  Conversion done in {:.2}s", t2.elapsed().as_secs_f64());
-
-    s
-}
-
-/// Convert a `rug::Float` e value to a decimal string with exactly `digits`
-/// decimal places.
-fn e_to_string(e: Float, digits: usize) -> String {
-    let raw = e.to_string_radix(10, Some(digits + 5));
-
-    // Strip exponent suffix (e.g. "...e0").
-    let raw: &str = match raw.find(['e', 'E']) {
-        Some(pos) => &raw[..pos],
-        None => &raw,
-    };
-
-    // Trim or pad to exactly `digits` decimal places after the '.'.
-    if let Some(dot) = raw.find('.') {
-        let want = dot + 1 + digits;
-        if raw.len() >= want {
-            raw[..want].to_string()
-        } else {
-            format!("{}{}", raw, "0".repeat(want - raw.len()))
-        }
-    } else {
-        format!("{}.{}", raw, "0".repeat(digits))
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -280,44 +131,6 @@ fn write_e_file(dir: &Path, e_str: &str, digits: usize) -> io::Result<PathBuf> {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/// Format the series-progress status line shown by the compute_e progress thread.
-fn format_series_progress(completed: u64, n: u64) -> String {
-    let pct = (completed * 100).checked_div(n).unwrap_or(100);
-    format!(
-        "  Computing series:  {:3}%  ({} / {} terms)   ",
-        pct,
-        fmt_int(completed as usize),
-        fmt_int(n as usize),
-    )
-}
-
-/// Format the file-write progress status line shown by write_e_file's progress
-/// thread. `elapsed` is wall-clock seconds since write started.
-fn format_write_progress(written: u64, e_total: u64, elapsed: f64) -> String {
-    let speed = if elapsed > 0.001 { written as f64 / elapsed / 1_048_576.0 } else { 0.0 };
-    let pct = (written * 100).checked_div(e_total).unwrap_or(100);
-    format!(
-        "  Writing: {:3}%  ({:.1} / {:.1} MB)  {:.1} MB/s   ",
-        pct,
-        written as f64 / 1_048_576.0,
-        e_total as f64 / 1_048_576.0,
-        speed,
-    )
-}
-
-/// Format an integer with thousands separators (e.g. 1_000_000 -> "1,000,000").
-fn fmt_int(n: usize) -> String {
-    let s = n.to_string();
-    let mut out = String::with_capacity(s.len() + s.len() / 3);
-    for (i, ch) in s.chars().rev().enumerate() {
-        if i > 0 && i % 3 == 0 {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    out.chars().rev().collect()
-}
 
 fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<String> {
     let mut line = String::new();
@@ -459,7 +272,12 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use e::{
+        bs, bs_leaf, bs_merge, compute_e, e_to_string, format_series_progress,
+        format_write_progress, BS_LEAF_COUNT,
+    };
     use proptest::prelude::*;
+    use rug::{Float, Integer};
     use tempfile::tempdir;
 
     /// First 50 decimal places of e — used as a reference for accuracy tests.
@@ -595,7 +413,6 @@ mod tests {
 
     #[test]
     fn test_compute_e_one_digit() {
-        // Exercises the `digits > 1` else branch (n = 20 fixed).
         let s = compute_e(1);
         assert_eq!(s, "2.7");
     }
@@ -614,9 +431,6 @@ mod tests {
 
     #[test]
     fn test_compute_e_400_digits_accurate() {
-        // digits=400 is above the ~340-digit threshold where the old formula
-        // (N = digits/log10(digits) + 50) supplied too few Taylor terms,
-        // producing silently wrong tail digits.
         const E_400: &str = concat!(
             "2.",
             "71828182845904523536028747135266249775724709369995",
@@ -634,8 +448,6 @@ mod tests {
 
     #[test]
     fn test_compute_e_long_enough_for_progress_thread() {
-        // Large enough to make `bs` take >200ms in debug mode and trigger
-        // the progress-thread loop body (otherwise it spawns and never ticks).
         let s = compute_e(20_000);
         assert!(s.starts_with(&E_REF[..50]));
         assert!(s.len() >= 20_002);
@@ -665,7 +477,6 @@ mod tests {
 
     #[test]
     fn test_format_series_progress_zero_total() {
-        // Defensive: avoid div-by-zero if n is somehow 0.
         let s = format_series_progress(0, 0);
         assert!(s.contains("100%"));
     }
@@ -686,7 +497,6 @@ mod tests {
 
     #[test]
     fn test_format_write_progress_zero_total_pct_is_100() {
-        // checked_div by 0 should fall back to 100%.
         let s = format_write_progress(0, 0, 0.5);
         assert!(s.contains("100%"));
     }
@@ -701,7 +511,6 @@ mod tests {
 
     #[test]
     fn test_bs_split_consistency_above_threshold() {
-        // BS_PAR_THRESHOLD = 512 — using b - a = 600 hits the rayon::join branch.
         let full = bs(0, 600);
         let merged = bs_merge(bs(0, 300), bs(300, 600));
         assert_eq!(full.p, merged.p);
@@ -712,8 +521,6 @@ mod tests {
 
     #[test]
     fn test_e_to_string_strips_exponent_suffix() {
-        // Values < 1 produce "X.YYYe-N" notation in rug; the strip branch
-        // (Some(pos) =>) must remove the exponent before trimming.
         let f = Float::with_val(64, 0.01);
         let s = e_to_string(f, 5);
         assert!(!s.contains('e') && !s.contains('E'));
@@ -722,8 +529,6 @@ mod tests {
 
     #[test]
     fn test_e_to_string_pads_when_no_dot() {
-        // Float::with_val(64, 0) produces "0" with no decimal point.
-        // The function must fabricate "0." and pad zeros.
         let f = Float::with_val(64, 0u32);
         let s = e_to_string(f, 4);
         assert_eq!(s, "0.0000");
@@ -793,7 +598,6 @@ mod tests {
 
     #[test]
     fn test_prompt_digits_with_large_then_decline_then_small() {
-        // Large value declined, then a small valid value accepted.
         let mut input = &b"2000000\nn\n10\n"[..];
         let mut out = Vec::new();
         let mut err = Vec::new();
@@ -949,7 +753,6 @@ mod tests {
 
     #[test]
     fn test_run_with_arg_above_10k_auto_saves() {
-        // digits > 10_000 takes the auto-save branch (no display prompt).
         let dir = tempdir().unwrap();
         let cli = Cli { digits: Some(10_001) };
         let mut reader = &b""[..];
@@ -961,7 +764,6 @@ mod tests {
         assert!(saved.exists());
         let out_s = String::from_utf8(out).unwrap();
         assert!(out_s.contains("Full precision e saved to"));
-        // Should NOT contain the display prompt.
         assert!(!out_s.contains("Display all"));
     }
 
@@ -969,7 +771,6 @@ mod tests {
     fn test_run_no_arg_prompts_for_digits() {
         let dir = tempdir().unwrap();
         let cli = Cli { digits: None };
-        // First line: digit count; second line: y/n for display
         let mut reader = &b"10\nn\n"[..];
         let mut out = Vec::new();
         let mut err = Vec::new();
@@ -1013,7 +814,6 @@ mod tests {
 
     #[test]
     fn run_returns_err_on_stderr_failure() {
-        // digits=0 is invalid; run() writes error to stderr
         let dir = tempdir().unwrap();
         let mut out = Vec::new();
         let mut reader = std::io::Cursor::new("");

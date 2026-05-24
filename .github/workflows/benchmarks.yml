@@ -1,0 +1,52 @@
+name: Benchmarks
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 2 1 * *"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install GMP/MPFR/MPC
+        run: sudo apt-get install -y libgmp-dev libmpfr-dev libmpc-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Run all benchmarks
+        run: |
+          for dir in \
+            factorial/factorial-rs \
+            pi/pi-rs \
+            e/e-rs \
+            fib/fib-rs \
+            collatz/collatz-rs \
+            amicable/amicable-rs \
+            prime/prime-rs \
+            perfect-numbers/perfect-numbers-rs \
+            twin-primes/twin-primes-rs \
+            goldbach/goldbach-rs \
+            sq/sq-rs; do
+            echo "Benchmarking $dir..."
+            cargo bench --manifest-path "$dir/Cargo.toml" \
+              -- --output-format bencher 2>/dev/null >> output.txt || true
+          done
+
+      - name: Store benchmark results
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: cargo
+          output-file-path: output.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+          comment-on-alert: false
