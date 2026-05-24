@@ -1,0 +1,79 @@
+name: benchmarks
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - "factorial/factorial-rs/**"
+      - "pi/pi-rs/**"
+      - "e/e-rs/**"
+      - "fib/fib-rs/**"
+      - "collatz/collatz-rs/**"
+      - "amicable/amicable-rs/**"
+      - "prime/prime-rs/**"
+      - "perfect-numbers/perfect-numbers-rs/**"
+      - "twin-primes/twin-primes-rs/**"
+      - "goldbach/goldbach-rs/**"
+      - "sq/sq-rs/**"
+      - ".github/workflows/benchmarks.yml"
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  bench:
+    name: Criterion benchmarks
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - crate: factorial
+            dir: factorial/factorial-rs
+          - crate: pi
+            dir: pi/pi-rs
+          - crate: e
+            dir: e/e-rs
+          - crate: fib
+            dir: fib/fib-rs
+          - crate: collatz
+            dir: collatz/collatz-rs
+          - crate: amicable
+            dir: amicable/amicable-rs
+          - crate: prime
+            dir: prime/prime-rs
+          - crate: perfect-numbers
+            dir: perfect-numbers/perfect-numbers-rs
+          - crate: twin-primes
+            dir: twin-primes/twin-primes-rs
+          - crate: goldbach
+            dir: goldbach/goldbach-rs
+          - crate: sq
+            dir: sq/sq-rs
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ matrix.dir }}
+
+      - name: Install libgmp (rug dependency)
+        if: >-
+          contains(fromJSON('["factorial","pi","e","perfect-numbers"]'), matrix.crate)
+        run: sudo apt-get install -y libgmp-dev libmpfr-dev
+
+      - name: Run benchmarks
+        run: cargo bench -- --output-format bencher | tee bench-output.txt 2>&1 || true
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v7
+        with:
+          name: bench-${{ matrix.crate }}
+          path: ${{ matrix.dir }}/bench-output.txt
+          retention-days: 30

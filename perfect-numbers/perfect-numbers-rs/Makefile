@@ -1,4 +1,4 @@
-.PHONY: perfect-numbers lint test clean mutants
+.PHONY: perfect-numbers lint test bench clean mutants
 
 perfect-numbers:
 	cargo build --release
@@ -8,6 +8,9 @@ lint:
 
 test: lint
 	../../scripts/rust-check.sh test
+
+bench:
+	cargo bench
 
 mutants:
 	cargo mutants --timeout 120 --no-shuffle

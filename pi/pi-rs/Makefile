@@ -1,4 +1,4 @@
-.PHONY: pi lint test clean mutants
+.PHONY: pi lint test bench clean mutants
 
 pi:
 	cargo build --release
@@ -9,6 +9,9 @@ lint:
 
 test: lint
 	../../scripts/rust-check.sh test
+
+bench:
+	cargo bench
 
 mutants:
 	cargo mutants --timeout 120 --no-shuffle
