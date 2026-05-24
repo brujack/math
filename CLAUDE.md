@@ -402,6 +402,16 @@ Twenty-eight workflow files. Project workflows run on PRs to `master` only — t
 
 **Auto-merge gate:** `scripts/ci-gate.sh <PR>` is called by the `auto-merge` job before merging. It polls `gh pr checks` until all checks are terminal, then verifies no check outside the advisory list (`snyk-scan`) and self-checks (`secret-scan`, `auto-merge`) has failed. Docs-only PRs trigger no project workflows and merge immediately. The gate is tested via `tests/scripts/ci_gate.bats` using the `tests/mocks/gh` mock (runs fully offline).
 
+**`test_metrics.py` in Rust workflows needs explicit `pip install defusedxml`** — `factorial-rs.yml` is the only Rust workflow that calls `scripts/test_metrics.py`. Unlike Python workflows (which have a full `pip install` step), Rust workflows have no Python dependency install step. `test_metrics.py` imports `defusedxml` (added in #69 for XXE safety), which is not pre-installed on GitHub-hosted Ubuntu runners. Any Rust workflow that calls `test_metrics.py` must add this step immediately before the `Generate test metrics` step:
+
+```yaml
+- name: Install Python dependencies
+  if: always()
+  run: pip install defusedxml
+```
+
+Omitting this causes `ModuleNotFoundError: No module named 'defusedxml'` in CI. The symptom is subtle — the PR may touch unrelated files in `factorial/factorial-rs/` (e.g. bench deps) and unexpectedly trigger this workflow.
+
 **Paths-filtered workflows** — each project workflow fires only when files in its directory change. The root `Makefile` is covered by `scripts.yml`. Release workflows and `auto-merge.yml` trigger unconditionally. When a new project is added, create its workflow with a `paths:` block — the gate automatically requires it for relevant PRs.
 
 **snyk-scan** runs `snyk code test` (SAST) against the Python and Rust source. It is advisory — not in `needs` for `auto-merge`. Requires `SNYK_TOKEN` in repository secrets.
