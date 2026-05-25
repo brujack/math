@@ -376,6 +376,10 @@ Rust crates use `scripts/rust-check.sh` for `make lint` and `make test`. By defa
 RUST_CHECK_OFFLINE=1 make test
 ```
 
+Every Rust sub-project also has `make bench` (Criterion benchmarks). CI alerts when any benchmark regresses more than 30% vs the previous run. `cargo test` includes CLI integration tests from `tests/cli.rs` alongside the unit tests.
+
+Python CI runs two additional quality steps per sub-project: `pyright` (static type checking) and `pip-audit` (dependency security scan). These run in CI only — there is no local `make` target for them. Run them manually with `pyright` and `pip-audit` from the sub-project directory.
+
 ---
 
 ## Architectural Decisions
