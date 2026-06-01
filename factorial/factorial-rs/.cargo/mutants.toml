@@ -1,0 +1,16 @@
+# Equivalent mutations excluded from cargo-mutants testing.
+# These produce identical observable behavior, so no test can distinguish them.
+# Update line numbers if surrounding code changes shift these expressions.
+#
+# Format: regex matched against "src/lib.rs:<line>:<col>: <description>"
+exclude_re = [
+    # while p*p <= n: changing p*p→p+p runs the outer loop to n/2 instead of √n
+    # but the inner loop still marks composites from p² onward; identical sieve output.
+    "src/lib\\.rs:13:13: replace \\* with \\+",
+    # let mut m = p*p: changing to p+p starts marking at 2p instead of p²,
+    # but all composites below p² were already marked by smaller primes.
+    "src/lib\\.rs:15:27: replace \\* with \\+",
+    # if exp > 0: exp >= 0 is always true for u32, so the branch always executes,
+    # but p^0 = 1 means multiplying by 1 — a no-op; identical result.
+    "src/lib\\.rs:41:16: replace > with >=",
+]

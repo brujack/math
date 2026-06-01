@@ -10,10 +10,8 @@ fn sieve(n: u64) -> Vec<u32> {
     is_composite[0] = true;
     is_composite[1] = true;
     let mut p = 2usize;
-    // mutants::skip — p*p→p+p is equivalent (loops more but marks same composites); <=→< killed by test_sieve_count_to_49
     while p * p <= n {
         if !is_composite[p] {
-            // mutants::skip — p*p→p+p is equivalent (2p starts earlier but marks same composites as p²)
             let mut m = p * p;
             while m <= n {
                 is_composite[m] = true;
@@ -40,7 +38,6 @@ fn compute_swing_chunk(m: u64, primes: &[u32]) -> Integer {
                 exp += 1;
             }
         }
-        // mutants::skip — exp>=0 is equivalent: p^0=1 multiplies by 1 (no-op)
         if exp > 0 {
             result *= Integer::from(p).pow(exp);
         }
