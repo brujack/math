@@ -41,21 +41,40 @@ jobs:
         run: cargo build --release
         working-directory: fib/fib-rs
 
-      - name: Generate release notes
-        id: notes
+      - name: Generate CHANGELOG
+        uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5  # v4
+        with:
+          config: cliff.toml
+          args: --verbose --include-path "fib/**" --tag-pattern "fib-v.*"
+        env:
+          OUTPUT: fib/fib-rs/CHANGELOG.md
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Generate release notes (latest only)
+        uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5  # v4
+        with:
+          config: cliff.toml
+          args: --latest --strip all --include-path "fib/**" --tag-pattern "fib-v.*"
+        env:
+          OUTPUT: /tmp/release-notes.md
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Commit CHANGELOG
+        continue-on-error: true
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          PREV_TAG=$(git describe --tags --abbrev=0 --match="fib-v*" 2>/dev/null || true)
-          if [ -n "$PREV_TAG" ]; then
-            NOTES=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s" -- fib/fib-rs/ || true)
-          else
-            NOTES=$(git log HEAD --pretty=format:"- %s" -- fib/fib-rs/ || true)
-          fi
-          DELIMITER="EOF_$(openssl rand -hex 8)"
-          {
-            printf 'notes<<%s\n' "${DELIMITER}"
-            printf '%s\n' "${NOTES}"
-            printf '%s\n' "${DELIMITER}"
-          } >> "$GITHUB_OUTPUT"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add fib/fib-rs/CHANGELOG.md
+          git diff --staged --quiet && exit 0
+          git commit -m "chore(changelog): update fib for v${VERSION}"
+          git push
+
+      - name: Generate SHA256 checksum
+        run: |
+          sha256sum fib/fib-rs/target/release/fib > fib/fib-rs/target/release/fib.sha256
+          cat fib/fib-rs/target/release/fib.sha256
 
       - name: Create and push tag
         env:
@@ -71,8 +90,10 @@ jobs:
         with:
           tag_name: "fib-v${{ inputs.version }}"
           name: "fib v${{ inputs.version }}"
-          body: "${{ steps.notes.outputs.notes }}"
-          files: fib/fib-rs/target/release/fib
+          body_path: /tmp/release-notes.md
+          files: |
+            fib/fib-rs/target/release/fib
+            fib/fib-rs/target/release/fib.sha256
 
   sign:
     needs: [release]

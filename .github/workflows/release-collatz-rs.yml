@@ -38,21 +38,40 @@ jobs:
         run: cargo build --release
         working-directory: collatz/collatz-rs
 
-      - name: Generate release notes
-        id: notes
+      - name: Generate CHANGELOG
+        uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5  # v4
+        with:
+          config: cliff.toml
+          args: --verbose --include-path "collatz/**" --tag-pattern "collatz-v.*"
+        env:
+          OUTPUT: collatz/collatz-rs/CHANGELOG.md
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Generate release notes (latest only)
+        uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5  # v4
+        with:
+          config: cliff.toml
+          args: --latest --strip all --include-path "collatz/**" --tag-pattern "collatz-v.*"
+        env:
+          OUTPUT: /tmp/release-notes.md
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Commit CHANGELOG
+        continue-on-error: true
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          PREV_TAG=$(git describe --tags --abbrev=0 --match="collatz-v*" 2>/dev/null || true)
-          if [ -n "$PREV_TAG" ]; then
-            NOTES=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s" -- collatz/collatz-rs/ || true)
-          else
-            NOTES=$(git log HEAD --pretty=format:"- %s" -- collatz/collatz-rs/ || true)
-          fi
-          DELIMITER="EOF_$(openssl rand -hex 8)"
-          {
-            printf 'notes<<%s\n' "${DELIMITER}"
-            printf '%s\n' "${NOTES}"
-            printf '%s\n' "${DELIMITER}"
-          } >> "$GITHUB_OUTPUT"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add collatz/collatz-rs/CHANGELOG.md
+          git diff --staged --quiet && exit 0
+          git commit -m "chore(changelog): update collatz for v${VERSION}"
+          git push
+
+      - name: Generate SHA256 checksum
+        run: |
+          sha256sum collatz/collatz-rs/target/release/collatz > collatz/collatz-rs/target/release/collatz.sha256
+          cat collatz/collatz-rs/target/release/collatz.sha256
 
       - name: Create and push tag
         env:
@@ -68,8 +87,10 @@ jobs:
         with:
           tag_name: "collatz-v${{ inputs.version }}"
           name: "collatz v${{ inputs.version }}"
-          body: "${{ steps.notes.outputs.notes }}"
-          files: collatz/collatz-rs/target/release/collatz
+          body_path: /tmp/release-notes.md
+          files: |
+            collatz/collatz-rs/target/release/collatz
+            collatz/collatz-rs/target/release/collatz.sha256
 
   sign:
     needs: [release]
