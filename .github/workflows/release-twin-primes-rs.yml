@@ -38,21 +38,40 @@ jobs:
         run: cargo build --release
         working-directory: twin-primes/twin-primes-rs
 
-      - name: Generate release notes
-        id: notes
+      - name: Generate CHANGELOG
+        uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5  # v4
+        with:
+          config: cliff.toml
+          args: --verbose --include-path "twin-primes/**" --tag-pattern "twin-primes-v.*"
+        env:
+          OUTPUT: twin-primes/twin-primes-rs/CHANGELOG.md
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Generate release notes (latest only)
+        uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5  # v4
+        with:
+          config: cliff.toml
+          args: --latest --strip all --include-path "twin-primes/**" --tag-pattern "twin-primes-v.*"
+        env:
+          OUTPUT: /tmp/release-notes.md
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Commit CHANGELOG
+        continue-on-error: true
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          PREV_TAG=$(git describe --tags --abbrev=0 --match="twin-primes-v*" 2>/dev/null || true)
-          if [ -n "$PREV_TAG" ]; then
-            NOTES=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s" -- twin-primes/twin-primes-rs/ || true)
-          else
-            NOTES=$(git log HEAD --pretty=format:"- %s" -- twin-primes/twin-primes-rs/ || true)
-          fi
-          DELIMITER="EOF_$(openssl rand -hex 8)"
-          {
-            printf 'notes<<%s\n' "${DELIMITER}"
-            printf '%s\n' "${NOTES}"
-            printf '%s\n' "${DELIMITER}"
-          } >> "$GITHUB_OUTPUT"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add twin-primes/twin-primes-rs/CHANGELOG.md
+          git diff --staged --quiet && exit 0
+          git commit -m "chore(changelog): update twin-primes for v${VERSION}"
+          git push
+
+      - name: Generate SHA256 checksum
+        run: |
+          sha256sum twin-primes/twin-primes-rs/target/release/twin-primes > twin-primes/twin-primes-rs/target/release/twin-primes.sha256
+          cat twin-primes/twin-primes-rs/target/release/twin-primes.sha256
 
       - name: Create and push tag
         env:
@@ -68,8 +87,10 @@ jobs:
         with:
           tag_name: "twin-primes-v${{ inputs.version }}"
           name: "twin-primes v${{ inputs.version }}"
-          body: "${{ steps.notes.outputs.notes }}"
-          files: twin-primes/twin-primes-rs/target/release/twin-primes
+          body_path: /tmp/release-notes.md
+          files: |
+            twin-primes/twin-primes-rs/target/release/twin-primes
+            twin-primes/twin-primes-rs/target/release/twin-primes.sha256
 
   sign:
     needs: [release]
