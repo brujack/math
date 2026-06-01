@@ -10,8 +10,10 @@ fn sieve(n: u64) -> Vec<u32> {
     is_composite[0] = true;
     is_composite[1] = true;
     let mut p = 2usize;
+    // mutants::skip — p*p→p+p is equivalent (loops more but marks same composites); <=→< killed by test_sieve_count_to_49
     while p * p <= n {
         if !is_composite[p] {
+            // mutants::skip — p*p→p+p is equivalent (2p starts earlier but marks same composites as p²)
             let mut m = p * p;
             while m <= n {
                 is_composite[m] = true;
@@ -38,6 +40,7 @@ fn compute_swing_chunk(m: u64, primes: &[u32]) -> Integer {
                 exp += 1;
             }
         }
+        // mutants::skip — exp>=0 is equivalent: p^0=1 multiplies by 1 (no-op)
         if exp > 0 {
             result *= Integer::from(p).pow(exp);
         }
@@ -121,6 +124,13 @@ mod tests {
     }
 
     #[test]
+    fn test_sieve_count_to_49() {
+        // π(49) = 15; 49 = 7² must be marked composite (tests the p*p <= n bound)
+        assert_eq!(sieve(49).len(), 15);
+        assert!(!sieve(49).contains(&49));
+    }
+
+    #[test]
     fn test_sieve_count_to_1000() {
         // π(1000) = 168
         assert_eq!(sieve(1000).len(), 168);
@@ -156,6 +166,12 @@ mod tests {
     #[test]
     fn test_swing_chunk_p5_contribution_for_m6() {
         assert_eq!(compute_swing_chunk(6, &[5u32]), Integer::from(5u64));
+    }
+
+    #[test]
+    fn test_swing_chunk_exp_zero_returns_one() {
+        // p=7, m=14: floor(14/7)=2 (even), so exp=0; p^0=1 contributes nothing
+        assert_eq!(compute_swing_chunk(14, &[7u32]), Integer::from(1u64));
     }
 
     // --- compute_swing ---
