@@ -42,19 +42,18 @@ Master status index for all specs and implementation plans in this directory.
 
 Ideas approved for future specs, in no particular order:
 
-| Feature                             | Notes                                                                                                                                                                                                 |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Pyright standard mode for pi and e  | Currently basic mode with gmpy2 suppressions; upgrade requires either gmpy2 type stubs or tighter optional-import wrapping so reportAttributeAccessIssue/reportOptionalMemberAccess can be re-enabled |
-| Euler's totient (φ)                 | Compute φ(n) for all n up to 10^N via sieve; sum of totients grows as 3N²/π²                                                                                                                          |
-| Highly composite numbers            | Numbers with more divisors than any smaller integer; same record-setter pattern as Collatz; only ~96 known                                                                                            |
-| Abundant/deficient numbers          | For every n up to 10^N classify as abundant/perfect/deficient; output counts and examples                                                                                                             |
-| Happy numbers                       | Iterate sum of squared digits; find all happy numbers up to 10^N; simple algorithm, rich structure                                                                                                    |
-| Kani formal verification            | Prove correctness properties on pure math functions (Goldbach, primality, Collatz); exhaustive proof rather than sampling; AWS uses on crypto libs                                                    |
-| Cargo workspace                     | Unify 11 standalone crates into a workspace; shared `Cargo.lock`, faster CI build cache (shared target dir), atomic cross-crate refactors                                                             |
-| `cargo deny` license policy         | Add license allowlist (`MIT`, `Apache-2.0`, `BSD-2-Clause`) to catch GPL-contaminating transitive deps before they enter a release; advisory scanning already covers CVEs                             |
-| Snapshot testing (`insta`)          | Lock Rust CLI stdout format with `insta`; any unexpected output change becomes a visible diff rather than a silent regression                                                                         |
-| Mutation score threshold            | Move `cargo mutants` from monthly advisory to a CI gate with a minimum score; currently collects data without enforcing a floor                                                                       |
-| Kill surviving mutants (2026-06-01) | amicable-rs: `replace * with + in sieve` (2 mutants); factorial-rs: `replace > with >= in compute_swing_chunk` (1 mutant) — tests don't assert on operator boundaries in these functions              |
+| Feature                            | Notes                                                                                                                                                                                                 |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pyright standard mode for pi and e | Currently basic mode with gmpy2 suppressions; upgrade requires either gmpy2 type stubs or tighter optional-import wrapping so reportAttributeAccessIssue/reportOptionalMemberAccess can be re-enabled |
+| Euler's totient (φ)                | Compute φ(n) for all n up to 10^N via sieve; sum of totients grows as 3N²/π²                                                                                                                          |
+| Highly composite numbers           | Numbers with more divisors than any smaller integer; same record-setter pattern as Collatz; only ~96 known                                                                                            |
+| Abundant/deficient numbers         | For every n up to 10^N classify as abundant/perfect/deficient; output counts and examples                                                                                                             |
+| Happy numbers                      | Iterate sum of squared digits; find all happy numbers up to 10^N; simple algorithm, rich structure                                                                                                    |
+| Kani formal verification           | Prove correctness properties on pure math functions (Goldbach, primality, Collatz); exhaustive proof rather than sampling; AWS uses on crypto libs                                                    |
+| Cargo workspace                    | Unify 11 standalone crates into a workspace; shared `Cargo.lock`, faster CI build cache (shared target dir), atomic cross-crate refactors                                                             |
+| `cargo deny` license policy        | Add license allowlist (`MIT`, `Apache-2.0`, `BSD-2-Clause`) to catch GPL-contaminating transitive deps before they enter a release; advisory scanning already covers CVEs                             |
+| Snapshot testing (`insta`)         | Lock Rust CLI stdout format with `insta`; any unexpected output change becomes a visible diff rather than a silent regression                                                                         |
+| Mutation score threshold           | Move `cargo mutants` from monthly advisory to a CI gate with a minimum score; currently collects data without enforcing a floor                                                                       |
 
 ---
 

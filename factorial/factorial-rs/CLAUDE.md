@@ -94,21 +94,21 @@ cargo tarpaulin --out Stdout
 
 ### Test coverage (97.17% line coverage, 58 tests: 50 unit + 8 integration)
 
-| Area                                | Tests | Notes                                                                       |
-| ----------------------------------- | ----- | --------------------------------------------------------------------------- |
-| `sieve`                             | 6     | empty (n<2), n=2, small known primes, no composites, π(100)=25, π(1000)=168 |
-| `compute_swing_chunk`               | 6     | empty primes, prime exceeds m, m=2, p2/p3/p5 contributions for m=6          |
-| `compute_swing`                     | 7     | swing(0..4,6), empty primes, factorial identity check (swing(6)×3!²=6!)     |
-| `factorial_rec`                     | 4     | base cases 0 and 1, 2!, 5!                                                  |
-| `calculate_factorial`               | 8     | 0!..5!, 10!, 20!                                                            |
-| `fmt_int`                           | 5     | zero, sub-thousand, thousands, millions, large                              |
-| `read_line_from`                    | 3     | trims newline, empty input, trims whitespace                                |
-| `prompt_n_with`                     | 4     | valid input, zero, retry on non-numeric, retry on negative                  |
-| `run` (unit)                        | 5     | invalid arg exits 1, valid arg creates file, no arg prompts, 0!, idempotent |
-| `run_returns_err_on_stdout_failure` | 1     | `run()` propagates Err when stdout write fails (FailWriter injection)       |
-| `run_returns_err_on_stderr_failure` | 1     | `run()` propagates Err when stderr write fails (FailWriter injection)       |
-| `run` (integration)                 | 7     | invalid arg, 0!, 5!, no-arg prompt, retry on bad input, idempotent, backend |
-| `cli_unwritable_output_dir`         | 1     | non-zero exit when output directory is read-only                            |
+| Area                                | Tests | Notes                                                                                                    |
+| ----------------------------------- | ----- | -------------------------------------------------------------------------------------------------------- |
+| `sieve`                             | 7     | empty (n<2), n=2, small known primes, no composites, π(49)=15 (49=7² composite), π(100)=25, π(1000)=168  |
+| `compute_swing_chunk`               | 7     | empty primes, prime exceeds m, m=2, p2/p3/p5 contributions for m=6, exp=0 case (p=7 m=14, even quotient) |
+| `compute_swing`                     | 7     | swing(0..4,6), empty primes, factorial identity check (swing(6)×3!²=6!)                                  |
+| `factorial_rec`                     | 4     | base cases 0 and 1, 2!, 5!                                                                               |
+| `calculate_factorial`               | 8     | 0!..5!, 10!, 20!                                                                                         |
+| `fmt_int`                           | 5     | zero, sub-thousand, thousands, millions, large                                                           |
+| `read_line_from`                    | 3     | trims newline, empty input, trims whitespace                                                             |
+| `prompt_n_with`                     | 4     | valid input, zero, retry on non-numeric, retry on negative                                               |
+| `run` (unit)                        | 5     | invalid arg exits 1, valid arg creates file, no arg prompts, 0!, idempotent                              |
+| `run_returns_err_on_stdout_failure` | 1     | `run()` propagates Err when stdout write fails (FailWriter injection)                                    |
+| `run_returns_err_on_stderr_failure` | 1     | `run()` propagates Err when stderr write fails (FailWriter injection)                                    |
+| `run` (integration)                 | 7     | invalid arg, 0!, 5!, no-arg prompt, retry on bad input, idempotent, backend                              |
+| `cli_unwritable_output_dir`         | 1     | non-zero exit when output directory is read-only                                                         |
 
 Uncovered lines: 3 macro expansion artifacts in `prompt_n_with` loop and `run` error branch.
 
