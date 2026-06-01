@@ -31,15 +31,15 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: Swatinem/rust-cache@v2
-
       - name: Install cargo-mutants
         run: cargo install cargo-mutants --locked
 
       - name: Run mutants
+        env:
+          CRATE: ${{ github.event.inputs.crate }}
         run: |
           set -e
-          target="${{ github.event.inputs.crate }}"
+          target="${CRATE}"
           if [[ -n "${target}" ]]; then
             printf "Mutation testing single crate: %s\n" "${target}"
             cd "${target}"
