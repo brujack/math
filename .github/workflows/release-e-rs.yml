@@ -73,7 +73,7 @@ jobs:
 
       - name: Generate SHA256 checksum
         run: |
-          sha256sum e/e-rs/target/release/e > e/e-rs/target/release/e.sha256
+          (cd e/e-rs/target/release && sha256sum e) > e/e-rs/target/release/e.sha256
           cat e/e-rs/target/release/e.sha256
 
       - name: Create and push tag

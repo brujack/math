@@ -70,7 +70,7 @@ jobs:
 
       - name: Generate SHA256 checksum
         run: |
-          sha256sum prime/prime-rs/target/release/prime > prime/prime-rs/target/release/prime.sha256
+          (cd prime/prime-rs/target/release && sha256sum prime) > prime/prime-rs/target/release/prime.sha256
           cat prime/prime-rs/target/release/prime.sha256
 
       - name: Create and push tag

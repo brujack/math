@@ -70,7 +70,7 @@ jobs:
 
       - name: Generate SHA256 checksum
         run: |
-          sha256sum goldbach/goldbach-rs/target/release/goldbach > goldbach/goldbach-rs/target/release/goldbach.sha256
+          (cd goldbach/goldbach-rs/target/release && sha256sum goldbach) > goldbach/goldbach-rs/target/release/goldbach.sha256
           cat goldbach/goldbach-rs/target/release/goldbach.sha256
 
       - name: Create and push tag

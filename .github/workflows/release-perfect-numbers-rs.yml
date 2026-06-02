@@ -73,7 +73,7 @@ jobs:
 
       - name: Generate SHA256 checksum
         run: |
-          sha256sum perfect-numbers/perfect-numbers-rs/target/release/perfect-numbers > perfect-numbers/perfect-numbers-rs/target/release/perfect-numbers.sha256
+          (cd perfect-numbers/perfect-numbers-rs/target/release && sha256sum perfect-numbers) > perfect-numbers/perfect-numbers-rs/target/release/perfect-numbers.sha256
           cat perfect-numbers/perfect-numbers-rs/target/release/perfect-numbers.sha256
 
       - name: Create and push tag
