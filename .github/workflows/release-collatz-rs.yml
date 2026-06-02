@@ -70,7 +70,7 @@ jobs:
 
       - name: Generate SHA256 checksum
         run: |
-          sha256sum collatz/collatz-rs/target/release/collatz > collatz/collatz-rs/target/release/collatz.sha256
+          (cd collatz/collatz-rs/target/release && sha256sum collatz) > collatz/collatz-rs/target/release/collatz.sha256
           cat collatz/collatz-rs/target/release/collatz.sha256
 
       - name: Create and push tag

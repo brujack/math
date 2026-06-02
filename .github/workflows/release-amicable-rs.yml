@@ -70,7 +70,7 @@ jobs:
 
       - name: Generate SHA256 checksum
         run: |
-          sha256sum amicable/amicable-rs/target/release/amicable > amicable/amicable-rs/target/release/amicable.sha256
+          (cd amicable/amicable-rs/target/release && sha256sum amicable) > amicable/amicable-rs/target/release/amicable.sha256
           cat amicable/amicable-rs/target/release/amicable.sha256
 
       - name: Create and push tag

@@ -73,7 +73,7 @@ jobs:
 
       - name: Generate SHA256 checksum
         run: |
-          sha256sum factorial/factorial-rs/target/release/factorial > factorial/factorial-rs/target/release/factorial.sha256
+          (cd factorial/factorial-rs/target/release && sha256sum factorial) > factorial/factorial-rs/target/release/factorial.sha256
           cat factorial/factorial-rs/target/release/factorial.sha256
 
       - name: Create and push tag
