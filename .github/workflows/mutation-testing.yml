@@ -43,13 +43,13 @@ jobs:
           if [[ -n "${target}" ]]; then
             printf "Mutation testing single crate: %s\n" "${target}"
             cd "${target}"
-            cargo mutants --timeout 120 --no-shuffle
+            cargo mutants --timeout 30 --no-shuffle
           else
             failed=0
             for cargo_toml in $(find . -name Cargo.toml -not -path '*/target/*' -not -path '*/.cache/*'); do
               crate_dir=$(dirname "${cargo_toml}")
               printf "\n=== Mutation testing %s ===\n" "${crate_dir}"
-              (cd "${crate_dir}" && cargo mutants --timeout 120 --no-shuffle) || failed=1
+              (cd "${crate_dir}" && cargo mutants --timeout 30 --no-shuffle) || failed=1
             done
             exit "${failed}"
           fi
