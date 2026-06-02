@@ -312,8 +312,24 @@ For a mathematical library, **correctness is the primary quality metric** — co
 - **Per-crate:** `make mutants` in any Rust crate directory
 - **CI:** `.github/workflows/mutation-testing.yml` runs monthly (`cron: "0 4 1 * *"`) and on-demand via `workflow_dispatch`
 - **Interpretation:** A "surviving mutant" means a code change went undetected by tests — strengthen the test to kill it. 100% kill rate is the goal but rarely achievable; >80% is good for math code.
+- **Per-mutant timeout:** `--timeout 30` (30 seconds per mutant). The previous value of 120s caused CI to exceed the 360-minute job limit when running all 11 crates. 30s is sufficient — algorithmic mutations either cause fast failures or produce infinite loops caught promptly by the timeout.
 
 When adding a new Rust crate, include `mutants` in its `Makefile` `.PHONY` list and target. Periodically run mutation testing per crate; investigate any surviving mutants in `lib/`-style code (logic, not main glue).
+
+**Equivalent mutations** — mathematical algorithms frequently produce mutations that are semantically equivalent: the code changes but all valid inputs produce the same output. No test can kill an equivalent mutant because there is no observable difference to detect. Exclude them via `.cargo/mutants.toml` in the crate directory:
+
+```toml
+# .cargo/mutants.toml
+# Format: regex matched against "src/lib.rs:<line>:<col>: <description>"
+exclude_re = [
+    # while p*p <= n: p*p→p+p loops to n/2 vs √n, but sieve output is identical
+    "src/lib\\.rs:13:13: replace \\* with \\+",
+]
+```
+
+**Important:** `// mutants::skip` inline comments are **not** recognized by cargo-mutants ≥27.x — only `#[mutants::skip]` attributes on items are supported. Use `.cargo/mutants.toml` `exclude_re` patterns instead.
+
+**Caveat:** `exclude_re` patterns include line numbers. If surrounding code shifts the line, the pattern stops matching and the equivalent mutant reappears as "surviving." Update the file and its comments when nearby code changes. See `factorial/factorial-rs/.cargo/mutants.toml` for a worked example with three excluded equivalences (two sieve `p*p→p+p` variants and one `exp>0→exp>=0` in `compute_swing_chunk`).
 
 **Coverage floor: ≥90% line coverage is required for all Rust crates.** This is enforced in CI — each Rust workflow runs `cargo tarpaulin --fail-under 90` in the `test` job after `make test`. A PR that drops any crate below 90% will fail CI and cannot auto-merge. The pre-push hook does not check coverage locally (too slow); CI is the gate.
 
