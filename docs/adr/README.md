@@ -14,3 +14,10 @@ Repo-specific decisions for the `math` repository. Cross-cutting decisions (CI t
 | [0008](0008-recursive-squaring-over-level-product-for-factorial.md)       | Recursive squaring over iterative level-product for factorial  | 2026-04-24 | Accepted |
 | [0009](0009-criterion-benchmarks-for-performance-regression-detection.md) | Criterion benchmarks for performance regression detection      | 2026-05-23 | Accepted |
 | [0010](0010-release-workflow-alignment-with-etch-cli-strategy.md)         | Release workflow alignment with etch-cli strategy              | 2026-05-23 | Accepted |
+| [0011](0011-cargo-nextest-rust-test-runner.md)                            | cargo-nextest as Rust test runner                              | 2026-05-18 | Accepted |
+| [0012](0012-python-mutation-testing-mutmut.md)                            | Python mutation testing with mutmut                            | 2026-05-18 | Accepted |
+| [0013](0013-hypothesis-proptest-property-based-tests.md)                  | Hypothesis and proptest for property-based testing             | 2026-05-18 | Accepted |
+| [0014](0014-sbom-cosign-keyless-signing.md)                               | SBOM generation and cosign keyless signing for releases        | 2026-05-20 | Accepted |
+| [0015](0015-pyright-type-checking-python.md)                              | Pyright type checking for Python sub-projects                  | 2026-05-22 | Accepted |
+| [0016](0016-pip-audit-advisory-security-scan.md)                          | pip-audit advisory security scan in CI                         | 2026-05-22 | Accepted |
+| [0017](0017-defusedxml-xxe-safe-xml-parsing.md)                           | defusedxml for XXE-safe XML parsing in scripts                 | 2026-05-23 | Accepted |
