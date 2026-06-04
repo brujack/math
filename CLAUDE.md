@@ -574,13 +574,9 @@ The sub-project files (`pi/CLAUDE.md`, `prime/CLAUDE.md`, `fib/CLAUDE.md`, `sq/C
 
 ## Definition of Done
 
-A PR or direct master commit is complete when **all** of the following are true:
+The universal DoD in `behavior.md` applies. math adds:
 
-- [ ] `make test` passes for each modified CLI (Python + Rust separately)
-- [ ] Python coverage ≥90% (`make coverage` in the CLI directory)
 - [ ] Rust coverage ≥90% on Linux CI — verify from CI output (`gh run view --repo brujack/math <id> --log | grep Coverage`)
 - [ ] BATS failure-mode tests added/updated for any new or modified CLI
-- [ ] `pr-review` skill PASS verdict obtained before push
 - [ ] Plan index updated (`docs/superpowers/README.md`) if this PR implements a tracked spec
 - [ ] Root `README.md` CLI table updated if a new CLI was added
-- [ ] Learning analysis complete (session-end or post-merge)
