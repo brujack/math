@@ -3,29 +3,17 @@
 
 ## Bug Fixes
 
-- close git fds 3-9 before running Python tests in pre-push
-
-- kill resource_tracker daemons after each test run
-
-- remove local keyword outside function scope
-
-- only test dirs with changed .py/.rs source files
-
-- skip local tests when >6 sub-projects changed
-
-- correct Hypothesis test oracle in test_pairs_within_limit (#57)
-
 - correct Hypothesis test oracle in test_perfect_numbers_below_limit (#58)
 
 - replace xml.etree with defusedxml in test_metrics.py (#69)
 
+- use mutants.toml exclusions for equivalent mutations (#71)
+
+- strip directory prefix from sha256sum output in release workflows (#73)
+
 
 
 ## CI
-
-- add PR title lint, coverage gates, and benchmarks to Python CLIs
-
-- add per-sub-project coverage badges (#56)
 
 - make snyk-scan advisory (continue-on-error)
 
@@ -37,13 +25,15 @@
 
 - enable regression alerts at 130% threshold
 
+- fix rust-cache error and input injection
+
+- align math release workflows with etch-cli strategy (#72)
+
+- reduce per-mutant timeout 120s → 30s
+
 
 
 ## Documentation
-
-- document ProcessPoolExecutor resource_tracker gotcha in pre-push
-
-- add test-metrics plan
 
 - mark test-metrics plan done
 
@@ -73,15 +63,23 @@
 
 - add Criterion benchmarks, pyright, pip-audit, and CLI tests to README
 
+- add surviving mutants from 2026-06-01 run
+
+- update factorial-rs test table; remove resolved mutants backlog
+
+- add ADRs and update CLAUDE.md after learnings audit
+
+- add ADR-0011 through ADR-0017 for recent decisions
+
+- add ADR-0018 through ADR-0021 for April decisions
+
+- trim DoD to repo-specific addenda
+
+- remove sections duplicated in global CLAUDE.md
+
 
 
 ## Features
-
-- adopt cargo-nextest as test runner (#53)
-
-- add Python mutation testing with mutmut (#54)
-
-- switch from Dependabot to Renovate
 
 - flaky-test tracking via nextest CI profile and test-metrics artifacts (#59)
 
@@ -103,10 +101,10 @@
 
 ## Testing
 
-- add Hypothesis and proptest property-based tests (#55)
-
 - add CLI integration tests for collatz and goldbach (#61)
 
 - add CLI entry-point integration tests for amicable, collatz, perfect-numbers, factorial (#67)
+
+- kill <=→< sieve mutant; skip equivalent mutants
 
 
