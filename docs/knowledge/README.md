@@ -47,6 +47,8 @@ Reference sheets for algorithms, library choices, or cross-cutting patterns that
 
 Add a row to this table when you create a file:
 
-| File                                                         | Category      | Contents                                                 |
-| ------------------------------------------------------------ | ------------- | -------------------------------------------------------- |
-| [retrospectives/2026-05-17.md](retrospectives/2026-05-17.md) | Retrospective | 30-day review: coverage push + 5 new CLI velocity sprint |
+| File                                                                               | Category      | Contents                                                                  |
+| ---------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------- |
+| [retrospectives/2026-05-17.md](retrospectives/2026-05-17.md)                       | Retrospective | 30-day review: coverage push + 5 new CLI velocity sprint                  |
+| [retrospectives/2026-06-retrospective.md](retrospectives/2026-06-retrospective.md) | Retrospective | 15-day quality sprint: benchmarks, pyright, mutation testing, SBOM/cosign |
+| [retrospectives/2026-06-05.md](retrospectives/2026-06-05.md)                       | Retrospective | 4-day follow-through: ADR catch-up, mutation fixes, sha256sum CI fix      |
