@@ -513,36 +513,6 @@ For Python high-precision calculators (`pi`, `e`, `factorial`), `ProcessPoolExec
 2. Print an explicit user-facing message that serial mode is active.
 3. Tell the user to install/fix required runtime support (including multiprocessing semaphore support) to restore parallel mode.
 
-### PR Review Gate
-
-Before pushing any feature branch, run the `pr-review` skill. Only push when verdict is **PASS**. If **HOLD**:
-
-1. Fix all CRITICAL findings
-2. Run `make test` — confirm no regressions
-3. Commit the fixes
-4. Re-run `pr-review`
-5. Repeat until PASS, or escalate to user after two failed fix attempts
-
-WARNING and INFO findings are advisory — surface them but do not block the push.
-
-## Committing Work
-
-**Create a git commit at the end of each logical unit of work.** A unit of work is a self-contained change: a new feature, a bug fix, a docs update, a refactor, or any combination that belongs together. Do not batch unrelated changes into one commit and do not leave work uncommitted.
-
-Invoke `caveman:caveman-commit` skill to generate the commit message — do this before running `git commit`, not after.
-
-Commit message format:
-
-```
-<type>: <short summary>
-
-<optional body explaining why, not what>
-
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
-```
-
-Common types: `feat`, `fix`, `docs`, `ci`, `refactor`, `test`, `chore`.
-
 ## Keeping CLAUDE.md Up To Date
 
 **When making any change to this repository, update the relevant CLAUDE.md file(s) before finishing.** These files are the primary reference for future sessions — stale documentation is worse than none.
