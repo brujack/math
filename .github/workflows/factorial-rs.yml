@@ -35,6 +35,9 @@ jobs:
       - name: Install cargo-nextest
         run: cargo install cargo-nextest --locked
 
+      - name: Install cargo-machete
+        run: cargo install cargo-machete --locked
+
       - name: Run tests
         working-directory: factorial/factorial-rs
         run: make lint && cargo nextest run --profile ci
