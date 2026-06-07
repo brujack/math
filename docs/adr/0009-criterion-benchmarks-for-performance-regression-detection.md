@@ -26,13 +26,13 @@ Add Criterion benchmarks to all 11 Rust crates and a monthly CI workflow (`bench
 - Trigger: `workflow_dispatch` + monthly schedule (`cron: "0 2 1 * *"`)
 - Stores results in `gh-pages` branch under `dev/bench/`
 - Alert threshold: **130%** (regression alert fires when a benchmark is >30% slower than the prior run)
-- `fail-on-alert: false` — regressions are reported via commit comment but do not block CI or auto-merge
+- `fail-on-alert: true` — the monthly workflow fails when a regression exceeds the threshold, ensuring regressions create a visible GitHub Actions failure rather than a comment that is easy to miss. Does not block PRs — the benchmark workflow is not in the PR merge gate.
 
 **Alert threshold rationale:** Criterion results on GitHub-hosted Ubuntu runners have inherent variance from shared hardware, thermal throttling, and load spikes. A 10–15% threshold generates constant false-positive alerts. 30% is large enough to signal real algorithmic or dependency regressions while ignoring normal measurement noise.
 
 ## Consequences
 
-- Performance regressions of >30% surface as visible commit comments on the `gh-pages` branch push
+- Performance regressions of >30% fail the monthly benchmark workflow and surface as visible commit comments on the `gh-pages` branch push
 - Results accumulate over time, making it possible to correlate regressions with specific commits or dependency bumps
 - The workflow runs monthly, not on every PR — it is a monitoring tool, not a merge gate
 - Developers can run `make bench` locally to get Criterion HTML reports in `target/criterion/`
