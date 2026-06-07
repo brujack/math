@@ -327,7 +327,7 @@ def _pwrite_all(fd, data, offset):
 # File save — multithreaded
 # ---------------------------------------------------------------------------
 
-def save_e_to_file(e_value, digits, filename):
+def save_e_to_file(e_value, digits, filename):  # noqa: C901 — multi-backend parallel I/O; TODO: split into gmpy2/mpmath helpers
     """
     Save e to file using subprocess string conversion and parallel I/O.
 

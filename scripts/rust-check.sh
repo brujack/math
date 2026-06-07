@@ -34,7 +34,8 @@ run_cargo() {
     case "${MODE}" in
     lint)
         "${CARGO_BIN}" fmt --all -- --check \
-            && "${CARGO_BIN}" clippy --all-targets "${OFFLINE_ARGS[@]}" -- -D warnings
+            && "${CARGO_BIN}" clippy --all-targets "${OFFLINE_ARGS[@]}" -- -D warnings \
+            && cargo machete
         ;;
     test)
         if ! "${CARGO_BIN}" nextest --version >/dev/null 2>&1; then

@@ -430,7 +430,7 @@ def show_pi_preview(pi_value, preview_digits=100):
 # File save — multithreaded
 # ---------------------------------------------------------------------------
 
-def save_pi_to_file(pi_value, digits, filename):
+def save_pi_to_file(pi_value, digits, filename):  # noqa: C901 — multi-backend parallel I/O; TODO: split into gmpy2/mpmath helpers
     """
     Save π to file using subprocess string conversion and parallel I/O.
 
