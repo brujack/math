@@ -3,13 +3,15 @@
 
 ## Bug Fixes
 
-- correct Hypothesis test oracle in test_perfect_numbers_below_limit (#58)
-
 - replace xml.etree with defusedxml in test_metrics.py (#69)
 
 - use mutants.toml exclusions for equivalent mutations (#71)
 
 - strip directory prefix from sha256sum output in release workflows (#73)
+
+- install cargo-machete in factorial-rs workflow and use CARGO_BIN (#74)
+
+- install cargo-machete in all Rust workflows (#74 partial) (#75)
 
 
 
@@ -31,15 +33,13 @@
 
 - reduce per-mutant timeout 120s → 30s
 
+- fail workflow on regression alert
+
+- add cargo-machete and ruff C901 to lint gates
+
 
 
 ## Documentation
-
-- mark test-metrics plan done
-
-- add sbom-cosign plan
-
-- mark sbom-cosign plan done
 
 - complete README coverage for all 11 projects
 
@@ -77,13 +77,11 @@
 
 - remove sections duplicated in global CLAUDE.md
 
+- add 2026-06-05 retrospective and update knowledge index
+
 
 
 ## Features
-
-- flaky-test tracking via nextest CI profile and test-metrics artifacts (#59)
-
-- SBOM generation and cosign signing for releases (#60)
 
 - add pyright type checking and fix macOS spawn deadlock (#62)
 
