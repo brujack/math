@@ -1,7 +1,7 @@
 # ADR 0012: Python mutation testing with mutmut
 
 - **Date:** 2026-05-18
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0022 (cosmic-ray over mutmut, Python 3.14 compatibility)
 
 ## Context
 

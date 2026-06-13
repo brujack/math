@@ -5,7 +5,7 @@
 
 ## Context
 
-Python dependencies in math sub-projects (gmpy2, hypothesis, mutmut, defusedxml, coverage, ruff, pyright) can have known CVEs. Without a scan, vulnerable transitive dependencies go unnoticed until a tool like Snyk or a manual audit surfaces them — often too late.
+Python dependencies in math sub-projects (gmpy2, hypothesis, cosmic-ray, defusedxml, coverage, ruff, pyright) can have known CVEs. Without a scan, vulnerable transitive dependencies go unnoticed until a tool like Snyk or a manual audit surfaces them — often too late.
 
 `cargo deny check advisories` serves this role for Rust crates. Python needed an equivalent. `pip-audit` queries the Python Packaging Advisory Database (PyPA) and reports CVEs against the installed packages.
 
