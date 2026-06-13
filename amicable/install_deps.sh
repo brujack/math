@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-pip install ruff coverage mutmut hypothesis
+pip install ruff coverage cosmic-ray hypothesis

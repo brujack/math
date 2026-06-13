@@ -1,0 +1,14 @@
+# cosmic-ray mutation testing config
+# Monthly CI cron via .github/workflows/mutation-testing-python.yml
+# Run locally:  make mutants
+
+[cosmic-ray]
+module-path = "e.py"
+timeout = 60.0
+excluded-modules = []
+test-command = "python3 -m unittest test_e"
+
+[cosmic-ray.distributor]
+name = "local"
+
+[cosmic-ray.distributor.local]

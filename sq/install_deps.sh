@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-pip install ruff coverage mutmut hypothesis
+pip install ruff coverage cosmic-ray hypothesis

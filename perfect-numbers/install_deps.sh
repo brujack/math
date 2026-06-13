@@ -14,7 +14,7 @@ set -euo pipefail
 echo "=== perfect-numbers.py dependency installer ==="
 echo ""
 echo "==> Installing Python packages..."
-python3 -m pip install --upgrade ruff coverage mutmut hypothesis
+python3 -m pip install --upgrade ruff coverage cosmic-ray hypothesis
 
 echo ""
 echo "==> Verifying installation..."
