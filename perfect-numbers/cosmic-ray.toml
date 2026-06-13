@@ -1,0 +1,14 @@
+# cosmic-ray mutation testing config
+# Monthly CI cron via .github/workflows/mutation-testing-python.yml
+# Run locally:  make mutants
+
+[cosmic-ray]
+module-path = "perfect_numbers.py"
+timeout = 30.0
+excluded-modules = []
+test-command = "python3 -m unittest test_perfect_numbers"
+
+[cosmic-ray.distributor]
+name = "local"
+
+[cosmic-ray.distributor.local]

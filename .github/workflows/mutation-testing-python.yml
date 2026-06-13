@@ -1,7 +1,9 @@
 name: mutation-testing-python
 
-# Runs mutmut against Python sub-projects to verify tests catch behavior changes.
-# Triggered manually or monthly. Not on every PR — runs take minutes per sub-project.
+# cosmic-ray runs every operator+line mutation against each Python sub-project's
+# unittest suite. Surviving mutants = tests do not detect that behavior change.
+# Slow per sub-project — monthly cron + manual dispatch.
+# Non-blocking: report uploads as artifact, never gates merges.
 
 on:
   workflow_dispatch:
@@ -22,11 +24,13 @@ jobs:
     name: Python mutation testing
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install mutmut
-        run: pip install mutmut
+      - name: Install cosmic-ray
+        run: pip install cosmic-ray
 
       - name: Run mutants
         env:
@@ -44,10 +48,10 @@ jobs:
             done
           fi
 
-      - name: Upload mutmut results
+      - name: Upload mutants reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: mutmut-output
-          path: "**/.mutmut-cache"
+          name: mutants-report-python
+          path: "**/mutants-report.txt"
           retention-days: 30

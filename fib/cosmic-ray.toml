@@ -1,0 +1,14 @@
+# cosmic-ray mutation testing config
+# Monthly CI cron via .github/workflows/mutation-testing-python.yml
+# Run locally:  make mutants
+
+[cosmic-ray]
+module-path = "fib.py"
+timeout = 30.0
+excluded-modules = []
+test-command = "python3 -m unittest test_fib"
+
+[cosmic-ray.distributor]
+name = "local"
+
+[cosmic-ray.distributor.local]

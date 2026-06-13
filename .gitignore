@@ -23,6 +23,11 @@ __pycache__/
 .coverage.*
 htmlcov/
 
+# Mutation testing artifacts (cosmic-ray)
+cosmic-ray-session.sqlite
+mutants-report.txt
+.mutmut-cache
+
 # Rust build artifacts
 target/
 
