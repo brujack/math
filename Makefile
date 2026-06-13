@@ -1,4 +1,4 @@
-.PHONY: install-hooks test-hooks changelog
+.PHONY: install-hooks test-hooks changelog validate-plan
 
 install-hooks:
 	ln -sf "../../scripts/pre-commit" "$$(git rev-parse --git-path hooks)/pre-commit"
@@ -11,3 +11,11 @@ test-hooks:
 
 changelog:
 	git-cliff -o CHANGELOG.md
+
+# 10-80-10 cycle (ADR-0009/0010 in ai-config) — validate a plan file
+validate-plan:
+ifndef PLAN
+	@printf "error: PLAN is required, e.g. make validate-plan PLAN=docs/superpowers/plans/foo.md\n" >&2
+	@exit 2
+endif
+	@python3 ~/.claude/scripts/validate-plan.py "$(PLAN)"
