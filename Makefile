@@ -1,4 +1,4 @@
-.PHONY: install-hooks test-hooks changelog validate-plan validate-memory
+.PHONY: install-hooks test-hooks changelog validate-plan
 
 install-hooks:
 	ln -sf "../../scripts/pre-commit" "$$(git rev-parse --git-path hooks)/pre-commit"
@@ -19,13 +19,3 @@ ifndef PLAN
 	@exit 2
 endif
 	@python3 ~/.claude/scripts/validate-plan.py "$(PLAN)"
-
-# Validate canonical memory + retrospective frontmatter (ADR-0014)
-validate-memory:
-	@if [ -f .claude/scripts/validate_memory.py ]; then \
-		python3 .claude/scripts/validate_memory.py --all; \
-	elif [ -f "$$HOME/.claude/scripts/validate_memory.py" ]; then \
-		python3 "$$HOME/.claude/scripts/validate_memory.py" --all; \
-	else \
-		printf "validate-memory: validator not found (ai-config not installed); skipping. Local pre-commit gate still enforced.\n" >&2; \
-	fi
