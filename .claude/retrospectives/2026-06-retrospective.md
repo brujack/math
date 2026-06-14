@@ -1,3 +1,11 @@
+---
+name: retrospective-2026-06-retrospective
+description: Retrospective — 2026-06
+metadata:
+  type: retrospective
+  period: 2026-06
+---
+
 # Retrospective — 2026-06
 
 **Period:** 2026-05-17 to 2026-06-01 (15 days)
