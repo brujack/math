@@ -51,6 +51,9 @@ perfect-numbers_1e*.txt
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 
+# 10-80-10 loop logs — session-local, not source
+.claude/loop-log/*.jsonl
+
 # Credential files — never commit
 .aws/
 .azure_creds/
