@@ -64,3 +64,6 @@ perfect-numbers_1e*.txt
 *.key
 *_rsa
 *_ed25519
+
+# Firecrawl cache
+.firecrawl/
