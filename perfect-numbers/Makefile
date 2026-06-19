@@ -5,13 +5,13 @@ run:
 
 lint:
 	ruff check .
+	ruff format --check .
 
 test: lint
-	python3 -m unittest test_perfect_numbers -v
+	pytest test_perfect_numbers.py -v
 
 coverage:
-	python3 -m coverage run -m unittest test_perfect_numbers
-	python3 -m coverage report --fail-under=90
+	pytest --cov=perfect_numbers --cov-report=term-missing --cov-fail-under=90 test_perfect_numbers.py
 
 
 benchmark:
