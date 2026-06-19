@@ -5,13 +5,13 @@ run:
 
 lint:
 	ruff check .
+	ruff format --check .
 
 test: lint
-	python3 -m unittest test_amicable -v
+	pytest test_amicable.py -v
 
 coverage:
-	python3 -m coverage run -m unittest test_amicable
-	python3 -m coverage report --fail-under=90
+	pytest --cov=amicable --cov-report=term-missing --cov-fail-under=90 test_amicable.py
 
 
 benchmark:
