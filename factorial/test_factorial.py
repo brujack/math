@@ -31,8 +31,14 @@ from factorial import (
 
 # Known exact factorial values for testing.
 FACTORIAL_REF = {
-    0: 1, 1: 1, 2: 2, 3: 6, 4: 24,
-    5: 120, 10: 3628800, 20: 2432902008176640000,
+    0: 1,
+    1: 1,
+    2: 2,
+    3: 6,
+    4: 24,
+    5: 120,
+    10: 3628800,
+    20: 2432902008176640000,
 }
 
 
@@ -43,7 +49,6 @@ def _quiet_factorial(n):
 
 
 class TestSieve(unittest.TestCase):
-
     def test_empty_below_2(self):
         self.assertEqual(_sieve(0), [])
         self.assertEqual(_sieve(1), [])
@@ -66,7 +71,6 @@ class TestSieve(unittest.TestCase):
 
 
 class TestComputeSwingChunk(unittest.TestCase):
-
     def test_empty_prime_chunk(self):
         self.assertEqual(_compute_swing_chunk(10, []), 1)
 
@@ -106,7 +110,6 @@ class TestComputeSwingChunk(unittest.TestCase):
 
 
 class TestTreeCombineInt(unittest.TestCase):
-
     def test_empty_returns_1(self):
         self.assertEqual(_tree_combine_int([]), 1)
 
@@ -132,18 +135,20 @@ class TestComputeSwingFallback(unittest.TestCase):
         buf = io.StringIO()
         # _MIN_PARALLEL_PRIMES=0 forces parallel path for any prime count;
         # ProcessPoolExecutor raising OSError triggers serial fallback.
-        with unittest.mock.patch("factorial._MIN_PARALLEL_PRIMES", 0), \
-                unittest.mock.patch(
-            "factorial.concurrent.futures.ProcessPoolExecutor",
-            side_effect=OSError("semaphore unavailable"),
-        ), redirect_stdout(buf):
+        with (
+            unittest.mock.patch("factorial._MIN_PARALLEL_PRIMES", 0),
+            unittest.mock.patch(
+                "factorial.concurrent.futures.ProcessPoolExecutor",
+                side_effect=OSError("semaphore unavailable"),
+            ),
+            redirect_stdout(buf),
+        ):
             result = calculate_factorial(5)
         self.assertEqual(int(result), FACTORIAL_REF[5])
         self.assertIn("Parallel mode unavailable", buf.getvalue())
 
 
 class TestComputeSwing(unittest.TestCase):
-
     def test_swing_0(self):
         # swing(0) = empty product = 1
         primes = _sieve(10)
@@ -189,7 +194,6 @@ class TestComputeSwing(unittest.TestCase):
 
 
 class TestCalculateFactorial(unittest.TestCase):
-
     def test_factorial_0(self):
         self.assertEqual(int(_quiet_factorial(0)), FACTORIAL_REF[0])
 
@@ -320,10 +324,14 @@ class TestProcessPoolPermissionError(unittest.TestCase):
     """_compute_swing serial fallback when ProcessPoolExecutor raises PermissionError."""
 
     def test_falls_back_to_serial(self):
-        with patch("factorial._MIN_PARALLEL_PRIMES", 0), patch(
-            "factorial.concurrent.futures.ProcessPoolExecutor",
-            side_effect=PermissionError("permission denied"),
-        ), patch("builtins.print"):
+        with (
+            patch("factorial._MIN_PARALLEL_PRIMES", 0),
+            patch(
+                "factorial.concurrent.futures.ProcessPoolExecutor",
+                side_effect=PermissionError("permission denied"),
+            ),
+            patch("builtins.print"),
+        ):
             result = calculate_factorial(10)
         self.assertEqual(int(result), FACTORIAL_REF[10])
 
@@ -332,19 +340,28 @@ class TestProcessPoolSemaphoreExhaustion(unittest.TestCase):
     """_compute_swing serial fallback for semaphore exhaustion (both patterns)."""
 
     def test_oserror_falls_back_to_serial(self):
-        with patch("factorial._MIN_PARALLEL_PRIMES", 0), patch(
-            "factorial.concurrent.futures.ProcessPoolExecutor",
-            side_effect=OSError("semaphore limit"),
-        ), patch("builtins.print"):
+        with (
+            patch("factorial._MIN_PARALLEL_PRIMES", 0),
+            patch(
+                "factorial.concurrent.futures.ProcessPoolExecutor",
+                side_effect=OSError("semaphore limit"),
+            ),
+            patch("builtins.print"),
+        ):
             result = calculate_factorial(10)
         self.assertEqual(int(result), FACTORIAL_REF[10])
 
     def test_semaphore_exhaustion_enospc_falls_back_to_serial(self):
         import errno
-        with patch("factorial._MIN_PARALLEL_PRIMES", 0), patch(
-            "factorial.concurrent.futures.ProcessPoolExecutor",
-            side_effect=OSError(errno.ENOSPC, "No space left on device"),
-        ), patch("builtins.print"):
+
+        with (
+            patch("factorial._MIN_PARALLEL_PRIMES", 0),
+            patch(
+                "factorial.concurrent.futures.ProcessPoolExecutor",
+                side_effect=OSError(errno.ENOSPC, "No space left on device"),
+            ),
+            patch("builtins.print"),
+        ):
             result = calculate_factorial(10)
         self.assertEqual(int(result), FACTORIAL_REF[10])
 
@@ -354,9 +371,12 @@ class TestMissingGmpy2(unittest.TestCase):
 
     def test_missing_gmpy2_uses_int_fallback(self):
         import factorial as factorial_module
-        with unittest.mock.patch.object(factorial_module, "_HAS_GMPY2", False), \
-             unittest.mock.patch.object(factorial_module, "_gmpy2", None), \
-             unittest.mock.patch("builtins.print"):
+
+        with (
+            unittest.mock.patch.object(factorial_module, "_HAS_GMPY2", False),
+            unittest.mock.patch.object(factorial_module, "_gmpy2", None),
+            unittest.mock.patch("builtins.print"),
+        ):
             result = calculate_factorial(5)
         self.assertIsInstance(result, int)
         self.assertEqual(result, FACTORIAL_REF[5])
@@ -378,13 +398,18 @@ class TestFileWritePermissionError(unittest.TestCase):
 
     def test_exits_nonzero_on_permission_error(self):
         from factorial import main
+
         buf = io.StringIO()
-        with unittest.mock.patch("sys.argv", ["factorial.py", "5"]), \
-             unittest.mock.patch(
-                 "builtins.open",
-                 side_effect=PermissionError("[Errno 13] Permission denied: 'factorial_5.txt'"),
-             ), \
-             redirect_stdout(buf):
+        with (
+            unittest.mock.patch("sys.argv", ["factorial.py", "5"]),
+            unittest.mock.patch(
+                "builtins.open",
+                side_effect=PermissionError(
+                    "[Errno 13] Permission denied: 'factorial_5.txt'"
+                ),
+            ),
+            redirect_stdout(buf),
+        ):
             with self.assertRaises(SystemExit) as cm:
                 main()
         self.assertEqual(cm.exception.code, 1)
@@ -396,13 +421,16 @@ class TestKeyboardInterruptDuringCompute(unittest.TestCase):
 
     def test_exits_nonzero_on_keyboard_interrupt(self):
         from factorial import main
+
         buf = io.StringIO()
-        with unittest.mock.patch("sys.argv", ["factorial.py", "5"]), \
-             unittest.mock.patch(
-                 "factorial.calculate_factorial",
-                 side_effect=KeyboardInterrupt,
-             ), \
-             redirect_stdout(buf):
+        with (
+            unittest.mock.patch("sys.argv", ["factorial.py", "5"]),
+            unittest.mock.patch(
+                "factorial.calculate_factorial",
+                side_effect=KeyboardInterrupt,
+            ),
+            redirect_stdout(buf),
+        ):
             with self.assertRaises(SystemExit) as cm:
                 main()
         self.assertEqual(cm.exception.code, 1)
@@ -410,7 +438,6 @@ class TestKeyboardInterruptDuringCompute(unittest.TestCase):
 
 
 class TestFactorialProperties(unittest.TestCase):
-
     @given(st.integers(min_value=1, max_value=50))
     @settings(deadline=None)
     def test_recurrence(self, n):

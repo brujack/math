@@ -21,6 +21,7 @@ import time
 
 try:
     import gmpy2 as _gmpy2
+
     _HAS_GMPY2 = True
 except ImportError:
     _gmpy2 = None
@@ -34,6 +35,7 @@ _MIN_PARALLEL_PRIMES = 1000
 # ---------------------------------------------------------------------------
 # Sieve of Eratosthenes
 # ---------------------------------------------------------------------------
+
 
 def _sieve(n: int) -> list[int]:
     """Return sorted list of all primes <= n."""
@@ -57,6 +59,7 @@ def _sieve(n: int) -> list[int]:
 # Stubs — will be replaced in later tasks
 # ---------------------------------------------------------------------------
 
+
 def _compute_swing_chunk(m: int, prime_chunk: list[int]) -> int:
     """
     Compute product of p^e_p for each prime in prime_chunk, for swing(m).
@@ -75,7 +78,7 @@ def _compute_swing_chunk(m: int, prime_chunk: list[int]) -> int:
             if q & 1:
                 exp += 1
         if exp:
-            result *= p ** exp
+            result *= p**exp
     return result
 
 
@@ -123,7 +126,9 @@ def _compute_swing(m: int, primes: list[int]) -> int:
 
     ctx = multiprocessing.get_context("spawn" if sys.platform == "darwin" else "fork")
     try:
-        with concurrent.futures.ProcessPoolExecutor(max_workers=len(chunks), mp_context=ctx) as pool:
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=len(chunks), mp_context=ctx
+        ) as pool:
             futures = [pool.submit(_compute_swing_chunk, m, chunk) for chunk in chunks]
             partial_results = [f.result() for f in futures]
     except (PermissionError, OSError) as err:
@@ -178,7 +183,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Compute N! to arbitrary precision using the prime swing algorithm."
     )
-    parser.add_argument("n", nargs="?", type=int, help="Integer to compute factorial of")
+    parser.add_argument(
+        "n", nargs="?", type=int, help="Integer to compute factorial of"
+    )
     return parser.parse_args(argv)
 
 
