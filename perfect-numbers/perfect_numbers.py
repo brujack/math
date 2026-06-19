@@ -37,7 +37,7 @@ def verify_perfect(p: int) -> bool:
     """
     mp = (1 << p) - 1
     n = (1 << (p - 1)) * mp
-    sigma = mp * (mp + 1)   # (2^p - 1) * 2^p
+    sigma = mp * (mp + 1)  # (2^p - 1) * 2^p
     return sigma == 2 * n
 
 
@@ -98,7 +98,7 @@ def get_exponent(args: argparse.Namespace) -> int:
 def main() -> None:
     args = parse_args()
     n = get_exponent(args)
-    limit = 10 ** n
+    limit = 10**n
 
     print("Perfect Number Finder (Python)")
     print("=" * 40)
@@ -119,11 +119,15 @@ def main() -> None:
             digits = len(str(pn))
             s = "digit" if digits == 1 else "digits"
             if pn > limit:
-                print(f"p={p}: M_{p}={mp} [Mersenne prime] -> {pn} ({digits} {s}, exceeds limit)")
+                print(
+                    f"p={p}: M_{p}={mp} [Mersenne prime] -> {pn} ({digits} {s}, exceeds limit)"
+                )
                 break
             verified = verify_perfect(p)
             status = "verified" if verified else "FAILED"
-            print(f"p={p}: M_{p}={mp} [Mersenne prime] -> {pn} ({digits} {s}, {status})")
+            print(
+                f"p={p}: M_{p}={mp} [Mersenne prime] -> {pn} ({digits} {s}, {status})"
+            )
             results.append(pn)
 
         count = len(results)

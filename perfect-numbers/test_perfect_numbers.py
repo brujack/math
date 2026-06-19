@@ -96,20 +96,20 @@ class TestGeneratePerfectNumbers(unittest.TestCase):
         self.assertEqual(list(generate_perfect_numbers(5)), [])
 
     def test_limit_1_yields_6(self):
-        result = list(generate_perfect_numbers(10 ** 1))
+        result = list(generate_perfect_numbers(10**1))
         self.assertEqual(result, [(2, 6)])
 
     def test_limit_n4_yields_first_4(self):
-        result = list(generate_perfect_numbers(10 ** 4))
+        result = list(generate_perfect_numbers(10**4))
         self.assertEqual([n for _, n in result], [6, 28, 496, 8128])
 
     def test_limit_n8_yields_5_numbers(self):
-        result = list(generate_perfect_numbers(10 ** 8))
+        result = list(generate_perfect_numbers(10**8))
         self.assertEqual(len(result), 5)
         self.assertEqual(result[4][0], 13)
 
     def test_limit_n54_yields_all_10(self):
-        result = list(generate_perfect_numbers(10 ** 54))
+        result = list(generate_perfect_numbers(10**54))
         self.assertEqual(len(result), 10)
         last_p, last_n = result[-1]
         self.assertEqual(last_p, 89)
@@ -119,7 +119,7 @@ class TestGeneratePerfectNumbers(unittest.TestCase):
         )
 
     def test_results_in_ascending_order(self):
-        result = list(generate_perfect_numbers(10 ** 20))
+        result = list(generate_perfect_numbers(10**20))
         ns = [n for _, n in result]
         self.assertEqual(ns, sorted(ns))
 
@@ -154,8 +154,10 @@ class TestGetExponent(unittest.TestCase):
             self.assertEqual(get_exponent(self._ns(None)), 8)
 
     def test_interactive_invalid_then_valid(self):
-        with unittest.mock.patch("builtins.input", side_effect=["0", "abc", "5"]), \
-             unittest.mock.patch("builtins.print"):
+        with (
+            unittest.mock.patch("builtins.input", side_effect=["0", "abc", "5"]),
+            unittest.mock.patch("builtins.print"),
+        ):
             self.assertEqual(get_exponent(self._ns(None)), 5)
 
 
@@ -172,43 +174,50 @@ class TestMain(unittest.TestCase):
         os.rmdir(self._tmp)
 
     def test_n1_creates_file_with_6(self):
-        with unittest.mock.patch("sys.argv", ["perfect_numbers.py", "1"]), \
-             redirect_stdout(io.StringIO()):
+        with (
+            unittest.mock.patch("sys.argv", ["perfect_numbers.py", "1"]),
+            redirect_stdout(io.StringIO()),
+        ):
             main()
         with open("perfect-numbers_1e1.txt") as f:
             self.assertEqual(f.read().splitlines(), ["6"])
 
     def test_n4_creates_file_with_4_numbers(self):
-        with unittest.mock.patch("sys.argv", ["perfect_numbers.py", "4"]), \
-             redirect_stdout(io.StringIO()):
+        with (
+            unittest.mock.patch("sys.argv", ["perfect_numbers.py", "4"]),
+            redirect_stdout(io.StringIO()),
+        ):
             main()
         with open("perfect-numbers_1e4.txt") as f:
             self.assertEqual(f.read().splitlines(), ["6", "28", "496", "8128"])
 
     def test_keyboard_interrupt_exits_1(self):
-        with unittest.mock.patch("sys.argv", ["perfect_numbers.py", "1"]), \
-             unittest.mock.patch(
-                 "perfect_numbers.lucas_lehmer", side_effect=KeyboardInterrupt
-             ), \
-             redirect_stdout(io.StringIO()):
+        with (
+            unittest.mock.patch("sys.argv", ["perfect_numbers.py", "1"]),
+            unittest.mock.patch(
+                "perfect_numbers.lucas_lehmer", side_effect=KeyboardInterrupt
+            ),
+            redirect_stdout(io.StringIO()),
+        ):
             with self.assertRaises(SystemExit) as cm:
                 main()
         self.assertEqual(cm.exception.code, 1)
 
     def test_permission_error_exits_1(self):
-        with unittest.mock.patch("sys.argv", ["perfect_numbers.py", "1"]), \
-             unittest.mock.patch(
-                 "builtins.open",
-                 side_effect=PermissionError("Permission denied"),
-             ), \
-             redirect_stdout(io.StringIO()):
+        with (
+            unittest.mock.patch("sys.argv", ["perfect_numbers.py", "1"]),
+            unittest.mock.patch(
+                "builtins.open",
+                side_effect=PermissionError("Permission denied"),
+            ),
+            redirect_stdout(io.StringIO()),
+        ):
             with self.assertRaises(SystemExit) as cm:
                 main()
         self.assertEqual(cm.exception.code, 1)
 
 
 class TestPerfectNumbersProperties(unittest.TestCase):
-
     @given(st.integers(min_value=2, max_value=500))
     def test_even_composites_not_prime(self, n):
         self.assertFalse(is_prime(n * 2))

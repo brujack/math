@@ -12,7 +12,7 @@ def generate_squares(max_digits: int):
     Uses k*k < 10^max_digits as the stopping criterion (equivalent to
     len(str(k*k)) <= max_digits but avoids per-iteration string conversion).
     """
-    limit = 10 ** max_digits
+    limit = 10**max_digits
     k = 1
     while k * k < limit:
         yield k * k, k
@@ -57,13 +57,11 @@ def get_exponent(args: argparse.Namespace) -> int:
 def main() -> None:
     args = parse_args()
     x = get_exponent(args)
-    max_digits = 10 ** x
+    max_digits = 10**x
 
     print("Perfect Square Generator (Python)")
     print("=" * 40)
-    print(
-        f"Generating all perfect squares with up to 10^{x} = {max_digits:,} digits"
-    )
+    print(f"Generating all perfect squares with up to 10^{x} = {max_digits:,} digits")
 
     try:
         buf = io.StringIO()
@@ -78,9 +76,11 @@ def main() -> None:
 
         print(f"\nFound {count:,} perfect squares with up to 10^{x} digits")
         print(f"Saved to {filename}")
-        answer = input(
-            f"Also display all {count:,} perfect squares? (y/n): "
-        ).strip().lower()
+        answer = (
+            input(f"Also display all {count:,} perfect squares? (y/n): ")
+            .strip()
+            .lower()
+        )
         if answer in ("y", "yes"):
             print(buf.getvalue(), end="")
     except KeyboardInterrupt:

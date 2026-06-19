@@ -18,7 +18,6 @@ from hypothesis import strategies as st
 
 
 class TestGenerateSquares(unittest.TestCase):
-
     def test_zero_max_digits_empty(self):
         # max_digits=0: limit=10^0=1, k=1, k*k=1 >= 1 → yields nothing
         self.assertEqual(list(generate_squares(0)), [])
@@ -69,7 +68,6 @@ class TestGenerateSquares(unittest.TestCase):
 
 
 class TestParseArgs(unittest.TestCase):
-
     def test_no_args(self):
         old_argv = sys.argv
         sys.argv = ["sq.py"]
@@ -95,7 +93,6 @@ class TestParseArgs(unittest.TestCase):
 
 
 class TestGetExponent(unittest.TestCase):
-
     def _args(self, exponent):
         return argparse.Namespace(exponent=exponent)
 
@@ -126,15 +123,24 @@ class TestGetExponentInteractive(unittest.TestCase):
             self.assertEqual(get_exponent(self._args_none()), 1)
 
     def test_interactive_too_high_then_valid(self):
-        with patch("builtins.input", side_effect=["2", "1"]), redirect_stdout(io.StringIO()):
+        with (
+            patch("builtins.input", side_effect=["2", "1"]),
+            redirect_stdout(io.StringIO()),
+        ):
             self.assertEqual(get_exponent(self._args_none()), 1)
 
     def test_interactive_zero_then_valid(self):
-        with patch("builtins.input", side_effect=["0", "1"]), redirect_stdout(io.StringIO()):
+        with (
+            patch("builtins.input", side_effect=["0", "1"]),
+            redirect_stdout(io.StringIO()),
+        ):
             self.assertEqual(get_exponent(self._args_none()), 1)
 
     def test_interactive_non_integer_then_valid(self):
-        with patch("builtins.input", side_effect=["abc", "1"]), redirect_stdout(io.StringIO()):
+        with (
+            patch("builtins.input", side_effect=["abc", "1"]),
+            redirect_stdout(io.StringIO()),
+        ):
             self.assertEqual(get_exponent(self._args_none()), 1)
 
 
@@ -156,7 +162,10 @@ class TestMain(unittest.TestCase):
         old_argv = sys.argv
         sys.argv = argv
         try:
-            with patch("builtins.input", side_effect=inputs), redirect_stdout(io.StringIO()) as buf:
+            with (
+                patch("builtins.input", side_effect=inputs),
+                redirect_stdout(io.StringIO()) as buf,
+            ):
                 main()
             return buf.getvalue()
         finally:
@@ -208,10 +217,15 @@ class TestFileWritePermissionError(unittest.TestCase):
         sys.argv = ["sq.py", "1"]
         try:
             buf = io.StringIO()
-            with patch(
-                "builtins.open",
-                side_effect=PermissionError("[Errno 13] Permission denied: 'sq_1e1.txt'"),
-            ), redirect_stdout(buf):
+            with (
+                patch(
+                    "builtins.open",
+                    side_effect=PermissionError(
+                        "[Errno 13] Permission denied: 'sq_1e1.txt'"
+                    ),
+                ),
+                redirect_stdout(buf),
+            ):
                 with self.assertRaises(SystemExit) as cm:
                     main()
             self.assertEqual(cm.exception.code, 1)
@@ -239,8 +253,10 @@ class TestKeyboardInterrupt(unittest.TestCase):
         sys.argv = ["sq.py", "1"]
         try:
             buf = io.StringIO()
-            with patch("sq.generate_squares", side_effect=KeyboardInterrupt), \
-                 redirect_stdout(buf):
+            with (
+                patch("sq.generate_squares", side_effect=KeyboardInterrupt),
+                redirect_stdout(buf),
+            ):
                 with self.assertRaises(SystemExit) as cm:
                     main()
             self.assertEqual(cm.exception.code, 1)
@@ -254,6 +270,7 @@ class TestEntryPoint(unittest.TestCase):
 
     def test_module_runs_via_subprocess(self):
         import subprocess
+
         proc = subprocess.run(
             [sys.executable, sq_module.__file__, "1"],
             input="n\n",
@@ -267,7 +284,6 @@ class TestEntryPoint(unittest.TestCase):
 
 
 class TestSquaresProperties(unittest.TestCase):
-
     @given(st.integers(min_value=1, max_value=6))
     def test_all_perfect_squares(self, max_digits):
         for n, root in generate_squares(max_digits):
