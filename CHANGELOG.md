@@ -17,8 +17,6 @@
 
 ## CI
 
-- make snyk-scan advisory (continue-on-error)
-
 - add release workflows for collatz, goldbach, amicable, perfect-numbers (#68)
 
 - standardize upload-artifact to @v7 across all Rust workflows
@@ -40,10 +38,6 @@
 
 
 ## Documentation
-
-- complete README coverage for all 11 projects
-
-- document pyright setup and mode table
 
 - pip-audit CI per-sub-project advisory step
 
@@ -79,15 +73,13 @@
 
 - add 2026-06-05 retrospective and update knowledge index
 
+- ADR-0022 cosmic-ray supersedes mutmut
+
+- pointer stub per ADR-0020 (#80)
+
 
 
 ## Features
-
-- add pyright type checking and fix macOS spawn deadlock (#62)
-
-- add pyright type checking to all Python sub-projects (#63)
-
-- upgrade pyright to standard mode for 6 sub-projects (#64)
 
 - add pip-audit advisory security step to all Python workflows (#65)
 
@@ -95,11 +87,19 @@
 
 - add Criterion benchmarks to all 11 Rust crates (#70)
 
+- adopt 10-80-10 execution cycle (ai-config ADR-0009/0010) (#76)
+
+- swap mutmut → cosmic-ray for 8 Python sub-projects (#77)
+
+
+
+## Refactoring
+
+- adopt canonical .claude/memory + .claude/retrospectives layout (ADR-0014) (#78)
+
 
 
 ## Testing
-
-- add CLI integration tests for collatz and goldbach (#61)
 
 - add CLI entry-point integration tests for amicable, collatz, perfect-numbers, factorial (#67)
 
