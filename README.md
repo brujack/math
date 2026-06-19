@@ -148,9 +148,9 @@ See [`perfect-numbers/README.md`](perfect-numbers/README.md) for full details.
 ```bash
 cd pi
 make run       # python3 pi.py
-make lint      # ruff check .
-make test      # lint, then python3 -m unittest test_pi -v
-make coverage  # coverage run + report
+make lint      # ruff check . && ruff format --check .
+make test      # lint, then pytest test_pi.py -v
+make coverage  # pytest --cov=pi --cov-report=term-missing
 ```
 
 ### Rust (`pi/pi-rs/`)
@@ -176,9 +176,9 @@ make test      # lint, then cargo test
 ```bash
 cd fib
 make run       # python3 fib.py
-make lint      # ruff check .
-make test      # lint, then python3 -m unittest test_fib -v
-make coverage  # coverage run + report
+make lint      # ruff check . && ruff format --check .
+make test      # lint, then pytest test_fib.py -v
+make coverage  # pytest --cov=fib --cov-report=term-missing
 ```
 
 ### Rust (`fib/fib-rs/`)
@@ -195,9 +195,9 @@ make test      # lint, then cargo test
 ```bash
 cd sq
 make run       # python3 sq.py
-make lint      # ruff check .
-make test      # lint, then python3 -m unittest test_sq -v
-make coverage  # coverage run + report
+make lint      # ruff check . && ruff format --check .
+make test      # lint, then pytest test_sq.py -v
+make coverage  # pytest --cov=sq --cov-report=term-missing
 ```
 
 ### Rust (`sq/sq-rs/`)
@@ -223,9 +223,9 @@ make test         # lint, then cargo test
 ```bash
 cd e
 make run       # python3 e.py
-make lint      # ruff check .
-make test      # lint, then python3 -m unittest test_e -v
-make coverage  # coverage run + report
+make lint      # ruff check . && ruff format --check .
+make test      # lint, then pytest test_e.py -v
+make coverage  # pytest --cov=e --cov-report=term-missing
 ```
 
 ### Rust (`e/e-rs/`)
@@ -242,9 +242,9 @@ make test      # lint, then cargo test
 ```bash
 cd factorial
 make run       # python3 factorial.py
-make lint      # ruff check .
-make test      # lint, then python3 -m unittest test_factorial -v
-make coverage  # coverage run + report
+make lint      # ruff check . && ruff format --check .
+make test      # lint, then pytest test_factorial.py -v
+make coverage  # pytest --cov=factorial --cov-report=term-missing
 ```
 
 ### Rust (`factorial/factorial-rs/`)
@@ -261,9 +261,9 @@ make test      # lint, then cargo test
 ```bash
 cd perfect-numbers
 make run       # python3 perfect_numbers.py
-make lint      # ruff check .
-make test      # lint, then python3 -m unittest test_perfect_numbers -v
-make coverage  # coverage run + report
+make lint      # ruff check . && ruff format --check .
+make test      # lint, then pytest test_perfect_numbers.py -v
+make coverage  # pytest --cov=perfect_numbers --cov-report=term-missing
 ```
 
 ### Rust (`perfect-numbers/perfect-numbers-rs/`)
@@ -280,9 +280,9 @@ make test             # lint, then cargo test
 ```bash
 cd collatz
 make run       # python3 collatz.py
-make lint      # ruff check .
-make test      # lint, then python3 -m unittest test_collatz -v
-make coverage  # coverage run + report
+make lint      # ruff check . && ruff format --check .
+make test      # lint, then pytest test_collatz.py -v
+make coverage  # pytest --cov=collatz --cov-report=term-missing
 ```
 
 ### Rust (`collatz/collatz-rs/`)
@@ -308,9 +308,9 @@ make test      # lint, then cargo test
 ```bash
 cd amicable
 make run       # python3 amicable.py
-make lint      # ruff check .
-make test      # lint, then python3 -m unittest test_amicable -v
-make coverage  # coverage run + report
+make lint      # ruff check . && ruff format --check .
+make test      # lint, then pytest test_amicable.py -v
+make coverage  # pytest --cov=amicable --cov-report=term-missing
 ```
 
 ### Rust (`amicable/amicable-rs/`)

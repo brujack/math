@@ -26,3 +26,4 @@ Repo-specific decisions for the `math` repository. Cross-cutting decisions (CI t
 | [0020](0020-dual-mode-ci-prepush-github-actions.md)                       | Dual-mode CI — permanent pre-push hook + PR-only GitHub Actions | 2026-04-21 | Accepted               |
 | [0021](0021-processpool-serial-fallback.md)                               | ProcessPoolExecutor serial fallback for Python availability     | 2026-04-29 | Accepted               |
 | [0022](0022-python-mutation-testing-cosmic-ray.md)                        | Python mutation testing with cosmic-ray (supersedes ADR-0012)   | 2026-06-13 | Accepted               |
+| [0023](0023-pytest-as-python-test-runner.md)                              | pytest as Python test runner (replaces python3 -m unittest)     | 2026-06-19 | Accepted               |
