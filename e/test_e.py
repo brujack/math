@@ -49,6 +49,7 @@ def _quiet_e(digits):
 # _tree_combine
 # ---------------------------------------------------------------------------
 
+
 class TestTreeCombine(unittest.TestCase):
     """Tests for _tree_combine (pure Python, no gmpy2 dependency)."""
 
@@ -107,12 +108,14 @@ class TestTreeCombine(unittest.TestCase):
 # _taylor_bs
 # ---------------------------------------------------------------------------
 
+
 @unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
 class TestTaylorBS(unittest.TestCase):
     """Tests for _taylor_bs (requires gmpy2)."""
 
     def setUp(self):
         from e import _taylor_bs
+
         self._taylor_bs = _taylor_bs
 
     def test_leaf_a0(self):
@@ -162,6 +165,7 @@ class TestTaylorBS(unittest.TestCase):
     def test_50_terms_accuracy(self):
         """50 terms of Taylor series via binary splitting match e to 50 digits."""
         import gmpy2
+
         P, Q = self._taylor_bs(0, 50)
         ctx = gmpy2.get_context()
         saved = ctx.precision
@@ -179,6 +183,7 @@ class TestTaylorBS(unittest.TestCase):
 # _bs_chunk_worker
 # ---------------------------------------------------------------------------
 
+
 @unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
 class TestBsChunkWorker(unittest.TestCase):
     """Tests for _bs_chunk_worker (requires gmpy2)."""
@@ -190,6 +195,7 @@ class TestBsChunkWorker(unittest.TestCase):
 
     def test_matches_taylor_bs(self):
         from e import _taylor_bs
+
         P_bs, Q_bs = _taylor_bs(0, 10)
         P_cw, Q_cw = _bs_chunk_worker(0, 10)
         self.assertEqual(int(P_bs), P_cw)
@@ -207,6 +213,7 @@ class TestBsChunkWorker(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _e_to_str
 # ---------------------------------------------------------------------------
+
 
 class TestEToStr(unittest.TestCase):
     """Tests for _e_to_str (format checks)."""
@@ -250,6 +257,7 @@ class TestEToStr(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # TestEAccuracy
 # ---------------------------------------------------------------------------
+
 
 class TestEAccuracy(unittest.TestCase):
     """End-to-end accuracy tests for calculate_e."""
@@ -299,17 +307,19 @@ class TestEAccuracy(unittest.TestCase):
 # TestMpmathFallback
 # ---------------------------------------------------------------------------
 
+
 class TestMpmathFallback(unittest.TestCase):
     """Tests for mpmath fallback path."""
 
     def test_fallback_returns_mpmath_type(self):
         import mpmath
-        with unittest.mock.patch.object(e_module, '_HAS_GMPY2', False):
+
+        with unittest.mock.patch.object(e_module, "_HAS_GMPY2", False):
             e_val = _quiet_e(20)
         self.assertIsInstance(e_val, mpmath.mpf)
 
     def test_fallback_accuracy(self):
-        with unittest.mock.patch.object(e_module, '_HAS_GMPY2', False):
+        with unittest.mock.patch.object(e_module, "_HAS_GMPY2", False):
             e_val = _quiet_e(50)
             result = _e_to_str(e_val, 50)
         # mpmath.nstr may round the last digit differently; verify first 48 digits
@@ -320,12 +330,13 @@ class TestMpmathFallback(unittest.TestCase):
 # TestCalculateEParallel
 # ---------------------------------------------------------------------------
 
+
 @unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
 class TestCalculateEParallel(unittest.TestCase):
     """Test parallel calculation path."""
 
     def test_parallel_2000_digits(self):
-        with unittest.mock.patch.object(e_module, '_CPU_COUNT', 4):
+        with unittest.mock.patch.object(e_module, "_CPU_COUNT", 4):
             e_val = _quiet_e(2000)
         result = _e_to_str(e_val, 50)
         self.assertEqual(result, E_REF)
@@ -335,18 +346,23 @@ class TestCalculateEParallel(unittest.TestCase):
 # TestCalculateEGmpy2PhaseAFallback
 # ---------------------------------------------------------------------------
 
+
 @unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
 class TestCalculateEGmpy2PhaseAFallback(unittest.TestCase):
     """_calculate_e_gmpy2 serial fallback when ProcessPoolExecutor raises OSError."""
 
     def test_fallback_result_correct_and_message_printed(self):
         from e import _e_to_str
+
         buf = io.StringIO()
         # digits=2000 -> N large enough for n_workers > 1
-        with unittest.mock.patch(
-            "e.concurrent.futures.ProcessPoolExecutor",
-            side_effect=OSError("semaphore unavailable"),
-        ), redirect_stdout(buf):
+        with (
+            unittest.mock.patch(
+                "e.concurrent.futures.ProcessPoolExecutor",
+                side_effect=OSError("semaphore unavailable"),
+            ),
+            redirect_stdout(buf),
+        ):
             e_val = calculate_e(2000)
         self.assertEqual(_e_to_str(e_val, 20)[:22], E_REF[:22])
         self.assertIn("Parallel mode unavailable", buf.getvalue())
@@ -355,6 +371,7 @@ class TestCalculateEGmpy2PhaseAFallback(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # TestGetTargetDigits
 # ---------------------------------------------------------------------------
+
 
 class TestGetTargetDigits(unittest.TestCase):
     """Tests for get_target_digits."""
@@ -390,6 +407,7 @@ class TestGetTargetDigits(unittest.TestCase):
 # TestParseArgs
 # ---------------------------------------------------------------------------
 
+
 class TestParseArgs(unittest.TestCase):
     """Tests for parse_args."""
 
@@ -410,6 +428,7 @@ class TestParseArgs(unittest.TestCase):
 # TestShowEPreview
 # ---------------------------------------------------------------------------
 
+
 class TestShowEPreview(unittest.TestCase):
     """show_e_preview prints a correctly formatted e preview."""
 
@@ -421,6 +440,7 @@ class TestShowEPreview(unittest.TestCase):
         buf = io.StringIO()
         with redirect_stdout(buf):
             from e import show_e_preview
+
             show_e_preview(self._e, digits)
         return buf.getvalue()
 
@@ -445,6 +465,7 @@ class TestShowEPreview(unittest.TestCase):
 # TestSaveEToFile
 # ---------------------------------------------------------------------------
 
+
 class TestSaveEToFile(unittest.TestCase):
     """save_e_to_file writes a correctly structured output file."""
 
@@ -464,6 +485,7 @@ class TestSaveEToFile(unittest.TestCase):
         buf = io.StringIO()
         with redirect_stdout(buf):
             from e import save_e_to_file
+
             save_e_to_file(self._e, digits, self._path)
 
     def test_file_is_created(self):
@@ -501,6 +523,7 @@ class TestETostrEdgeCases(unittest.TestCase):
         # by passing a negative mpfr; otherwise stays on mpmath's path.
         if _HAS_GMPY2:
             from e import _gmpy2 as g
+
             ctx = g.get_context()
             saved = ctx.precision
             ctx.precision = 200
@@ -535,6 +558,7 @@ class TestGmpy2WorkerFunctions(unittest.TestCase):
 
     def test_gmpy2_str_from_pq_matches_e(self):
         from e import _gmpy2_str_from_PQ, _calculate_e_gmpy2
+
         with redirect_stdout(io.StringIO()):
             _, P_int, Q_int = _calculate_e_gmpy2(20)
         s = _gmpy2_str_from_PQ(P_int, Q_int, 20)
@@ -542,6 +566,7 @@ class TestGmpy2WorkerFunctions(unittest.TestCase):
 
     def test_convert_gmpy2_worker_dispatches(self):
         from e import _convert_gmpy2_worker, _calculate_e_gmpy2
+
         with redirect_stdout(io.StringIO()):
             _, P_int, Q_int = _calculate_e_gmpy2(15)
         s = _convert_gmpy2_worker(P_int, Q_int, 15)
@@ -554,6 +579,7 @@ class TestConvertMpmathWorker(unittest.TestCase):
     def test_returns_string(self):
         import mpmath
         from e import _convert_mpmath_worker
+
         mpmath.mp.dps = 60
         s = _convert_mpmath_worker(+mpmath.e, 20)
         self.assertTrue(s.startswith("2.71828182845904523536"))
@@ -596,23 +622,29 @@ class TestSaveEEstimateAndProgress(unittest.TestCase):
         class _FakeFuture:
             def __init__(self, value):
                 self._value = value
+
             def done(self):
                 return True
+
             def result(self):
                 return self._value
 
         class _FakePool:
             def __init__(self, *_, **__):
                 pass
+
             def __enter__(self):
                 return self
+
             def __exit__(self, *_a):
                 return False
+
             def submit(self, fn, *args, **kwargs):
                 return _FakeFuture("2.71828\n")
 
         # Build a fake mpmath value so we take the mpmath-only path
         import mpmath
+
         mpmath.mp.dps = 30
         e_val = +mpmath.e
 
@@ -620,9 +652,12 @@ class TestSaveEEstimateAndProgress(unittest.TestCase):
         # in the mpmath path (and the gmpy2 path by bypassing isinstance check).
         for d in (50_000, 500_000, 5_000_000, 50_000_000):
             path = os.path.join(self._tmp, f"e_test_{d}.txt")
-            with unittest.mock.patch(
-                "e.concurrent.futures.ProcessPoolExecutor", _FakePool
-            ), redirect_stdout(io.StringIO()):
+            with (
+                unittest.mock.patch(
+                    "e.concurrent.futures.ProcessPoolExecutor", _FakePool
+                ),
+                redirect_stdout(io.StringIO()),
+            ):
                 save_e_to_file(e_val, d, path)
             self.assertTrue(os.path.exists(path))
             os.unlink(path)
@@ -645,14 +680,18 @@ class TestSaveEToFilePhaseAFallback(unittest.TestCase):
     def test_fallback_writes_file_and_prints_message(self):
         import mpmath
         from e import save_e_to_file
+
         mpmath.mp.dps = 25
         e_val = +mpmath.e
         path = os.path.join(self._tmp, "e_fallback.txt")
         buf = io.StringIO()
-        with unittest.mock.patch(
-            "e.concurrent.futures.ProcessPoolExecutor",
-            side_effect=OSError("semaphore unavailable"),
-        ), redirect_stdout(buf):
+        with (
+            unittest.mock.patch(
+                "e.concurrent.futures.ProcessPoolExecutor",
+                side_effect=OSError("semaphore unavailable"),
+            ),
+            redirect_stdout(buf),
+        ):
             save_e_to_file(e_val, 20, path)
         with open(path) as f:
             content = f.read()
@@ -677,14 +716,18 @@ class TestProcessPoolPermissionError(unittest.TestCase):
     def test_falls_back_to_serial(self):
         import mpmath
         from e import save_e_to_file
+
         mpmath.mp.dps = 25
         e_val = +mpmath.e
         path = os.path.join(self._tmp, "e_perm_error.txt")
         buf = io.StringIO()
-        with unittest.mock.patch(
-            "e.concurrent.futures.ProcessPoolExecutor",
-            side_effect=PermissionError("permission denied"),
-        ), redirect_stdout(buf):
+        with (
+            unittest.mock.patch(
+                "e.concurrent.futures.ProcessPoolExecutor",
+                side_effect=PermissionError("permission denied"),
+            ),
+            redirect_stdout(buf),
+        ):
             save_e_to_file(e_val, 20, path)
         with open(path) as f:
             content = f.read()
@@ -708,17 +751,22 @@ class TestProcessPoolSemaphoreExhaustion(unittest.TestCase):
 
     def _e_val(self):
         import mpmath
+
         mpmath.mp.dps = 25
         return +mpmath.e
 
     def test_oserror_falls_back_to_serial(self):
         from e import save_e_to_file
+
         path = os.path.join(self._tmp, "e_sem1.txt")
         buf = io.StringIO()
-        with unittest.mock.patch(
-            "e.concurrent.futures.ProcessPoolExecutor",
-            side_effect=OSError("semaphore limit"),
-        ), redirect_stdout(buf):
+        with (
+            unittest.mock.patch(
+                "e.concurrent.futures.ProcessPoolExecutor",
+                side_effect=OSError("semaphore limit"),
+            ),
+            redirect_stdout(buf),
+        ):
             save_e_to_file(self._e_val(), 20, path)
         self.assertIn("Parallel mode unavailable", buf.getvalue())
         with open(path) as f:
@@ -727,12 +775,16 @@ class TestProcessPoolSemaphoreExhaustion(unittest.TestCase):
     def test_semaphore_exhaustion_enospc_falls_back_to_serial(self):
         import errno
         from e import save_e_to_file
+
         path = os.path.join(self._tmp, "e_sem2.txt")
         buf = io.StringIO()
-        with unittest.mock.patch(
-            "e.concurrent.futures.ProcessPoolExecutor",
-            side_effect=OSError(errno.ENOSPC, "No space left on device"),
-        ), redirect_stdout(buf):
+        with (
+            unittest.mock.patch(
+                "e.concurrent.futures.ProcessPoolExecutor",
+                side_effect=OSError(errno.ENOSPC, "No space left on device"),
+            ),
+            redirect_stdout(buf),
+        ):
             save_e_to_file(self._e_val(), 20, path)
         self.assertIn("Parallel mode unavailable", buf.getvalue())
         with open(path) as f:
@@ -744,10 +796,13 @@ class TestMissingGmpy2(unittest.TestCase):
 
     def test_missing_gmpy2_uses_mpmath_fallback(self):
         import e as e_module
+
         buf = io.StringIO()
-        with unittest.mock.patch.object(e_module, "_HAS_GMPY2", False), \
-             unittest.mock.patch.object(e_module, "_gmpy2", None), \
-             redirect_stdout(buf):
+        with (
+            unittest.mock.patch.object(e_module, "_HAS_GMPY2", False),
+            unittest.mock.patch.object(e_module, "_gmpy2", None),
+            redirect_stdout(buf),
+        ):
             e_val = calculate_e(20)
         result = _e_to_str(e_val, 20)
         self.assertTrue(result.startswith("2.718281828459045"), f"got: {result!r}")
@@ -770,14 +825,19 @@ class TestFileWritePermissionError(unittest.TestCase):
 
     def test_exits_nonzero_on_permission_error(self):
         from e import main
+
         buf = io.StringIO()
-        with unittest.mock.patch("sys.argv", ["e.py", "10"]), \
-             unittest.mock.patch("builtins.input", return_value="n"), \
-             unittest.mock.patch(
-                 "e.os.open",
-                 side_effect=PermissionError("[Errno 13] Permission denied: 'e_10_digits.txt'"),
-             ), \
-             redirect_stdout(buf):
+        with (
+            unittest.mock.patch("sys.argv", ["e.py", "10"]),
+            unittest.mock.patch("builtins.input", return_value="n"),
+            unittest.mock.patch(
+                "e.os.open",
+                side_effect=PermissionError(
+                    "[Errno 13] Permission denied: 'e_10_digits.txt'"
+                ),
+            ),
+            redirect_stdout(buf),
+        ):
             with self.assertRaises(SystemExit) as cm:
                 main()
         self.assertEqual(cm.exception.code, 1)
@@ -789,34 +849,50 @@ class TestGetTargetDigitsInteractive(unittest.TestCase):
 
     def _ns(self, digits):
         import argparse
+
         return argparse.Namespace(digits=digits)
 
     def test_interactive_valid_first_try(self):
-        with unittest.mock.patch("builtins.input", side_effect=["100"]), redirect_stdout(io.StringIO()):
+        with (
+            unittest.mock.patch("builtins.input", side_effect=["100"]),
+            redirect_stdout(io.StringIO()),
+        ):
             self.assertEqual(get_target_digits(self._ns(None)), 100)
 
     def test_interactive_zero_then_valid(self):
-        with unittest.mock.patch("builtins.input", side_effect=["0", "10"]), redirect_stdout(io.StringIO()):
+        with (
+            unittest.mock.patch("builtins.input", side_effect=["0", "10"]),
+            redirect_stdout(io.StringIO()),
+        ):
             self.assertEqual(get_target_digits(self._ns(None)), 10)
 
     def test_interactive_non_integer_then_valid(self):
-        with unittest.mock.patch("builtins.input", side_effect=["abc", "5"]), redirect_stdout(io.StringIO()):
+        with (
+            unittest.mock.patch("builtins.input", side_effect=["abc", "5"]),
+            redirect_stdout(io.StringIO()),
+        ):
             self.assertEqual(get_target_digits(self._ns(None)), 5)
 
     def test_interactive_too_large_decline_then_accept(self):
         # >1_000_000 triggers warning + confirmation; user declines, then enters smaller value
-        with unittest.mock.patch(
-            "builtins.input",
-            side_effect=["2000000", "n", "100"],
-        ), redirect_stdout(io.StringIO()):
+        with (
+            unittest.mock.patch(
+                "builtins.input",
+                side_effect=["2000000", "n", "100"],
+            ),
+            redirect_stdout(io.StringIO()),
+        ):
             self.assertEqual(get_target_digits(self._ns(None)), 100)
 
     def test_interactive_too_large_accept(self):
         # >1_000_000 with confirmation accepted: returns the large value
-        with unittest.mock.patch(
-            "builtins.input",
-            side_effect=["1500000", "y"],
-        ), redirect_stdout(io.StringIO()):
+        with (
+            unittest.mock.patch(
+                "builtins.input",
+                side_effect=["1500000", "y"],
+            ),
+            redirect_stdout(io.StringIO()),
+        ):
             self.assertEqual(get_target_digits(self._ns(None)), 1_500_000)
 
 
@@ -837,10 +913,14 @@ class TestMain(unittest.TestCase):
 
     def _run(self, argv, inputs):
         from e import main
+
         old_argv = sys.argv
         sys.argv = argv
         try:
-            with unittest.mock.patch("builtins.input", side_effect=inputs), redirect_stdout(io.StringIO()) as buf:
+            with (
+                unittest.mock.patch("builtins.input", side_effect=inputs),
+                redirect_stdout(io.StringIO()) as buf,
+            ):
                 main()
             return buf.getvalue()
         finally:
@@ -851,7 +931,12 @@ class TestMain(unittest.TestCase):
         out = self._run(["e.py", "10"], ["y"])
         self.assertIn("2.71828", out)
         self.assertIn("Total digits", out)
-        self.assertFalse(any(name.startswith("e_") and name.endswith("_digits.txt") for name in os.listdir(".")))
+        self.assertFalse(
+            any(
+                name.startswith("e_") and name.endswith("_digits.txt")
+                for name in os.listdir(".")
+            )
+        )
 
     def test_small_digits_save_branch(self):
         out = self._run(["e.py", "10"], ["n"])
@@ -861,6 +946,7 @@ class TestMain(unittest.TestCase):
     def test_value_error_path(self):
         # digits=0 → get_target_digits raises ValueError → handled, exit(1)
         from e import main
+
         sys.argv = ["e.py", "0"]
         try:
             with redirect_stdout(io.StringIO()) as buf:
@@ -873,9 +959,13 @@ class TestMain(unittest.TestCase):
 
     def test_keyboard_interrupt_path(self):
         from e import main
+
         sys.argv = ["e.py", "10"]
         try:
-            with unittest.mock.patch("e.calculate_e", side_effect=KeyboardInterrupt), redirect_stdout(io.StringIO()) as buf:
+            with (
+                unittest.mock.patch("e.calculate_e", side_effect=KeyboardInterrupt),
+                redirect_stdout(io.StringIO()) as buf,
+            ):
                 with self.assertRaises(SystemExit) as cm:
                     main()
             self.assertEqual(cm.exception.code, 1)
@@ -885,9 +975,13 @@ class TestMain(unittest.TestCase):
 
     def test_generic_exception_path(self):
         from e import main
+
         sys.argv = ["e.py", "10"]
         try:
-            with unittest.mock.patch("e.calculate_e", side_effect=RuntimeError("boom")), redirect_stdout(io.StringIO()) as buf:
+            with (
+                unittest.mock.patch("e.calculate_e", side_effect=RuntimeError("boom")),
+                redirect_stdout(io.StringIO()) as buf,
+            ):
                 with self.assertRaises(SystemExit) as cm:
                     main()
             self.assertEqual(cm.exception.code, 1)
@@ -901,6 +995,7 @@ class TestEntryPointGuard(unittest.TestCase):
 
     def test_module_runs_via_subprocess(self):
         import subprocess
+
         proc = subprocess.run(
             [sys.executable, e_module.__file__, "5"],
             input="n\n",
@@ -914,13 +1009,14 @@ class TestEntryPointGuard(unittest.TestCase):
 
 
 class TestEProperties(unittest.TestCase):
-
     @given(st.integers(min_value=1, max_value=20))
     @settings(max_examples=10)
     def test_output_starts_with_two(self, digits):
         e_val = _quiet_e(digits)
         result = _e_to_str(e_val, digits)
-        self.assertTrue(result.startswith("2."), msg=f"Expected '2.' prefix, got: {result[:5]}")
+        self.assertTrue(
+            result.startswith("2."), msg=f"Expected '2.' prefix, got: {result[:5]}"
+        )
 
     @given(st.integers(min_value=1, max_value=20))
     @settings(max_examples=10)

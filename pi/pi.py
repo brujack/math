@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Calculate π to a user-specified number of decimal places.
@@ -29,6 +28,7 @@ import time
 
 try:
     import gmpy2 as _gmpy2
+
     _HAS_GMPY2 = True
 except ImportError:
     _gmpy2 = None
@@ -50,12 +50,13 @@ _gmpy2_QT_cache: tuple = ()
 # Each term contributes ≈14.1816 decimal digits of π.
 _CHU_A = 13591409
 _CHU_B = 545140134
-_CHU_C3_OVER_24 = 640320 ** 3 // 24  # 10939058860032000
+_CHU_C3_OVER_24 = 640320**3 // 24  # 10939058860032000
 
 
 # ---------------------------------------------------------------------------
 # Chudnovsky binary splitting (gmpy2 path)
 # ---------------------------------------------------------------------------
+
 
 def _chudnovsky_bs(a, b):
     """
@@ -72,7 +73,7 @@ def _chudnovsky_bs(a, b):
             return _gmpy2.mpz(1), _gmpy2.mpz(1), _gmpy2.mpz(_CHU_A)
         az = _gmpy2.mpz(a)
         P = _gmpy2.mpz(6 * a - 5) * _gmpy2.mpz(2 * a - 1) * _gmpy2.mpz(6 * a - 1)
-        Q = az ** 3 * _gmpy2.mpz(_CHU_C3_OVER_24)
+        Q = az**3 * _gmpy2.mpz(_CHU_C3_OVER_24)
         T = P * (_gmpy2.mpz(_CHU_A) + _gmpy2.mpz(_CHU_B) * az)
         if a & 1:
             T = -T
@@ -148,12 +149,9 @@ def _calculate_pi_gmpy2(digits):
 
     if n_workers > 1:
         mp_context = multiprocessing.get_context(
-            'fork' if sys.platform == 'linux' else 'spawn'
+            "fork" if sys.platform == "linux" else "spawn"
         )
-        print(
-            f"  Parallel series: {n_workers} workers "
-            f"× ~{chunk_size:,} terms each"
-        )
+        print(f"  Parallel series: {n_workers} workers × ~{chunk_size:,} terms each")
         bar_width = 30
         try:
             with concurrent.futures.ProcessPoolExecutor(
@@ -164,10 +162,11 @@ def _calculate_pi_gmpy2(digits):
                 for _ in concurrent.futures.as_completed(futures):
                     completed += 1
                     filled = completed * bar_width // n_workers
-                    bar = '█' * filled + '░' * (bar_width - filled)
+                    bar = "█" * filled + "░" * (bar_width - filled)
                     print(
                         f"\r  [{bar}] {completed}/{n_workers} chunks",
-                        end="", flush=True,
+                        end="",
+                        flush=True,
                     )
             print()
 
@@ -177,8 +176,7 @@ def _calculate_pi_gmpy2(digits):
             # Convert to gmpy2.mpz and merge via tree reduction.
             print("  Combining chunks...", end="", flush=True)
             pqt_list = [
-                (_gmpy2.mpz(P), _gmpy2.mpz(Q), _gmpy2.mpz(T))
-                for P, Q, T in int_results
+                (_gmpy2.mpz(P), _gmpy2.mpz(Q), _gmpy2.mpz(T)) for P, Q, T in int_results
             ]
             _, Q, T = _tree_combine(pqt_list)
             print("\r  Combination complete.   ")
@@ -211,6 +209,7 @@ def _calculate_pi_gmpy2(digits):
 # String conversion helpers
 # ---------------------------------------------------------------------------
 
+
 def _gmpy2_str_from_QT(Q_int, T_int, digits):
     """
     Recompute π = 426880 √10005 · Q / T in a subprocess and return the
@@ -230,11 +229,11 @@ def _gmpy2_str_from_QT(Q_int, T_int, digits):
     finally:
         ctx.precision = saved_prec
 
-    sign = ''
-    if mantissa.startswith('-'):
-        sign, mantissa = '-', mantissa[1:]
-    int_part = mantissa[:exp] if exp > 0 else '0'
-    dec_part = mantissa[exp:digits + 1]
+    sign = ""
+    if mantissa.startswith("-"):
+        sign, mantissa = "-", mantissa[1:]
+    int_part = mantissa[:exp] if exp > 0 else "0"
+    dec_part = mantissa[exp : digits + 1]
     return f"{sign}{int_part}.{dec_part}"
 
 
@@ -247,11 +246,11 @@ def _gmpy2_mpfr_to_str(pi_mpfr, digits):
     For π ≈ 3.14159…: mantissa = '314159…', exp = 1.
     """
     mantissa, exp, _ = pi_mpfr.digits(10, digits + 5)
-    sign = ''
-    if mantissa.startswith('-'):
-        sign, mantissa = '-', mantissa[1:]
-    int_part = mantissa[:exp] if exp > 0 else '0'
-    dec_part = mantissa[exp:digits + 1]
+    sign = ""
+    if mantissa.startswith("-"):
+        sign, mantissa = "-", mantissa[1:]
+    int_part = mantissa[:exp] if exp > 0 else "0"
+    dec_part = mantissa[exp : digits + 1]
     return f"{sign}{int_part}.{dec_part}"
 
 
@@ -271,6 +270,7 @@ def _pi_to_str(pi_value, digits):
 # Module-level subprocess worker functions
 # (must be at module level so spawn-mode multiprocessing can pickle them)
 # ---------------------------------------------------------------------------
+
 
 def _convert_gmpy2_worker(Q_int, T_int, digits):
     """
@@ -312,6 +312,7 @@ def _pwrite_all(fd, data, offset):
 # CLI parsing
 # ---------------------------------------------------------------------------
 
+
 def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
@@ -341,15 +342,21 @@ def get_target_digits(args):
 
     while True:
         try:
-            user_input = input("Enter the number of decimal places to calculate π (1-1000000): ")
+            user_input = input(
+                "Enter the number of decimal places to calculate π (1-1000000): "
+            )
             target_digits = int(user_input)
             if target_digits < 1:
                 print("Please enter a positive number.")
                 continue
             if target_digits > 1000000:
                 print("Warning: Very large numbers may take a long time to calculate.")
-                confirm = input(f"Continue with {target_digits} digits? (y/n): ").lower().strip()
-                if confirm not in ['y', 'yes']:
+                confirm = (
+                    input(f"Continue with {target_digits} digits? (y/n): ")
+                    .lower()
+                    .strip()
+                )
+                if confirm not in ["y", "yes"]:
                     continue
             return target_digits
         except ValueError:
@@ -359,6 +366,7 @@ def get_target_digits(args):
 # ---------------------------------------------------------------------------
 # Core calculation
 # ---------------------------------------------------------------------------
+
 
 def calculate_pi_high_precision(digits=1000):
     """
@@ -407,6 +415,7 @@ def calculate_pi_high_precision(digits=1000):
 # Preview
 # ---------------------------------------------------------------------------
 
+
 def show_pi_preview(pi_value, preview_digits=100):
     """
     Show a preview of π with specified number of digits.
@@ -418,8 +427,8 @@ def show_pi_preview(pi_value, preview_digits=100):
     actual_preview = min(preview_digits, 200)
     print(f"Generating preview of π ({actual_preview} digits)...")
     pi_str = _pi_to_str(pi_value, actual_preview)
-    if '.' in pi_str:
-        integer_part, decimal_part = pi_str.split('.', 1)
+    if "." in pi_str:
+        integer_part, decimal_part = pi_str.split(".", 1)
     else:
         integer_part, decimal_part = pi_str, ""
     print(f"\nπ = {integer_part}.{decimal_part}...")
@@ -429,6 +438,7 @@ def show_pi_preview(pi_value, preview_digits=100):
 # ---------------------------------------------------------------------------
 # File save — multithreaded
 # ---------------------------------------------------------------------------
+
 
 def save_pi_to_file(pi_value, digits, filename):  # noqa: C901 — multi-backend parallel I/O; TODO: split into gmpy2/mpmath helpers
     """
@@ -495,13 +505,14 @@ def save_pi_to_file(pi_value, digits, filename):  # noqa: C901 — multi-backend
                 pct = (elapsed / self.estimated_duration) * 100
                 bar_length = 30
                 filled = int(bar_length * pct / 100)
-                bar = '█' * filled + '░' * (bar_length - filled)
+                bar = "█" * filled + "░" * (bar_length - filled)
                 dots = "." * (int(elapsed * 2) % 4)
                 print(
                     f"\rConverting {digits:,} digits{dots:<3} "
                     f"[{bar}] {pct:.1f}% "
                     f"Elapsed: {elapsed:.1f}s | ETA: {remaining:.1f}s",
-                    end="", flush=True,
+                    end="",
+                    flush=True,
                 )
             else:
                 dots = "." * (int(elapsed * 2) % 4)
@@ -509,7 +520,8 @@ def save_pi_to_file(pi_value, digits, filename):  # noqa: C901 — multi-backend
                     f"\rConverting {digits:,} digits{dots:<3} "
                     f"[Still converting...] "
                     f"Elapsed: {elapsed:.1f}s (longer than estimated)",
-                    end="", flush=True,
+                    end="",
+                    flush=True,
                 )
 
     # ── Phase A: subprocess conversion + main-thread progress ───────────────
@@ -525,7 +537,7 @@ def save_pi_to_file(pi_value, digits, filename):  # noqa: C901 — multi-backend
     # 'fork' on Linux (fast, safe); 'spawn' on macOS (required — Apple deprecated
     # fork in Python 3.12+ due to Objective-C runtime safety issues).
     mp_context = multiprocessing.get_context(
-        'fork' if sys.platform == 'linux' else 'spawn'
+        "fork" if sys.platform == "linux" else "spawn"
     )
 
     conversion_start = time.time()
@@ -575,9 +587,10 @@ def save_pi_to_file(pi_value, digits, filename):  # noqa: C901 — multi-backend
 
     header = (
         f"π calculated to {digits:,} decimal places using {backend_label}\n"
-        + "=" * 60 + "\n\n"
+        + "=" * 60
+        + "\n\n"
     ).encode("utf-8")
-    pi_bytes = pi_str.encode("ascii")   # π digits are pure ASCII → 1 byte/char
+    pi_bytes = pi_str.encode("ascii")  # π digits are pure ASCII → 1 byte/char
     footer = f"\n\nTotal decimal places: {digits:,}".encode("utf-8")
 
     total_file_size = len(header) + len(pi_bytes) + len(footer)
@@ -607,13 +620,18 @@ def save_pi_to_file(pi_value, digits, filename):  # noqa: C901 — multi-backend
                 bytes_done = min(completed_chunks * _PWRITE_CHUNK, len(pi_bytes))
                 rate = bytes_done / elapsed / 1024 / 1024 if elapsed > 0 else 0
                 remaining = total_chunks - completed_chunks
-                eta = (remaining / completed_chunks * elapsed) if completed_chunks > 0 else 0
+                eta = (
+                    (remaining / completed_chunks * elapsed)
+                    if completed_chunks > 0
+                    else 0
+                )
                 print(
                     f"\rFile write progress: {pct:.1f}% | "
                     f"Written: {bytes_done:,}/{len(pi_bytes):,} chars | "
                     f"ETA: {eta:.1f}s | "
                     f"Rate: {rate:.1f} MB/s",
-                    end="", flush=True,
+                    end="",
+                    flush=True,
                 )
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=_IO_WORKERS) as io_pool:
@@ -634,6 +652,7 @@ def save_pi_to_file(pi_value, digits, filename):  # noqa: C901 — multi-backend
 # Entry point
 # ---------------------------------------------------------------------------
 
+
 def main():
     """Main function to execute π calculation."""
     try:
@@ -649,17 +668,24 @@ def main():
             preview_digits = min(100, target_digits)
             show_pi_preview(pi_result, preview_digits)
         else:
-            print(f"\nSkipping preview for {target_digits:,} digits (too large for quick preview)")
+            print(
+                f"\nSkipping preview for {target_digits:,} digits (too large for quick preview)"
+            )
 
         if target_digits > 10000:
             filename = f"pi_{target_digits}_digits.txt"
-            print(f"\nFor {target_digits:,} digits, saving to file for better performance...")
+            print(
+                f"\nFor {target_digits:,} digits, saving to file for better performance..."
+            )
             save_pi_to_file(pi_result, target_digits, filename)
             print(f"\nFull precision π saved to {filename}")
         else:
-            print(f"\nWould you like to display all {target_digits:,} digits? (y/n): ", end="")
+            print(
+                f"\nWould you like to display all {target_digits:,} digits? (y/n): ",
+                end="",
+            )
             response = input().lower().strip()
-            if response in ['y', 'yes']:
+            if response in ["y", "yes"]:
                 pi_str = _pi_to_str(pi_result, target_digits)
                 print(f"\nπ = {pi_str}")
                 print(f"\nTotal digits: {target_digits:,}")

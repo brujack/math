@@ -29,6 +29,7 @@ import time
 
 try:
     import gmpy2 as _gmpy2
+
     _HAS_GMPY2 = True
 except ImportError:
     _gmpy2 = None
@@ -50,6 +51,7 @@ _gmpy2_PQ_cache: tuple = ()
 # ---------------------------------------------------------------------------
 # Taylor series binary splitting (gmpy2 path)
 # ---------------------------------------------------------------------------
+
 
 def _taylor_bs(a, b):
     """
@@ -153,12 +155,9 @@ def _calculate_e_gmpy2(digits):
 
     if n_workers > 1:
         mp_context = multiprocessing.get_context(
-            'fork' if sys.platform == 'linux' else 'spawn'
+            "fork" if sys.platform == "linux" else "spawn"
         )
-        print(
-            f"  Parallel series: {n_workers} workers "
-            f"x ~{chunk_size:,} terms each"
-        )
+        print(f"  Parallel series: {n_workers} workers x ~{chunk_size:,} terms each")
         bar_width = 30
         try:
             with concurrent.futures.ProcessPoolExecutor(
@@ -169,10 +168,11 @@ def _calculate_e_gmpy2(digits):
                 for _ in concurrent.futures.as_completed(futures):
                     completed += 1
                     filled = completed * bar_width // n_workers
-                    bar = '#' * filled + '.' * (bar_width - filled)
+                    bar = "#" * filled + "." * (bar_width - filled)
                     print(
                         f"\r  [{bar}] {completed}/{n_workers} chunks",
-                        end="", flush=True,
+                        end="",
+                        flush=True,
                     )
             print()
 
@@ -181,10 +181,7 @@ def _calculate_e_gmpy2(digits):
 
             # Convert to gmpy2.mpz and merge via tree reduction.
             print("  Combining chunks...", end="", flush=True)
-            pq_list = [
-                (_gmpy2.mpz(P), _gmpy2.mpz(Q))
-                for P, Q in int_results
-            ]
+            pq_list = [(_gmpy2.mpz(P), _gmpy2.mpz(Q)) for P, Q in int_results]
             P, Q = _tree_combine(pq_list)
             print("\r  Combination complete.   ")
         except (PermissionError, OSError) as err:
@@ -215,6 +212,7 @@ def _calculate_e_gmpy2(digits):
 # String conversion helpers
 # ---------------------------------------------------------------------------
 
+
 def _e_to_str(e_value, digits):
     """
     Convert an e value to a decimal string with *digits* decimal places.
@@ -224,11 +222,11 @@ def _e_to_str(e_value, digits):
     """
     if _HAS_GMPY2 and isinstance(e_value, _gmpy2.mpfr):
         mantissa, exp, _ = e_value.digits(10, digits + 5)
-        sign = ''
-        if mantissa.startswith('-'):
-            sign, mantissa = '-', mantissa[1:]
-        int_part = mantissa[:exp] if exp > 0 else '0'
-        dec_part = mantissa[exp:digits + exp]
+        sign = ""
+        if mantissa.startswith("-"):
+            sign, mantissa = "-", mantissa[1:]
+        int_part = mantissa[:exp] if exp > 0 else "0"
+        dec_part = mantissa[exp : digits + exp]
         return f"{sign}{int_part}.{dec_part}"
     return mpmath.nstr(e_value, digits + 1, strip_zeros=False)
 
@@ -236,6 +234,7 @@ def _e_to_str(e_value, digits):
 # ---------------------------------------------------------------------------
 # Preview
 # ---------------------------------------------------------------------------
+
 
 def show_e_preview(e_value, preview_digits=100):
     """
@@ -248,8 +247,8 @@ def show_e_preview(e_value, preview_digits=100):
     actual_preview = min(preview_digits, 200)
     print(f"Generating preview of e ({actual_preview} digits)...")
     e_str = _e_to_str(e_value, actual_preview)
-    if '.' in e_str:
-        integer_part, decimal_part = e_str.split('.', 1)
+    if "." in e_str:
+        integer_part, decimal_part = e_str.split(".", 1)
     else:
         integer_part, decimal_part = e_str, ""
     print(f"\ne = {integer_part}.{decimal_part}...")
@@ -260,6 +259,7 @@ def show_e_preview(e_value, preview_digits=100):
 # Module-level subprocess worker functions
 # (must be at module level so spawn-mode multiprocessing can pickle them)
 # ---------------------------------------------------------------------------
+
 
 def _gmpy2_str_from_PQ(P_int, Q_int, digits):
     """
@@ -279,11 +279,11 @@ def _gmpy2_str_from_PQ(P_int, Q_int, digits):
     finally:
         ctx.precision = saved_prec
 
-    sign = ''
-    if mantissa.startswith('-'):
-        sign, mantissa = '-', mantissa[1:]
-    int_part = mantissa[:exp] if exp > 0 else '0'
-    dec_part = mantissa[exp:digits + exp]
+    sign = ""
+    if mantissa.startswith("-"):
+        sign, mantissa = "-", mantissa[1:]
+    int_part = mantissa[:exp] if exp > 0 else "0"
+    dec_part = mantissa[exp : digits + exp]
     return f"{sign}{int_part}.{dec_part}"
 
 
@@ -326,6 +326,7 @@ def _pwrite_all(fd, data, offset):
 # ---------------------------------------------------------------------------
 # File save — multithreaded
 # ---------------------------------------------------------------------------
+
 
 def save_e_to_file(e_value, digits, filename):  # noqa: C901 — multi-backend parallel I/O; TODO: split into gmpy2/mpmath helpers
     """
@@ -391,13 +392,14 @@ def save_e_to_file(e_value, digits, filename):  # noqa: C901 — multi-backend p
                 pct = (elapsed / self.estimated_duration) * 100
                 bar_length = 30
                 filled = int(bar_length * pct / 100)
-                bar = '#' * filled + '.' * (bar_length - filled)
+                bar = "#" * filled + "." * (bar_length - filled)
                 dots = "." * (int(elapsed * 2) % 4)
                 print(
                     f"\rConverting {digits:,} digits{dots:<3} "
                     f"[{bar}] {pct:.1f}% "
                     f"Elapsed: {elapsed:.1f}s | ETA: {remaining:.1f}s",
-                    end="", flush=True,
+                    end="",
+                    flush=True,
                 )
             else:
                 dots = "." * (int(elapsed * 2) % 4)
@@ -405,7 +407,8 @@ def save_e_to_file(e_value, digits, filename):  # noqa: C901 — multi-backend p
                     f"\rConverting {digits:,} digits{dots:<3} "
                     f"[Still converting...] "
                     f"Elapsed: {elapsed:.1f}s (longer than estimated)",
-                    end="", flush=True,
+                    end="",
+                    flush=True,
                 )
 
     # -- Phase A: subprocess conversion + main-thread progress ----------------
@@ -419,7 +422,7 @@ def save_e_to_file(e_value, digits, filename):  # noqa: C901 — multi-backend p
     )
 
     mp_context = multiprocessing.get_context(
-        'fork' if sys.platform == 'linux' else 'spawn'
+        "fork" if sys.platform == "linux" else "spawn"
     )
 
     conversion_start = time.time()
@@ -467,7 +470,8 @@ def save_e_to_file(e_value, digits, filename):  # noqa: C901 — multi-backend p
 
     header = (
         f"e calculated to {digits:,} decimal places using {backend_label}\n"
-        + "=" * 60 + "\n\n"
+        + "=" * 60
+        + "\n\n"
     ).encode("utf-8")
     e_bytes = e_str.encode("ascii")
     footer = f"\n\nTotal decimal places: {digits:,}".encode("utf-8")
@@ -497,13 +501,18 @@ def save_e_to_file(e_value, digits, filename):  # noqa: C901 — multi-backend p
                 bytes_done = min(completed_chunks * _PWRITE_CHUNK, len(e_bytes))
                 rate = bytes_done / elapsed / 1024 / 1024 if elapsed > 0 else 0
                 remaining = total_chunks - completed_chunks
-                eta = (remaining / completed_chunks * elapsed) if completed_chunks > 0 else 0
+                eta = (
+                    (remaining / completed_chunks * elapsed)
+                    if completed_chunks > 0
+                    else 0
+                )
                 print(
                     f"\rFile write progress: {pct:.1f}% | "
                     f"Written: {bytes_done:,}/{len(e_bytes):,} chars | "
                     f"ETA: {eta:.1f}s | "
                     f"Rate: {rate:.1f} MB/s",
-                    end="", flush=True,
+                    end="",
+                    flush=True,
                 )
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=_IO_WORKERS) as io_pool:
@@ -523,6 +532,7 @@ def save_e_to_file(e_value, digits, filename):  # noqa: C901 — multi-backend p
 # ---------------------------------------------------------------------------
 # CLI parsing
 # ---------------------------------------------------------------------------
+
 
 def parse_args(argv=None):
     """Parse command-line arguments."""
@@ -553,15 +563,21 @@ def get_target_digits(args):
 
     while True:
         try:
-            user_input = input("Enter the number of decimal places to calculate e (1-1000000): ")
+            user_input = input(
+                "Enter the number of decimal places to calculate e (1-1000000): "
+            )
             target_digits = int(user_input)
             if target_digits < 1:
                 print("Please enter a positive number.")
                 continue
             if target_digits > 1000000:
                 print("Warning: Very large numbers may take a long time to calculate.")
-                confirm = input(f"Continue with {target_digits} digits? (y/n): ").lower().strip()
-                if confirm not in ['y', 'yes']:
+                confirm = (
+                    input(f"Continue with {target_digits} digits? (y/n): ")
+                    .lower()
+                    .strip()
+                )
+                if confirm not in ["y", "yes"]:
                     continue
             return target_digits
         except ValueError:
@@ -571,6 +587,7 @@ def get_target_digits(args):
 # ---------------------------------------------------------------------------
 # Core calculation
 # ---------------------------------------------------------------------------
+
 
 def calculate_e(digits=1000):
     """
@@ -616,6 +633,7 @@ def calculate_e(digits=1000):
 # Entry point
 # ---------------------------------------------------------------------------
 
+
 def main():
     """Main function to execute e calculation."""
     try:
@@ -631,17 +649,24 @@ def main():
             preview_digits = min(100, target_digits)
             show_e_preview(e_result, preview_digits)
         else:
-            print(f"\nSkipping preview for {target_digits:,} digits (too large for quick preview)")
+            print(
+                f"\nSkipping preview for {target_digits:,} digits (too large for quick preview)"
+            )
 
         if target_digits > 10000:
             filename = f"e_{target_digits}_digits.txt"
-            print(f"\nFor {target_digits:,} digits, saving to file for better performance...")
+            print(
+                f"\nFor {target_digits:,} digits, saving to file for better performance..."
+            )
             save_e_to_file(e_result, target_digits, filename)
             print(f"\nFull precision e saved to {filename}")
         else:
-            print(f"\nWould you like to display all {target_digits:,} digits? (y/n): ", end="")
+            print(
+                f"\nWould you like to display all {target_digits:,} digits? (y/n): ",
+                end="",
+            )
             response = input().lower().strip()
-            if response in ['y', 'yes']:
+            if response in ["y", "yes"]:
                 e_str = _e_to_str(e_result, target_digits)
                 print(f"\ne = {e_str}")
                 print(f"\nTotal digits: {target_digits:,}")

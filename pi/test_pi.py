@@ -58,6 +58,7 @@ def _quiet_pi(digits):
 # _tree_combine
 # ---------------------------------------------------------------------------
 
+
 class TestTreeCombine(unittest.TestCase):
     """Tests for _tree_combine (pure Python, no gmpy2 dependency)."""
 
@@ -110,13 +111,14 @@ class TestTreeCombine(unittest.TestCase):
         # T_expected = 11*5 + 2*13 = 55 + 26 = 81
         result = _tree_combine([(2, 3, 5), (7, 11, 13)])
         self.assertEqual(result[2], 81)
-        self.assertEqual(result[0], 14)   # Pl*Pr = 2*7
-        self.assertEqual(result[1], 33)   # Ql*Qr = 3*11
+        self.assertEqual(result[0], 14)  # Pl*Pr = 2*7
+        self.assertEqual(result[1], 33)  # Ql*Qr = 3*11
 
 
 # ---------------------------------------------------------------------------
 # _pwrite_all
 # ---------------------------------------------------------------------------
+
 
 class TestPwriteAll(unittest.TestCase):
     """Tests for _pwrite_all (POSIX pwrite wrapper)."""
@@ -175,7 +177,7 @@ class TestPwriteAll(unittest.TestCase):
             os.close(fd)
         with open(self._path, "rb") as f:
             data = f.read()
-        self.assertEqual(data[0:3],   b"AAA")
+        self.assertEqual(data[0:3], b"AAA")
         self.assertEqual(data[10:13], b"BBB")
         self.assertEqual(data[20:23], b"CCC")
 
@@ -184,12 +186,14 @@ class TestPwriteAll(unittest.TestCase):
 # _chudnovsky_bs — requires gmpy2
 # ---------------------------------------------------------------------------
 
+
 @unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
 class TestChudnovskyBS(unittest.TestCase):
     """Tests for _chudnovsky_bs (requires gmpy2)."""
 
     def setUp(self):
         from pi import _chudnovsky_bs
+
         self.bs = _chudnovsky_bs
 
     def test_leaf_a0_values(self):
@@ -247,12 +251,14 @@ class TestChudnovskyBS(unittest.TestCase):
 # _bs_chunk_worker — requires gmpy2
 # ---------------------------------------------------------------------------
 
+
 @unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
 class TestBsChunkWorker(unittest.TestCase):
     """Tests for _bs_chunk_worker (requires gmpy2)."""
 
     def setUp(self):
         from pi import _bs_chunk_worker, _chudnovsky_bs
+
         self.worker = _bs_chunk_worker
         self.bs = _chudnovsky_bs
 
@@ -284,6 +290,7 @@ class TestBsChunkWorker(unittest.TestCase):
 # _pi_to_str output format
 # ---------------------------------------------------------------------------
 
+
 class TestPiToStr(unittest.TestCase):
     """Tests for _pi_to_str: format, length, and known-digit checks."""
 
@@ -293,7 +300,9 @@ class TestPiToStr(unittest.TestCase):
 
     def test_starts_with_3_dot(self):
         result = _pi_to_str(self._pi50, 10)
-        self.assertTrue(result.startswith("3."), f"Expected '3.' prefix, got: {result!r}")
+        self.assertTrue(
+            result.startswith("3."), f"Expected '3.' prefix, got: {result!r}"
+        )
 
     def test_no_exponent_notation(self):
         result = _pi_to_str(self._pi50, 10)
@@ -323,15 +332,17 @@ class TestPiToStr(unittest.TestCase):
 # calculate_pi_high_precision — end-to-end accuracy
 # ---------------------------------------------------------------------------
 
+
 class TestPiAccuracy(unittest.TestCase):
     """End-to-end accuracy tests against the known decimal expansion of π."""
 
     def _assert_correct(self, digits):
         pi_val = _quiet_pi(digits)
         pi_str = _pi_to_str(pi_val, digits)
-        expected = PI_REF[:digits + 2]  # "3." + digits chars
-        self.assertEqual(pi_str, expected,
-                         f"π to {digits} digits incorrect: {pi_str!r}")
+        expected = PI_REF[: digits + 2]  # "3." + digits chars
+        self.assertEqual(
+            pi_str, expected, f"π to {digits} digits incorrect: {pi_str!r}"
+        )
 
     def test_10_digits(self):
         self._assert_correct(10)
@@ -350,6 +361,7 @@ class TestPiAccuracy(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _pwrite_all — stall error branch
 # ---------------------------------------------------------------------------
+
 
 class TestPwriteAllStall(unittest.TestCase):
     """_pwrite_all must raise OSError when os.pwrite returns 0."""
@@ -374,6 +386,7 @@ class TestPwriteAllStall(unittest.TestCase):
 # _gmpy2_str_from_QT and _gmpy2_mpfr_to_str — requires gmpy2
 # ---------------------------------------------------------------------------
 
+
 @unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
 class TestGmpy2Conversions(unittest.TestCase):
     """Tests for _gmpy2_str_from_QT and _gmpy2_mpfr_to_str."""
@@ -382,6 +395,7 @@ class TestGmpy2Conversions(unittest.TestCase):
     def setUpClass(cls):
         # Compute Q and T once for all tests in this class.
         from pi import _chudnovsky_bs
+
         _, Q, T = _chudnovsky_bs(0, 50)
         cls._Q = int(Q)
         cls._T = int(T)
@@ -403,23 +417,27 @@ class TestGmpy2Conversions(unittest.TestCase):
 
     def test_mpfr_to_str_correct_digits(self):
         import gmpy2
+
         prec = int(20 * 3.3219280948873626) + 100
         ctx = gmpy2.get_context()
         ctx.precision = prec
         sqrt_10005 = gmpy2.sqrt(gmpy2.mpfr(10005))
-        pi_mpfr = (gmpy2.mpfr(426880) * sqrt_10005
-                   * gmpy2.mpfr(self._Q) / gmpy2.mpfr(self._T))
+        pi_mpfr = (
+            gmpy2.mpfr(426880) * sqrt_10005 * gmpy2.mpfr(self._Q) / gmpy2.mpfr(self._T)
+        )
         result = _gmpy2_mpfr_to_str(pi_mpfr, 20)
         self.assertEqual(result, PI_REF[:22])
 
     def test_mpfr_to_str_decimal_count(self):
         import gmpy2
+
         prec = int(10 * 3.3219280948873626) + 100
         ctx = gmpy2.get_context()
         ctx.precision = prec
         sqrt_10005 = gmpy2.sqrt(gmpy2.mpfr(10005))
-        pi_mpfr = (gmpy2.mpfr(426880) * sqrt_10005
-                   * gmpy2.mpfr(self._Q) / gmpy2.mpfr(self._T))
+        pi_mpfr = (
+            gmpy2.mpfr(426880) * sqrt_10005 * gmpy2.mpfr(self._Q) / gmpy2.mpfr(self._T)
+        )
         result = _gmpy2_mpfr_to_str(pi_mpfr, 10)
         _, dec = result.split(".")
         self.assertEqual(len(dec), 10)
@@ -429,6 +447,7 @@ class TestGmpy2Conversions(unittest.TestCase):
 # _convert_gmpy2_worker and _convert_mpmath_worker
 # ---------------------------------------------------------------------------
 
+
 @unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
 class TestConvertGmpy2Worker(unittest.TestCase):
     """_convert_gmpy2_worker returns the same string as _gmpy2_str_from_QT."""
@@ -436,6 +455,7 @@ class TestConvertGmpy2Worker(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from pi import _chudnovsky_bs
+
         _, Q, T = _chudnovsky_bs(0, 50)
         cls._Q = int(Q)
         cls._T = int(T)
@@ -456,6 +476,7 @@ class TestConvertMpmathWorker(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import mpmath
+
         mpmath.mp.dps = 60
         cls._pi_mpf = mpmath.pi
 
@@ -477,6 +498,7 @@ class TestConvertMpmathWorker(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # mpmath fallback path in calculate_pi_high_precision
 # ---------------------------------------------------------------------------
+
 
 class TestMpmathFallback(unittest.TestCase):
     """When gmpy2 is unavailable, calculate_pi_high_precision uses mpmath."""
@@ -500,6 +522,7 @@ class TestMpmathFallback(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # show_pi_preview
 # ---------------------------------------------------------------------------
+
 
 class TestShowPiPreview(unittest.TestCase):
     """show_pi_preview prints a correctly formatted π preview."""
@@ -535,6 +558,7 @@ class TestShowPiPreview(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # save_pi_to_file
 # ---------------------------------------------------------------------------
+
 
 class TestSavePiToFile(unittest.TestCase):
     """save_pi_to_file writes a correctly structured output file."""
@@ -587,6 +611,7 @@ class TestSavePiToFile(unittest.TestCase):
 # _calculate_pi_gmpy2 parallel path — requires gmpy2
 # ---------------------------------------------------------------------------
 
+
 @unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
 class TestCalculatePiParallel(unittest.TestCase):
     """_calculate_pi_gmpy2 parallel path (n_workers > 1)."""
@@ -600,6 +625,7 @@ class TestCalculatePiParallel(unittest.TestCase):
         pi_serial = _quiet_pi(20)
         # Both must agree on the first 20 known digits.
         from pi import _pi_to_str
+
         s_par = _pi_to_str(pi_parallel, 20)
         s_ser = _pi_to_str(pi_serial, 20)
         self.assertEqual(s_par[:22], PI_REF[:22])
@@ -610,6 +636,7 @@ class TestCalculatePiParallel(unittest.TestCase):
 # _calculate_pi_gmpy2 fallback message — requires gmpy2
 # ---------------------------------------------------------------------------
 
+
 @unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
 class TestCalculatePiGmpy2PhaseAFallback(unittest.TestCase):
     """_calculate_pi_gmpy2 serial fallback when ProcessPoolExecutor raises OSError."""
@@ -617,10 +644,13 @@ class TestCalculatePiGmpy2PhaseAFallback(unittest.TestCase):
     def test_fallback_result_correct_and_message_printed(self):
         buf = io.StringIO()
         # digits=2000 -> N=152 terms -> n_workers=2, triggering the parallel path
-        with unittest.mock.patch(
-            "pi.concurrent.futures.ProcessPoolExecutor",
-            side_effect=OSError("semaphore unavailable"),
-        ), redirect_stdout(buf):
+        with (
+            unittest.mock.patch(
+                "pi.concurrent.futures.ProcessPoolExecutor",
+                side_effect=OSError("semaphore unavailable"),
+            ),
+            redirect_stdout(buf),
+        ):
             pi_val = calculate_pi_high_precision(2000)
         self.assertEqual(_pi_to_str(pi_val, 20)[:22], PI_REF[:22])
         self.assertIn("Parallel mode unavailable", buf.getvalue())
@@ -629,6 +659,7 @@ class TestCalculatePiGmpy2PhaseAFallback(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # get_target_digits — non-interactive paths
 # ---------------------------------------------------------------------------
+
 
 class TestGetTargetDigits(unittest.TestCase):
     """get_target_digits with CLI args (non-interactive paths only)."""
@@ -664,6 +695,7 @@ class TestGetTargetDigits(unittest.TestCase):
 # parse_args
 # ---------------------------------------------------------------------------
 
+
 class TestParseArgs(unittest.TestCase):
     """parse_args correctly handles CLI arguments."""
 
@@ -689,6 +721,7 @@ class TestPiToStrNegativeSign(unittest.TestCase):
 
     def test_negative_mpfr_sign_branch(self):
         from pi import _gmpy2 as g, _gmpy2_mpfr_to_str
+
         ctx = g.get_context()
         saved = ctx.precision
         ctx.precision = 200
@@ -720,37 +753,58 @@ class TestGetTargetDigitsInteractive(unittest.TestCase):
 
     def _ns(self, digits):
         import argparse
+
         return argparse.Namespace(digits=digits)
 
     def test_interactive_valid(self):
         from pi import get_target_digits
-        with unittest.mock.patch("builtins.input", side_effect=["100"]), redirect_stdout(io.StringIO()):
+
+        with (
+            unittest.mock.patch("builtins.input", side_effect=["100"]),
+            redirect_stdout(io.StringIO()),
+        ):
             self.assertEqual(get_target_digits(self._ns(None)), 100)
 
     def test_interactive_zero_then_valid(self):
         from pi import get_target_digits
-        with unittest.mock.patch("builtins.input", side_effect=["0", "10"]), redirect_stdout(io.StringIO()):
+
+        with (
+            unittest.mock.patch("builtins.input", side_effect=["0", "10"]),
+            redirect_stdout(io.StringIO()),
+        ):
             self.assertEqual(get_target_digits(self._ns(None)), 10)
 
     def test_interactive_non_integer_then_valid(self):
         from pi import get_target_digits
-        with unittest.mock.patch("builtins.input", side_effect=["xyz", "5"]), redirect_stdout(io.StringIO()):
+
+        with (
+            unittest.mock.patch("builtins.input", side_effect=["xyz", "5"]),
+            redirect_stdout(io.StringIO()),
+        ):
             self.assertEqual(get_target_digits(self._ns(None)), 5)
 
     def test_interactive_too_large_decline_then_accept(self):
         from pi import get_target_digits
-        with unittest.mock.patch(
-            "builtins.input",
-            side_effect=["2000000", "n", "100"],
-        ), redirect_stdout(io.StringIO()):
+
+        with (
+            unittest.mock.patch(
+                "builtins.input",
+                side_effect=["2000000", "n", "100"],
+            ),
+            redirect_stdout(io.StringIO()),
+        ):
             self.assertEqual(get_target_digits(self._ns(None)), 100)
 
     def test_interactive_too_large_accept(self):
         from pi import get_target_digits
-        with unittest.mock.patch(
-            "builtins.input",
-            side_effect=["1500000", "y"],
-        ), redirect_stdout(io.StringIO()):
+
+        with (
+            unittest.mock.patch(
+                "builtins.input",
+                side_effect=["1500000", "y"],
+            ),
+            redirect_stdout(io.StringIO()),
+        ):
             self.assertEqual(get_target_digits(self._ns(None)), 1_500_000)
 
 
@@ -775,18 +829,23 @@ class TestSavePiEstimateAndProgress(unittest.TestCase):
         class _FakeFuture:
             def __init__(self, v):
                 self._v = v
+
             def done(self):
                 return True
+
             def result(self):
                 return self._v
 
         class _FakePool:
             def __init__(self, *_, **__):
                 pass
+
             def __enter__(self):
                 return self
+
             def __exit__(self, *_a):
                 return False
+
             def submit(self, fn, *args, **kwargs):
                 return _FakeFuture("3.14159\n")
 
@@ -795,9 +854,12 @@ class TestSavePiEstimateAndProgress(unittest.TestCase):
 
         for d in (50_000, 500_000, 5_000_000, 50_000_000):
             path = os.path.join(self._tmp, f"pi_{d}.txt")
-            with unittest.mock.patch(
-                "pi.concurrent.futures.ProcessPoolExecutor", _FakePool
-            ), redirect_stdout(io.StringIO()):
+            with (
+                unittest.mock.patch(
+                    "pi.concurrent.futures.ProcessPoolExecutor", _FakePool
+                ),
+                redirect_stdout(io.StringIO()),
+            ):
                 save_pi_to_file(pi_val, d, path)
             self.assertTrue(os.path.exists(path))
             os.unlink(path)
@@ -819,14 +881,18 @@ class TestSavePiToFilePhaseAFallback(unittest.TestCase):
 
     def test_fallback_writes_file_and_prints_message(self):
         import mpmath
+
         mpmath.mp.dps = 25
         pi_val = +mpmath.pi
         path = os.path.join(self._tmp, "pi_fallback.txt")
         buf = io.StringIO()
-        with unittest.mock.patch(
-            "pi.concurrent.futures.ProcessPoolExecutor",
-            side_effect=OSError("semaphore unavailable"),
-        ), redirect_stdout(buf):
+        with (
+            unittest.mock.patch(
+                "pi.concurrent.futures.ProcessPoolExecutor",
+                side_effect=OSError("semaphore unavailable"),
+            ),
+            redirect_stdout(buf),
+        ):
             save_pi_to_file(pi_val, 20, path)
         with open(path) as f:
             content = f.read()
@@ -850,14 +916,18 @@ class TestProcessPoolPermissionError(unittest.TestCase):
 
     def test_falls_back_to_serial(self):
         import mpmath
+
         mpmath.mp.dps = 25
         pi_val = +mpmath.pi
         path = os.path.join(self._tmp, "pi_perm_error.txt")
         buf = io.StringIO()
-        with unittest.mock.patch(
-            "pi.concurrent.futures.ProcessPoolExecutor",
-            side_effect=PermissionError("permission denied"),
-        ), redirect_stdout(buf):
+        with (
+            unittest.mock.patch(
+                "pi.concurrent.futures.ProcessPoolExecutor",
+                side_effect=PermissionError("permission denied"),
+            ),
+            redirect_stdout(buf),
+        ):
             save_pi_to_file(pi_val, 20, path)
         with open(path) as f:
             content = f.read()
@@ -881,16 +951,20 @@ class TestProcessPoolSemaphoreExhaustion(unittest.TestCase):
 
     def _pi_val(self):
         import mpmath
+
         mpmath.mp.dps = 25
         return +mpmath.pi
 
     def test_oserror_falls_back_to_serial(self):
         path = os.path.join(self._tmp, "pi_sem1.txt")
         buf = io.StringIO()
-        with unittest.mock.patch(
-            "pi.concurrent.futures.ProcessPoolExecutor",
-            side_effect=OSError("semaphore limit"),
-        ), redirect_stdout(buf):
+        with (
+            unittest.mock.patch(
+                "pi.concurrent.futures.ProcessPoolExecutor",
+                side_effect=OSError("semaphore limit"),
+            ),
+            redirect_stdout(buf),
+        ):
             save_pi_to_file(self._pi_val(), 20, path)
         self.assertIn("Parallel mode unavailable", buf.getvalue())
         with open(path) as f:
@@ -898,12 +972,16 @@ class TestProcessPoolSemaphoreExhaustion(unittest.TestCase):
 
     def test_semaphore_exhaustion_enospc_falls_back_to_serial(self):
         import errno
+
         path = os.path.join(self._tmp, "pi_sem2.txt")
         buf = io.StringIO()
-        with unittest.mock.patch(
-            "pi.concurrent.futures.ProcessPoolExecutor",
-            side_effect=OSError(errno.ENOSPC, "No space left on device"),
-        ), redirect_stdout(buf):
+        with (
+            unittest.mock.patch(
+                "pi.concurrent.futures.ProcessPoolExecutor",
+                side_effect=OSError(errno.ENOSPC, "No space left on device"),
+            ),
+            redirect_stdout(buf),
+        ):
             save_pi_to_file(self._pi_val(), 20, path)
         self.assertIn("Parallel mode unavailable", buf.getvalue())
         with open(path) as f:
@@ -915,10 +993,13 @@ class TestMissingGmpy2(unittest.TestCase):
 
     def test_missing_gmpy2_uses_mpmath_fallback(self):
         import pi as pi_module
+
         buf = io.StringIO()
-        with unittest.mock.patch.object(pi_module, "_HAS_GMPY2", False), \
-             unittest.mock.patch.object(pi_module, "_gmpy2", None), \
-             redirect_stdout(buf):
+        with (
+            unittest.mock.patch.object(pi_module, "_HAS_GMPY2", False),
+            unittest.mock.patch.object(pi_module, "_gmpy2", None),
+            redirect_stdout(buf),
+        ):
             pi_val = calculate_pi_high_precision(20)
         result = _pi_to_str(pi_val, 20)
         self.assertTrue(result.startswith("3.141592653589793"), f"got: {result!r}")
@@ -941,14 +1022,19 @@ class TestFileWritePermissionError(unittest.TestCase):
 
     def test_exits_nonzero_on_permission_error(self):
         from pi import main
+
         buf = io.StringIO()
-        with unittest.mock.patch("sys.argv", ["pi.py", "10"]), \
-             unittest.mock.patch("builtins.input", return_value="n"), \
-             unittest.mock.patch(
-                 "pi.os.open",
-                 side_effect=PermissionError("[Errno 13] Permission denied: 'pi_10_digits.txt'"),
-             ), \
-             redirect_stdout(buf):
+        with (
+            unittest.mock.patch("sys.argv", ["pi.py", "10"]),
+            unittest.mock.patch("builtins.input", return_value="n"),
+            unittest.mock.patch(
+                "pi.os.open",
+                side_effect=PermissionError(
+                    "[Errno 13] Permission denied: 'pi_10_digits.txt'"
+                ),
+            ),
+            redirect_stdout(buf),
+        ):
             with self.assertRaises(SystemExit) as cm:
                 main()
         self.assertEqual(cm.exception.code, 1)
@@ -971,9 +1057,12 @@ class TestMain(unittest.TestCase):
 
     def _run(self, argv, inputs):
         from pi import main
-        with unittest.mock.patch("sys.argv", argv), \
-             unittest.mock.patch("builtins.input", side_effect=inputs), \
-             redirect_stdout(io.StringIO()) as buf:
+
+        with (
+            unittest.mock.patch("sys.argv", argv),
+            unittest.mock.patch("builtins.input", side_effect=inputs),
+            redirect_stdout(io.StringIO()) as buf,
+        ):
             main()
         return buf.getvalue()
 
@@ -989,8 +1078,11 @@ class TestMain(unittest.TestCase):
 
     def test_value_error_path(self):
         from pi import main
-        with unittest.mock.patch("sys.argv", ["pi.py", "0"]), \
-             redirect_stdout(io.StringIO()) as buf:
+
+        with (
+            unittest.mock.patch("sys.argv", ["pi.py", "0"]),
+            redirect_stdout(io.StringIO()) as buf,
+        ):
             with self.assertRaises(SystemExit) as cm:
                 main()
         self.assertEqual(cm.exception.code, 1)
@@ -998,9 +1090,14 @@ class TestMain(unittest.TestCase):
 
     def test_keyboard_interrupt_path(self):
         from pi import main
-        with unittest.mock.patch("sys.argv", ["pi.py", "10"]), \
-             unittest.mock.patch("pi.calculate_pi_high_precision", side_effect=KeyboardInterrupt), \
-             redirect_stdout(io.StringIO()) as buf:
+
+        with (
+            unittest.mock.patch("sys.argv", ["pi.py", "10"]),
+            unittest.mock.patch(
+                "pi.calculate_pi_high_precision", side_effect=KeyboardInterrupt
+            ),
+            redirect_stdout(io.StringIO()) as buf,
+        ):
             with self.assertRaises(SystemExit) as cm:
                 main()
         self.assertEqual(cm.exception.code, 1)
@@ -1008,9 +1105,14 @@ class TestMain(unittest.TestCase):
 
     def test_generic_exception_path(self):
         from pi import main
-        with unittest.mock.patch("sys.argv", ["pi.py", "10"]), \
-             unittest.mock.patch("pi.calculate_pi_high_precision", side_effect=RuntimeError("boom")), \
-             redirect_stdout(io.StringIO()) as buf:
+
+        with (
+            unittest.mock.patch("sys.argv", ["pi.py", "10"]),
+            unittest.mock.patch(
+                "pi.calculate_pi_high_precision", side_effect=RuntimeError("boom")
+            ),
+            redirect_stdout(io.StringIO()) as buf,
+        ):
             with self.assertRaises(SystemExit) as cm:
                 main()
         self.assertEqual(cm.exception.code, 1)
@@ -1022,6 +1124,7 @@ class TestEntryPointGuard(unittest.TestCase):
 
     def test_module_runs_via_subprocess(self):
         import subprocess
+
         proc = subprocess.run(
             [sys.executable, pi_module.__file__, "5"],
             input="n\n",
@@ -1035,13 +1138,14 @@ class TestEntryPointGuard(unittest.TestCase):
 
 
 class TestPiProperties(unittest.TestCase):
-
     @given(st.integers(min_value=1, max_value=20))
     @settings(max_examples=10)
     def test_output_starts_with_three(self, digits):
         pi_val = _quiet_pi(digits)
         result = _pi_to_str(pi_val, digits)
-        self.assertTrue(result.startswith("3."), msg=f"Expected '3.' prefix, got: {result[:5]}")
+        self.assertTrue(
+            result.startswith("3."), msg=f"Expected '3.' prefix, got: {result[:5]}"
+        )
 
 
 if __name__ == "__main__":
