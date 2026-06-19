@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Install Python dependencies
-        run: pip install ruff coverage hypothesis pyright pip-audit
+        run: pip install ruff coverage hypothesis pyright pip-audit pytest pytest-cov
 
       - name: Run tests
         run: make test

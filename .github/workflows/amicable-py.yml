@@ -17,7 +17,7 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v6
-      - run: pip install ruff coverage hypothesis pyright pip-audit
+      - run: pip install ruff coverage hypothesis pyright pip-audit pytest pytest-cov
       - run: make test
         working-directory: amicable
       - name: Run pip-audit
