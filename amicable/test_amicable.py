@@ -24,9 +24,9 @@ class TestProperDivisorSumSieve(unittest.TestCase):
 
     def test_small_values(self):
         s = proper_divisor_sum_sieve(10)
-        self.assertEqual(s[2], 1)   # only proper divisor of 2 is 1
-        self.assertEqual(s[4], 3)   # 1+2
-        self.assertEqual(s[6], 6)   # 1+2+3 — perfect number
+        self.assertEqual(s[2], 1)  # only proper divisor of 2 is 1
+        self.assertEqual(s[4], 3)  # 1+2
+        self.assertEqual(s[6], 6)  # 1+2+3 — perfect number
         self.assertEqual(s[10], 8)  # 1+2+5
 
     def test_amicable_values(self):
@@ -121,7 +121,9 @@ class TestMain(unittest.TestCase):
             os.chdir(d)
             try:
                 with unittest.mock.patch("sys.argv", ["amicable.py", "3"]):
-                    with unittest.mock.patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                    with unittest.mock.patch(
+                        "sys.stdout", new_callable=io.StringIO
+                    ) as mock_out:
                         main()
                         output = mock_out.getvalue()
                 self.assertIn("220 284", output)
@@ -136,7 +138,9 @@ class TestMain(unittest.TestCase):
             os.chdir(d)
             try:
                 with unittest.mock.patch("sys.argv", ["amicable.py", "1"]):
-                    with unittest.mock.patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                    with unittest.mock.patch(
+                        "sys.stdout", new_callable=io.StringIO
+                    ) as mock_out:
                         main()
                         self.assertEqual(mock_out.getvalue(), "")
                 with open("amicable_1e1.txt") as f:
@@ -152,7 +156,6 @@ class TestMain(unittest.TestCase):
 
 
 class TestAmicableProperties(unittest.TestCase):
-
     @given(st.integers(min_value=4, max_value=500))
     def test_sieve_nonnegative(self, limit):
         sieve = proper_divisor_sum_sieve(limit)

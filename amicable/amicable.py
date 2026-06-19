@@ -78,7 +78,7 @@ def main() -> None:
     """Main entry point."""
     args = parse_args()
     n = get_exponent(args)
-    limit = 10 ** n
+    limit = 10**n
     filename = f"amicable_1e{n}.txt"
     try:
         with open(filename, "w") as f:
