@@ -5,13 +5,13 @@ run:
 
 lint:
 	ruff check .
+	ruff format --check .
 
 test: lint
-	python3 -m unittest test_fib -v
+	pytest test_fib.py -v
 
 coverage:
-	python3 -m coverage run -m unittest test_fib
-	python3 -m coverage report --fail-under=90
+	pytest --cov=fib --cov-report=term-missing --cov-fail-under=90 test_fib.py
 
 
 benchmark:
