@@ -51,7 +51,7 @@ class TestCollatzLength(unittest.TestCase):
     def test_value_exceeds_limit(self):
         # n=3's chain passes through 10, 16, 8 — all > limit=5.
         # They count toward chain length but are not stored in cache.
-        cache = self._make_cache(6)   # indices 0..5, limit = 5
+        cache = self._make_cache(6)  # indices 0..5, limit = 5
         self.assertEqual(collatz_length(3, cache), 7)
 
 
@@ -106,8 +106,10 @@ class TestGetExponent(unittest.TestCase):
             self.assertEqual(get_exponent(self._ns(None)), 5)
 
     def test_interactive_invalid_then_valid(self):
-        with unittest.mock.patch("builtins.input", side_effect=["0", "abc", "3"]), \
-             unittest.mock.patch("builtins.print"):
+        with (
+            unittest.mock.patch("builtins.input", side_effect=["0", "abc", "3"]),
+            unittest.mock.patch("builtins.print"),
+        ):
             self.assertEqual(get_exponent(self._ns(None)), 3)
 
 
@@ -124,16 +126,20 @@ class TestMain(unittest.TestCase):
         os.rmdir(self._tmp)
 
     def test_n1_creates_file(self):
-        with unittest.mock.patch("sys.argv", ["collatz.py", "1"]), \
-             redirect_stdout(io.StringIO()):
+        with (
+            unittest.mock.patch("sys.argv", ["collatz.py", "1"]),
+            redirect_stdout(io.StringIO()),
+        ):
             main()
         with open("collatz_1e1.txt") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines, ["1 0", "2 1", "3 7", "6 8", "7 16", "9 19"])
 
     def test_n3_file_contains_27(self):
-        with unittest.mock.patch("sys.argv", ["collatz.py", "3"]), \
-             redirect_stdout(io.StringIO()):
+        with (
+            unittest.mock.patch("sys.argv", ["collatz.py", "3"]),
+            redirect_stdout(io.StringIO()),
+        ):
             main()
         with open("collatz_1e3.txt") as f:
             lines = f.read().splitlines()
@@ -141,28 +147,31 @@ class TestMain(unittest.TestCase):
         self.assertIn("27 111", lines)
 
     def test_keyboard_interrupt_exits_1(self):
-        with unittest.mock.patch("sys.argv", ["collatz.py", "1"]), \
-             unittest.mock.patch(
-                 "collatz.generate_records", side_effect=KeyboardInterrupt
-             ), \
-             redirect_stdout(io.StringIO()):
+        with (
+            unittest.mock.patch("sys.argv", ["collatz.py", "1"]),
+            unittest.mock.patch(
+                "collatz.generate_records", side_effect=KeyboardInterrupt
+            ),
+            redirect_stdout(io.StringIO()),
+        ):
             with self.assertRaises(SystemExit) as cm:
                 main()
         self.assertEqual(cm.exception.code, 1)
 
     def test_permission_error_exits_1(self):
-        with unittest.mock.patch("sys.argv", ["collatz.py", "1"]), \
-             unittest.mock.patch(
-                 "builtins.open", side_effect=PermissionError("Permission denied")
-             ), \
-             redirect_stdout(io.StringIO()):
+        with (
+            unittest.mock.patch("sys.argv", ["collatz.py", "1"]),
+            unittest.mock.patch(
+                "builtins.open", side_effect=PermissionError("Permission denied")
+            ),
+            redirect_stdout(io.StringIO()),
+        ):
             with self.assertRaises(SystemExit) as cm:
                 main()
         self.assertEqual(cm.exception.code, 1)
 
 
 class TestCollatzProperties(unittest.TestCase):
-
     @given(st.integers(min_value=1, max_value=5_000))
     def test_next_even(self, n):
         even = n * 2
