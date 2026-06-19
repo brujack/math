@@ -19,7 +19,7 @@ def generate_fibonacci(max_digits: int):
     Uses b < 10^max_digits as the stopping criterion (equivalent to
     len(str(b)) <= max_digits and avoids per-iteration string conversion).
     """
-    limit = 10 ** max_digits
+    limit = 10**max_digits
     a, b = 0, 1
     while b < limit:
         yield b
@@ -64,7 +64,7 @@ def get_exponent(args: argparse.Namespace) -> int:
 def main() -> None:
     args = parse_args()
     x = get_exponent(args)
-    max_digits = 10 ** x
+    max_digits = 10**x
 
     print("Fibonacci Number Generator (Python)")
     print("=" * 40)
@@ -94,9 +94,11 @@ def main() -> None:
                 count += 1
 
             print(f"\nFound {count:,} Fibonacci numbers with up to 10^{x} digits")
-            answer = input(
-                f"Display all {count:,} Fibonacci numbers? (y/n): "
-            ).strip().lower()
+            answer = (
+                input(f"Display all {count:,} Fibonacci numbers? (y/n): ")
+                .strip()
+                .lower()
+            )
             if answer in ("y", "yes"):
                 print(buf.getvalue(), end="")
             else:

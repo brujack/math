@@ -18,7 +18,6 @@ from hypothesis import strategies as st
 
 
 class TestGenerateFibonacci(unittest.TestCase):
-
     def test_single_digit_sequence(self):
         # max_digits=1, limit=10^1=10: yields 1,1,2,3,5,8 (all < 10); 13 >= 10 stops
         result = list(generate_fibonacci(1))
@@ -59,7 +58,6 @@ class TestGenerateFibonacci(unittest.TestCase):
 
 
 class TestParseArgs(unittest.TestCase):
-
     def test_no_args(self):
         old_argv = sys.argv
         sys.argv = ["fib.py"]
@@ -85,7 +83,6 @@ class TestParseArgs(unittest.TestCase):
 
 
 class TestGetExponent(unittest.TestCase):
-
     def _args(self, exponent):
         return argparse.Namespace(exponent=exponent)
 
@@ -130,15 +127,24 @@ class TestGetExponentInteractive(unittest.TestCase):
             self.assertEqual(get_exponent(self._args_none()), 5)
 
     def test_interactive_out_of_range_then_valid(self):
-        with patch("builtins.input", side_effect=["6", "2"]), redirect_stdout(io.StringIO()):
+        with (
+            patch("builtins.input", side_effect=["6", "2"]),
+            redirect_stdout(io.StringIO()),
+        ):
             self.assertEqual(get_exponent(self._args_none()), 2)
 
     def test_interactive_zero_then_valid(self):
-        with patch("builtins.input", side_effect=["0", "1"]), redirect_stdout(io.StringIO()):
+        with (
+            patch("builtins.input", side_effect=["0", "1"]),
+            redirect_stdout(io.StringIO()),
+        ):
             self.assertEqual(get_exponent(self._args_none()), 1)
 
     def test_interactive_non_integer_then_valid(self):
-        with patch("builtins.input", side_effect=["abc", "3"]), redirect_stdout(io.StringIO()):
+        with (
+            patch("builtins.input", side_effect=["abc", "3"]),
+            redirect_stdout(io.StringIO()),
+        ):
             self.assertEqual(get_exponent(self._args_none()), 3)
 
 
@@ -161,7 +167,10 @@ class TestMain(unittest.TestCase):
         old_argv = sys.argv
         sys.argv = argv
         try:
-            with patch("builtins.input", side_effect=inputs), redirect_stdout(io.StringIO()) as buf:
+            with (
+                patch("builtins.input", side_effect=inputs),
+                redirect_stdout(io.StringIO()) as buf,
+            ):
                 main()
             return buf.getvalue()
         finally:
@@ -181,7 +190,7 @@ class TestMain(unittest.TestCase):
         with open("fib_1e2.txt") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[:3], ["1", "1", "2"])
-        self.assertLess(int(lines[-1]), 10 ** 100)
+        self.assertLess(int(lines[-1]), 10**100)
 
     def test_streaming_branch_x3(self):
         # X=3 → streaming-to-file path, no warning, no input prompts
@@ -225,12 +234,16 @@ class TestFileWritePermissionError(unittest.TestCase):
         sys.argv = ["fib.py", "1"]
         try:
             buf = io.StringIO()
-            with patch("builtins.input", return_value="n"), \
-                 patch(
-                     "builtins.open",
-                     side_effect=PermissionError("[Errno 13] Permission denied: 'fib_1e1.txt'"),
-                 ), \
-                 redirect_stdout(buf):
+            with (
+                patch("builtins.input", return_value="n"),
+                patch(
+                    "builtins.open",
+                    side_effect=PermissionError(
+                        "[Errno 13] Permission denied: 'fib_1e1.txt'"
+                    ),
+                ),
+                redirect_stdout(buf),
+            ):
                 with self.assertRaises(SystemExit) as cm:
                     main()
             self.assertEqual(cm.exception.code, 1)
@@ -258,8 +271,10 @@ class TestKeyboardInterrupt(unittest.TestCase):
         sys.argv = ["fib.py", "1"]
         try:
             buf = io.StringIO()
-            with patch("fib.generate_fibonacci", side_effect=KeyboardInterrupt), \
-                 redirect_stdout(buf):
+            with (
+                patch("fib.generate_fibonacci", side_effect=KeyboardInterrupt),
+                redirect_stdout(buf),
+            ):
                 with self.assertRaises(SystemExit) as cm:
                     main()
             self.assertEqual(cm.exception.code, 1)
@@ -274,6 +289,7 @@ class TestEntryPoint(unittest.TestCase):
     def test_module_runs_via_subprocess(self):
         # Invoking fib.py as a script triggers the entry-point guard.
         import subprocess
+
         proc = subprocess.run(
             [sys.executable, fib.__file__, "1"],
             input="n\n",
@@ -287,7 +303,6 @@ class TestEntryPoint(unittest.TestCase):
 
 
 class TestFibonacciProperties(unittest.TestCase):
-
     @given(st.integers(min_value=1, max_value=6))
     def test_recurrence_holds(self, max_digits):
         seq = list(generate_fibonacci(max_digits))
