@@ -5,13 +5,13 @@ run:
 
 lint:
 	ruff check .
+	ruff format --check .
 
 test: lint
-	python3 -m unittest test_sq -v
+	pytest test_sq.py -v
 
 coverage:
-	coverage run -m unittest test_sq -v
-	coverage report -m --fail-under=90
+	pytest --cov=sq --cov-report=term-missing --cov-fail-under=90 test_sq.py
 benchmark:
 	printf "999999999\n" | timeout 30 python3 sq.py
 mutants:
