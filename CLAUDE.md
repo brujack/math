@@ -32,7 +32,6 @@ Sessions in this repo follow the 10-80-10 execution cycle defined in `ai-config`
 - **Phase 2 (80%) — Execute.** `subagent-driven-development` runs iterate-until-green per task; FORBIDDEN list prevents gate cheating; wave-dispatch when `parallel_group` is declared. Sonnet/Haiku per task as declared in the plan.
 - **Phase 3 (10%) — Review.** `finishing-a-development-branch` chains `pr-review` → `security-review` → `bug-scan` → `docs` → `learnings` → finish. Opus role.
 
-
 Validate a plan before dispatch:
 
 ```bash
@@ -267,6 +266,15 @@ All Rust crate `make lint` and `make test` targets call `scripts/rust-check.sh` 
 - `CARGO_HOME` defaults to `<repo>/.cache/cargo-home` when unset, so checks do not rely on global cargo cache write access.
 - `RUST_CHECK_OFFLINE=1` enables `--offline` for local resilience when dependencies are already cached.
 - Failures are classified as either environment/setup problems (cache/index/network permissions) or code failures (lint/test defects).
+
+## Language Standards
+
+Language-specific standards for this repo. These supplement the universal standards loaded
+from `~/.claude/CLAUDE.md` (tdd, behavior, git-workflow, ci, code-standards, logic-review,
+repo-structure, shell).
+
+@~/.claude/standards/python.md
+@~/.claude/standards/rust.md
 
 ## Testing Policy
 
