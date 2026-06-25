@@ -1,0 +1,98 @@
+name: mutation-pr
+
+on:
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  mutation-pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install tools
+        run: |
+          cargo install cargo-mutants --locked
+          pip install cosmic-ray
+
+      - name: Detect changed sub-projects
+        id: detect
+        run: |
+          changed=$(git diff --name-only "origin/${GITHUB_BASE_REF}...HEAD")
+
+          has_rs=false
+          has_py=false
+          py_dirs=""
+
+          # Rust: only factorial-rs
+          if printf '%s\n' "${changed}" | grep -q '^factorial/factorial-rs/.*\.rs$'; then
+            has_rs=true
+          fi
+
+          # Python: each sub-project with cosmic-ray.toml
+          for dir in sq perfect-numbers factorial amicable pi fib collatz e; do
+            if printf '%s\n' "${changed}" | grep -q "^${dir}/.*\.py$"; then
+              py_dirs="${py_dirs} ${dir}"
+              has_py=true
+            fi
+          done
+
+          echo "has_rs=${has_rs}" >> "${GITHUB_OUTPUT}"
+          echo "has_py=${has_py}" >> "${GITHUB_OUTPUT}"
+          echo "py_dirs=${py_dirs}" >> "${GITHUB_OUTPUT}"
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+
+      - name: Skip — no mutation-covered files changed
+        if: steps.detect.outputs.has_rs == 'false' && steps.detect.outputs.has_py == 'false'
+        run: echo "No mutation-covered files changed — skipping."
+
+      - name: Get PR diff (for Rust)
+        if: steps.detect.outputs.has_rs == 'true'
+        run: git diff "origin/${GITHUB_BASE_REF}...HEAD" > /tmp/pr.diff
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+
+      - name: Run cargo mutants (factorial-rs)
+        if: steps.detect.outputs.has_rs == 'true'
+        run: |
+          cd factorial/factorial-rs
+          cargo mutants --in-diff /tmp/pr.diff --timeout 30 --no-shuffle
+
+      - name: Run cosmic-ray on changed Python sub-projects
+        if: steps.detect.outputs.has_py == 'true'
+        env:
+          PY_DIRS: ${{ steps.detect.outputs.py_dirs }}
+        run: |
+          survivors_total=0
+          for dir in ${PY_DIRS}; do
+            echo "Running cosmic-ray in ${dir}/"
+            cd "${dir}"
+            cosmic-ray init cosmic-ray.toml session-pr.sqlite
+            cosmic-ray exec session-pr.sqlite
+            s=$(cosmic-ray report session-pr.sqlite | grep -c 'Outcome.SURVIVED' || true)
+            survivors_total=$((survivors_total + s))
+            rm -f session-pr.sqlite
+            cd ..
+          done
+          if [[ "${survivors_total}" -gt 0 ]]; then
+            echo "::error::${survivors_total} surviving mutant(s) found across changed sub-projects"
+            exit 1
+          fi
+          echo "mutation-pr: PASS — 0 survivors"
