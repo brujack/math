@@ -3,8 +3,6 @@
 
 ## Bug Fixes
 
-- replace xml.etree with defusedxml in test_metrics.py (#69)
-
 - use mutants.toml exclusions for equivalent mutations (#71)
 
 - strip directory prefix from sha256sum output in release workflows (#73)
@@ -17,14 +15,6 @@
 
 ## CI
 
-- add release workflows for collatz, goldbach, amicable, perfect-numbers (#68)
-
-- standardize upload-artifact to @v7 across all Rust workflows
-
-- bump checkout →v6, cosign →v4, upload-artifact stragglers →v7
-
-- enable regression alerts at 130% threshold
-
 - fix rust-cache error and input injection
 
 - align math release workflows with etch-cli strategy (#72)
@@ -35,25 +25,13 @@
 
 - add cargo-machete and ruff C901 to lint gates
 
+- add pytest and pytest-cov to all Python workflow pip installs
+
+- add mutation-pr per-PR gate workflow (#81)
+
 
 
 ## Documentation
-
-- pip-audit CI per-sub-project advisory step
-
-- pip-audit CI implementation plan
-
-- CLI integration tests for amicable, collatz, perfect-numbers, factorial
-
-- CLI integration tests implementation plan
-
-- mark criterion-benchmarks Done
-
-- document defusedxml pip install requirement in factorial-rs workflow
-
-- add dev-cycle improvements to backlog
-
-- remove benchmark alerts — done
 
 - add Criterion benchmarks, pyright, pip-audit, and CLI tests to README
 
@@ -77,19 +55,33 @@
 
 - pointer stub per ADR-0020 (#80)
 
+- update README and add ADR-0023 for pytest migration
+
+- add bug-scan to Phase 3 chain
+
 
 
 ## Features
 
-- add pip-audit advisory security step to all Python workflows (#65)
-
-- add git-cliff config and make target (#66)
-
-- add Criterion benchmarks to all 11 Rust crates (#70)
-
 - adopt 10-80-10 execution cycle (ai-config ADR-0009/0010) (#76)
 
 - swap mutmut → cosmic-ray for 8 Python sub-projects (#77)
+
+- migrate to pytest and ruff format check
+
+- migrate to pytest and ruff format check
+
+- migrate pi and e to pytest and ruff format check
+
+- migrate to pytest and ruff format check
+
+- migrate to pytest and ruff format check
+
+- migrate to pytest and ruff format check
+
+- migrate to pytest and ruff format check
+
+- math adds python.md + rust.md language standards
 
 
 
@@ -100,8 +92,6 @@
 
 
 ## Testing
-
-- add CLI entry-point integration tests for amicable, collatz, perfect-numbers, factorial (#67)
 
 - kill <=→< sieve mutant; skip equivalent mutants
 
