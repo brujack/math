@@ -273,8 +273,8 @@ Language-specific standards for this repo. These supplement the universal standa
 from `~/.claude/CLAUDE.md` (tdd, behavior, git-workflow, ci, code-standards, logic-review,
 repo-structure, shell).
 
-@~/.claude/standards/python.md
-@~/.claude/standards/rust.md
+@~~/.claude/standards/python.md
+@~~/.claude/standards/rust.md
 
 ## Testing Policy
 
@@ -355,6 +355,16 @@ exclude_re = [
 **Important:** `// mutants::skip` inline comments are **not** recognized by cargo-mutants ≥27.x — only `#[mutants::skip]` attributes on items are supported. Use `.cargo/mutants.toml` `exclude_re` patterns instead.
 
 **Caveat:** `exclude_re` patterns include line numbers. If surrounding code shifts the line, the pattern stops matching and the equivalent mutant reappears as "surviving." Update the file and its comments when nearby code changes. See `factorial/factorial-rs/.cargo/mutants.toml` for a worked example with three excluded equivalences (two sieve `p*p→p+p` variants and one `exp>0→exp>=0` in `compute_swing_chunk`).
+
+**Algebraic-identity dead-code equivalents** — when a function body contains a comparison that is always true for all valid inputs due to mathematical identity, any mutation to that comparison is an equivalent dead-code mutation. Example: `verify_perfect(p)` checks `sigma_result == 2*n`; Euler's theorem proves this is always true for any p yielding a Mersenne prime, so `==` → `!=` or intermediate arithmetic mutations are unreachable. Exclude them in `.cargo/mutants.toml`. Diagnosis: write a test that exercises the function with several known-good inputs — if the mutant still passes, it's equivalent, not a gap.
+
+**Prompt-guard output-filename assertion kills match-guard mutations** — in interactive-prompt tests that supply N via `io::Cursor::new("2\n")`, a `→ true` mutation on the prompt validation loop (e.g., converting `n >= 1 && n <= 8` to `true`) makes all N values valid and `run()` returns `Ok` regardless of input. The test still passes. Kill this mutation by asserting on the concrete output artifact after `run()`:
+
+```rust
+assert!(dir.path().join("goldbach_1e2.txt").exists());
+```
+
+With this assertion, the filename encodes the actual N value — a mutant that accepts any N would write the correct file for the supplied N=2 anyway, so the precise guard needed is on the output file. Add this assertion to every prompt test that could be affected by a guard `→ true` mutation.
 
 **Coverage floor: ≥90% line coverage is required for all Rust crates.** This is enforced in CI — each Rust workflow runs `cargo tarpaulin --fail-under 90` in the `test` job after `make test`. A PR that drops any crate below 90% will fail CI and cannot auto-merge. The pre-push hook does not check coverage locally (too slow); CI is the gate.
 
