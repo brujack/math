@@ -290,6 +290,17 @@ mod tests {
         assert_eq!(code, 1);
     }
     #[test]
+    fn test_generate_limit_6_yields_6() {
+        // limit=6 must return exactly [(2, 6)].
+        // Kills lib.rs:59 `< → ==` and `< → <=` (both would return empty for limit=6).
+        // Also kills lib.rs:76 `> → >=` (pn=6 >= limit=6 would break before adding).
+        let result = generate_perfect_numbers(&Integer::from(6u32));
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, 2u64);
+        assert_eq!(result[0].1, Integer::from(6u32));
+    }
+
+    #[test]
     fn test_run_n1_creates_file_with_6() {
         let dir = tempdir().unwrap();
         let mut out = Vec::new();
@@ -301,6 +312,43 @@ mod tests {
         let path = dir.path().join("perfect-numbers_1e1.txt");
         assert!(path.exists());
         assert_eq!(std::fs::read_to_string(&path).unwrap().trim(), "6");
+        let stdout = String::from_utf8_lossy(&out);
+        // "1 digit" (not "1 digits") — kills main.rs:111 `== → !=` mutation
+        assert!(stdout.contains("1 digit,"), "expected singular 'digit' for 6");
+        // "1 perfect number" (not "1 perfect numbers") — kills main.rs:130 `== → !=`
+        assert!(stdout.contains("Found 1 perfect number up"), "expected singular 'number'");
+    }
+
+    #[test]
+    fn test_run_prompt_rejects_zero_then_accepts() {
+        // "0" must be rejected; "1" accepted as N.
+        // Kills main.rs:55 prompt guard `→ true` mutation (which would accept "0",
+        // creating perfect-numbers_1e0.txt instead of perfect-numbers_1e1.txt).
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut err_buf = Vec::new();
+        let mut reader = Cursor::new("0\n1\n");
+        let code =
+            run(Cli { exponent: None }, &mut reader, &mut out, &mut err_buf, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        assert!(dir.path().join("perfect-numbers_1e1.txt").exists());
+    }
+
+    #[test]
+    fn test_run_n4_finds_four_perfect_numbers() {
+        // N=4 covers 6, 28, 496, 8128 — exactly 4 perfect numbers.
+        // Kills main.rs:92 `/ → %` mutation: significant_bits(10^4)=14 (even),
+        // so 14%2+3=3 gives max_p=3, missing p=5 (pn=496) and p=7 (pn=8128).
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut err_buf = Vec::new();
+        let mut reader = Cursor::new("");
+        let code = run(Cli { exponent: Some(4) }, &mut reader, &mut out, &mut err_buf, dir.path())
+            .unwrap();
+        assert_eq!(code, 0);
+        let path = dir.path().join("perfect-numbers_1e4.txt");
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content.trim().lines().count(), 4, "expected 4 perfect numbers ≤ 10^4");
     }
     #[test]
     fn test_run_no_arg_prompts() {

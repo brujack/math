@@ -1,0 +1,10 @@
+# Equivalent mutations in amicable-rs proper_divisor_sum_sieve.
+#
+# NOTE: patterns embed line:col numbers. Update if surrounding code shifts lines.
+exclude_re = [
+    # lib.rs:3 — for d in 1..=(limit / 2)
+    # /→*: with limit*2 as upper bound, outer loop runs d from 1 to 2*limit;
+    # for d > limit/2, the inner loop starts m=2d > limit and exits immediately
+    # — extra outer iterations are pure no-ops, output identical
+    "src/lib\\.rs:3:25: replace / with \\*",
+]
