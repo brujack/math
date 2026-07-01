@@ -33,15 +33,15 @@ make test             # lint + cargo test
 
 Coverage floor: ≥90% (enforced via `cargo tarpaulin --fail-under 90` in CI).
 
-| Area                       | Tests | Notes                                                            |
-| -------------------------- | ----- | ---------------------------------------------------------------- |
-| `is_prime`                 | 6     | 0, 1, 2, 4, small primes, composites                             |
-| `lucas_lehmer`             | 2     | known Mersenne primes; known failures                            |
-| `verify_perfect`           | 1     | p=2..19                                                          |
-| `generate_perfect_numbers` | 4     | empty, N=1, N=4, N=54 (all 10)                                   |
-| `run`                      | 4     | N=0 exit 1, N=55 exit 1, N=1 creates file, no-arg prompts        |
-| injection                  | 2     | stdout failure, stderr failure                                   |
-| `tests/cli.rs`             | 4     | arg=0 exit 1, arg=1 creates file, no-arg prompts, unwritable dir |
+| Area                       | Tests | Notes                                                                                        |
+| -------------------------- | ----- | -------------------------------------------------------------------------------------------- |
+| `is_prime`                 | 6     | 0, 1, 2, 4, small primes, composites                                                         |
+| `lucas_lehmer`             | 2     | known Mersenne primes; known failures                                                        |
+| `verify_perfect`           | 1     | p=2..19                                                                                      |
+| `generate_perfect_numbers` | 5     | empty, N=1, N=4, N=6 boundary, N=54 (all 10)                                                 |
+| `run`                      | 6     | N=0 exit 1, N=55 exit 1, N=1 creates file, no-arg prompts, reject-0-then-accept, N=4 finds 4 |
+| injection                  | 2     | stdout failure, stderr failure                                                               |
+| `tests/cli.rs`             | 4     | arg=0 exit 1, arg=1 creates file, no-arg prompts, unwritable dir                             |
 
 ## Keeping This File Up To Date
 

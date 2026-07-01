@@ -41,7 +41,7 @@ Current local coverage: 97.30% (72/74 lines).
 
 | Area             | Tests |
 | ---------------- | ----- |
-| `build_sieve`    | 3     |
+| `build_sieve`    | 4     |
 | `is_prime`       | 3     |
-| `goldbach_pairs` | 3     |
-| `run`            | 8     |
+| `goldbach_pairs` | 4     |
+| `run`            | 10    |
