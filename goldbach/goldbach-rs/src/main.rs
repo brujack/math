@@ -281,6 +281,70 @@ mod tests {
         let code =
             run(Cli { exponent: None }, &mut reader, &mut out, &mut err_buf, dir.path()).unwrap();
         assert_eq!(code, 0);
+        // Ensure the prompt loop actually consumed "2" (not "0") as N.
+        // If the match guard were replaced with `true`, "0" would be accepted
+        // and the file would be goldbach_1e0.txt instead.
+        assert!(dir.path().join("goldbach_1e2.txt").exists());
+    }
+
+    #[test]
+    fn test_build_sieve_limit_3() {
+        // build_sieve(3) must produce a non-empty sieve containing 3 as prime.
+        // Kills the lib.rs:11 mutation `< → <=` that would return early for limit=3.
+        let sieve = build_sieve(3);
+        assert!(!sieve.is_empty());
+        assert!(is_prime(3, &sieve));
+    }
+
+    #[test]
+    fn test_goldbach_pairs_limit_20() {
+        let sieve = build_sieve(20);
+        let mut out = Vec::new();
+        let count = goldbach_pairs(20, &sieve, &mut out).unwrap();
+        let output = String::from_utf8_lossy(&out).into_owned();
+        let lines: Vec<&str> = output.trim().lines().collect();
+        assert_eq!(count, lines.len() as u64);
+        // "20 3 17" must appear — kills the lib.rs:64 `n-p → n/p` mutation
+        // (is_prime(20/3=6)=false suppresses this pair under the mutation).
+        assert!(output.contains("20 3 17"), "pair 20=3+17 must appear");
+        // All components must be prime — kills the lib.rs:64 `&&→||` mutation
+        // (is_prime(9)=false but is_prime(11)=true; `||` would emit "20 9 11").
+        for line in &lines {
+            let parts: Vec<u64> = line.split_whitespace().map(|s| s.parse().unwrap()).collect();
+            assert!(is_prime(parts[1], &sieve), "p={} in '{}' should be prime", parts[1], line);
+            assert!(is_prime(parts[2], &sieve), "q={} in '{}' should be prime", parts[2], line);
+        }
+    }
+
+    #[test]
+    fn test_run_n7_warns() {
+        // N=7 exceeds the 6-exponent threshold → warning written to stderr.
+        // Kills the main.rs:49 `> → ==` and `> → <` mutations (which would
+        // suppress the warning for N=7).
+        // Use FailWriter on stdout to abort before the expensive computation.
+        let dir = tempdir().unwrap();
+        let mut err_buf = Vec::new();
+        let mut reader = Cursor::new("");
+        let result =
+            run(Cli { exponent: Some(7) }, &mut reader, &mut FailWriter, &mut err_buf, dir.path());
+        assert!(result.is_err());
+        assert!(String::from_utf8_lossy(&err_buf).contains("Warning"), "N=7 must produce warning");
+    }
+
+    #[test]
+    fn test_run_n6_no_warn() {
+        // N=6 is at the boundary — must NOT produce the large-output warning.
+        // Kills the main.rs:49 `> → >=` mutation (which would warn for N=6).
+        let dir = tempdir().unwrap();
+        let mut err_buf = Vec::new();
+        let mut reader = Cursor::new("");
+        let result =
+            run(Cli { exponent: Some(6) }, &mut reader, &mut FailWriter, &mut err_buf, dir.path());
+        assert!(result.is_err());
+        assert!(
+            !String::from_utf8_lossy(&err_buf).contains("Warning"),
+            "N=6 must not produce warning"
+        );
     }
 
     #[test]

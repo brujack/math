@@ -283,5 +283,9 @@ mod tests {
         let code =
             run(Cli { exponent: None }, &mut reader, &mut out, &mut err_buf, dir.path()).unwrap();
         assert_eq!(code, 0);
+        // Ensure the prompt loop consumed "5" (not "0") as N.
+        // If the match guard were replaced with `true`, "0" would be accepted
+        // and the file would be collatz_1e0.txt instead.
+        assert!(dir.path().join("collatz_1e5.txt").exists());
     }
 }

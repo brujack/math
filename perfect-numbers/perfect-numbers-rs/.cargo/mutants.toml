@@ -1,0 +1,44 @@
+# Equivalent and dead-code mutations in perfect-numbers-rs.
+# These mutants survive because no test can observe a difference between
+# the original and mutated code.
+#
+# NOTE: patterns embed line:col numbers. Update if surrounding code shifts lines.
+exclude_re = [
+    # lib.rs:14 — while i * i <= n  (is_prime trial division)
+    # *→+: loop runs to n/2 instead of √n; for any composite n=a*b with a≤b,
+    # a factor a ≤ √n is always found before the loop ends — output identical
+    "src/lib\\.rs:14:13: replace \\* with \\+",
+
+    # lib.rs:36-37 — lucas_lehmer: if s < 0i32 { s += &mp; }
+    # rug::Integer %= with a positive modulus always produces a non-negative
+    # remainder, so s < 0 is permanently dead code; all mutations here are
+    # unreachable and produce identical output
+    "src/lib\\.rs:36:14: replace < with >",
+    "src/lib\\.rs:37:15: replace \\+= with -=",
+    "src/lib\\.rs:37:15: replace \\+= with \\*=",
+
+    # lib.rs:44 — verify_perfect body
+    # Algebraic proof: sigma(n) = (2^p-1)*2^p = mp*(mp+1) = 2n always holds
+    # for any Mersenne prime p, so verify_perfect always returns true.
+    # The →true mutation is indistinguishable.
+    "src/lib\\.rs:44:5: replace verify_perfect",
+
+    # lib.rs:62 — max_p = (limit.significant_bits() as u64 / 2) + 3
+    # +→*: produces 3*sig/2 instead of sig/2+3; for all valid inputs the
+    #      loop still finds the same perfect numbers (we break when pn > limit)
+    # /→*: produces 2*sig+3; same argument — larger max_p, same break condition
+    "src/lib\\.rs:62:55: replace \\+ with \\*",
+    "src/lib\\.rs:62:50: replace / with \\*",
+
+    # main.rs:92 — max_p formula in run() (mirrors lib.rs:62 logic)
+    # /→*: equivalent for the same reason as lib.rs:62:50
+    # +→*: equivalent for the same reason as lib.rs:62:55
+    "src/main\\.rs:92:50: replace / with \\*",
+    "src/main\\.rs:92:55: replace \\+ with \\*",
+
+    # main.rs:112 — if pn > limit { ... break }
+    # >→>=: pn is a perfect number of the form 2^(p-1)*(2^p-1); its digit
+    #       count is never exactly equal to 10^n, so pn == limit never occurs
+    #       in practice — the mutation is observationally equivalent
+    "src/main\\.rs:112:15: replace > with >=",
+]

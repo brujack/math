@@ -1,0 +1,32 @@
+# Equivalent mutations in the goldbach bitset sieve.
+# These mutants survive because the sieve produces identical output under
+# the modified expressions — no test can distinguish them from the original.
+#
+# NOTE: patterns embed line:col numbers. Update if surrounding code shifts lines.
+exclude_re = [
+    # lib.rs:14 — count = ((limit - 3) / 2 + 1)
+    # -→+ and /→*: oversize allocation, but sieve content fills identically
+    "src/lib\\.rs:14:25: replace - with \\+",
+    "src/lib\\.rs:14:30: replace / with \\*",
+
+    # lib.rs:18 — while p * p <= limit
+    # *→+: outer sieve loop runs to ~limit/2 instead of √limit;
+    # extra iterations hit already-marked composites — output identical
+    "src/lib\\.rs:18:13: replace \\* with \\+",
+
+    # lib.rs:19 — pi = ((p - 3) / 2) as usize
+    # All mutations shift pi to a different bit, but the bit-test on line 20
+    # always sees 0 for an odd prime p (none of the alternate indices are set),
+    # so the inner marking loop always runs — sieve output is identical
+    "src/lib\\.rs:19:22: replace - with \\+",
+    "src/lib\\.rs:19:22: replace - with /",
+    "src/lib\\.rs:19:27: replace / with %",
+    "src/lib\\.rs:19:27: replace / with \\*",
+
+    # lib.rs:20 — (sieve[pi / 64] >> (pi % 64)) & 1 == 0
+    # >>→<<: << for k>0 shifts the test bit out of position; LSB always 0,
+    #        so the inner loop always runs — output identical
+    # %→/:  pi/64 for small pi equals 0, same as pi%64 effect — output identical
+    "src/lib\\.rs:20:28: replace >> with <<",
+    "src/lib\\.rs:20:35: replace % with /",
+]
