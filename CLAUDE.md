@@ -305,30 +305,6 @@ Pyright runs in CI only — not in `make lint` (spawn overhead on macOS makes it
 
 When adding a new Python sub-project, add `pyrightconfig.json` (copy from any `standard`-mode sub-project) and a `Run pyright` step to the CI workflow. Start with `standard` mode; fall back to `basic` only if the dependency has no stubs.
 
-### Security audit (Python — pip-audit)
-
-Every Python sub-project CI workflow must include `pip-audit` in the pip install step and a `Run pip-audit` step with `continue-on-error: true` after the test step.
-
-`pip-audit` scans the installed Python environment for known CVEs. It is advisory — findings surface in CI logs but do not block auto-merge. The step is identical across all sub-projects:
-
-```yaml
-- name: Run pip-audit
-  run: pip-audit
-  continue-on-error: true
-```
-
-When adding a new Python sub-project, copy this step from any existing workflow.
-
-### CLI integration tests (Python)
-
-Each Python sub-project should have a `TestEntryPointGuard` class that invokes the CLI as a subprocess and asserts exit 0 plus a known value in stdout. Use `pathlib.Path(__file__).parent / "module.py"` to get the module path (avoids importing the whole module). Use `cwd=tempfile.gettempdir()` to isolate output files the CLI may write.
-
-**Two gotchas:**
-
-1. **`sys` may not be imported** — amicable, collatz, and perfect-numbers test files don't have `import sys` at the top. Add `import sys` inside the test method alongside `import pathlib, subprocess`.
-
-2. **factorial writes the result to a file, not stdout** — `factorial.py 5` prints `"Computing 5! ...\nComputed in 0.00s\n3 digits written to factorial_5.txt"`. Assert `"Computing 5!"` not `"120"`. Other CLIs (amicable, collatz, perfect-numbers) print their results directly to stdout.
-
 ### Mutation testing (Rust)
 
 For a mathematical library, **correctness is the primary quality metric** — coverage % is necessary but not sufficient. Mutation testing measures whether tests actually catch behavior changes by making small code mutations (flipping operators, changing constants) and verifying the test suite catches them.
@@ -365,44 +341,6 @@ assert!(dir.path().join("goldbach_1e2.txt").exists());
 ```
 
 With this assertion, the filename encodes the actual N value — a mutant that accepts any N would write the correct file for the supplied N=2 anyway, so the precise guard needed is on the output file. Add this assertion to every prompt test that could be affected by a guard `→ true` mutation.
-
-**Coverage floor: ≥90% line coverage is required for all Rust crates.** This is enforced in CI — each Rust workflow runs `cargo tarpaulin --fail-under 90` in the `test` job after `make test`. A PR that drops any crate below 90% will fail CI and cannot auto-merge. The pre-push hook does not check coverage locally (too slow); CI is the gate.
-
-**Linux vs macOS tarpaulin divergence.** Linux ptrace tarpaulin (used in CI) counts more lines as coverable than macOS tarpaulin (used locally). Two patterns that inflate the Linux denominator:
-
-1. **`fn main()` body lines** — the thin stdio-wrapper `fn main()` is never exercised by unit tests. Add `#[cfg(not(tarpaulin_include))]` immediately before `fn main()` to exclude it. Tarpaulin sets `--cfg tarpaulin_include` when instrumenting, so the function compiles normally in regular builds but is invisible to tarpaulin's line counter.
-
-2. **Multi-line `write!/writeln!` argument lines** — when arguments are on separate lines, Linux ptrace counts the first argument (`out,` / `err,`) and the last positional argument as separate coverable probes, but neither probe fires during test execution. The result is uncovered lines that cannot be fixed by adding tests.
-
-   To keep `write!/writeln!` macros single-line (so those probe points don't exist), two measures are needed together:
-   - Add a `rustfmt.toml` with `use_small_heuristics = "Max"` to raise rustfmt's `fn_call_width` threshold from 60% to 100% of `max_width`. Without this, cargo fmt expands any macro whose arguments exceed ~60 chars back to multi-line regardless of total line length.
-   - Use Rust's captured-variable format syntax (`{c}`, `{m}`, `{exponent}`) to reduce multi-argument macros to two-argument form (`dest, "format {c} {n}"`). This keeps the argument string short enough to stay single-line under the new threshold.
-
-   Note: format strings that are inherently long (e.g., the "Warning: X={} means…" writeln! in fib-rs, whose arguments total 131 chars) cannot be made single-line even with these settings. Accept 1–2 uncoverable lines per crate from unavoidably long macros.
-
-3. **Uncoverable `break;` statements** — Linux ptrace may count a `break;` inside a `while let Some(...)` loop as a coverable probe that never fires (even when the break IS executed). Eliminate the explicit break by folding the exit condition into the loop with `Option::filter`:
-
-   ```rust
-   // Before (break; uncoverable):
-   while let Some(sq) = k.checked_mul(k) {
-       if sq >= limit { break; }
-       ...
-   }
-
-   // After (no break):
-   while let Some(sq) = k.checked_mul(k).filter(|&sq| sq < limit) {
-       ...
-   }
-   ```
-
-Both patterns 1 and 2 require a companion `[lints.rust]` entry in `Cargo.toml` so clippy does not reject `tarpaulin_include` as an unknown cfg:
-
-```toml
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }
-```
-
-Apply fix 1 (`#[cfg(not(tarpaulin_include))]` on `fn main()`) to every new Rust crate. Apply fixes 2 and 3 only when fix 1 alone leaves coverage below 90% on Linux.
 
 ## CI
 
@@ -475,55 +413,6 @@ Omitting this causes `ModuleNotFoundError: No module named 'defusedxml'` in CI. 
 - A badge for the new workflow added to the top of `README.md` and to the CI column of the project table — use `badge.svg?event=pull_request` so the badge reflects the last PR run (workflows trigger on `pull_request` only so master-based filters always show no status)
 
 This gives a per-project badge in the README and keeps each project's CI self-contained.
-
-**All jobs must run on Node.js 24.** Use action versions that natively support Node.js 24:
-
-- `actions/checkout@v6` — natively runs on Node.js 24 (v5 was the previous version; v4 used Node.js 20 and is deprecated)
-
-The workflow also sets `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` as a belt-and-suspenders fallback for any third-party actions (e.g. `dtolnay/rust-toolchain`, `Swatinem/rust-cache`) that have not yet released a Node.js 24 native version.
-
-Do **not** add `actions/setup-node` to jobs — these are Rust/Python projects that don't need Node.js at the user-code level, and older versions of `setup-node` are themselves Node.js 20 actions.
-
-**Every Rust build job must upload its release binary as an artifact** using `actions/upload-artifact@v7` with 7-day retention:
-
-```yaml
-- name: Upload artifact
-  uses: actions/upload-artifact@v7
-  with:
-    name: <binary-name>
-    path: <project>/target/release/<binary-name>
-    retention-days: 7
-```
-
-Artifacts are downloadable from the Actions run summary page on GitHub.
-
-**GitHub Actions security and output patterns** — required in all workflows:
-
-1. **Env vars for user inputs in `run:` blocks** — never interpolate `${{ inputs.* }}` directly into shell; pass through `env:` instead to prevent expression injection:
-
-   ```yaml
-   - name: Create and push tag
-     env:
-       VERSION: ${{ inputs.version }}
-     run: git tag "pi-v${VERSION}"
-   ```
-
-2. **Randomized `GITHUB_OUTPUT` delimiter** — never use a fixed `EOF`; a commit message containing `EOF` on its own line truncates the output silently:
-
-   ```bash
-   DELIMITER="EOF_$(openssl rand -hex 8)"
-   {
-     printf 'notes<<%s\n' "${DELIMITER}"
-     printf '%s\n' "${NOTES}"
-     printf '%s\n' "${DELIMITER}"
-   } >> "$GITHUB_OUTPUT"
-   ```
-
-3. **Quote `body:` in `softprops/action-gh-release`** — release notes may contain YAML special characters; the value must be quoted:
-
-   ```yaml
-   body: "${{ steps.notes.outputs.notes }}"
-   ```
 
 ## Branch Workflow
 
