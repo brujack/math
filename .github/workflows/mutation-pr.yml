@@ -93,7 +93,7 @@ jobs:
             echo "Running cosmic-ray in ${dir}/"
             cd "${dir}"
             cosmic-ray init cosmic-ray.toml session-pr.sqlite
-            cosmic-ray exec session-pr.sqlite
+            cosmic-ray exec cosmic-ray.toml session-pr.sqlite
             s=$(cosmic-ray report session-pr.sqlite | grep -c 'Outcome.SURVIVED' || true)
             survivors_total=$((survivors_total + s))
             rm -f session-pr.sqlite

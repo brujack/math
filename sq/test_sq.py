@@ -111,6 +111,21 @@ class TestGetExponent(unittest.TestCase):
         with self.assertRaises(SystemExit):
             get_exponent(self._args(-1))
 
+    def test_zero_exits_with_code_1(self):
+        with self.assertRaises(SystemExit) as cm:
+            get_exponent(self._args(0))
+        self.assertEqual(cm.exception.code, 1)
+
+    def test_too_high_exits_with_code_1(self):
+        with self.assertRaises(SystemExit) as cm:
+            get_exponent(self._args(2))
+        self.assertEqual(cm.exception.code, 1)
+
+    def test_negative_exits_with_code_1(self):
+        with self.assertRaises(SystemExit) as cm:
+            get_exponent(self._args(-1))
+        self.assertEqual(cm.exception.code, 1)
+
 
 class TestGetExponentInteractive(unittest.TestCase):
     """Cover the interactive prompt branch (args.exponent is None)."""
@@ -196,6 +211,13 @@ class TestMain(unittest.TestCase):
         # Second run with same args produces an identical file
         self._run_main(["sq.py", "1"], ["n"])
         self.assertEqual(os.path.getsize("sq_1e1.txt"), first_size)
+
+    def test_main_reports_correct_count(self):
+        # main() prints "Found N,NNN perfect squares" — assert exact count so
+        # mutations to count initialisation (0→1/-1) or increment (+=1→+=0/2)
+        # are detected.
+        out = self._run_main(["sq.py", "1"], ["n"])
+        self.assertIn("Found 99,999 perfect squares", out)
 
 
 class TestFileWritePermissionError(unittest.TestCase):

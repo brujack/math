@@ -123,6 +123,14 @@ class TestGeneratePerfectNumbers(unittest.TestCase):
         ns = [n for _, n in result]
         self.assertEqual(ns, sorted(ns))
 
+    def test_limit_exactly_6_includes_6(self):
+        """limit == first perfect number: boundary of the limit < 6 early-return guard."""
+        self.assertEqual(list(generate_perfect_numbers(6)), [(2, 6)])
+
+    def test_limit_exactly_28_includes_28(self):
+        """limit == second perfect number: boundary of the n > limit termination guard."""
+        self.assertEqual(list(generate_perfect_numbers(28)), [(2, 6), (3, 28)])
+
 
 class TestGetExponent(unittest.TestCase):
     def _ns(self, exponent):
@@ -159,6 +167,50 @@ class TestGetExponent(unittest.TestCase):
             unittest.mock.patch("builtins.print"),
         ):
             self.assertEqual(get_exponent(self._ns(None)), 5)
+
+    def test_interactive_n1_is_valid_minimum(self):
+        """n=1 is the valid lower bound in interactive mode. Kills 2<=n mutations."""
+        with unittest.mock.patch("builtins.input", return_value="1"):
+            self.assertEqual(get_exponent(self._ns(None)), 1)
+
+    def test_interactive_n54_is_valid_maximum(self):
+        """n=54 is the valid upper bound in interactive mode. Kills n<54 / n<=53 mutations."""
+        with unittest.mock.patch("builtins.input", return_value="54"):
+            self.assertEqual(get_exponent(self._ns(None)), 54)
+
+    def test_interactive_n55_rejected(self):
+        """n=55 exceeds upper bound; loop continues until valid input. Kills n<=55 mutation."""
+        with (
+            unittest.mock.patch("builtins.input", side_effect=["55", "5"]),
+            unittest.mock.patch("builtins.print"),
+        ):
+            self.assertEqual(get_exponent(self._ns(None)), 5)
+
+    def test_interactive_n0_rejected(self):
+        """n=0 is below lower bound; loop continues until valid input. Kills 0<=n mutation."""
+        with (
+            unittest.mock.patch("builtins.input", side_effect=["0", "5"]),
+            unittest.mock.patch("builtins.print"),
+        ):
+            self.assertEqual(get_exponent(self._ns(None)), 5)
+
+    def test_zero_exits_with_code_1(self):
+        """CLI arg N=0 exits with code 1. Kills sys.exit(1)→sys.exit(0/2) mutations."""
+        with self.assertRaises(SystemExit) as cm:
+            get_exponent(self._ns(0))
+        self.assertEqual(cm.exception.code, 1)
+
+    def test_55_exits_with_code_1(self):
+        """CLI arg N=55 exits with code 1."""
+        with self.assertRaises(SystemExit) as cm:
+            get_exponent(self._ns(55))
+        self.assertEqual(cm.exception.code, 1)
+
+    def test_negative_exits_with_code_1(self):
+        """CLI arg N=-1 exits with code 1."""
+        with self.assertRaises(SystemExit) as cm:
+            get_exponent(self._ns(-1))
+        self.assertEqual(cm.exception.code, 1)
 
 
 class TestMain(unittest.TestCase):
