@@ -63,14 +63,18 @@ make coverage  # coverage run + report
 
 ### Test coverage (≥90% target)
 
-| Class                        | Tests | Notes                                                                     |
-| ---------------------------- | ----- | ------------------------------------------------------------------------- |
-| `TestIsPrime`                | 9     | 0, 1, negative, 2, even composite, small primes, composites, 89, 91       |
-| `TestLucasLehmer`            | 3     | p=2 special case; pass: [3,5,7,13,17,19,31,61,89]; fail: [11,23,29,37,41] |
-| `TestVerifyPerfect`          | 2     | known exponents p=2..19; algebraic sigma==2n check                        |
-| `TestGeneratePerfectNumbers` | 6     | empty, N=1, N=4, N=8, N=54 (all 10), ascending order                      |
-| `TestGetExponent`            | 8     | valid min/max/mid, exit on 0/55/negative, interactive prompt              |
-| `TestMain`                   | 4     | N=1 file, N=4 file, KeyboardInterrupt exits 1, PermissionError exits 1    |
+45 tests total, 38 subtests.
+
+| Class                          | Tests | Notes                                                                                        |
+| ------------------------------ | ----- | -------------------------------------------------------------------------------------------- |
+| `TestIsPrime`                  | 9     | 0, 1, negative, 2, even composite, small primes, composites, 89, 91                          |
+| `TestLucasLehmer`              | 3     | p=2 special case; pass: [3,5,7,13,17,19,31,61,89]; fail: [11,23,29,37,41]                    |
+| `TestVerifyPerfect`            | 2     | known exponents p=2..19; algebraic sigma==2n check                                           |
+| `TestGeneratePerfectNumbers`   | 8     | empty, N=1, N=4, N=8, N=54 (all 10), ascending order, exact boundary at 6 and 28             |
+| `TestGetExponent`              | 15    | valid min/max/mid, exit on 0/55/negative (with exit-code assertions), interactive boundaries |
+| `TestMain`                     | 4     | N=1 file, N=4 file, KeyboardInterrupt exits 1, PermissionError exits 1                       |
+| `TestPerfectNumbersProperties` | 3     | property tests: positive, below limit, even-composites not prime                             |
+| `TestEntryPointGuard`          | 1     | module runs via subprocess                                                                   |
 
 ## Keeping This File Up To Date
 

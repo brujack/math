@@ -344,36 +344,39 @@ With this assertion, the filename encodes the actual N value — a mutant that a
 
 ## CI
 
-Twenty-eight workflow files. Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail.
+Thirty-nine workflow files. Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail.
 
-| Workflow               | File                                           | Jobs                                                                                            |
-| ---------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| pi.py                  | `.github/workflows/pi-py.yml`                  | test                                                                                            |
-| pi-rs                  | `.github/workflows/pi-rs.yml`                  | test → build + artifact                                                                         |
-| prime-rs               | `.github/workflows/prime-rs.yml`               | test → build + artifact                                                                         |
-| fib.py                 | `.github/workflows/fib-py.yml`                 | test                                                                                            |
-| fib-rs                 | `.github/workflows/fib-rs.yml`                 | test → build + artifact                                                                         |
-| sq.py                  | `.github/workflows/sq-py.yml`                  | test                                                                                            |
-| sq-rs                  | `.github/workflows/sq-rs.yml`                  | test → build + artifact                                                                         |
-| twin-primes-rs         | `.github/workflows/twin-primes-rs.yml`         | test → build + artifact                                                                         |
-| release-pi-rs          | `.github/workflows/release-pi-rs.yml`          | release (manual dispatch)                                                                       |
-| release-prime-rs       | `.github/workflows/release-prime-rs.yml`       | release (manual dispatch)                                                                       |
-| release-fib-rs         | `.github/workflows/release-fib-rs.yml`         | release (manual dispatch)                                                                       |
-| release-sq-rs          | `.github/workflows/release-sq-rs.yml`          | release (manual dispatch)                                                                       |
-| release-twin-primes-rs | `.github/workflows/release-twin-primes-rs.yml` | release (manual dispatch)                                                                       |
-| e.py                   | `.github/workflows/e-py.yml`                   | test                                                                                            |
-| e-rs                   | `.github/workflows/e-rs.yml`                   | test → build + artifact                                                                         |
-| release-e-rs           | `.github/workflows/release-e-rs.yml`           | release (manual dispatch)                                                                       |
-| factorial.py           | `.github/workflows/factorial-py.yml`           | test                                                                                            |
-| factorial-rs           | `.github/workflows/factorial-rs.yml`           | test → build + artifact                                                                         |
-| release-factorial-rs   | `.github/workflows/release-factorial-rs.yml`   | release (manual dispatch)                                                                       |
-| collatz.py             | `.github/workflows/collatz-py.yml`             | test                                                                                            |
-| collatz-rs             | `.github/workflows/collatz-rs.yml`             | test → build + artifact                                                                         |
-| goldbach-rs            | `.github/workflows/goldbach-rs.yml`            | test → build + artifact                                                                         |
-| amicable.py            | `.github/workflows/amicable-py.yml`            | test                                                                                            |
-| amicable-rs            | `.github/workflows/amicable-rs.yml`            | test → build + artifact                                                                         |
-| auto-merge             | `.github/workflows/auto-merge.yml`             | secret-scan → ci-gate (polls required checks, merges on pass) → snyk-scan (advisory, not gated) |
-| scripts                | `.github/workflows/scripts.yml`                | test (bats --recursive tests/)                                                                  |
+| Workflow                | File                                            | Jobs                                                                                            |
+| ----------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| pi.py                   | `.github/workflows/pi-py.yml`                   | test                                                                                            |
+| pi-rs                   | `.github/workflows/pi-rs.yml`                   | test → build + artifact                                                                         |
+| prime-rs                | `.github/workflows/prime-rs.yml`                | test → build + artifact                                                                         |
+| fib.py                  | `.github/workflows/fib-py.yml`                  | test                                                                                            |
+| fib-rs                  | `.github/workflows/fib-rs.yml`                  | test → build + artifact                                                                         |
+| sq.py                   | `.github/workflows/sq-py.yml`                   | test                                                                                            |
+| sq-rs                   | `.github/workflows/sq-rs.yml`                   | test → build + artifact                                                                         |
+| twin-primes-rs          | `.github/workflows/twin-primes-rs.yml`          | test → build + artifact                                                                         |
+| release-pi-rs           | `.github/workflows/release-pi-rs.yml`           | release (manual dispatch)                                                                       |
+| release-prime-rs        | `.github/workflows/release-prime-rs.yml`        | release (manual dispatch)                                                                       |
+| release-fib-rs          | `.github/workflows/release-fib-rs.yml`          | release (manual dispatch)                                                                       |
+| release-sq-rs           | `.github/workflows/release-sq-rs.yml`           | release (manual dispatch)                                                                       |
+| release-twin-primes-rs  | `.github/workflows/release-twin-primes-rs.yml`  | release (manual dispatch)                                                                       |
+| e.py                    | `.github/workflows/e-py.yml`                    | test                                                                                            |
+| e-rs                    | `.github/workflows/e-rs.yml`                    | test → build + artifact                                                                         |
+| release-e-rs            | `.github/workflows/release-e-rs.yml`            | release (manual dispatch)                                                                       |
+| factorial.py            | `.github/workflows/factorial-py.yml`            | test                                                                                            |
+| factorial-rs            | `.github/workflows/factorial-rs.yml`            | test → build + artifact                                                                         |
+| release-factorial-rs    | `.github/workflows/release-factorial-rs.yml`    | release (manual dispatch)                                                                       |
+| collatz.py              | `.github/workflows/collatz-py.yml`              | test                                                                                            |
+| collatz-rs              | `.github/workflows/collatz-rs.yml`              | test → build + artifact                                                                         |
+| goldbach-rs             | `.github/workflows/goldbach-rs.yml`             | test → build + artifact                                                                         |
+| amicable.py             | `.github/workflows/amicable-py.yml`             | test                                                                                            |
+| amicable-rs             | `.github/workflows/amicable-rs.yml`             | test → build + artifact                                                                         |
+| auto-merge              | `.github/workflows/auto-merge.yml`              | secret-scan → ci-gate (polls required checks, merges on pass) → snyk-scan (advisory, not gated) |
+| mutation-pr             | `.github/workflows/mutation-pr.yml`             | cosmic-ray on changed Python sub-projects (advisory; survivors warn, not block)                 |
+| mutation-testing        | `.github/workflows/mutation-testing.yml`        | cargo mutants on all Rust crates (monthly + workflow_dispatch)                                  |
+| mutation-testing-python | `.github/workflows/mutation-testing-python.yml` | cosmic-ray on all Python sub-projects (monthly + workflow_dispatch)                             |
+| scripts                 | `.github/workflows/scripts.yml`                 | test (bats --recursive tests/)                                                                  |
 
 **Pre-commit hook** — `scripts/pre-commit` is committed to the repo and installed as a symlink via `make install-hooks`. It runs `make lint` on staged sub-projects and `ggshield secret scan pre-commit` (skipped if not installed). CI gitleaks is a backstop — install and activate ggshield locally so secrets are caught before they leave the machine.
 
