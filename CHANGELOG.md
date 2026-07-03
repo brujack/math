@@ -11,11 +11,11 @@
 
 - install cargo-machete in all Rust workflows (#74 partial) (#75)
 
+- make cosmic-ray Python mutation check advisory, not a required gate (#82)
+
 
 
 ## CI
-
-- fix rust-cache error and input injection
 
 - align math release workflows with etch-cli strategy (#72)
 
@@ -32,12 +32,6 @@
 
 
 ## Documentation
-
-- add Criterion benchmarks, pyright, pip-audit, and CLI tests to README
-
-- add surviving mutants from 2026-06-01 run
-
-- update factorial-rs test table; remove resolved mutants backlog
 
 - add ADRs and update CLAUDE.md after learnings audit
 
@@ -58,6 +52,12 @@
 - update README and add ADR-0023 for pytest migration
 
 - add bug-scan to Phase 3 chain
+
+- update test count tables for goldbach-rs and perfect-numbers-rs
+
+- add two new equivalent-mutation patterns to CLAUDE.md
+
+- remove content promoted to global standards
 
 
 
@@ -93,6 +93,6 @@
 
 ## Testing
 
-- kill <=→< sieve mutant; skip equivalent mutants
+- kill surviving mutants in goldbach/perfect-numbers/amicable/collatz (#83)
 
 
