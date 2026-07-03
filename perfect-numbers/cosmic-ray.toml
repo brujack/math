@@ -2,6 +2,78 @@
 # Monthly CI cron via .github/workflows/mutation-testing-python.yml
 # Run locally:  make mutants
 
+# =============================================================================
+# Equivalent mutations — no observable difference for any valid input
+# =============================================================================
+#
+# lucas_lehmer():
+#   - `return s == 0` → `return s <= 0`
+#     s = (s*s - 2) % mp where mp > 0, so s is always in [0, mp-1] (non-negative).
+#     s <= 0 iff s == 0. Behaviorally identical.
+#   - `if p == 2: return True` → `if p <= 2: return True`
+#     p=0 and p=1 are excluded by is_prime() before lucas_lehmer is ever called.
+#     Only p>=2 reaches this function; p<=2 and p==2 are indistinguishable in practice.
+#
+# verify_perfect():
+#   - `return sigma == 2 * n` → `return sigma <= 2 * n` or `return sigma >= 2 * n`
+#     Euler's theorem: for n = 2^(p-1) * (2^p - 1) with 2^p-1 prime,
+#     sigma(n) = (2^p - 1) * 2^p = 2n always. The function returns True for every
+#     valid Mersenne-prime exponent. Mutations to the comparison are dead-code equivalents.
+#   - Any mutation to `mp = (1 << p) - 1` inside verify_perfect (mp → 0 via %1, &1, etc.)
+#     gives sigma=0 and n=0, so sigma==2*n becomes 0==0 → True. Same return value.
+#
+# is_prime():
+#   - `if n == 2: return True` → `if n <= 2: return True`
+#     n=1 is already caught by the prior guard `if n < 2: return False` and never
+#     reaches this line. n<=2 and n==2 are equivalent for all reachable inputs.
+#   - `if n % 2 == 0: return False` → `if n % 2 <= 0: return False`
+#     Python's `%` always returns a non-negative result for non-negative n.
+#     n%2 is 0 or 1; `<= 0` is equivalent to `== 0` here.
+#   - `if n % i == 0: return False` → `if n % i <= 0: return False`
+#     n%i is non-negative for positive divisor i; `<= 0` is equivalent to `== 0`.
+#   - `i += 2` → `i += 1`
+#     n is known to be odd at this point (even n returned False earlier). An even i
+#     cannot divide an odd n, so the extra iterations on even i values are no-ops.
+#     Identical results; only performance differs.
+#   - `while i * i <= n:` → `while i + i <= n:`
+#     Every composite n has a factor <= sqrt(n) <= n/2. The original loop with i*i
+#     terminates at sqrt(n); the mutant loop with i+i terminates at n/2. Both find
+#     all factors because the smallest factor of any composite is at most sqrt(n).
+#
+# generate_perfect_numbers():
+#   - `if limit < 6: return` → `if limit < 5: return`
+#     For limit=5 (only input that differs): the mutation skips the early return and
+#     enters the loop. max_p=(5.bit_length()//2)+3=4. p=2: n=6 > 5, terminates.
+#     Result is empty — same as the early return. Behaviorally identical.
+#
+# main():
+#   - `max_p = (limit.bit_length() // 2) + 3` — many operator/constant mutations
+#     TestMain uses N=1 (limit=10) and N=4 (limit=10000) only. The +3 safety buffer
+#     in the formula means small reductions (-1, //3, etc.) still include all
+#     required exponents for these limits. Increases (//1, +4, <<3, etc.) add
+#     extra iterations that return False from lucas_lehmer. All equivalent for
+#     the tested N values.
+#   - `if not lucas_lehmer(p): continue` → `break` in main loop
+#     For N=1 and N=4, every prime p in the tested range has lucas_lehmer(p)=True
+#     or is_prime(p)=False. The `not lucas_lehmer` branch is never taken for these
+#     inputs; continue and break are indistinguishable.
+#   - `break` → `continue` when pn > limit in main loop
+#     For N=1,4: after the first pn > limit, all subsequent p values give even
+#     larger pn. Continuing the loop instead of breaking adds no-op iterations;
+#     the results list is unchanged.
+#   - `limit = 10**n` → `limit = 11**n`
+#     For N=1: 11^1=11 vs 10. n=6<=11, n=28>11 same as n=28>10. Same results.
+#     For N=4: 11^4=14641 > 10000. Results include same p=2,3,5,7. Equivalent.
+#   - `status = "verified" if verified else "FAILED"` → negated condition
+#     No test asserts on the "verified"/"FAILED" substring in stdout.
+#   - `print("=" * 40)` → 39 or 41
+#     No test asserts on the separator line.
+#
+# if __name__ == "__main__": mutations (is / <=)
+#   When imported, __name__ == "perfect_numbers" > "__main__" lexicographically.
+#   Both `==` and `<=` and `is` evaluate to False on import. When run directly,
+#   __name__ is "__main__" and all variants evaluate to True. Behaviorally identical.
+
 [cosmic-ray]
 module-path = "perfect_numbers.py"
 timeout = 30.0
