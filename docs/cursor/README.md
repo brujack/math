@@ -38,9 +38,12 @@ This file mirrors the active plan/spec history for Cursor sessions.
 
 Ideas approved for future specs, in no particular order:
 
-| Feature           | Notes                                                                |
-| ----------------- | -------------------------------------------------------------------- |
-| Collatz sequences | For each number up to 10^N find chain length; identify longest chain |
+| Feature                                                                         | Notes                                                                                       |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Collatz sequences                                                               | For each number up to 10^N find chain length; identify longest chain                        |
+| Kill surviving mutants in remaining Python modules                              | 4 modules fixed in #83 (goldbach, perfect-numbers, amicable, collatz); others still open    |
+| Track cosmic-ray runtimes; promote gate to blocking after 3 clean sub-5min runs | Made blocking then immediately reverted (#81→#82); needs stability data before re-promoting |
+| Evaluate Criterion benchmarks for Rust sub-projects                             | Would enable perf-regression gate for math Rust crates                                      |
 
 ---
 
