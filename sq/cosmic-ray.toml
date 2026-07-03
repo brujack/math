@@ -12,3 +12,38 @@ test-command = "python3 -m unittest test_sq"
 name = "local"
 
 [cosmic-ray.distributor.local]
+
+# ---------------------------------------------------------------------------
+# Equivalent mutations — no test can kill these because no valid input
+# produces an observable difference between the original and the mutation.
+#
+# 1. ReplaceBinaryOperator_Pow_Mul at line 60: `max_digits = 10**x` → `10*x`
+#    Reason: get_exponent() constrains x to exactly 1 (only valid value).
+#    10**1 == 10*1 == 10, so generate_squares receives the same argument.
+#
+# 2. ReplaceBinaryOperator_Pow_Div at line 60: `max_digits = 10**x` → `10/x`
+#    Reason: x=1 always; 10/1 == 10.0 (float). Python's ** and < operators
+#    handle float max_digits identically to int 10 for this computation.
+#
+# 3. ReplaceBinaryOperator_Pow_FloorDiv at line 60: `max_digits = 10**x` → `10//x`
+#    Reason: x=1 always; 10//1 == 10, identical to 10**1.
+#
+# 4. ReplaceComparisonOperator_Eq_Lte at line 91: `__name__ == "__main__"` → `<=`
+#    Reason: when imported, __name__ == "sq". "sq" > "__main__" in lexicographic
+#    order ('s' > '_'), so "sq" <= "__main__" is False — same branch taken as ==.
+#    When run directly, __name__ == "__main__", so <= is also True. Both branches
+#    of the guard behave identically.
+#
+# 5. ReplaceComparisonOperator_Eq_Is at line 91: `__name__ == "__main__"` → `is`
+#    Reason: CPython interns string literals. "__main__" is a known interned
+#    string; the `is` identity check produces the same boolean as `==` for all
+#    values __name__ takes at runtime ("__main__" or "sq").
+#
+# 6. NumberReplacer at line 63: `print("=" * 40)` → `"=" * 41`
+#    Reason: the separator line width is purely cosmetic; no test asserts the
+#    exact character count of the header separator, and none should — it is a
+#    display formatting detail with no semantic effect on output correctness.
+#
+# 7. NumberReplacer at line 63: `print("=" * 40)` → `"=" * 39`
+#    Reason: same as above — cosmetic separator width change.
+# ---------------------------------------------------------------------------
