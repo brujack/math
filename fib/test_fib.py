@@ -107,6 +107,12 @@ class TestGetExponent(unittest.TestCase):
         with self.assertRaises(SystemExit):
             get_exponent(self._args(-1))
 
+    def test_out_of_range_exit_code_is_1(self):
+        # sys.exit(1) must use code 1 specifically, not 0 or 2.
+        with self.assertRaises(SystemExit) as cm:
+            get_exponent(self._args(6))
+        self.assertEqual(cm.exception.code, 1)
+
 
 class TestGetExponentInteractive(unittest.TestCase):
     """Cover the interactive prompt branch of get_exponent (args.exponent is None)."""
@@ -192,6 +198,20 @@ class TestMain(unittest.TestCase):
         self.assertEqual(lines[:3], ["1", "1", "2"])
         self.assertLess(int(lines[-1]), 10**100)
 
+    def test_small_x_save_count_reported(self):
+        # x=2 → max_digits=10^2=100 → limit=10^100; exactly 480 Fibonacci numbers
+        # have fewer than 100 decimal digits.
+        # Verifies max_digits=10**x and count increment are both correct.
+        out = self._run_main(["fib.py", "2"], ["n"])
+        self.assertIn("Found 480", out)
+
+    def test_small_x_uses_buffered_branch_for_x2(self):
+        # x=2 must take the small (buffered) branch, not the streaming branch.
+        # The streaming (large) branch prints "Saving to fib_1e2.txt..." (with ellipsis)
+        # before writing; the small branch never prints that string.
+        out = self._run_main(["fib.py", "2"], ["n"])
+        self.assertNotIn("Saving to fib_1e2.txt...", out)
+
     def test_streaming_branch_x3(self):
         # X=3 → streaming-to-file path, no warning, no input prompts
         self._run_main(["fib.py", "3"], [])
@@ -201,6 +221,13 @@ class TestMain(unittest.TestCase):
         self.assertEqual(lines[0], "1")
         # last value must have <= 1000 digits
         self.assertLessEqual(len(lines[-1]), 1000)
+
+    def test_streaming_x3_count_reported(self):
+        # x=3 → max_digits=10^3=1000 → limit=10^1000; exactly 4,786 Fibonacci numbers
+        # have fewer than 1,000 decimal digits.
+        # Verifies count init (=0) and count increment (+=1) in the streaming branch.
+        out = self._run_main(["fib.py", "3"], [])
+        self.assertIn("Found 4,786", out)
 
     def test_large_x_warning_aborts_on_no(self):
         # X=4 → warning + confirmation; "n" returns without writing a file

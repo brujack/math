@@ -12,3 +12,34 @@ test-command = "python3 -m unittest test_fib"
 name = "local"
 
 [cosmic-ray.distributor.local]
+
+# Equivalent mutations (no observable difference for any valid input):
+#
+# Group 1 — buffering parameter in open() for the streaming branch (fib.py line 114)
+#   Mutations: ReplaceBinaryOperator_Mul_Add/Sub/FloorDiv/Mod/BitOr/BitXor (×2 each),
+#              NumberReplacer replacing 8, 1024 (first), 1024 (second) with ±1 neighbours
+#   Diff summary: buffering=8 * 1024 * 1024 → various arithmetic expressions
+#   Reason: The buffering parameter controls write-flush granularity only; it has no
+#           effect on the bytes written to the file. Python accepts any positive int
+#           (or negative = system default). All mutations produce a syntactically valid
+#           buffering value and write identical file content. No test can distinguish
+#           them without reading OS-level I/O counters, which is outside the scope of
+#           functional tests.
+#
+# Group 2 — entry-point guard comparison (fib.py line 130)
+#   Mutations:
+#   - ReplaceComparisonOperator_Eq_LtE: __name__ == "__main__"  →  __name__ <= "__main__"
+#     Reason: When running as __main__, "__main__" <= "__main__" is True (same string).
+#             When imported as a module, __name__ is "fib"; ord('f')=102 > ord('_')=95,
+#             so "fib" <= "__main__" is False — identical behaviour to ==.
+#   - ReplaceComparisonOperator_Eq_Is: __name__ == "__main__"  →  __name__ is "__main__"
+#     Reason: CPython interns the __main__ string at interpreter startup. The literal
+#             "__main__" in source code refers to the same interned object, so `is`
+#             is identical to == in all CPython runtimes (including CI).
+#
+# Group 3 — decorative separator line (fib.py line 70)
+#   Mutations:
+#   - NumberReplacer: print("=" * 40)  →  print("=" * 41) or print("=" * 39)
+#     Reason: The separator is a cosmetic banner line; its length has no effect on the
+#             Fibonacci numbers computed, the file written, or the count reported. No
+#             functional test observes the exact width of a decorative separator.
