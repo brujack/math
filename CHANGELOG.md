@@ -3,8 +3,6 @@
 
 ## Bug Fixes
 
-- use mutants.toml exclusions for equivalent mutations (#71)
-
 - strip directory prefix from sha256sum output in release workflows (#73)
 
 - install cargo-machete in factorial-rs workflow and use CARGO_BIN (#74)
@@ -17,10 +15,6 @@
 
 ## CI
 
-- align math release workflows with etch-cli strategy (#72)
-
-- reduce per-mutant timeout 120s → 30s
-
 - fail workflow on regression alert
 
 - add cargo-machete and ruff C901 to lint gates
@@ -32,10 +26,6 @@
 
 
 ## Documentation
-
-- add ADRs and update CLAUDE.md after learnings audit
-
-- add ADR-0011 through ADR-0017 for recent decisions
 
 - add ADR-0018 through ADR-0021 for April decisions
 
@@ -58,6 +48,12 @@
 - add two new equivalent-mutation patterns to CLAUDE.md
 
 - remove content promoted to global standards
+
+- add July 2026 retro action items
+
+- mark python-mutant-killing Done (PR #84)
+
+- update test counts and CI table for PR #84
 
 
 
@@ -94,5 +90,7 @@
 ## Testing
 
 - kill surviving mutants in goldbach/perfect-numbers/amicable/collatz (#83)
+
+- kill surviving mutants in sq, fib, perfect-numbers (#84)
 
 
