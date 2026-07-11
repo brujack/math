@@ -30,6 +30,7 @@ fn run<W: Write, E: Write>(
             writeln!(writer, "{a} {b}")?;
         }
     }
+    writer.flush()?;
     Ok(())
 }
 
