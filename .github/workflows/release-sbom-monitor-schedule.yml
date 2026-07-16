@@ -1,0 +1,96 @@
+name: Release SBOM Monitor (scheduled)
+
+on:
+  schedule:
+    - cron: "0 13 3 * *"
+  workflow_dispatch:
+
+jobs:
+  amicable:
+    uses: ./.github/workflows/release-sbom-monitor.yml
+    with:
+      binary_name: amicable
+      release_tag_pattern: "amicable-v"
+    permissions:
+      contents: read
+      issues: write
+  collatz:
+    uses: ./.github/workflows/release-sbom-monitor.yml
+    with:
+      binary_name: collatz
+      release_tag_pattern: "collatz-v"
+    permissions:
+      contents: read
+      issues: write
+  e:
+    uses: ./.github/workflows/release-sbom-monitor.yml
+    with:
+      binary_name: e
+      release_tag_pattern: "e-v"
+    permissions:
+      contents: read
+      issues: write
+  factorial:
+    uses: ./.github/workflows/release-sbom-monitor.yml
+    with:
+      binary_name: factorial
+      release_tag_pattern: "factorial-v"
+    permissions:
+      contents: read
+      issues: write
+  fib:
+    uses: ./.github/workflows/release-sbom-monitor.yml
+    with:
+      binary_name: fib
+      release_tag_pattern: "fib-v"
+    permissions:
+      contents: read
+      issues: write
+  goldbach:
+    uses: ./.github/workflows/release-sbom-monitor.yml
+    with:
+      binary_name: goldbach
+      release_tag_pattern: "goldbach-v"
+    permissions:
+      contents: read
+      issues: write
+  perfect-numbers:
+    uses: ./.github/workflows/release-sbom-monitor.yml
+    with:
+      binary_name: perfect-numbers
+      release_tag_pattern: "perfect-numbers-v"
+    permissions:
+      contents: read
+      issues: write
+  pi:
+    uses: ./.github/workflows/release-sbom-monitor.yml
+    with:
+      binary_name: pi
+      release_tag_pattern: "pi-v"
+    permissions:
+      contents: read
+      issues: write
+  prime:
+    uses: ./.github/workflows/release-sbom-monitor.yml
+    with:
+      binary_name: prime
+      release_tag_pattern: "prime-v"
+    permissions:
+      contents: read
+      issues: write
+  sq:
+    uses: ./.github/workflows/release-sbom-monitor.yml
+    with:
+      binary_name: sq
+      release_tag_pattern: "sq-v"
+    permissions:
+      contents: read
+      issues: write
+  twin-primes:
+    uses: ./.github/workflows/release-sbom-monitor.yml
+    with:
+      binary_name: twin-primes
+      release_tag_pattern: "twin-primes-v"
+    permissions:
+      contents: read
+      issues: write
