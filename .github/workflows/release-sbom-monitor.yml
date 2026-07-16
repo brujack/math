@@ -104,11 +104,11 @@ jobs:
               --label sbom-monitor \
               --title "[SBOM Monitor] ${CVE_ID} in ${BINARY_NAME} ${LATEST_TAG}" \
               --body "Severity: ${SEVERITY}
-              Package: ${PACKAGE_NAME} ${PACKAGE_VERSION}
-              Fix available: ${FIX_VERSION}
-              Release: ${LATEST_TAG}
-              Source: monthly release-sbom-monitor.yml scan
+            Package: ${PACKAGE_NAME} ${PACKAGE_VERSION}
+            Fix available: ${FIX_VERSION}
+            Release: ${LATEST_TAG}
+            Source: monthly release-sbom-monitor.yml scan
 
-              Non-blocking. Human judgment call on whether this warrants a patch release
-              (reachability, exploitability, whether ${LATEST_TAG} is still actively downloaded)."
+            Non-blocking. Human judgment call on whether this warrants a patch release
+            (reachability, exploitability, whether ${LATEST_TAG} is still actively downloaded)."
           done
