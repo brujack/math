@@ -3,19 +3,19 @@
 
 ## Bug Fixes
 
-- strip directory prefix from sha256sum output in release workflows (#73)
-
 - install cargo-machete in factorial-rs workflow and use CARGO_BIN (#74)
 
 - install cargo-machete in all Rust workflows (#74 partial) (#75)
 
 - make cosmic-ray Python mutation check advisory, not a required gate (#82)
 
+- flush BufWriter before returning Ok(()) (#86)
+
+- bump crossbeam-epoch to 0.9.20 across all Rust crates (#87)
+
 
 
 ## CI
-
-- fail workflow on regression alert
 
 - add cargo-machete and ruff C901 to lint gates
 
@@ -26,14 +26,6 @@
 
 
 ## Documentation
-
-- add ADR-0018 through ADR-0021 for April decisions
-
-- trim DoD to repo-specific addenda
-
-- remove sections duplicated in global CLAUDE.md
-
-- add 2026-06-05 retrospective and update knowledge index
 
 - ADR-0022 cosmic-ray supersedes mutmut
 
@@ -54,6 +46,10 @@
 - mark python-mutant-killing Done (PR #84)
 
 - update test counts and CI table for PR #84
+
+- add release-sbom-monitor implementation plan
+
+- mark release-sbom-monitor plan Done (PR #88)
 
 
 
@@ -78,6 +74,8 @@
 - migrate to pytest and ruff format check
 
 - math adds python.md + rust.md language standards
+
+- add release SBOM vulnerability monitor (#88)
 
 
 
