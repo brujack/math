@@ -92,7 +92,7 @@ jobs:
             FIX_VERSION=$(echo "${finding}" | jq -r '.vulnerability.fix.versions[0] // "none"')
 
             EXISTING=$(gh issue list --label sbom-monitor --state open \
-              --search "in:title \"${CVE_ID}\" \"${BINARY_NAME}\"" \
+              --search "\"[SBOM Monitor] ${CVE_ID} in ${BINARY_NAME}\" in:title" \
               --json number --jq '.[0].number // empty')
 
             if [[ -n "${EXISTING}" ]]; then
