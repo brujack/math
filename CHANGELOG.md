@@ -3,8 +3,6 @@
 
 ## Bug Fixes
 
-- install cargo-machete in factorial-rs workflow and use CARGO_BIN (#74)
-
 - install cargo-machete in all Rust workflows (#74 partial) (#75)
 
 - make cosmic-ray Python mutation check advisory, not a required gate (#82)
@@ -13,11 +11,11 @@
 
 - bump crossbeam-epoch to 0.9.20 across all Rust crates (#87)
 
+- use exact-phrase title search in SBOM issue dedup check (#89)
+
 
 
 ## CI
-
-- add cargo-machete and ruff C901 to lint gates
 
 - add pytest and pytest-cov to all Python workflow pip installs
 
