@@ -56,6 +56,7 @@ Ideas approved for future specs, in no particular order:
 | `cargo deny` license policy        | Add license allowlist (`MIT`, `Apache-2.0`, `BSD-2-Clause`) to catch GPL-contaminating transitive deps before they enter a release; advisory scanning already covers CVEs                             |
 | Snapshot testing (`insta`)         | Lock Rust CLI stdout format with `insta`; any unexpected output change becomes a visible diff rather than a silent regression                                                                         |
 | Mutation score threshold           | Move `cargo mutants` from monthly advisory to a CI gate with a minimum score; currently collects data without enforcing a floor                                                                       |
+| Maintainability pass               | Once the ai-config maintainability gate (2026-07-24 spec) ships, run a worldclass pass in this repo against its thresholds — not scheduled yet.                                                       |
 
 ---
 
