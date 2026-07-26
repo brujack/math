@@ -47,6 +47,11 @@ perfect-numbers_1e*.txt
 # Local cargo cache (rust-check.sh transient artifact)
 .cache/
 
+# Shared CARGO_TARGET_DIR for maintainability_check.py's rust checker.
+# Already covered by .cache/ above; listed explicitly so the directory's
+# owner is discoverable from this file alone.
+.cache/cargo-target-rust-checker/
+
 # Claude Code local settings (machine-specific)
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
