@@ -3,8 +3,6 @@
 
 ## Bug Fixes
 
-- install cargo-machete in all Rust workflows (#74 partial) (#75)
-
 - make cosmic-ray Python mutation check advisory, not a required gate (#82)
 
 - flush BufWriter before returning Ok(()) (#86)
@@ -49,11 +47,11 @@
 
 - mark release-sbom-monitor plan Done (PR #88)
 
+- add maintainability-pass backlog row
+
 
 
 ## Features
-
-- adopt 10-80-10 execution cycle (ai-config ADR-0009/0010) (#76)
 
 - swap mutmut → cosmic-ray for 8 Python sub-projects (#77)
 
