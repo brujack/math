@@ -45,6 +45,16 @@ jobs:
             crate_dirs=$(find . -name Cargo.toml -not -path '*/target/*' -not -path '*/.cache/*' -exec dirname {} \;)
           fi
 
+          # Without this, an empty crate_dirs (find failure, bad dispatch input,
+          # or a repo layout change) skips the loop entirely and exits 0 --
+          # reporting green having tested nothing. The classifier catches an
+          # untested crate; only this catches an untested run.
+          if [[ -z "${crate_dirs//[[:space:]]/}" ]]; then
+            printf "error: no crates found to test — refusing to report green\n" >&2
+            exit 1
+          fi
+          printf "crates to test: %s\n" "$(printf '%s\n' ${crate_dirs} | wc -l | tr -d ' ')"
+
           mkdir -p "${GITHUB_WORKSPACE}/status"
           failed=0
           for crate_dir in ${crate_dirs}; do
