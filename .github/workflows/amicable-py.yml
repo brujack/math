@@ -4,7 +4,10 @@ on:
   pull_request:
     branches: [master]
     paths:
-      - "amicable/**"
+      - "amicable/*.py"
+      - "amicable/install_deps.sh"
+      - "amicable/Makefile"
+      - "amicable/pyrightconfig.json"
       - ".github/workflows/amicable-py.yml"
 
 env:
