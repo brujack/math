@@ -177,22 +177,38 @@ mutants:
 	cargo mutants --timeout 120 --no-shuffle
 ```
 
-It becomes:
+It becomes a **single recipe line**, because probing the limit and enforcing it must happen
+in the same shell:
 
 ```make
 mutants:
-	@ulimit -v 8388608 2>/dev/null || printf "warning: this platform cannot enforce a memory cap; an allocation-unbounded mutant may exhaust system memory\n" >&2
-	@bash -c 'ulimit -v 8388608 2>/dev/null; exec cargo mutants --timeout 30 --no-shuffle'
+	@bash -c 'ulimit -v 8388608 2>/dev/null || { [ -n "$${MUTANTS_UNCAPPED}" ] || { \
+	  printf "error: this platform cannot enforce a memory cap (ulimit -v unsupported).\n" >&2; \
+	  printf "  An allocation-unbounded mutant will consume system memory until the OS intervenes.\n" >&2; \
+	  printf "  Re-run with MUTANTS_UNCAPPED=1 to proceed anyway, or use the Linux path.\n" >&2; \
+	  exit 1; }; }; exec cargo mutants --timeout 30 --no-shuffle'
 ```
+
+Each `make` recipe line runs in its own shell, so a `ulimit` on one line and the `cargo`
+invocation on the next would set a limit in a shell that exits immediately — a probe
+masquerading as enforcement. One line, one shell, one limit.
 
 The workflow then calls `make -C <crate> mutants` rather than invoking `cargo` directly.
 
-Two problems collapse into this one change. The workflow passed `--timeout 30` while the
-Makefiles passed `--timeout 120`, so a local `make mutants` and a CI run silently disagreed
-on the per-mutant budget — one source of truth now. And `CLAUDE.md:313` tells the
-maintainer to run `make mutants` per crate periodically; on the primary Mac that command
-still walks `collatz-rs` through system memory, so the warning line is the only honest
-signal available there.
+Two problems collapse into this. The workflow passed `--timeout 30` while the Makefiles
+passed `--timeout 120`, so a local `make mutants` and a CI run silently disagreed on the
+per-mutant budget — one source of truth now. And `CLAUDE.md:313` tells the maintainer to
+run `make mutants` per crate periodically; on the primary Mac that command otherwise walks
+`collatz-rs` through system memory.
+
+**Why fail-closed with an override rather than a warning, and rather than a hard refusal.**
+A warning is not a guard — it prints and then does the dangerous thing anyway, and this
+repo's standard is to fail closed when a guard cannot be enforced. But a hard refusal on
+Darwin would disable the only mechanism that has ever raised kill rate here: math PRs #83
+and #84 killed surviving mutants across seven sub-projects, both driven by a local
+`make mutants` run on macOS. Refusing by default puts the decision in front of the person
+running it; `MUTANTS_UNCAPPED=1` lets them take it in one keystroke. CI is unaffected —
+Linux enforces the limit, so the override never appears there.
 
 ### Classification
 
@@ -227,6 +243,19 @@ red if (caught + missed) == 0
 
 Nothing was actually evaluated. No committed configuration, nothing to drift, and it
 subsumes `total_mutants == 0`.
+
+**What this rule does not catch: partial starvation.** If the baseline builds and early
+mutants build but later ones do not, `caught + missed > 0`, the leg is green, and the
+`unviable` count is silently inflated. The rule is a backstop against _total_ starvation
+only. Partial starvation is checked once, at merge, by Verification step 2 on the three
+crates where it could plausibly bind — and is **not monitored after that**. If a later
+rustc upgrade pushes `pi-rs` over the limit, nothing detects it.
+
+The cheap mitigation, adopted: `mutation-classify.sh` writes the `unviable` count to
+`$GITHUB_STEP_SUMMARY` alongside survivors and timeouts. It already parses the field. This
+gates nothing — it puts the number in front of whoever reads the monthly summary, which is
+strictly more than exists today. A rule that gated on it would be the committed baseline
+rejected below.
 
 `scripts/mutation-classify.sh` reads `mutants.out/outcomes.json` (which carries
 `total_mutants`, `caught`, `missed`, `unviable`, `timeout` as top-level keys, verified
@@ -290,9 +319,22 @@ job — that is why six months of artifacts never uploaded — so an in-job noti
 cannot report runner death or a job-level timeout, which are exactly the two failure classes
 with no other output. A separate job runs on its own runner and reports both.
 
-The mutation job writes `status/<slug>` for each project as it finishes. `notify` downloads
-the status artifact and derives per-project state; a **missing** status file is itself the
-runner-death signal, and it is the one case nothing else can report.
+**In Phase A the signal is a boolean, and the spec says so rather than implying more.** The
+mutation job is a single serial job with one artifact upload at the end, so SIGTERM skips
+that upload too — `notify` finds **no artifact at all**, not a partial set. A per-slug
+status protocol would only yield per-crate attribution if the upload were incremental,
+which a single end-of-job upload is not. So `notify` distinguishes exactly two states:
+
+- **artifact present** — the job ran to completion; classification decides red or green,
+  and the summary names the crates.
+- **artifact absent with the job failed** — the runner died or the job timed out. `notify`
+  files an issue naming the run and its URL, and states plainly that the crate cannot be
+  attributed from CI alone.
+
+Per-crate attribution on a dead runner requires one runner per crate — which is the matrix,
+i.e. Phase B. Verification step 7 therefore has a stated expectation: an issue naming the
+run, not the crate. That is worth being precise about, because the whole point of step 7 is
+to exercise the mechanism rather than discover it.
 
 On red, `notify` files or updates a labelled issue using `release-sbom-monitor.yml`'s
 existing pattern — `gh issue list --search 'in:title "<exact phrase>"'` for dedup (the
@@ -320,8 +362,12 @@ Four changes in ai-config:
    latent bug for any multi-crate artifact; fix it now so Phase B does not inherit it.
 4. `fetch_latest_artifact` has **no date bound**. On a red run it silently falls back to the
    previous green run and reports its survivors as current — reachable-and-wrong, which is
-   worse than unreachable. Add a staleness check that reports the artifact's run date, and
-   refuse or loudly warn when it is older than the expected cadence.
+   strictly worse than the present state of unreachable, since it produces confident output
+   about the wrong month. Add a staleness check that reports the artifact's run date, and
+   refuse or loudly warn when it is older than the expected cadence. **This is the
+   highest-value item in the cross-repo list** and should land first within that PR: items
+   1-3 make the consumer reach math at all, but item 4 is what stops it from lying once it
+   does.
 
 Phase A's math changes do not depend on these landing, and vice versa — but Verification
 step 5 does, so ai-config goes first.
@@ -368,10 +414,10 @@ branch.)
    deliberately broken test): expect one labelled issue. Re-run red: expect a comment, not a
    duplicate. Then run green: expect the issue closed.
 7. **Runner-death reporting.** Force the failure this design exists to fix — dispatch with
-   the cap raised high enough that `collatz-rs` OOMs the runner — and confirm `notify` still
-   files an issue from its own runner with no status file present. This is the one path that
-   cannot be verified by reasoning, because it is the path where the reporting mechanism's
-   own host dies.
+   the cap raised high enough that `collatz-rs` OOMs the runner — and confirm `notify` files
+   an issue from its own runner with **no artifact present at all**, naming the run and
+   stating that the crate is unattributable. This is the one path that cannot be verified by
+   reasoning, because it is the path where the reporting mechanism's own host dies.
 
 Step 7 is not optional. The implementation PR touches only workflow, script, and Makefile
 files, so it exercises none of the runtime failure paths on its own. This repo's standards
@@ -521,3 +567,31 @@ assumption is moot — no committed count remains.
 ### Adversarial Spec Review
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+### Round 3 — independent architectural review (human peer review, commit `b5025b4`)
+
+Three findings, all accepted:
+
+1. **The Makefile recipe ran `ulimit` twice and only one was real.** Each recipe line is its
+   own shell, so line 1 set a limit in a shell that exited immediately — a probe presented as
+   enforcement, with line 2 doing the actual work. On Darwin line 2 failed silently and cargo
+   ran uncapped, so the warning was doing all the work while a reader of line 2 saw a cap
+   that was not there. **Addressed** by collapsing to one recipe line. The reviewer proposed
+   hard-refusing on Darwin (fail-closed, per this repo's standard); adopted **with an
+   override**, because a hard refusal would disable the only mechanism that has ever raised
+   kill rate here — PRs #83/#84 were local `make mutants` runs on macOS. Fail closed by
+   default, `MUTANTS_UNCAPPED=1` to proceed.
+2. **`caught + missed == 0` does not catch partial starvation**, and the spec claimed it did.
+   Correct: the rule catches _total_ starvation; partial starvation leaves
+   `caught + missed > 0` with a silently inflated `unviable`. **Addressed** — claim
+   corrected, the once-at-merge-and-not-monitored-after limitation stated plainly, and the
+   `unviable` count added to the step summary as an ungated signal.
+3. **The notify status-file protocol had an unstated failure mode.** If the runner dies the
+   status artifact upload is skipped by the same SIGTERM, so `notify` sees no artifact at
+   all rather than a partial set — and with a single end-of-job upload, per-slug granularity
+   never materialises. **Addressed** — Phase A's signal is documented as the boolean it is,
+   with per-crate attribution deferred to Phase B where one runner per crate makes it real,
+   and Verification step 7 given a stated expectation to test against rather than discover.
+
+The reviewer also flagged the ai-config staleness bound (cross-repo item 4) as the
+highest-value item in that list; noted inline there.
