@@ -182,12 +182,23 @@ in the same shell:
 
 ```make
 mutants:
-	@bash -c 'ulimit -v 8388608 2>/dev/null || { [ -n "$${MUTANTS_UNCAPPED}" ] || { \
-	  printf "error: this platform cannot enforce a memory cap (ulimit -v unsupported).\n" >&2; \
-	  printf "  An allocation-unbounded mutant will consume system memory until the OS intervenes.\n" >&2; \
-	  printf "  Re-run with MUTANTS_UNCAPPED=1 to proceed anyway, or use the Linux path.\n" >&2; \
-	  exit 1; }; }; exec cargo mutants --timeout 30 --no-shuffle'
+	@bash -c 'if [ -n "$${MUTANTS_UNCAPPED}" ]; then \
+	    printf "warning: MUTANTS_UNCAPPED set — running without a memory cap.\n" >&2; \
+	  else \
+	    ulimit -v 8388608 2>/dev/null || { \
+	      printf "error: this platform cannot enforce a memory cap (ulimit -v unsupported).\n" >&2; \
+	      printf "  An allocation-unbounded mutant will consume system memory until the OS intervenes.\n" >&2; \
+	      printf "  Re-run with MUTANTS_UNCAPPED=1 to proceed anyway, or use the Linux path.\n" >&2; \
+	      exit 1; }; \
+	  fi; exec cargo mutants --timeout 30 --no-shuffle'
 ```
+
+`MUTANTS_UNCAPPED` is checked **before** the `ulimit`, not in its failure branch. Written
+the other way round it would be consulted only when `ulimit -v` fails — which on Linux it
+does not — so the variable would silently do nothing on the platform where CI runs, and the
+one flag would mean two different things depending on the OS. Checked first, it means
+exactly "run without a memory cap" everywhere, which is what both Verification step 2's
+control arm and step 7 need.
 
 Each `make` recipe line runs in its own shell, so a `ulimit` on one line and the `cargo`
 invocation on the next would set a limit in a shell that exits immediately — a probe
@@ -396,7 +407,9 @@ branch.)
    Expected: green; no exit 143; `outcomes.json` shows `caught == 36`, `missed == 4`,
    `unviable == 1`, matching the Docker measurement.
 2. **Cap headroom on the big-build crates.** `factorial-rs`, `pi-rs`, `e-rs` (GMP/MPFR
-   links). For each, compare `unviable` capped vs uncapped in Docker. Expected: identical.
+   links). For each, compare `unviable` capped vs uncapped in Docker — the uncapped arm is
+   `MUTANTS_UNCAPPED=1 make mutants`, so both arms go through the same recipe rather than
+   one bypassing `make`. Expected: identical.
    A capped count above the uncapped count means the limit starves that crate's builds —
    the failure that would otherwise present as green, and the reason `caught + missed == 0`
    exists as a backstop. Scoped to three crates rather than all eleven because the uncapped
@@ -413,11 +426,18 @@ branch.)
 6. **Notification, both directions.** Force a red (dispatch against a crate with a
    deliberately broken test): expect one labelled issue. Re-run red: expect a comment, not a
    duplicate. Then run green: expect the issue closed.
-7. **Runner-death reporting.** Force the failure this design exists to fix — dispatch with
-   the cap raised high enough that `collatz-rs` OOMs the runner — and confirm `notify` files
-   an issue from its own runner with **no artifact present at all**, naming the run and
-   stating that the crate is unattributable. This is the one path that cannot be verified by
-   reasoning, because it is the path where the reporting mechanism's own host dies.
+7. **Runner-death reporting.** Force the failure this design exists to fix: dispatch against
+   `collatz-rs` with `MUTANTS_UNCAPPED: 1` in the workflow env, which reproduces the exact
+   pre-fix condition — the runner is killed by the allocation-unbounded mutant. Confirm
+   `notify` files an issue from its own runner with **no artifact present at all**, naming
+   the run and stating that the crate is unattributable. This is the one path that cannot be
+   verified by reasoning, because it is the path where the reporting mechanism's own host
+   dies.
+
+   The cap is a hardcoded constant in the Makefile with no dispatch-time knob, so the
+   override is the only way to reach this state without editing a Makefile on a throwaway
+   branch — and using it here means the override path gets exercised in CI, which it
+   otherwise never would, since Linux always takes the capped branch.
 
 Step 7 is not optional. The implementation PR touches only workflow, script, and Makefile
 files, so it exercises none of the runtime failure paths on its own. This repo's standards
@@ -592,6 +612,16 @@ Three findings, all accepted:
    never materialises. **Addressed** — Phase A's signal is documented as the boolean it is,
    with per-crate attribution deferred to Phase B where one runner per crate makes it real,
    and Verification step 7 given a stated expectation to test against rather than discover.
+
+4. **Verification step 7's setup contradicted the design.** It said "dispatch with the cap
+   raised," but the cap is a hardcoded Makefile constant with no dispatch-time knob.
+   **Addressed** via `MUTANTS_UNCAPPED: 1` in the workflow env for that one run — which also
+   exercises the override path, otherwise shipped untested because Linux always takes the
+   capped branch. This required restructuring the recipe: as first written the override sat
+   in the `ulimit` failure branch, so it was consulted only when `ulimit -v` failed — never
+   on Linux — and the flag would have meant two different things by platform. It is now
+   checked first, so it means "run without a cap" everywhere, which is also what step 2's
+   control arm needs.
 
 The reviewer also flagged the ai-config staleness bound (cross-repo item 4) as the
 highest-value item in that list; noted inline there.
