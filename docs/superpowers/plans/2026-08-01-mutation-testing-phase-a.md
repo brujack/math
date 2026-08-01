@@ -48,7 +48,7 @@ tdd: not-applicable
 acceptance:
   - cmd: test -f docs/adr/0024-mutation-testing-memory-cap.md
     exit_code: 0
-  - cmd: 'grep -q "Status: Accepted" docs/adr/0024-mutation-testing-memory-cap.md'
+  - cmd: 'grep -q "^\*\*Status:\*\* Accepted" docs/adr/0024-mutation-testing-memory-cap.md'
     exit_code: 0
 max_retries: 3
 files_touched:
