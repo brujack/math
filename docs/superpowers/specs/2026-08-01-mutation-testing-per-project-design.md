@@ -1,7 +1,7 @@
-# Per-Project Mutation Testing — Design
+# Mutation Testing — Make It Work, Then Make It Parallel
 
 **Date:** 2026-08-01
-**Status:** Spec (pending plan)
+**Status:** Spec (pending plan) — Phase A
 
 ## Problem
 
@@ -36,10 +36,9 @@ that makes a loop non-convergent grows a heap allocation until the 16 GB runner 
 exhausted, and the runner agent is killed along with the job. The memory ceiling is hit
 well before 30 seconds elapse, so the existing timeout can never catch it.
 
-Concretely, in `collatz/collatz-rs/src/lib.rs`, `chain_length` pushes to
-`path: Vec<u64>` on every iteration and only breaks when
-`curr <= limit && cache[curr as usize] != 0`. Two of the first four mutants in
-`--no-shuffle` order make that break unreachable:
+Concretely, in `collatz/collatz-rs/src/lib.rs`, `chain_length` pushes to `path: Vec<u64>`
+on every iteration and only breaks when `curr <= limit && cache[curr as usize] != 0`. Two
+of the first four mutants in `--no-shuffle` order make that break unreachable:
 
 ```
 src/lib.rs:4:5:  replace collatz_next -> u64 with 0     # curr = 0, cache[0] == 0, never breaks
@@ -53,17 +52,15 @@ NO CONVERGENCE after 200000000 iters, path len 200000000, approx heap 2048 MB
 ```
 
 Uncapped, this walks through 16 GB in seconds. The 2026-08-01 timeline matches exactly:
-baseline OK at 05:02:44, SIGTERM at 05:03:08 — one mutant in flight.
+baseline OK at 05:02:44, SIGTERM at 05:03:08 — one mutant in flight. The 2026-06-01 run
+died in `factorial/factorial-rs` instead, so the failure is a _class_
+(allocation-unbounded mutants), not one crate.
 
-The 2026-06-01 run died in `factorial/factorial-rs` rather than collatz, so the failure is
-a _class_ (allocation-unbounded mutants), not one crate.
+A prior diagnosis in `CLAUDE.md` attributed this to the 360-minute CI timeout combined with
+infinite-loop mutations, and reduced `--timeout` from 120 to 30 in response. That diagnosis
+was wrong — time was never the binding constraint — and the change did not help.
 
-A prior diagnosis recorded in `CLAUDE.md` attributed this to the 360-minute CI timeout
-combined with infinite-loop mutations, and reduced `--timeout` from 120 to 30 in response.
-That diagnosis was wrong — time was never the binding constraint — and the change did not
-help.
-
-### Structural aggravators
+### The other three failures
 
 1. **Artifacts never upload.** The `Upload mutants output` step is `if: always()`, but
    SIGTERM skips it (confirmed `skipped` in the 2026-08-01 run). Six months of runs
@@ -71,44 +68,56 @@ help.
 2. **The Python sibling hides its failures.** `mutation-testing-python.yml` runs
    `make -C "${dir}" mutants || true`, so the workflow is green regardless of what
    happened. Its 2026-08-01 "success" carries no information.
-3. **`mutation-pr.yml` covers one crate of eleven.** It hardcodes a
-   `^factorial/factorial-rs/.*\.rs$` diff check; the other ten crates have no per-PR
-   mutation coverage at all.
-4. **Nothing consumes the reports.** ai-config's `mutation-review.yml:44-46` invokes
+3. **Nothing consumes the reports.** ai-config's `mutation-review.yml:44-46` invokes
    `mutation_review.py --repo "${GITHUB_REPOSITORY}"` (= `brujack/ai-config`) with
    `--artifact "mutants-report"` — a repo and an artifact name that do not match math's.
    That workflow has run once ever (2026-07-02). math's mutation output has never reached
    the `mutation-review` skill by any automated path.
 
-Note what is **not** an aggravator: the serial loop already tolerates a crate-level
-failure via `(cd "${crate_dir}" && cargo mutants …) || failed=1` followed by
-`exit "${failed}"`. Only runner _death_ defeated it. An earlier draft of this spec claimed
-the loop lacked failure isolation; that was wrong, and the matrix is justified below on
-other grounds.
+Note what is **not** a problem: the serial loop already tolerates a crate-level failure via
+`(cd "${crate_dir}" && cargo mutants …) || failed=1` followed by `exit "${failed}"`. Only
+runner _death_ defeated it.
+
+## Scope: Phase A only
+
+This spec covers the smallest change that makes mutation testing work and produces a green
+run. Structural changes — a per-crate matrix, artifact aggregation, per-PR mutation
+coverage — are **Phase B**, deferred deliberately.
+
+The reason is evidence, not caution. No serial run has ever completed, so there is no
+measurement of how long the full sweep takes, how many crates produce survivors, or whether
+one crate's runtime crowds out another's. Every argument for the matrix (wall-clock
+parallelism, per-project timeout granularity) is sized against data that does not exist
+yet. Phase B gets written against the first green run.
+
+**Phase B trigger:** one successful full run of `mutation-testing.yml` on master. Its spec
+decides the matrix, artifact staging/aggregation, and whether per-PR mutation coverage is
+worth having as a real blocking gate.
 
 ## Goals
 
 - An allocation-unbounded mutant is recorded as CAUGHT, not as a dead runner.
-- Every project is tested on every run, in parallel, under its own timeout.
-- A red result means something is genuinely broken **and reaches the maintainer**.
-- A green result means the project was actually tested — not merely that the tool had no
+- A green leg means the project was actually tested — not merely that the tool had no
   complaint.
-- Reports reach the `mutation-review` skill, which requires wiring the consumer that has
+- A red result reaches the maintainer instead of sitting in a cron run nobody opens.
+- Reports reach the `mutation-review` skill, which requires wiring a consumer that has
   never pointed at this repo.
-- Per-PR mutation coverage extends to all 11 Rust crates and all 8 Python sub-projects,
-  without introducing a new merge-blocking quality bar.
 
 ## Non-goals
 
-- Raising kill rates or writing killing tests. That is `mutation-review`'s job, and it is
-  unblocked by this work rather than performed by it.
-- A survivor-count ratchet or committed baseline. Considered and rejected — new state to
-  maintain for a report that nothing currently gates on.
-- Per-project workflow files (19 of them). Considered and rejected — matrix legs give the
-  same runner isolation with 2 files instead of 19 near-identical ones to keep in sync.
-- A reusable workflow. GitHub forbids `strategy: matrix` on a job whose body is a
-  `uses:` call, which is already documented in this repo's standards after the SBOM
-  monitor had to spell out 11 call sites longhand.
+- **Per-crate matrix, artifact staging, `aggregate` job** — Phase B.
+- **Per-PR mutation coverage beyond today's** — `mutation-pr.yml` is untouched. Advisory
+  legs cannot change a merge verdict and produce nothing that outlives the run, so
+  widening it to 11 crates would be cost without signal; making it blocking is a real
+  quality bar that deserves its own decision rather than arriving inside a workflow
+  refactor. Leaving the file alone also **preserves `factorial-rs`'s existing blocking
+  bar** — `mutation-pr` is a required check (`ci-gate.sh:3` lists only `snyk-scan` as
+  advisory) and its Rust step has no `|| true`, so `factorial-rs` has had a live "no new
+  surviving in-diff mutants" gate since that workflow landed. That gate stays.
+- **A survivor-count ratchet, or any committed per-crate baseline.** Rejected on its own
+  merits below.
+- Raising kill rates or writing killing tests — that is `mutation-review`'s job, unblocked
+  by this work rather than performed by it.
 
 ## Inventory
 
@@ -121,189 +130,18 @@ e/e-rs                        perfect-numbers/perfect-numbers-rs   sq/sq-rs
 factorial/factorial-rs        twin-primes/twin-primes-rs
 ```
 
-**8 Python sub-projects** (each has a `cosmic-ray.toml`):
+**8 Python sub-projects** (each has a `cosmic-ray.toml`): `amicable`, `collatz`, `e`,
+`factorial`, `fib`, `perfect-numbers`, `pi`, `sq`. `goldbach`, `prime`, and `twin-primes`
+are Rust-only.
 
-```
-amicable   collatz   e   factorial   fib   perfect-numbers   pi   sq
-```
-
-`goldbach`, `prime`, and `twin-primes` are Rust-only and have no Python leg.
-
-The repo currently has **41** workflow files (`ls .github/workflows | wc -l`). `CLAUDE.md`
-says "Thirty-nine" and is stale; this work corrects it.
+The repo has **41** workflow files (`ls .github/workflows | wc -l`). `CLAUDE.md` says
+"Thirty-nine" and is stale; this work corrects it.
 
 ## Design
 
-### Workflow structure
+### The memory cap
 
-All three workflows become matrix-based. No workflow file is added or removed — the repo
-stays at 41. Two non-workflow files are added: `scripts/mutation-classify.sh` and
-`tests/scripts/mutation_classify.bats`.
-
-**`mutation-testing.yml`** — Rust, monthly `cron: "0 4 1 * *"`, plus `workflow_dispatch`.
-
-```yaml
-jobs:
-  plan: # emits the matrix; a static YAML list cannot honour the dispatch input
-    outputs:
-      crates: ${{ steps.p.outputs.crates }} # full 11 list, or a single-entry list
-      # when github.event.inputs.crate is non-empty
-
-  mutants:
-    needs: [plan]
-    strategy:
-      fail-fast: false
-      matrix:
-        crate: ${{ fromJSON(needs.plan.outputs.crates) }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 60 # per leg; was 360 shared across all 11.
-      # basis: slowest measured crate was 98 mutants in 6m
-      # (factorial-rs, 2026-07-01), so 60 is ~10x headroom
-    steps:
-      - checkout, rust-toolchain, cargo install cargo-mutants --locked
-      - run mutants under a memory cap (below)
-      - classify via scripts/mutation-classify.sh (below)
-      - stage mutants.out into out/<slug>/ (see Artifact layout)
-      - upload-artifact: mutants-output-<slug>, path out/
-      - on red: file/update a labelled issue (see Notification)
-
-  aggregate:
-    needs: [mutants]
-    if: always()
-    steps:
-      - download-artifact: pattern mutants-output-*, merge-multiple: true
-      - upload-artifact: mutants-output
-```
-
-**`mutation-testing-python.yml`** — monthly `cron: "0 6 1 * *"`, plus `workflow_dispatch`.
-Same shape, 8 legs, each running `make -C <dir> mutants`. The `|| true` is deleted. Each
-leg uploads both `mutants-report.txt` and `cosmic-ray-session.sqlite` (the consumer reads
-the sqlite; today it is never uploaded, see Consumer wiring). Aggregate job re-uploads
-under `mutants-report-python`.
-
-**`mutation-pr.yml`** — `pull_request` to master. A `detect` job emits two JSON arrays plus
-two booleans computed from the PR diff; two matrix jobs consume them:
-
-```yaml
-jobs:
-  detect:
-    outputs:
-      has_rust: ${{ steps.d.outputs.has_rust }} # 'true' / 'false'
-      has_python: ${{ steps.d.outputs.has_python }}
-      rust: ${{ steps.d.outputs.rust }} # e.g. '["collatz/collatz-rs"]'
-      python: ${{ steps.d.outputs.python }} # e.g. '["collatz"]'
-
-  mutants-rust:
-    needs: [detect]
-    if: needs.detect.outputs.has_rust == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        crate: ${{ fromJSON(needs.detect.outputs.rust) }}
-    timeout-minutes: 15 # per leg, was 10 shared
-    steps:
-      - same ulimit cap and classify script as the monthly legs
-      - cargo mutants --in-diff /tmp/pr.diff --timeout 30 --no-shuffle
-```
-
-The gate is on a **positive boolean**, not `!= '[]'`. If `detect` fails before writing its
-output the value is `''`, and `'' != '[]'` is true — the job would run and `fromJSON('')`
-would throw. Failing closed is the correct default when the guard's own input is unknown.
-
-### PR legs are advisory
-
-Surviving in-diff mutants do **not** block merge. `scripts/ci-gate.sh:3` lists only
-`snyk-scan` as advisory, so every new `mutants-rust (<crate>)` leg would otherwise become a
-required check, and `cargo mutants --in-diff` exits 2 on a surviving mutant. Widening the
-gate from one crate to eleven would have introduced a repo-wide "zero new surviving
-mutants" merge bar as a side effect of a workflow refactor — a real quality bar, but one
-that deserves its own decision rather than arriving unannounced.
-
-PR legs therefore use the same classification as the monthly legs: survivors and timeouts
-are reported to the job summary and exit 0; only genuine breakage is red. Python PR legs
-keep their existing advisory-warning semantics for the same reason plus one of their own —
-cosmic-ray has no `--in-diff` equivalent, so it runs every mutation and pre-existing
-survivors would fire on every Python PR.
-
-The PR legs get the **same `ulimit -v` cap** as the monthly legs. Without it, a PR touching
-`collatz/collatz-rs/src/lib.rs:4-5` reproduces exit 143 on the PR surface — applying the
-remedy to one of two surfaces would widen the bug's blast radius from one crate to eleven
-while fixing it in only one place.
-
-### Why a matrix, given the loop already tolerated crate failures
-
-Three reasons, none of them "one crate kills all" (the `|| failed=1` loop already handled
-that):
-
-1. **Wall clock.** 11 crates run in parallel rather than in sequence. The 2026-07-01 run
-   spent ~6 minutes on two crates before dying.
-2. **Timeout granularity.** Each project gets its own 60-minute budget instead of sharing
-   one 360-minute pool, so one slow crate cannot consume another's headroom.
-3. **Defence in depth.** If the `ulimit -v` value turns out to be wrong for some crate, a
-   dead leg is one dead leg. The cap is the fix; the matrix is what keeps a wrong cap from
-   being a total loss.
-
-### Matrix leg isolation
-
-Each matrix leg is scheduled on its own runner with its own 16 GB. `fail-fast: false`
-prevents GitHub from cancelling surviving legs when one fails.
-
-`workflow_dispatch`'s single-project input is honoured by the `plan` job, which emits either
-the full list or a single-entry list. A static YAML matrix list cannot be overridden by an
-input — and this path is Verification step 1, the acceptance check for the whole fix, so it
-cannot be left implicit.
-
-### Artifact layout
-
-Artifact names cannot contain `/`, so each leg uploads under a slug with slashes replaced
-by hyphens: `collatz/collatz-rs` → `mutants-output-collatz-collatz-rs`.
-`actions/upload-artifact@v7` rejects two uploads sharing one name, so per-leg names are
-mandatory, not stylistic.
-
-Each leg **stages its output into `out/<slug>/mutants.out/` before uploading**, and uploads
-`path: out/`. This is load-bearing: `upload-artifact` roots an artifact at the least common
-ancestor of the matched files, so a single-crate leg matching `**/mutants.out/` would place
-`outcomes.json` at the artifact root and all 11 legs would collide onto identical paths
-under `merge-multiple: true`. Today's single-job upload preserves crate prefixes only
-because its LCA across 11 crates happens to be the repo root.
-
-### Consumer wiring (cross-repo)
-
-The `aggregate` job alone does not deliver reports to `mutation-review` — the consumer was
-never pointed at this repo. Three changes in ai-config, in the same cycle:
-
-1. `mutation-review.yml` — invoke `mutation_review.py` against `brujack/math` with
-   `--artifact mutants-output` (cargo-mutants) and `--artifact mutants-report-python`
-   (cosmic-ray), rather than `${GITHUB_REPOSITORY}` / `mutants-report`.
-2. `mutation_review.py:684-686` — `for candidate in artifact_dir.rglob("outcomes.json"):
-outcomes_path = candidate; break` takes the **first** match and stops, so a correctly
-   merged 11-crate artifact still yields one crate. Collect all matches and merge.
-3. `mutation_review.py` cosmic-ray branch — reads `artifact_dir /
-"cosmic-ray-session.sqlite"` with no rglob fallback, and math never uploaded that file.
-   math starts uploading it (above); the reader gains the same collect-all treatment.
-
-`fetch_latest_artifact` also selects `.workflow_runs | map(select(.conclusion ==
-"success")) | first`. With `fail-fast: false`, one red leg makes the run conclusion
-`failure` and the merged artifact becomes unreachable — so the classification rules below
-(which keep survivors and timeouts green) are what make partial-failure runs consumable at
-all. A run is red only when something is genuinely broken, which is also when its report is
-least useful.
-
-### Notification
-
-Reducing red frequency does not by itself create attention: all six historical runs were
-red and none were opened for six months. The cause was "nobody opens a monthly cron run,"
-not "signal buried in noise."
-
-A red leg therefore files or updates a labelled issue, reusing `release-sbom-monitor.yml`'s
-existing pattern — `gh issue list --search 'in:title "<exact phrase>"'` for dedup (the
-exact-phrase form from #89, which fixed a false-match bug in that same check), creating when
-absent and commenting when present. One issue per project, so a persistently broken crate
-does not open a new issue every month.
-
-### Memory cap
-
-Each leg sets an address-space limit before invoking the mutation tool:
+Each mutation run executes under an address-space limit:
 
 ```bash
 ulimit -v 8388608   # 8 GiB, expressed in KiB; runner has 16 GB
@@ -325,253 +163,361 @@ limit stays `unlimited`, so this class of check cannot be run on the Mac):
 Three things follow. The cap converts a runaway mutant from a timeout into a **caught**
 mutant (36 vs 35, exit 2 vs 3) — the mechanism works as designed. The single unviable
 mutant is **identical in both runs**, so it is an ordinary non-compiling mutation, not cap
-starvation. And `collatz-rs` completes in full under the cap where CI killed the runner,
-which is the fix demonstrated end to end.
+starvation. And `collatz-rs` completes in full under the cap where CI killed the runner.
 
-This settles the assumption for `collatz-rs` only. `factorial-rs` links GMP and has the
-largest build in the repo; its cap headroom is unverified, and Verification step 2 below
-runs the same capped-vs-uncapped comparison per crate. If a crate shows unviables under the
-cap that it does not show uncapped, raise the limit for that crate and record the settled
-value in `CLAUDE.md`.
+This settles it for `collatz-rs` only. `factorial-rs`, `pi-rs`, and `e-rs` link GMP/MPFR
+and have the largest builds in the repo; their headroom is checked in Verification below.
+
+### Where the cap lives: the Makefile, not the workflow
+
+The `mutants:` target in each of the 11 Rust Makefiles currently reads:
+
+```make
+mutants:
+	cargo mutants --timeout 120 --no-shuffle
+```
+
+It becomes:
+
+```make
+mutants:
+	@ulimit -v 8388608 2>/dev/null || printf "warning: this platform cannot enforce a memory cap; an allocation-unbounded mutant may exhaust system memory\n" >&2
+	@bash -c 'ulimit -v 8388608 2>/dev/null; exec cargo mutants --timeout 30 --no-shuffle'
+```
+
+The workflow then calls `make -C <crate> mutants` rather than invoking `cargo` directly.
+
+Two problems collapse into this one change. The workflow passed `--timeout 30` while the
+Makefiles passed `--timeout 120`, so a local `make mutants` and a CI run silently disagreed
+on the per-mutant budget — one source of truth now. And `CLAUDE.md:313` tells the
+maintainer to run `make mutants` per crate periodically; on the primary Mac that command
+still walks `collatz-rs` through system memory, so the warning line is the only honest
+signal available there.
 
 ### Classification
 
-Verified empirically against `cargo-mutants 27.0.0` using purpose-built scratch crates (a
-crate with an uncaught mutant, one with a failing baseline test, one with an infinite-loop
-mutant). The `--help` output does not document these:
+Verified empirically against `cargo-mutants 27.0.0` using purpose-built scratch crates. The
+`--help` output does not document these:
 
-| code                      | meaning                                    | verdict                                        |
-| ------------------------- | ------------------------------------------ | ---------------------------------------------- |
-| 0                         | all mutants caught                         | green                                          |
-| 2                         | surviving mutants                          | green, count written to `$GITHUB_STEP_SUMMARY` |
-| 3                         | timeouts present                           | green, count written to summary                |
-| 4                         | baseline tests failed in an unmutated tree | **red**                                        |
-| anything else (incl. 143) | tool error, runner kill, OOM               | **red**                                        |
+| code                      | meaning                                    |
+| ------------------------- | ------------------------------------------ |
+| 0                         | all mutants caught                         |
+| 2                         | surviving mutants                          |
+| 3                         | timeouts present                           |
+| 4                         | baseline tests failed in an unmutated tree |
+| anything else (incl. 143) | tool error, runner kill, OOM               |
 
-**The exit code alone is not sufficient**, and this is the one place the design must not
-trust it. Mutants that fail to _build_ are recorded `unviable` and excluded from the
-kill-rate denominator; a run of nothing but unviable mutants exits **0**. Measured against
-27.0.0 with mutant builds killed at exit 137 (the OOM signature) and the baseline intact:
-`5 mutants tested in 1s: 5 unviable`, `exit=0` — green while testing nothing. Since the cap
-deliberately applies to rustc, that is a reachable state whenever the limit is too tight for
-a crate, and it degrades silently as `dtolnay/rust-toolchain@stable` pulls newer rustc.
+**The exit code alone is not sufficient, and neither is any single count.** Two distinct
+buckets exit green while establishing nothing:
 
-`scripts/mutation-classify.sh` therefore reads `mutants.out/outcomes.json` — which carries
-`total_mutants`, `caught`, `missed`, `unviable`, `timeout` as top-level keys — and applies:
+- **All-unviable.** Mutants that fail to _build_ are recorded `unviable` and excluded from
+  the kill-rate denominator. Measured against 27.0.0 with mutant builds killed at exit 137
+  (the OOM signature) and the baseline intact: `5 mutants tested in 1s: 5 unviable`,
+  `exit=0`. Since the cap deliberately applies to rustc, this is reachable whenever the
+  limit is too tight for a crate.
+- **All-timeout.** Exit 3. This is precisely the cap's blind spot: `ulimit -v` catches
+  allocating runaways, but a mutation that spins without allocating still times out —
+  `CLAUDE.md` documents `p += 1` → `p *= 1` in a sieve as exactly that shape.
 
-- **red** if `total_mutants == 0` (nothing was tested)
-- **red** if `outcomes.json` is missing or unparseable (the tool did not get far enough)
-- **red** if `unviable > <per-crate expected count>` (the cap starved a build). The expected
-  count is committed per crate; `collatz-rs` is 1, measured above. A crate's first run
-  establishes its number.
-- otherwise the exit-code table above
+One stateless rule covers both, plus the empty case:
 
-Exit 0 currently means "cargo-mutants had no complaint," not "this crate was tested." The
-count guard is what makes a green leg mean the second thing.
+```
+red if (caught + missed) == 0
+```
 
-Python legs have no equivalent exit-code table — `make -C <dir> mutants` returns
-cosmic-ray's own status, which does not encode survivor counts. The leg parses the survivor
-count out of `cr-report` for the summary, and is red when `make mutants` fails or when the
-session sqlite is absent. Deleting `|| true` is what makes that failure visible; it does not
-turn survivors red.
+Nothing was actually evaluated. No committed configuration, nothing to drift, and it
+subsumes `total_mutants == 0`.
+
+`scripts/mutation-classify.sh` reads `mutants.out/outcomes.json` (which carries
+`total_mutants`, `caught`, `missed`, `unviable`, `timeout` as top-level keys, verified
+against 27.0.0) and applies:
+
+- **red** if `outcomes.json` is missing or unparseable **and** the exit code is non-zero
+- **red** if `(caught + missed) == 0`
+- **red** if the exit code is 4, 143, or anything outside {0, 2, 3}
+- otherwise **green**, with survivor and timeout counts written to `$GITHUB_STEP_SUMMARY`
+
+The "and the exit code is non-zero" qualifier is load-bearing even though Phase A never
+passes `--in-diff`. Measured: a `--in-diff` run whose diff contains no mutable lines prints
+`INFO No mutants to filter`, exits **0**, and writes **no `mutants.out/` at all**. A rule
+that reds on a missing file alone would fail every TDD-first PR that adds a test without
+changing logic — the modal PR under this repo's testing policy. Phase B will use
+`--in-diff` if it revives per-PR coverage, and the rule is written correctly now rather
+than rediscovered then.
+
+#### Why not a committed per-crate expected-unviable count
+
+An earlier revision proposed exactly that: red when `unviable` exceeds a per-crate number
+committed to the repo. It is rejected. `unviable` is "does the mutated code compile,"
+perturbed by any source change and by `dtolnay/rust-toolchain@stable` pulling a new rustc
+without a config change. This repo already maintains one hand-tuned per-crate number of
+that class — `.cargo/mutants.toml` `exclude_re` in 4 of 11 crates, each carrying a "update
+if surrounding code shifts lines" warning — and the new one would drift the same way with a
+worse failure mode: `exclude_re` drift surfaces a mutant as a survivor (green, a summary
+line), while baseline drift turns the leg **red**, files an issue, and — because
+`fetch_latest_artifact` selects only runs whose conclusion is `success` — blanks that
+month's report. The rule was also one-directional (`unviable <` expected was silent), so it
+would loosen monotonically and quietly stop detecting anything. `caught + missed == 0`
+measures the thing directly with none of that.
+
+### Python classification
+
+`make -C <dir> mutants` returns cosmic-ray's own status, which does not encode survivor
+counts. The `|| true` is deleted so a genuine cosmic-ray failure is visible. The leg parses
+the survivor count from `cr-report` into the summary and is red when `make mutants` fails
+or when the session sqlite is absent. Survivors do not turn it red.
+
+Each sub-project uploads both `mutants-report.txt` and `cosmic-ray-session.sqlite` — the
+consumer reads the sqlite, and today it is never uploaded (see Consumer wiring).
+
+### Notification
+
+Reducing red frequency does not by itself create attention: all six historical runs were
+red and none were opened for six months. The cause was "nobody opens a monthly cron run,"
+not "signal buried in noise."
+
+Notification is a **separate job**, not a step inside the mutation job:
+
+```yaml
+notify:
+  needs: [mutants]
+  if: always()
+  runs-on: ubuntu-latest # fresh runner — survives the mutation job's death
+```
+
+This placement is the whole point. SIGTERM skips `if: always()` _steps_ within the killed
+job — that is why six months of artifacts never uploaded — so an in-job notification step
+cannot report runner death or a job-level timeout, which are exactly the two failure classes
+with no other output. A separate job runs on its own runner and reports both.
+
+The mutation job writes `status/<slug>` for each project as it finishes. `notify` downloads
+the status artifact and derives per-project state; a **missing** status file is itself the
+runner-death signal, and it is the one case nothing else can report.
+
+On red, `notify` files or updates a labelled issue using `release-sbom-monitor.yml`'s
+existing pattern — `gh issue list --search 'in:title "<exact phrase>"'` for dedup (the
+exact-phrase form from #89, which fixed a false-match bug in that same check), creating when
+absent and commenting when present. **On green, it closes the issue** with a comment. An
+SBOM issue correctly stays open because a CVE does not self-heal; a mutation failure does,
+and without close-on-green the label degrades into a pile of stale rows and stops working as
+a worklist — the exact endpoint this mechanism exists to avoid. The job needs
+`permissions: issues: write`.
+
+### Consumer wiring (cross-repo, ai-config)
+
+The reports do not reach `mutation-review` today, and no change inside math can fix that.
+Four changes in ai-config:
+
+1. `mutation-review.yml` — invoke `mutation_review.py` against `brujack/math`.
+   `--artifact` is `required=True` and single-valued (`mutation_review.py:635`), so the
+   cargo-mutants and cosmic-ray paths are **two invocations**, not one call with two names.
+2. `mutation_review.py:666` hardcodes `"mutation-testing.yml"` as the workflow name at the
+   `fetch_latest_artifact` call site, so the cosmic-ray path can never reach
+   `mutation-testing-python.yml` regardless of artifact name. Parameterize it.
+3. `mutation_review.py:684-686` —
+   `for candidate in artifact_dir.rglob("outcomes.json"): outcomes_path = candidate; break`
+   takes the **first** match and stops. Harmless for Phase A's single-artifact upload, and a
+   latent bug for any multi-crate artifact; fix it now so Phase B does not inherit it.
+4. `fetch_latest_artifact` has **no date bound**. On a red run it silently falls back to the
+   previous green run and reports its survivors as current — reachable-and-wrong, which is
+   worse than unreachable. Add a staleness check that reports the artifact's run date, and
+   refuse or loudly warn when it is older than the expected cadence.
+
+Phase A's math changes do not depend on these landing, and vice versa — but Verification
+step 5 does, so ai-config goes first.
 
 ### Classification script
 
-The logic lives in `scripts/mutation-classify.sh`, not inline in a `run:` block. The
-workflow calls it. Inline YAML cannot be unit-tested, and this repo already runs
-`bats --recursive tests/` via `scripts.yml`.
+The logic lives in `scripts/mutation-classify.sh`, not inline in a `run:` block. Inline YAML
+cannot be unit-tested, and this repo already runs `bats --recursive tests/` via
+`scripts.yml`.
 
 `tests/scripts/mutation_classify.bats` covers every exit code in the table — 0, 2, 3, 4,
-143, and an unknown code — **and** every count-based rule: `total_mutants == 0`, missing
-`outcomes.json`, unparseable `outcomes.json`, `unviable` at and above the expected count.
-Both branches of every guard, per this repo's testing policy.
-
-### Local/CI timeout alignment
-
-Every Rust `Makefile` `mutants:` target passes `--timeout 120`; the workflows pass
-`--timeout 30`. The legs invoke `cargo mutants` directly (not `make`), so the two would stay
-silently divergent. The 11 Makefiles move to `--timeout 30` so a local `make mutants` and a
-CI leg agree on the per-mutant budget.
+143, and an unknown code — **and** every count rule: `caught + missed == 0` via the
+all-unviable case, via the all-timeout case, and via the zero-mutant case; missing
+`outcomes.json` with exit 0 (green, the no-mutants-to-filter case); missing `outcomes.json`
+with a non-zero exit (red); unparseable `outcomes.json`. Both branches of every guard, per
+this repo's testing policy.
 
 ## Verification
 
-Both monthly workflows already exist on the default branch with `workflow_dispatch`, so
+`mutation-testing.yml` already exists on the default branch with `workflow_dispatch`, so
 branch dispatch works before merge. (A workflow absent from the default branch cannot be
 dispatched by `--ref` at all — GitHub resolves the workflow list against the default
 branch.)
 
-1. **The fix itself.**
-   `gh workflow run mutation-testing.yml --ref <branch> -f crate=collatz/collatz-rs`
-   Expected: leg green; no exit 143; `outcomes.json` shows `caught == 36`,
-   `unviable == 1`, matching the Docker measurement above. This also exercises the `plan`
-   job's single-crate path.
-2. **Cap headroom, per crate.** For each of the 11 crates, compare `unviable` counts from a
-   capped and an uncapped run (Docker locally, or two dispatches). Expected: identical
-   counts. Any crate where capped exceeds uncapped has a too-tight limit — the failure that
-   would otherwise present as green.
-3. **Isolation.** Full 11-leg dispatch on the branch. Expected: all 11 legs reach a terminal
-   state; `aggregate` produces `mutants-output` containing 11 distinct `out/<slug>/mutants.out/`
-   trees (verifying the staging fix, not just the merge).
-4. **Python.** Dispatch `mutation-testing-python.yml` on the branch. Expected: 8 legs
-   terminal, aggregate produces `mutants-report-python` containing 8 sqlite files.
+1. **The fix itself.** `gh workflow run mutation-testing.yml --ref <branch> -f crate=collatz/collatz-rs`
+   Expected: green; no exit 143; `outcomes.json` shows `caught == 36`, `missed == 4`,
+   `unviable == 1`, matching the Docker measurement.
+2. **Cap headroom on the big-build crates.** `factorial-rs`, `pi-rs`, `e-rs` (GMP/MPFR
+   links). For each, compare `unviable` capped vs uncapped in Docker. Expected: identical.
+   A capped count above the uncapped count means the limit starves that crate's builds —
+   the failure that would otherwise present as green, and the reason `caught + missed == 0`
+   exists as a backstop. Scoped to three crates rather than all eleven because the uncapped
+   arm on `collatz-rs` _is the bug_ (exit 143, no `outcomes.json` to compare against) and
+   because Docker on Apple Silicon runs `--platform linux/amd64` under emulation.
+3. **The first green full run.** Dispatch with no crate input. Expected: all 11 crates
+   report, the run is green, and the artifact uploads. This run is also the Phase B trigger
+   and the first real measurement of total sweep time.
+4. **Python.** Dispatch `mutation-testing-python.yml` on the branch. Expected: 8
+   sub-projects report; the artifact contains 8 sqlite files.
 5. **Consumer contract, end to end.** Run the updated `mutation_review.py` against the
-   branch run. Expected: it locates the merged artifact and reports survivors from **all**
-   crates, not one — the specific regression the first-match `rglob` causes.
-6. **Notification.** Force a red leg (dispatch against a crate with a deliberately broken
-   test). Expected: one labelled issue created; a second red run comments rather than
-   opening a duplicate.
-7. **PR matrix path.** A throwaway PR touching one crate's `src/`. Expected: `detect` emits
-   that crate, `mutants-rust` runs exactly one leg, and a surviving in-diff mutant does not
-   block merge.
+   branch run. Expected: it locates the artifact and reports survivors, and reports the
+   artifact's run date.
+6. **Notification, both directions.** Force a red (dispatch against a crate with a
+   deliberately broken test): expect one labelled issue. Re-run red: expect a comment, not a
+   duplicate. Then run green: expect the issue closed.
+7. **Runner-death reporting.** Force the failure this design exists to fix — dispatch with
+   the cap raised high enough that `collatz-rs` OOMs the runner — and confirm `notify` still
+   files an issue from its own runner with no status file present. This is the one path that
+   cannot be verified by reasoning, because it is the path where the reporting mechanism's
+   own host dies.
 
-Steps 6 and 7 are not optional. The implementation PR touches only workflow and script
-files, so it exercises `detect`'s empty-diff skip path and nothing else. This repo's
-standards already record a change-detection script that shipped completely inert because its
-tests only ever covered the path the implementation PR happened to take.
+Step 7 is not optional. The implementation PR touches only workflow, script, and Makefile
+files, so it exercises none of the runtime failure paths on its own. This repo's standards
+already record a change-detection script that shipped completely inert because its tests only
+covered the path the implementation PR happened to take.
 
 ## Consequences
 
-**Runner minutes.** `cargo install cargo-mutants --locked` runs once per leg instead of
-once per run — roughly 11 × 70 s of extra runner time monthly. Wall clock is unchanged
-because legs run in parallel. A prebuilt-binary install action would remove it at the cost
-of a new third-party dependency; not worth it at ~13 minutes a month.
+**Runner minutes.** Unchanged — one job, one `cargo install cargo-mutants`, same serial
+sweep. The `notify` job adds well under a minute.
 
-**Concurrency.** 11 legs at 04:00 and 8 at 06:00 on the first of the month. The crons stay
-staggered so the two matrices never contend.
+**Rollback.** Two reverts, one per repo. No state, no migration, no baseline file.
 
-**Cross-repo coupling.** This work now spans math and ai-config. The ai-config changes are
-independently useful (the first-match `rglob` is a latent bug for any multi-crate repo) but
-they are a second SDLC cycle, and math's Verification step 5 depends on them landing first.
+**Docs.** `CLAUDE.md`'s stale "Thirty-nine workflow files" becomes 41; the note attributing
+these failures to the 360-minute timeout is corrected; the `--timeout 120` → `30` Makefile
+change and the memory cap are recorded in the mutation-testing section.
 
-**Rollback.** Two reverts, one per repo. No state, no migration, no baseline file — except
-the per-crate expected-unviable counts, which live in the classifier's committed config.
-
-**Docs.** `CLAUDE.md`'s CI table job descriptions change; the stale "Thirty-nine workflow
-files" becomes 41; the note attributing these failures to the 360-minute timeout is
-corrected; the settled `ulimit -v` value and per-crate expected-unviable counts are
-recorded.
+**What Phase B inherits.** A green baseline, a real sweep-time measurement, a tested
+classifier, and a notification path proven against runner death — which is a materially
+better position from which to argue for a matrix than the current one, where the argument
+rests on numbers nobody has.
 
 ## Multi-Lens Review
 
-Reviewed at commit: `6a41d56` (Step 7 self-review commit, before Step 8 dispatch)
+### Round 1 — reviewed at commit `6a41d56`
 
-### Goal-Fit
+#### Goal-Fit (R1)
 
 Finding: Goal 4 ("reports reach the `mutation-review` skill without a cross-repo change")
-is false, and it is the goal the other four serve. Verified: ai-config's
-`mutation-review.yml:44-46` passes `--repo "${GITHUB_REPOSITORY}"` (= `brujack/ai-config`)
-and `--artifact "mutants-report"` — neither matches math's `mutants-output` or
-`mutants-report-python`. That workflow has run once ever (2026-07-02). math's mutation
-artifacts have never been consumed by anything automated, so the `aggregate` job, the slug
-scheme, and the artifact-name preservation are correct engineering serving a consumer that
-is not wired up. Applying the reads-it test: no verdict changes because the artifact
-exists, and its post-run home is a 30-day GitHub artifact nothing downloads.
+is false, and it is the goal the other four serve. ai-config's `mutation-review.yml:44-46`
+passes `--repo "${GITHUB_REPOSITORY}"` (= ai-config) and `--artifact "mutants-report"` —
+neither matches math's names; that workflow has run once ever. The `aggregate` job, slug
+scheme, and artifact-name preservation are correct engineering serving a consumer that is
+not wired up. Secondary: the serial loop already tolerated crate failures, so the matrix was
+justified on a symptom of the bug the cap fixes; widening `mutation-pr` to 11 crates creates
+a repo-wide blocking merge gate the spec never names; the 8 Python PR legs fail the reads-it
+test by construction.
 
-Secondary: (a) structural aggravator #1 is overstated — the current loop already survives
-a crate-level failure via `(cd … ) || failed=1`; only _runner death_ defeated it, which
-`ulimit -v` alone removes, so the matrix must be justified on parallelism, per-project
-timeout granularity, and defence-in-depth rather than on failure isolation the loop already
-had. (b) Widening `mutation-pr` to 11 crates converts a near-always-green check into a
-repo-wide blocking merge gate — `ci-gate.sh:3` lists only `snyk-scan` as advisory, and
-`cargo mutants --in-diff` exits 2 on a surviving in-diff mutant. The spec lists this as a
-goal and never names it as a new quality bar, and it contradicts the monthly table where
-exit 2 is green. (c) The 8 Python PR legs fail the reads-it test by construction — they are
-advisory-only by design, so no verdict differs, and their output is a `::warning::`
-annotation on a merged PR.
+Assumption: that an `ulimit -v` cap records a runaway mutant as CAUGHT rather than
+`Unviable`.
 
-Assumption: that an `ulimit -v` cap causes cargo-mutants to record a runaway mutant as
-CAUGHT rather than `Unviable`. Settled by running `ulimit -v 8388608; cargo mutants` on
-Linux and reading `summary` for `src/lib.rs:4:5` and `5:11` in `mutants.out/outcomes.json`.
+Disposition: **Addressed.** Consumer wiring moved in scope; aggravator corrected; matrix
+re-justified (and in round 2, deferred entirely). Assumption **measured**, not accepted —
+see the Memory cap table.
 
-Disposition: **Addressed.** Consumer wiring moved in-scope as three named ai-config changes
-(Consumer wiring section); goals rewritten; aggravator #1 replaced with an explicit note
-that the loop already tolerated crate failures; matrix re-justified on parallelism, timeout
-granularity, and defence-in-depth; PR legs made advisory with the same classification as
-the monthly legs. Assumption **checked, not accepted on argument** — measured on Linux in
-Docker: capped run gives exit 2 / 36 caught / 1 unviable, uncapped gives exit 3 / 35 caught
-/ 1 identical unviable. The cap converts the runaway mutant to CAUGHT and introduces no
-unviables. Recorded in the Memory cap section.
+#### Ergonomics (R1)
 
-### Ergonomics
+Finding: `mutation_review.py:497` selects only runs whose conclusion is `success`, so with
+`fail-fast: false` the partial-coverage case `aggregate: if: always()` exists to serve is
+exactly the case the consumer refuses to read. Secondary: the cap was specified only for the
+monthly legs while PR legs stayed uncapped; the stated cause of the six-month blindness does
+not hold (all six runs were red — the cause was that nobody opens a cron run); the dispatch
+override is impossible against a static YAML matrix; workflow count is 41; local/CI timeout
+drift.
 
-Finding: The consumer cannot see the merged artifact on any run where a leg fails.
-`mutation_review.py:497` selects `.workflow_runs | map(select(.conclusion == "success")) | first`.
-With `fail-fast: false`, one red leg makes the run conclusion `failure`, so the
-partial-coverage case `aggregate: if: always()` exists to serve is exactly the case the
-consumer refuses to read. This also makes goals 3 and 4 mutually exclusive as specified:
-any run red enough to warrant a look is a run whose report is unreachable.
+Assumption: same as Goal-Fit R1.
 
-Secondary: (a) The memory cap is specified only for the monthly Rust legs; the PR leg is a
-bare `cargo mutants --in-diff`, so a PR touching `collatz/collatz-rs/src/lib.rs:4-5`
-reproduces exit 143 on a required check — the design widens the bug's blast radius from one
-crate to eleven while applying the remedy to one of two surfaces. (b) The stated cause of
-the six-month blindness does not hold: all six runs were red, so there was no noise to bury
-the signal. The cause was "nobody opens a monthly cron run," and reducing red frequency
-does not create attention — goal 3 has no mechanism behind it. The repo already has the
-right pattern in `release-sbom-monitor.yml`, which files a labelled issue with `in:title`
-dedup. (c) `workflow_dispatch`'s single-crate override is impossible against a static YAML
-matrix list; it needs a preceding job emitting `fromJSON`-able output, which the sketch
-omits — and that path is Verification step 1, the acceptance check for the whole fix.
-(d) Workflow count is 41, not 39. (e) Local `make mutants` passes `--timeout 120` while CI
-passes 30; the spec does not say whether legs call `make` or `cargo` directly.
+Disposition: **Addressed.** Notification added; count corrected; timeout drift fixed in the
+Makefile. The matrix, and with it the `fail-fast`/`aggregate` interaction, is deferred to
+Phase B.
 
-Assumption: that a mutant killed by the `ulimit -v` cap is recorded CAUGHT rather than
-`Unviable`, a tool error, or a baseline failure. Same settling command as Goal-Fit.
+#### Risk (R1)
 
-Disposition: **Addressed.** Keeping survivors and timeouts green is now explicitly what
-makes partial-failure runs consumable, and is stated as such in Consumer wiring. PR legs
-get the same cap and classifier. Labelled-issue notification added on the
-`release-sbom-monitor.yml` pattern with `in:title` dedup. `plan` job added to make the
-dispatch override real. Count corrected to 41 throughout and in the `CLAUDE.md` follow-up.
-Makefiles move to `--timeout 30` to match CI; legs call `cargo` directly. Assumption
-measured — see Goal-Fit disposition.
+Finding: **The memory cap's failure mode is a green run.** Measured against 27.0.0 with
+mutant builds killed at exit 137 and the baseline intact: `5 mutants tested in 1s: 5
+unviable`, `exit=0` — green while testing nothing. Secondary: first-match `rglob`; the
+unspecified per-leg upload path and its least-common-ancestor collision; the cosmic-ray
+sqlite is never uploaded; `if: … != '[]'` fails open.
 
-### Risk
+Assumption: that a too-tight `ulimit -v` fails loudly.
 
-Finding: **The memory cap's failure mode is a green run, not a red one.** The exit-code
-table has no row for `unviable`, which is exactly the bucket the cap creates. Measured
-against cargo-mutants 27.0.0 with mutant builds killed (exit 137, the OOM signature) and
-the baseline untouched: `5 mutants tested in 1s: 5 unviable`, `exit=0` — green under the
-proposed rule. The spec deliberately routes the cap to rustc ("every child process inherits
-it") while calling the 8 GiB figure unverified, so the signal for "the cap is too tight" is
-a green leg that tested nothing. The partial mitigation is real (a cap that starves rustc
-outright fails the baseline, exit 4, red); the hole is the partial case, where the baseline
-builds and later mutant builds do not, because they run against a populated target dir at
-higher memory pressure. That degrades silently as `dtolnay/rust-toolchain@stable` pulls
-newer rustc — the six-months-unnoticed failure this design exists to kill, reintroduced in
-the harder-to-see direction. Fix, same script: classify on `mutants.out/outcomes.json`
-counts, not the exit code alone — red on `total_mutants == 0`, red or threshold-warned on
-`unviable > 0`. Exit 0 currently means "cargo-mutants had no complaint," not "this crate
-was tested."
+Disposition: **Addressed.** Count-based classification adopted (and in round 2 replaced with
+a stateless rule). `rglob` and sqlite upload are named changes. The `fromJSON` guard and
+upload-path items are deferred with the matrix. Assumption **partially settled** — measured
+clean on `collatz-rs`; the big-build crates are Verification step 2.
 
-Secondary: (a) `mutation_review.py:684-686` does
-`for candidate in artifact_dir.rglob("outcomes.json"): outcomes_path = candidate; break` —
-first match then stop, so even a correctly merged 11-crate artifact yields one crate.
-(b) The per-leg upload `path:` is unspecified; carrying over `**/mutants.out/` in a
-single-crate leg makes upload-artifact's least-common-ancestor rule strip the crate prefix,
-so `merge-multiple: true` collides all 11 legs onto identical paths. (c) The cosmic-ray
-consumer branch reads `artifact_dir / "cosmic-ray-session.sqlite"` with no rglob fallback,
-and that file is never uploaded — the Python consumer path has never worked.
-(d) `if: needs.detect.outputs.rust != '[]'` fails open: if `detect` errors before writing
-the output the value is `''`, the comparison is true, the job runs, and `fromJSON('')`
-throws.
+### Round 2 — reviewed at commit `5041fe3`
 
-Assumption: that a too-tight `ulimit -v` fails loudly. The spec's tuning plan ("if it
-starves rustc, raise it") only works if starving rustc yields a red leg. Settled on Linux
-in the largest-build crate: exit 0 or 2 with `unviable > 0` refutes it and the classifier
-must gate on counts; exit 4 or `unviable == 0` confirms it.
+#### Goal-Fit (R2)
 
-Disposition: **Addressed.** Classification now reads `outcomes.json` counts — red on
-`total_mutants == 0`, on missing/unparseable output, and on `unviable` above a committed
-per-crate expected count — with the exit-code table demoted to a secondary rule and the
-`unviable`-is-green hole documented inline. All four secondary items fixed: `rglob`
-collect-all and the sqlite upload are named ai-config/math changes, per-leg staging into
-`out/<slug>/` is specified with the LCA rationale, and the `detect` guard fails closed on a
-positive boolean. Assumption **partially settled**: measured clean on `collatz-rs` (capped
-and uncapped produce the same single unviable), so the cap is not starving that crate.
-`factorial-rs` and the other nine remain unmeasured, which is why the per-crate
-capped-vs-uncapped comparison is now Verification step 2 rather than a tuning note.
+Finding: the measured root cause has a four-line fix, and the spec spent ~15 files across
+two repos without pricing the increment against it. Goals 2 and 6 are solution statements,
+not problems; the matrix is sized against data that does not exist, because no serial run
+has ever completed. The advisory PR legs fail the reads-it test outright — no verdict can
+differ and nothing durable is produced — while costing 11 × `cargo install` plus 8 full
+cosmic-ray runs per PR. The per-crate expected-unviable count contradicts the spec's own
+Non-goals. Making all PR legs advisory silently _deletes_ `factorial-rs`'s existing blocking
+bar. Verified separately: math PRs #83 and #84 killed surviving mutants across seven
+sub-projects, both driven by local `make mutants` — the human path has a track record, the
+CI consumer path has produced nothing.
 
-### Adversarial Spec Review (comparison/judge designs only)
+Assumption: that a too-tight cap starves _partially_ (baseline builds, later mutants do not)
+rather than all-or-nothing. If starvation is all-or-nothing, roughly a third of the spec's
+new surface guards a state that cannot occur.
+
+Disposition: **Addressed.** Scope cut to Phase A; PR legs dropped entirely and the goal
+deleted; the per-crate baseline removed in favour of a stateless rule; `factorial-rs`'s bar
+preserved explicitly by leaving `mutation-pr.yml` untouched. The assumption is now guarded
+rather than predicted — `caught + missed == 0` catches the partial case without needing to
+know whether it occurs, and Verification step 2 measures it on the three crates where it
+could plausibly bind.
+
+#### Ergonomics (R2)
+
+Finding: the per-crate expected-unviable count is the committed baseline Non-goals rejects,
+and its most likely trigger is ordinary churn, not breakage — one-directional (only ever
+bumped up, so it loosens monotonically), and each false red blanks that month's report for
+every crate. **The notification step dies with the runner it exists to report on**: it was
+placed inside the leg, and SIGTERM skips `if: always()` steps — so runner death and leg
+timeout, the two classes with no other output, file nothing. Secondary: Verification step 2
+was unrunnable as written because the uncapped arm on `collatz-rs` is the bug; local
+`make mutants` keeps the memory bug on macOS; no close-on-green makes the label a pile of
+stale rows; `workflow_dispatch` free-text input typos into an empty run.
+
+Assumption: that a crate's `unviable` count is stable across source edits and rustc drift.
+
+Disposition: **Addressed.** Baseline removed. Notification moved to a separate job with a
+status-file protocol where a missing file _is_ the runner-death signal, and Verification
+step 7 forces that exact path. Step 2 narrowed to the three GMP/MPFR crates. Makefile
+carries the cap with a Darwin warning. Close-on-green added. The assumption is now moot —
+nothing depends on `unviable` stability.
+
+#### Risk (R2)
+
+Finding: **the new "missing `outcomes.json` = red" rule produces a merge-blocking false red
+on the modal PR.** Measured (and independently re-measured): a `--in-diff` run with no
+mutable lines in the diff prints `INFO No mutants to filter`, exits 0, and writes no
+`mutants.out/` — so a TDD-first PR adding a test would go red across 11 crates. **The
+`timeout` bucket has exactly the hole `unviable` was just fixed for**: exit 3 is green with
+no guard, and that is the cap's blind spot, since a mutation that spins without allocating
+still times out. Both collapse into `caught + missed == 0`. Secondary: the expected-unviable
+calibration is circular ("first run establishes it" bakes in any starvation already
+present); "PR legs are advisory" was asserted but not implemented, since `ci-gate.sh` matches
+exact check names with no glob path; the cross-repo list was incomplete (`--artifact` is
+single-valued; `mutation-testing.yml` is hardcoded at `:666`); `fetch_latest_artifact` has no
+date bound, so a red run silently yields stale survivors reported as current; the `plan` job
+is complexity the matrix creates rather than complexity that solves the problem.
+
+Assumption: that a crate's `unviable` count is a durable constant.
+
+Disposition: **Addressed.** Stateless rule adopted; the missing-`outcomes.json` rule now
+requires a non-zero exit, with the measurement recorded inline; the `--artifact` arity, the
+hardcoded workflow name, and the missing date bound are all named ai-config changes; the
+`plan` job and PR legs are gone with Phase B and the PR-leg decision respectively. The
+assumption is moot — no committed count remains.
+
+### Adversarial Spec Review
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
