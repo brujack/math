@@ -1,5 +1,7 @@
 # Mutation Testing Phase A Implementation Plan
 
+> **Status: DONE** — merged as #91 (8 tasks) plus #93 (errexit fix). Phase B trigger met: first green full run.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make `mutation-testing.yml` produce its first green run in six months, and make a red one reach the maintainer.
