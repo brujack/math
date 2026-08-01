@@ -62,6 +62,9 @@ perfect-numbers_1e*.txt
 # docs skill audit manifests — session-local, not source
 .claude/docs-audit/*.jsonl
 
+# subagent cost logs — session-local, not source
+.claude/cost-log/*.jsonl
+
 # Credential files — never commit
 .aws/
 .azure_creds/
