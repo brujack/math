@@ -273,8 +273,8 @@ Language-specific standards for this repo. These supplement the universal standa
 from `~/.claude/CLAUDE.md` (tdd, behavior, git-workflow, ci, code-standards, logic-review,
 repo-structure, shell).
 
-@~~/.claude/standards/python.md
-@~~/.claude/standards/rust.md
+@~/.claude/standards/python.md
+@~/.claude/standards/rust.md
 
 ## Testing Policy
 
