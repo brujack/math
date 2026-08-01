@@ -67,3 +67,27 @@ teardown() {
     run bash "${REPO_ROOT}/scripts/pre-commit"
     [ "$status" -ne 0 ]
 }
+
+@test "staged file in factorial/factorial-rs/ does NOT also lint sibling factorial/" {
+    export MOCK_GIT_DIFF_NAMES="factorial/factorial-rs/src/main.rs"
+    run bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -eq 0 ]
+    ! grep -q "make -C ${BATS_TEST_TMPDIR}/fake-root/factorial lint" "${MOCK_CALLS_FILE}"
+}
+
+@test "staged file directly in factorial/ calls make for factorial only, not factorial-rs" {
+    export MOCK_GIT_DIFF_NAMES="factorial/factorial.py"
+    run bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -eq 0 ]
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-root/factorial lint" "${MOCK_CALLS_FILE}"
+    [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 1 ]
+}
+
+@test "staged files in factorial/ and factorial/factorial-rs/ calls make for both dirs" {
+    export MOCK_GIT_DIFF_NAMES=$'factorial/factorial.py\nfactorial/factorial-rs/src/main.rs'
+    run bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -eq 0 ]
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-root/factorial lint" "${MOCK_CALLS_FILE}"
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-root/factorial/factorial-rs lint" "${MOCK_CALLS_FILE}"
+    [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 2 ]
+}

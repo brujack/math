@@ -7,13 +7,31 @@ if [[ -z "${REPO_ROOT}" ]]; then
         || { printf "pre-commit: could not determine repo root\n" >&2; exit 1; }
 fi
 
-# Run lint for each sub-project that has staged changes
-for dir in pi pi/pi-rs prime/prime-rs fib fib/fib-rs sq sq/sq-rs twin-primes/twin-primes-rs e e/e-rs factorial factorial/factorial-rs perfect-numbers perfect-numbers/perfect-numbers-rs collatz collatz/collatz-rs goldbach/goldbach-rs amicable amicable/amicable-rs; do
-    if git diff --cached --name-only | grep -q "^${dir}/"; then
-        printf "lint: %s\n" "${dir}"
-        make -C "${REPO_ROOT}/${dir}" lint
-    fi
-done
+# Run lint for each sub-project that has staged changes. Each staged file is
+# attributed to its longest (most specific) matching dir prefix only — e.g.
+# pi/pi-rs/Makefile matches both "pi" and "pi/pi-rs"; only "pi/pi-rs" (the
+# longer match) is linted, not the sibling Python project "pi".
+dirs=(pi pi/pi-rs prime/prime-rs fib fib/fib-rs sq sq/sq-rs twin-primes/twin-primes-rs e e/e-rs factorial factorial/factorial-rs perfect-numbers perfect-numbers/perfect-numbers-rs collatz collatz/collatz-rs goldbach/goldbach-rs amicable amicable/amicable-rs)
+
+staged_files="$(git diff --cached --name-only)"
+
+matched_dirs=""
+while IFS= read -r file; do
+    [[ -z "${file}" ]] && continue
+    best=""
+    for dir in "${dirs[@]}"; do
+        if [[ "${file}" == "${dir}/"* && ${#dir} -gt ${#best} ]]; then
+            best="${dir}"
+        fi
+    done
+    [[ -n "${best}" ]] && matched_dirs="${matched_dirs}${best}"$'\n'
+done <<< "${staged_files}"
+
+while IFS= read -r dir; do
+    [[ -z "${dir}" ]] && continue
+    printf "lint: %s\n" "${dir}"
+    make -C "${REPO_ROOT}/${dir}" lint
+done < <(printf '%s' "${matched_dirs}" | sort -u)
 
 if command -v ggshield &>/dev/null; then
     ggshield secret scan pre-commit

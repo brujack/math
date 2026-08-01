@@ -38,26 +38,94 @@ jobs:
         env:
           CRATE: ${{ github.event.inputs.crate }}
         run: |
-          set -e
           target="${CRATE}"
           if [[ -n "${target}" ]]; then
-            printf "Mutation testing single crate: %s\n" "${target}"
-            cd "${target}"
-            cargo mutants --timeout 30 --no-shuffle
+            crate_dirs="${target}"
           else
-            failed=0
-            for cargo_toml in $(find . -name Cargo.toml -not -path '*/target/*' -not -path '*/.cache/*'); do
-              crate_dir=$(dirname "${cargo_toml}")
-              printf "\n=== Mutation testing %s ===\n" "${crate_dir}"
-              (cd "${crate_dir}" && cargo mutants --timeout 30 --no-shuffle) || failed=1
-            done
-            exit "${failed}"
+            crate_dirs=$(find . -name Cargo.toml -not -path '*/target/*' -not -path '*/.cache/*' -exec dirname {} \;)
           fi
+
+          # Without this, an empty crate_dirs (find failure, bad dispatch input,
+          # or a repo layout change) skips the loop entirely and exits 0 --
+          # reporting green having tested nothing. The classifier catches an
+          # untested crate; only this catches an untested run.
+          if [[ -z "${crate_dirs//[[:space:]]/}" ]]; then
+            printf "error: no crates found to test — refusing to report green\n" >&2
+            exit 1
+          fi
+          printf "crates to test: %s\n" "$(printf '%s\n' ${crate_dirs} | wc -l | tr -d ' ')"
+
+          mkdir -p "${GITHUB_WORKSPACE}/status"
+          failed=0
+          for crate_dir in ${crate_dirs}; do
+            printf "\n=== Mutation testing %s ===\n" "${crate_dir}"
+            make -C "${crate_dir}" mutants; rc=$?
+            slug="$(printf '%s' "${crate_dir#./}" | tr '/' '-')"
+            if "${GITHUB_WORKSPACE}/scripts/mutation-classify.sh" \
+                 "${rc}" "${crate_dir}/mutants.out/outcomes.json" "${crate_dir}" \
+                 | tee -a "${GITHUB_STEP_SUMMARY}" "${GITHUB_WORKSPACE}/status/${slug}"; then
+              :
+            else
+              failed=1
+            fi
+          done
+          exit "${failed}"
 
       - name: Upload mutants output
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: mutants-output
-          path: "**/mutants.out/"
+          path: |
+            **/mutants.out/
+            status/
           retention-days: 30
+
+  notify:
+    needs: [mutants]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        continue-on-error: true
+        with:
+          name: mutants-output
+          path: artifact
+      - name: File, comment, or close the tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESULT: ${{ needs.mutants.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -u
+          title="mutation-testing: monthly run failed"
+          existing=$(gh issue list --state open --label mutation-failure \
+            --search "in:title \"${title}\"" --json number --jq '.[0].number // empty')
+
+          if [[ "${RESULT}" == "success" ]]; then
+            if [[ -n "${existing}" ]]; then
+              gh issue comment "${existing}" --body "Green as of ${RUN_URL}. Closing."
+              gh issue close "${existing}"
+            fi
+            exit 0
+          fi
+
+          if [[ -d artifact/status ]]; then
+            crates=$(grep -l '^red' artifact/status/* 2>/dev/null \
+              | xargs -r -n1 basename | sed 's/^/- /')
+            detail="Failing crates:"$'\n'"${crates:-- (none flagged; see run log)}"
+          else
+            detail="No artifact was produced. The runner was terminated (exit 143) or the job timed out, so the failing crate cannot be attributed from CI alone — inspect the run log."
+          fi
+          body="Run: ${RUN_URL}"$'\n\n'"${detail}"
+
+          if [[ -n "${existing}" ]]; then
+            gh issue comment "${existing}" --body "${body}"
+          else
+            gh label create mutation-failure --color B60205 \
+              --description "Monthly mutation run failed" 2>/dev/null || true
+            gh issue create --title "${title}" --label mutation-failure --body "${body}"
+          fi

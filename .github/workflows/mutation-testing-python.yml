@@ -36,22 +36,109 @@ jobs:
         env:
           TARGET: ${{ github.event.inputs.subproject }}
         run: |
-          set -e
           PYTHON_DIRS=(fib amicable collatz e factorial perfect-numbers pi sq)
           if [[ -n "${TARGET}" ]]; then
-            printf "Mutation testing single sub-project: %s\n" "${TARGET}"
-            make -C "${TARGET}" mutants
+            dirs=("${TARGET}")
           else
-            for dir in "${PYTHON_DIRS[@]}"; do
-              printf "\n=== Mutation testing %s ===\n" "${dir}"
-              make -C "${dir}" mutants || true
-            done
+            dirs=("${PYTHON_DIRS[@]}")
           fi
+
+          # An empty dirs array (bad dispatch input, or PYTHON_DIRS list
+          # drift) skips the loop entirely and exits 0 -- reporting green
+          # having tested nothing.
+          if [[ "${#dirs[@]}" -eq 0 ]]; then
+            printf "error: no sub-projects found to test — refusing to report green\n" >&2
+            exit 1
+          fi
+
+          mkdir -p "${GITHUB_WORKSPACE}/status"
+          failed=0
+          for dir in "${dirs[@]}"; do
+            printf "\n=== Mutation testing %s ===\n" "${dir}"
+            make -C "${dir}" mutants; rc=$?
+            sqlite="${dir}/cosmic-ray-session.sqlite"
+
+            if [[ "${rc}" -ne 0 ]]; then
+              status="red: ${dir} — make mutants failed (exit ${rc})"
+              failed=1
+            elif [[ ! -f "${sqlite}" ]]; then
+              status="red: ${dir} — cosmic-ray-session.sqlite missing after a successful run"
+              failed=1
+            else
+              cr_out="$(mktemp)"
+              if cr-report "${sqlite}" > "${cr_out}" 2>&1; then
+                # A zero survivor count is not an error (grep -c returns 1
+                # with no matches) -- only guard the grep, not cr-report
+                # itself, which must still fail the sub-project on error.
+                survivors=$(grep -c 'Outcome.SURVIVED' "${cr_out}" || true)
+                status="green: ${dir} — ${survivors} surviving mutant(s)"
+              else
+                status="red: ${dir} — cr-report failed on ${sqlite}"
+                failed=1
+              fi
+              rm -f "${cr_out}"
+            fi
+
+            printf "%s\n" "${status}" | tee -a "${GITHUB_STEP_SUMMARY}" "${GITHUB_WORKSPACE}/status/${dir}"
+          done
+          exit "${failed}"
 
       - name: Upload mutants reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: mutants-report-python
-          path: "**/mutants-report.txt"
+          path: |
+            **/mutants-report.txt
+            **/cosmic-ray-session.sqlite
+            status/
           retention-days: 30
+
+  notify:
+    needs: [mutants]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        continue-on-error: true
+        with:
+          name: mutants-report-python
+          path: artifact
+      - name: File, comment, or close the tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESULT: ${{ needs.mutants.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -u
+          title="mutation-testing-python: monthly run failed"
+          existing=$(gh issue list --state open --label mutation-failure \
+            --search "in:title \"${title}\"" --json number --jq '.[0].number // empty')
+
+          if [[ "${RESULT}" == "success" ]]; then
+            if [[ -n "${existing}" ]]; then
+              gh issue comment "${existing}" --body "Green as of ${RUN_URL}. Closing."
+              gh issue close "${existing}"
+            fi
+            exit 0
+          fi
+
+          if [[ -d artifact/status ]]; then
+            subprojects=$(grep -l '^red' artifact/status/* 2>/dev/null \
+              | xargs -r -n1 basename | sed 's/^/- /')
+            detail="Failing sub-projects:"$'\n'"${subprojects:-- (none flagged; see run log)}"
+          else
+            detail="No artifact was produced. The runner was terminated (exit 143) or the job timed out, so the failing sub-project cannot be attributed from CI alone — inspect the run log."
+          fi
+          body="Run: ${RUN_URL}"$'\n\n'"${detail}"
+
+          if [[ -n "${existing}" ]]; then
+            gh issue comment "${existing}" --body "${body}"
+          else
+            gh label create mutation-failure --color B60205 \
+              --description "Monthly mutation run failed" 2>/dev/null || true
+            gh issue create --title "${title}" --label mutation-failure --body "${body}"
+          fi

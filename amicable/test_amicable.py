@@ -4,6 +4,9 @@ import tempfile
 import unittest
 import unittest.mock
 
+from hypothesis import given
+from hypothesis import strategies as st
+
 from amicable import (
     find_amicable_pairs,
     get_exponent,
@@ -11,9 +14,6 @@ from amicable import (
     parse_args,
     proper_divisor_sum_sieve,
 )
-
-from hypothesis import given
-from hypothesis import strategies as st
 
 
 class TestProperDivisorSumSieve(unittest.TestCase):
@@ -120,12 +120,14 @@ class TestMain(unittest.TestCase):
             old = os.getcwd()
             os.chdir(d)
             try:
-                with unittest.mock.patch("sys.argv", ["amicable.py", "3"]):
-                    with unittest.mock.patch(
+                with (
+                    unittest.mock.patch("sys.argv", ["amicable.py", "3"]),
+                    unittest.mock.patch(
                         "sys.stdout", new_callable=io.StringIO
-                    ) as mock_out:
-                        main()
-                        output = mock_out.getvalue()
+                    ) as mock_out,
+                ):
+                    main()
+                    output = mock_out.getvalue()
                 self.assertIn("220 284", output)
                 with open("amicable_1e3.txt") as f:
                     self.assertEqual(f.read(), "220 284\n")
@@ -137,22 +139,26 @@ class TestMain(unittest.TestCase):
             old = os.getcwd()
             os.chdir(d)
             try:
-                with unittest.mock.patch("sys.argv", ["amicable.py", "1"]):
-                    with unittest.mock.patch(
+                with (
+                    unittest.mock.patch("sys.argv", ["amicable.py", "1"]),
+                    unittest.mock.patch(
                         "sys.stdout", new_callable=io.StringIO
-                    ) as mock_out:
-                        main()
-                        self.assertEqual(mock_out.getvalue(), "")
+                    ) as mock_out,
+                ):
+                    main()
+                    self.assertEqual(mock_out.getvalue(), "")
                 with open("amicable_1e1.txt") as f:
                     self.assertEqual(f.read(), "")
             finally:
                 os.chdir(old)
 
     def test_permission_error_exits(self):
-        with unittest.mock.patch("sys.argv", ["amicable.py", "1"]):
-            with unittest.mock.patch("builtins.open", side_effect=PermissionError):
-                with self.assertRaises(SystemExit):
-                    main()
+        with (
+            unittest.mock.patch("sys.argv", ["amicable.py", "1"]),
+            unittest.mock.patch("builtins.open", side_effect=PermissionError),
+            self.assertRaises(SystemExit),
+        ):
+            main()
 
 
 class TestAmicableProperties(unittest.TestCase):
@@ -196,6 +202,7 @@ class TestEntryPointGuard(unittest.TestCase):
             input="n\n",
             capture_output=True,
             text=True,
+            check=False,
             timeout=30,
             cwd=tempfile.gettempdir(),
         )

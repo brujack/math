@@ -273,8 +273,8 @@ Language-specific standards for this repo. These supplement the universal standa
 from `~/.claude/CLAUDE.md` (tdd, behavior, git-workflow, ci, code-standards, logic-review,
 repo-structure, shell).
 
-@~/.claude/standards/python.md
-@~/.claude/standards/rust.md
+@~~/.claude/standards/python.md
+@~~/.claude/standards/rust.md
 
 ## Testing Policy
 
@@ -313,7 +313,11 @@ For a mathematical library, **correctness is the primary quality metric** — co
 - **Per-crate:** `make mutants` in any Rust crate directory
 - **CI:** `.github/workflows/mutation-testing.yml` runs monthly (`cron: "0 4 1 * *"`) and on-demand via `workflow_dispatch`
 - **Interpretation:** A "surviving mutant" means a code change went undetected by tests — strengthen the test to kill it. 100% kill rate is the goal but rarely achievable; >80% is good for math code.
-- **Per-mutant timeout:** `--timeout 30` (30 seconds per mutant). The previous value of 120s caused CI to exceed the 360-minute job limit when running all 11 crates. 30s is sufficient — algorithmic mutations either cause fast failures or produce infinite loops caught promptly by the timeout.
+- **Per-mutant timeout:** `--timeout 30`, set in each crate's `Makefile` `mutants` target — NOT in the workflow, which calls `make -C <crate> mutants` so local and CI share one definition. They previously disagreed (Makefiles 120, workflow 30) with nothing reconciling them.
+- **Memory cap:** `ulimit -v 8388608` (8 GiB) in the same recipe. `cargo mutants --timeout` is wall-clock only with no memory bound, so an allocation-unbounded mutant exhausts the 16 GB runner well inside the 30s budget and kills the runner agent along with the job. This is why all six `mutation-testing.yml` runs between 2026-06-01 and 2026-08-01 failed with exit 143 (SIGTERM). An earlier note here blamed the 360-minute job timeout combined with infinite-loop mutations and reduced `--timeout` from 120 to 30 in response; **that diagnosis was wrong** — the 2026-08-01 run died 119 seconds in, and the change did not help. See ADR-0024.
+- **`MUTANTS_UNCAPPED=1`** runs without the cap. Required on macOS, which cannot enforce `ulimit -v` at all (`cannot modify limit: Invalid argument`) — a local `make mutants` fails closed with an explicit message rather than silently running uncapped and eating system memory. Also the way to reproduce the pre-fix OOM deliberately.
+- **Green/red:** a leg is red only when it evaluated nothing (`caught + missed == 0`, which covers all-unviable, all-timeout, and zero-mutant), when the baseline tests fail, or when the runner dies. Survivors (exit 2) and timeouts (exit 3) are green and reported to the job summary — both are the expected steady state, and gating on them guarantees a red run every month. `scripts/mutation-classify.sh` implements this; `tests/scripts/mutation_classify.bats` covers every rule.
+- **Notification:** a red run files or updates a labelled `mutation-failure` issue; a green run closes it. The notify job is separate from the mutants job with `needs: [mutants], if: always()`, because SIGTERM skips `if: always()` _steps_ inside the job it kills — which is why six months of runs uploaded zero artifacts.
 
 When adding a new Rust crate, include `mutants` in its `Makefile` `.PHONY` list and target. Periodically run mutation testing per crate; investigate any surviving mutants in `lib/`-style code (logic, not main glue).
 
@@ -344,7 +348,7 @@ With this assertion, the filename encodes the actual N value — a mutant that a
 
 ## CI
 
-Thirty-nine workflow files. Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail.
+Forty-one workflow files (`git ls-files .github/workflows/ | wc -l`). Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail.
 
 | Workflow                | File                                            | Jobs                                                                                            |
 | ----------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------- |
