@@ -38,26 +38,35 @@ jobs:
         env:
           CRATE: ${{ github.event.inputs.crate }}
         run: |
-          set -e
           target="${CRATE}"
           if [[ -n "${target}" ]]; then
-            printf "Mutation testing single crate: %s\n" "${target}"
-            cd "${target}"
-            cargo mutants --timeout 30 --no-shuffle
+            crate_dirs="${target}"
           else
-            failed=0
-            for cargo_toml in $(find . -name Cargo.toml -not -path '*/target/*' -not -path '*/.cache/*'); do
-              crate_dir=$(dirname "${cargo_toml}")
-              printf "\n=== Mutation testing %s ===\n" "${crate_dir}"
-              (cd "${crate_dir}" && cargo mutants --timeout 30 --no-shuffle) || failed=1
-            done
-            exit "${failed}"
+            crate_dirs=$(find . -name Cargo.toml -not -path '*/target/*' -not -path '*/.cache/*' -exec dirname {} \;)
           fi
+
+          mkdir -p "${GITHUB_WORKSPACE}/status"
+          failed=0
+          for crate_dir in ${crate_dirs}; do
+            printf "\n=== Mutation testing %s ===\n" "${crate_dir}"
+            make -C "${crate_dir}" mutants; rc=$?
+            slug="$(printf '%s' "${crate_dir#./}" | tr '/' '-')"
+            if "${GITHUB_WORKSPACE}/scripts/mutation-classify.sh" \
+                 "${rc}" "${crate_dir}/mutants.out/outcomes.json" "${crate_dir}" \
+                 | tee -a "${GITHUB_STEP_SUMMARY}" "${GITHUB_WORKSPACE}/status/${slug}"; then
+              :
+            else
+              failed=1
+            fi
+          done
+          exit "${failed}"
 
       - name: Upload mutants output
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: mutants-output
-          path: "**/mutants.out/"
+          path: |
+            **/mutants.out/
+            status/
           retention-days: 30
