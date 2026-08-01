@@ -59,7 +59,8 @@ jobs:
           failed=0
           for crate_dir in ${crate_dirs}; do
             printf "\n=== Mutation testing %s ===\n" "${crate_dir}"
-            make -C "${crate_dir}" mutants; rc=$?
+            rc=0
+            make -C "${crate_dir}" mutants || rc=$?
             slug="$(printf '%s' "${crate_dir#./}" | tr '/' '-')"
             if "${GITHUB_WORKSPACE}/scripts/mutation-classify.sh" \
                  "${rc}" "${crate_dir}/mutants.out/outcomes.json" "${crate_dir}" \

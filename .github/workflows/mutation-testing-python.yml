@@ -55,7 +55,8 @@ jobs:
           failed=0
           for dir in "${dirs[@]}"; do
             printf "\n=== Mutation testing %s ===\n" "${dir}"
-            make -C "${dir}" mutants; rc=$?
+            rc=0
+            make -C "${dir}" mutants || rc=$?
             sqlite="${dir}/cosmic-ray-session.sqlite"
 
             if [[ "${rc}" -ne 0 ]]; then
