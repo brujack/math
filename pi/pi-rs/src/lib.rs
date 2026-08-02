@@ -26,6 +26,7 @@ pub static BS_LEAF_COUNT: AtomicU64 = AtomicU64::new(0);
 // ---------------------------------------------------------------------------
 
 /// (P, Q, T) accumulators for a range [a, b) of the Chudnovsky series.
+#[derive(Debug)]
 pub struct Pqt {
     pub p: Integer,
     pub q: Integer,

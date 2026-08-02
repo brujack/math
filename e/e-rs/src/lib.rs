@@ -23,6 +23,7 @@ pub static BS_LEAF_COUNT: AtomicU64 = AtomicU64::new(0);
 /// (P, Q) accumulators for a range [a, b) of the Taylor series.
 ///
 /// Full series [0, N):  e = Q / P
+#[derive(Debug)]
 pub struct Pq {
     pub p: Integer,
     pub q: Integer,
