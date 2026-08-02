@@ -62,13 +62,20 @@ jobs:
             rc=0
             make -C "${crate_dir}" mutants || rc=$?
             slug="$(printf '%s' "${crate_dir#./}" | tr '/' '-')"
-            if "${GITHUB_WORKSPACE}/scripts/mutation-classify.sh" \
-                 "${rc}" "${crate_dir}/mutants.out/outcomes.json" "${crate_dir}" \
-                 | tee -a "${GITHUB_STEP_SUMMARY}" "${GITHUB_WORKSPACE}/status/${slug}"; then
-              :
-            else
-              failed=1
-            fi
+            # Capture the verdict and its exit code BEFORE any pipe. Piping the
+            # classifier into tee makes the pipeline's status tee's, which always
+            # succeeds -- so a red crate was printed, written to status/, and
+            # then silently dropped from `failed`. Measured: the first full sweep
+            # reported success with two red crates in its own log.
+            # `|| cls=$?` and not `; cls=$?`: a command-substitution assignment
+            # takes the command's exit status, so under GitHub's `bash -e` a red
+            # verdict would abort the block here instead of being recorded.
+            cls=0
+            verdict=$("${GITHUB_WORKSPACE}/scripts/mutation-classify.sh" \
+              "${rc}" "${crate_dir}/mutants.out/outcomes.json" "${crate_dir}") || cls=$?
+            printf '%s\n' "${verdict}" \
+              | tee -a "${GITHUB_STEP_SUMMARY}" "${GITHUB_WORKSPACE}/status/${slug}"
+            [[ ${cls} -eq 0 ]] || failed=1
           done
           exit "${failed}"
 
