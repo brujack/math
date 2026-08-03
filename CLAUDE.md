@@ -273,8 +273,29 @@ Language-specific standards for this repo. These supplement the universal standa
 from `~/.claude/CLAUDE.md` (tdd, behavior, git-workflow, ci, code-standards, logic-review,
 repo-structure, shell).
 
-@~/.claude/standards/python.md
-@~/.claude/standards/rust.md
+@~~/.claude/standards/python.md
+@~~/.claude/standards/rust.md
+
+### API-quality lints (all 11 Rust crates)
+
+Every `*-rs/Cargo.toml` enables two Rust API Guidelines items a compiler can check:
+
+```toml
+[lints.rust]
+missing_debug_implementations = "warn"   # C-DEBUG
+
+[lints.clippy]
+wrong_self_convention = "warn"           # C-CONV
+```
+
+`scripts/rust-check.sh` runs clippy with `-D warnings`, so both are blocking, not
+advisory — a new `pub struct` without `#[derive(Debug)]` fails `make lint`.
+
+`missing_docs` (`C-DOCS`) is deliberately **not** enabled here. It is a guideline about
+API consumed across a crate boundary, and these crates have none: all 11 `lib.rs` files
+were created in one commit so Criterion benches could call the logic, 3 of 344 commits
+have ever touched one, and none is published. It ships in `etch-cli` instead, where a
+real cross-crate consumer exists.
 
 ## Testing Policy
 

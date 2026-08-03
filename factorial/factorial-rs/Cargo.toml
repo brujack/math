@@ -26,6 +26,10 @@ harness = false
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+wrong_self_convention = "warn"
 
 [profile.release]
 opt-level = 3

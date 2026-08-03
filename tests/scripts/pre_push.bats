@@ -70,3 +70,24 @@ teardown() {
     grep -q "merge-base" "${MOCK_CALLS_FILE}"
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi test" "${MOCK_CALLS_FILE}"
 }
+
+@test "rust-only change does not drag in the python sibling suite" {
+    # CI scopes pi.py with the single-level glob `pi/*.py`, which cannot match
+    # a file under pi/pi-rs/. The hook must not be broader than the gate it
+    # approximates.
+    export MOCK_GIT_DIFF_NAMES="pi/pi-rs/src/lib.rs"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi/pi-rs test" "${MOCK_CALLS_FILE}"
+    ! grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi test" "${MOCK_CALLS_FILE}"
+}
+
+@test "python-only change does not drag in the rust sibling suite" {
+    export MOCK_GIT_DIFF_NAMES="pi/pi.py"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi test" "${MOCK_CALLS_FILE}"
+    ! grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi/pi-rs test" "${MOCK_CALLS_FILE}"
+}

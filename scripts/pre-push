@@ -25,7 +25,17 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     for dir in pi pi/pi-rs prime/prime-rs fib fib/fib-rs sq sq/sq-rs twin-primes/twin-primes-rs e e/e-rs factorial factorial/factorial-rs perfect-numbers perfect-numbers/perfect-numbers-rs collatz collatz/collatz-rs goldbach/goldbach-rs amicable amicable/amicable-rs; do
         # Only trigger tests when Python or Rust source changed, not Makefiles
         # or workflow files. Makefile/CI changes don't affect test outcomes.
-        if git diff --name-only "${range}" | grep -qE "^${dir}/.*\.(py|rs)$"; then
+        #
+        # Match each sub-project the way its own CI workflow does: a `*-rs`
+        # workflow watches `<dir>/**`, a Python one watches the single-level
+        # glob `<dir>/*.py`. A deep pattern on a Python dir also matches its
+        # own nested `<dir>/<dir>-rs/...` sources, so a Rust-only push would
+        # run the unrelated Python suite.
+        case "${dir}" in
+            *-rs) _pattern="^${dir}/.*\.rs$" ;;
+            *) _pattern="^${dir}/[^/]*\.py$" ;;
+        esac
+        if git diff --name-only "${range}" | grep -qE "${_pattern}"; then
             DIRS_TO_TEST+=("${dir}")
         fi
     done
