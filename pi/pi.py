@@ -16,11 +16,12 @@ or manually:
 import argparse
 import concurrent.futures
 import multiprocessing
-import mpmath
 import os
 import sys
 import threading
 import time
+
+import mpmath
 
 # ---------------------------------------------------------------------------
 # Optional fast backend: gmpy2 (GMP + MPFR)
@@ -591,7 +592,7 @@ def save_pi_to_file(pi_value, digits, filename):  # noqa: C901 — multi-backend
         + "\n\n"
     ).encode("utf-8")
     pi_bytes = pi_str.encode("ascii")  # π digits are pure ASCII → 1 byte/char
-    footer = f"\n\nTotal decimal places: {digits:,}".encode("utf-8")
+    footer = f"\n\nTotal decimal places: {digits:,}".encode()
 
     total_file_size = len(header) + len(pi_bytes) + len(footer)
     pi_offset = len(header)
@@ -700,7 +701,7 @@ def main():
     except ValueError as error:
         print(f"\nError: {error}")
         sys.exit(1)
-    except Exception as e:
+    except (RuntimeError, OSError, ArithmeticError, EOFError, MemoryError) as e:
         print(f"\nError occurred during calculation: {e}")
         sys.exit(1)
 

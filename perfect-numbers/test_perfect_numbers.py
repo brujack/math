@@ -6,6 +6,8 @@ import unittest
 import unittest.mock
 from contextlib import redirect_stdout
 
+from hypothesis import given
+from hypothesis import strategies as st
 from perfect_numbers import (
     generate_perfect_numbers,
     get_exponent,
@@ -14,9 +16,6 @@ from perfect_numbers import (
     main,
     verify_perfect,
 )
-
-from hypothesis import given
-from hypothesis import strategies as st
 
 PERFECT_NUMBERS = {
     2: 6,
@@ -305,6 +304,7 @@ class TestEntryPointGuard(unittest.TestCase):
             text=True,
             timeout=30,
             cwd=tempfile.gettempdir(),
+            check=False,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("6", proc.stdout)

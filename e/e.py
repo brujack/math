@@ -17,11 +17,12 @@ import argparse
 import concurrent.futures
 import math
 import multiprocessing
-import mpmath
 import os
 import sys
 import threading
 import time
+
+import mpmath
 
 # ---------------------------------------------------------------------------
 # Optional fast backend: gmpy2 (GMP + MPFR)
@@ -474,7 +475,7 @@ def save_e_to_file(e_value, digits, filename):  # noqa: C901 — multi-backend p
         + "\n\n"
     ).encode("utf-8")
     e_bytes = e_str.encode("ascii")
-    footer = f"\n\nTotal decimal places: {digits:,}".encode("utf-8")
+    footer = f"\n\nTotal decimal places: {digits:,}".encode()
 
     total_file_size = len(header) + len(e_bytes) + len(footer)
     e_offset = len(header)
@@ -681,7 +682,7 @@ def main():
     except ValueError as error:
         print(f"\nError: {error}")
         sys.exit(1)
-    except Exception as ex:
+    except (RuntimeError, OSError, ArithmeticError, EOFError, MemoryError) as ex:
         print(f"\nError occurred during calculation: {ex}")
         sys.exit(1)
 

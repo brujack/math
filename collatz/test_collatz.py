@@ -7,10 +7,10 @@ import unittest
 import unittest.mock
 from contextlib import redirect_stdout
 
-from collatz import collatz_length, collatz_next, generate_records, get_exponent, main
-
 from hypothesis import given
 from hypothesis import strategies as st
+
+from collatz import collatz_length, collatz_next, generate_records, get_exponent, main
 
 
 class TestCollatzNext(unittest.TestCase):
@@ -208,6 +208,7 @@ class TestEntryPointGuard(unittest.TestCase):
             text=True,
             timeout=30,
             cwd=tempfile.gettempdir(),
+            check=False,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("6171", proc.stdout)

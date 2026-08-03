@@ -27,9 +27,9 @@ from hypothesis import strategies as st
 import e as e_module
 from e import (
     _HAS_GMPY2,
-    _tree_combine,
-    _e_to_str,
     _bs_chunk_worker,
+    _e_to_str,
+    _tree_combine,
     calculate_e,
     get_target_digits,
     parse_args,
@@ -557,7 +557,7 @@ class TestGmpy2WorkerFunctions(unittest.TestCase):
     """Cover _gmpy2_str_from_PQ and _convert_gmpy2_worker (subprocess-only paths)."""
 
     def test_gmpy2_str_from_pq_matches_e(self):
-        from e import _gmpy2_str_from_PQ, _calculate_e_gmpy2
+        from e import _calculate_e_gmpy2, _gmpy2_str_from_PQ
 
         with redirect_stdout(io.StringIO()):
             _, P_int, Q_int = _calculate_e_gmpy2(20)
@@ -565,7 +565,7 @@ class TestGmpy2WorkerFunctions(unittest.TestCase):
         self.assertTrue(s.startswith("2.71828182845904523536"))
 
     def test_convert_gmpy2_worker_dispatches(self):
-        from e import _convert_gmpy2_worker, _calculate_e_gmpy2
+        from e import _calculate_e_gmpy2, _convert_gmpy2_worker
 
         with redirect_stdout(io.StringIO()):
             _, P_int, Q_int = _calculate_e_gmpy2(15)
@@ -578,6 +578,7 @@ class TestConvertMpmathWorker(unittest.TestCase):
 
     def test_returns_string(self):
         import mpmath
+
         from e import _convert_mpmath_worker
 
         mpmath.mp.dps = 60
@@ -679,6 +680,7 @@ class TestSaveEToFilePhaseAFallback(unittest.TestCase):
 
     def test_fallback_writes_file_and_prints_message(self):
         import mpmath
+
         from e import save_e_to_file
 
         mpmath.mp.dps = 25
@@ -715,6 +717,7 @@ class TestProcessPoolPermissionError(unittest.TestCase):
 
     def test_falls_back_to_serial(self):
         import mpmath
+
         from e import save_e_to_file
 
         mpmath.mp.dps = 25
@@ -774,6 +777,7 @@ class TestProcessPoolSemaphoreExhaustion(unittest.TestCase):
 
     def test_semaphore_exhaustion_enospc_falls_back_to_serial(self):
         import errno
+
         from e import save_e_to_file
 
         path = os.path.join(self._tmp, "e_sem2.txt")
@@ -1003,9 +1007,26 @@ class TestEntryPointGuard(unittest.TestCase):
             text=True,
             timeout=30,
             cwd=tempfile.gettempdir(),
+            check=False,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("e", proc.stdout)
+
+    def test_eof_on_stdin_prints_clean_message_not_traceback(self):
+        import subprocess
+
+        proc = subprocess.run(
+            [sys.executable, e_module.__file__, "5"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=tempfile.gettempdir(),
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        self.assertIn("Error occurred during calculation", proc.stdout)
+        self.assertNotIn("Traceback", proc.stderr)
 
 
 class TestEProperties(unittest.TestCase):
