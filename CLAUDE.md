@@ -90,6 +90,22 @@ make test      # lint, then python3 -m unittest test_pi -v
 make coverage  # coverage run + report
 ```
 
+**Ruff config.** A single `ruff.toml` at the repo root reaches all 8 Python subprojects
+via ancestor discovery — do not create per-subproject configs. It is the fleet-wide shared
+`select` list (ai-config ADR-0058) plus one math-local addition, `C901`, retained because
+this repo already enforced complexity. `ruff==0.16.1` is pinned at all 15 install sites
+(8 `*-py.yml` workflows + 7 `install_deps.sh`).
+
+`make lint` inside a subproject is correct as written. A bare `ruff check .` **from the
+repo root** is a different thing and is red — 7 findings in `scripts/` and `tests/`, which
+sit outside every gated scope and are linted by nothing. `pi/install_deps.sh` also installs
+no ruff while `pi/Makefile` runs it; both are known gaps, tracked in ai-config's backlog.
+
+The two `# noqa: C901` directives in `e/e.py` and `pi/pi.py` are load-bearing: both
+functions measure complexity 21 against a ceiling of 10, and `maintainability-review`
+invokes `ruff check --select C901` on the CLI — which overrides any config — so removing
+a suppression without changing the code reads to its ratchet as a 0 → 21 regression.
+
 ### Rust (`pi/pi-rs/`)
 
 ```bash
