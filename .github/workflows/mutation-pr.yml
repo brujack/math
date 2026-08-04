@@ -11,7 +11,10 @@ env:
 jobs:
   mutation-pr:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 10 minutes only fits a diff touching one or two sub-projects. A change
+    # spanning all 8 runs cosmic-ray 8 times and is cancelled mid-step, which
+    # fails a REQUIRED check even though the cosmic-ray step is advisory.
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
