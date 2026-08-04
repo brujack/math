@@ -10,11 +10,11 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-import sq as sq_module
-from sq import generate_squares, parse_args, get_exponent, main
-
 from hypothesis import given
 from hypothesis import strategies as st
+
+import sq as sq_module
+from sq import generate_squares, get_exponent, main, parse_args
 
 
 class TestGenerateSquares(unittest.TestCase):
@@ -300,6 +300,7 @@ class TestEntryPoint(unittest.TestCase):
             text=True,
             timeout=10,
             cwd=tempfile.gettempdir(),
+            check=False,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("Perfect Square", proc.stdout)
@@ -313,7 +314,7 @@ class TestSquaresProperties(unittest.TestCase):
 
     @given(st.integers(min_value=1, max_value=6))
     def test_all_positive(self, max_digits):
-        for n, root in generate_squares(max_digits):
+        for n, _root in generate_squares(max_digits):
             self.assertGreater(n, 0)
 
     @given(st.integers(min_value=1, max_value=6))

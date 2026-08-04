@@ -26,22 +26,22 @@ from hypothesis import strategies as st
 
 import pi as pi_module
 from pi import (
-    _HAS_GMPY2,
     _CHU_A,
     _CHU_B,
     _CHU_C3_OVER_24,
-    _tree_combine,
-    _pwrite_all,
-    _pi_to_str,
-    _gmpy2_str_from_QT,
-    _gmpy2_mpfr_to_str,
+    _HAS_GMPY2,
     _convert_gmpy2_worker,
     _convert_mpmath_worker,
-    show_pi_preview,
-    save_pi_to_file,
+    _gmpy2_mpfr_to_str,
+    _gmpy2_str_from_QT,
+    _pi_to_str,
+    _pwrite_all,
+    _tree_combine,
+    calculate_pi_high_precision,
     get_target_digits,
     parse_args,
-    calculate_pi_high_precision,
+    save_pi_to_file,
+    show_pi_preview,
 )
 
 # Known decimal expansion of π — used for accuracy assertions.
@@ -720,7 +720,8 @@ class TestPiToStrNegativeSign(unittest.TestCase):
     """Cover the negative-sign branch in `_gmpy2_mpfr_to_str`."""
 
     def test_negative_mpfr_sign_branch(self):
-        from pi import _gmpy2 as g, _gmpy2_mpfr_to_str
+        from pi import _gmpy2 as g
+        from pi import _gmpy2_mpfr_to_str
 
         ctx = g.get_context()
         saved = ctx.precision
@@ -823,8 +824,9 @@ class TestSavePiEstimateAndProgress(unittest.TestCase):
         os.rmdir(self._tmp)
 
     def test_estimate_conversion_time_tiers(self):
-        from pi import save_pi_to_file
         import mpmath
+
+        from pi import save_pi_to_file
 
         class _FakeFuture:
             def __init__(self, v):
@@ -1132,9 +1134,26 @@ class TestEntryPointGuard(unittest.TestCase):
             text=True,
             timeout=30,
             cwd=tempfile.gettempdir(),
+            check=False,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("3.14159", proc.stdout)
+
+    def test_eof_on_stdin_prints_clean_message_not_traceback(self):
+        import subprocess
+
+        proc = subprocess.run(
+            [sys.executable, pi_module.__file__, "5"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=tempfile.gettempdir(),
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        self.assertIn("Error occurred during calculation", proc.stdout)
+        self.assertNotIn("Traceback", proc.stderr)
 
 
 class TestPiProperties(unittest.TestCase):

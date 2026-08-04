@@ -10,11 +10,11 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-import fib
-from fib import generate_fibonacci, parse_args, get_exponent, main
-
 from hypothesis import given
 from hypothesis import strategies as st
+
+import fib
+from fib import generate_fibonacci, get_exponent, main, parse_args
 
 
 class TestGenerateFibonacci(unittest.TestCase):
@@ -324,6 +324,7 @@ class TestEntryPoint(unittest.TestCase):
             text=True,
             timeout=10,
             cwd=tempfile.gettempdir(),
+            check=False,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("Fibonacci", proc.stdout)

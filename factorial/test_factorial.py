@@ -18,15 +18,15 @@ from hypothesis import strategies as st
 
 from factorial import (
     _HAS_GMPY2,
-    _gmpy2,
-    _sieve,
     _compute_swing,
     _compute_swing_chunk,
+    _gmpy2,
+    _sieve,
     _tree_combine_int,
-    calculate_factorial,
-    parse_args,
-    get_target_n,
     _write_factorial_file,
+    calculate_factorial,
+    get_target_n,
+    parse_args,
 )
 
 # Known exact factorial values for testing.
@@ -468,6 +468,7 @@ class TestEntryPointGuard(unittest.TestCase):
             text=True,
             timeout=30,
             cwd=tempfile.gettempdir(),
+            check=False,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("Computing 5!", proc.stdout)
