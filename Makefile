@@ -1,4 +1,12 @@
-.PHONY: install-hooks test-hooks changelog validate-plan
+.PHONY: install-hooks test-hooks lint-hooks changelog validate-plan
+
+# Every shell file at the repo root that nothing else lints: the six scripts in
+# scripts/ (three of them extensionless hooks, so an extension-keyed sweep skips
+# them) and the bats suites that cover them. None of these was shellchecked by
+# any target or workflow before.
+SHELL_SOURCES := scripts/ci-gate.sh scripts/mutation-classify.sh scripts/rust-check.sh \
+                 scripts/pre-commit scripts/pre-push scripts/commit-msg
+BATS_SOURCES := $(shell find tests -name '*.bats' | sort)
 
 install-hooks:
 	ln -sf "../../scripts/pre-commit" "$$(git rev-parse --git-path hooks)/pre-commit"
@@ -8,6 +16,13 @@ install-hooks:
 
 test-hooks:
 	bats --recursive tests/
+
+# --severity=warning, not shellcheck's default: bats' run/@test model emits
+# SC2030/SC2031 subshell notices structurally, which say nothing about
+# correctness. Everything at warning+ is fixed and this target is clean.
+lint-hooks:
+	shellcheck --severity=warning $(SHELL_SOURCES)
+	@if [ -n "$(BATS_SOURCES)" ]; then shellcheck --severity=warning $(BATS_SOURCES); fi
 
 changelog:
 	git-cliff -o CHANGELOG.md
