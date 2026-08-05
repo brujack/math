@@ -1,5 +1,17 @@
 #!/usr/bin/env bats
 
+# A bare `! grep -q ...` only fails a bats test while it is the last command in
+# the body (shellcheck SC2314); anywhere else the negation is silently ignored
+# and the assertion cannot fail. Every negative assertion in this file goes
+# through here instead, which also names what it found on failure.
+assert_no_match() {
+    if grep -q "$1" "${MOCK_CALLS_FILE}" 2>/dev/null; then
+        printf 'expected no match for %s, but calls were:\n%s\n' \
+            "$1" "$(cat "${MOCK_CALLS_FILE}")" >&2
+        return 1
+    fi
+}
+
 ZEROS="0000000000000000000000000000000000000000"
 
 setup() {
@@ -20,14 +32,14 @@ teardown() {
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat ${ZEROS} refs/heads/feat abc123"
     [ "$status" -eq 0 ]
-    ! grep -q "^make" "${MOCK_CALLS_FILE}" 2>/dev/null
+    assert_no_match "^make"
 }
 
 @test "no changed files in push range skips make" {
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
-    ! grep -q "^make" "${MOCK_CALLS_FILE}" 2>/dev/null
+    assert_no_match "^make"
 }
 
 @test "changed file in pi/ uses worktree root in make path" {
@@ -52,6 +64,26 @@ teardown() {
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 2 ]
+}
+
+@test "hook/script change runs the bats suite via test-hooks" {
+    # Regression guard: the sub-project loop only matches <dir>/*.py and
+    # <dir>/**/*.rs, so a change to the hooks themselves matched nothing and
+    # pushed with no local test at all.
+    export MOCK_GIT_DIFF_NAMES="scripts/pre-push"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test-hooks" "${MOCK_CALLS_FILE}"
+}
+
+@test "bats-only change runs test-hooks and no sub-project suite" {
+    export MOCK_GIT_DIFF_NAMES="tests/scripts/pre_push.bats"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -q "test-hooks" "${MOCK_CALLS_FILE}"
+    [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 1 ]
 }
 
 @test "make test failure exits non-zero" {
@@ -80,7 +112,7 @@ teardown() {
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi/pi-rs test" "${MOCK_CALLS_FILE}"
-    ! grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi test" "${MOCK_CALLS_FILE}"
+    assert_no_match "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi test"
 }
 
 @test "python-only change does not drag in the rust sibling suite" {
@@ -89,5 +121,5 @@ teardown() {
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi test" "${MOCK_CALLS_FILE}"
-    ! grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi/pi-rs test" "${MOCK_CALLS_FILE}"
+    assert_no_match "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi/pi-rs test"
 }

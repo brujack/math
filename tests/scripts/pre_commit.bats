@@ -1,5 +1,17 @@
 #!/usr/bin/env bats
 
+# A bare `! grep -q ...` only fails a bats test while it is the last command in
+# the body (shellcheck SC2314); anywhere else the negation is silently ignored
+# and the assertion cannot fail. Every negative assertion in this file goes
+# through here instead, which also names what it found on failure.
+assert_no_match() {
+    if grep -q "$1" "${MOCK_CALLS_FILE}" 2>/dev/null; then
+        printf 'expected no match for %s, but calls were:\n%s\n' \
+            "$1" "$(cat "${MOCK_CALLS_FILE}")" >&2
+        return 1
+    fi
+}
+
 setup() {
     REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
     source "${REPO_ROOT}/tests/helpers/common.bash"
@@ -17,7 +29,7 @@ teardown() {
 @test "no staged changes exits 0 without calling make" {
     run bash "${REPO_ROOT}/scripts/pre-commit"
     [ "$status" -eq 0 ]
-    ! grep -q "^make" "${MOCK_CALLS_FILE}" 2>/dev/null
+    assert_no_match "^make"
 }
 
 @test "staged file in pi/ calls make with absolute path" {
@@ -72,7 +84,7 @@ teardown() {
     export MOCK_GIT_DIFF_NAMES="factorial/factorial-rs/src/main.rs"
     run bash "${REPO_ROOT}/scripts/pre-commit"
     [ "$status" -eq 0 ]
-    ! grep -q "make -C ${BATS_TEST_TMPDIR}/fake-root/factorial lint" "${MOCK_CALLS_FILE}"
+    assert_no_match "make -C ${BATS_TEST_TMPDIR}/fake-root/factorial lint"
 }
 
 @test "staged file directly in factorial/ calls make for factorial only, not factorial-rs" {
