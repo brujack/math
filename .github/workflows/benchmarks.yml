@@ -23,22 +23,53 @@ jobs:
 
       - name: Run all benchmarks
         run: |
-          for dir in \
-            factorial/factorial-rs \
-            pi/pi-rs \
-            e/e-rs \
-            fib/fib-rs \
-            collatz/collatz-rs \
-            amicable/amicable-rs \
-            prime/prime-rs \
-            perfect-numbers/perfect-numbers-rs \
-            twin-primes/twin-primes-rs \
-            goldbach/goldbach-rs \
-            sq/sq-rs; do
-            echo "Benchmarking $dir..."
-            cargo bench --manifest-path "$dir/Cargo.toml" \
-              -- --output-format bencher 2>/dev/null >> output.txt || true
+          # "<crate dir>:<bench target>". The target is spelled out rather than
+          # derived from the directory because two of the eleven do not match:
+          # perfect-numbers/ declares perfect_numbers and twin-primes/ declares
+          # twin_primes. A basename-derived name silently breaks exactly those.
+          #
+          # --bench is required. A bare `cargo bench` also runs each crate's
+          # default libtest harness, which rejects Criterion's --output-format
+          # and aborts before any benchmark runs — that is why every monthly run
+          # since 2026-06-01 produced an empty output.txt and blamed the store
+          # step below. The old `2>/dev/null ... || true` discarded both the exit
+          # code and the message naming the flag.
+          failed_crates=()
+          for pair in \
+            factorial/factorial-rs:factorial \
+            pi/pi-rs:pi \
+            e/e-rs:e \
+            fib/fib-rs:fib \
+            collatz/collatz-rs:collatz \
+            amicable/amicable-rs:amicable \
+            prime/prime-rs:prime \
+            perfect-numbers/perfect-numbers-rs:perfect_numbers \
+            twin-primes/twin-primes-rs:twin_primes \
+            goldbach/goldbach-rs:goldbach \
+            sq/sq-rs:sq; do
+            dir="${pair%:*}"
+            bench="${pair##*:}"
+            printf 'Benchmarking %s (--bench %s)...\n' "${dir}" "${bench}"
+            if ! cargo bench --manifest-path "${dir}/Cargo.toml" \
+                 --bench "${bench}" -- --output-format bencher >> output.txt; then
+              failed_crates+=("${dir}")
+            fi
           done
+
+          # Report every failure rather than stopping at the first: across
+          # eleven crates on a monthly job, which ones broke is the useful part.
+          if [[ ${#failed_crates[@]} -gt 0 ]]; then
+            printf 'bench failed: %s\n' "${failed_crates[@]}" >&2
+            exit 1
+          fi
+
+          # A loop that benchmarks eleven crates must not report success having
+          # produced nothing. This is the check that would have caught the bug
+          # directly instead of via the store action.
+          if [[ ! -s output.txt ]]; then
+            printf 'no benchmark output produced\n' >&2
+            exit 1
+          fi
 
       - name: Store benchmark results
         uses: benchmark-action/github-action-benchmark@v1

@@ -1,4 +1,4 @@
-.PHONY: install-hooks test-hooks lint-hooks changelog validate-plan
+.PHONY: install-hooks test-hooks test-python test lint-hooks changelog validate-plan
 
 # Every shell file at the repo root that nothing else lints: the six scripts in
 # scripts/ (three of them extensionless hooks, so an extension-keyed sweep skips
@@ -16,6 +16,14 @@ install-hooks:
 
 test-hooks:
 	bats --recursive tests/
+
+# tests/*.py were type-checked by pyright and never executed by anything —
+# test_time_tests.py sat green-by-assumption for its whole life. This target is
+# what actually runs them.
+test-python:
+	python3 -m unittest discover -s tests -p 'test_*.py'
+
+test: test-hooks test-python
 
 # --severity=warning, not shellcheck's default: bats' run/@test model emits
 # SC2030/SC2031 subshell notices structurally, which say nothing about
