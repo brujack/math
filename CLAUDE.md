@@ -429,6 +429,16 @@ Forty-one workflow files (`git ls-files .github/workflows/ | wc -l`). Project wo
 
 **Shell script testing** — BATS (`bats --recursive tests/`) is the standard for all shell script tests in this repo. Run with `make test-hooks`. Requires system-installed bats-core: `brew install bats-core` (macOS) or `sudo apt-get install -y bats` (Linux).
 
+**Repo-level Python tests** — `make test-python` runs `python3 -m unittest discover -s tests -p 'test_*.py'`,
+and `make test` runs `test-hooks` then `test-python`. Added 2026-08-07 (#104). Before that nothing executed
+`tests/*.py` at all: `scripts.yml` ran bats and pyright, so `tests/test_time_tests.py` was type-checked but
+its 8 tests had never once run. `scripts.yml` now calls `make test-python` alongside the bats step. Note this
+is repo-level only — each sub-project keeps its own `make test`.
+
+**`.claude/scripts/triage_log.py`** — vendored per-repo (it does not ship via the `~/.claude/scripts/` symlink)
+because `bug-fix-cycle` emits its telemetry through it. Paired suite at `tests/test_triage_log.py`; the JSONL
+it writes is gitignored.
+
 - `tests/helpers/common.bash` — shared REPO_ROOT export and `load_mocks()` (prepends `tests/mocks/` to PATH)
 - `tests/mocks/` — PATH-injected mock executables: `make` (logs calls, exits `$MOCK_MAKE_EXIT`), `git` (dispatches by subcommand, outputs from per-subcommand env vars), `ggshield` (logs calls, exits `$MOCK_GGSHIELD_EXIT`), `gh` (sequential JSON responses via `MOCK_GH_PR_CHECKS_N`, exits `$MOCK_GH_EXIT`)
 - `tests/scripts/` — BATS test files; one per script tested (`rust_check.bats`, `pre_commit.bats`, `pre_push.bats`, `ci_gate.bats`, `makefile.bats`)
