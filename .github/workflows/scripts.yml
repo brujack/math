@@ -23,6 +23,9 @@ jobs:
         run: make lint-hooks
       - name: Run hook and script tests
         run: bats --recursive tests/
+
+      - name: Run Python tests
+        run: make test-python
       - name: Run pyright
         run: pyright
         working-directory: scripts
