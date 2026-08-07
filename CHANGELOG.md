@@ -11,6 +11,20 @@
 
 - use exact-phrase title search in SBOM issue dedup check (#89)
 
+- end six months of dead mutation runs (#91)
+
+- restore the standards @-include paths
+
+- survive errexit so the classifier actually runs (#93)
+
+- stop tee from swallowing the classifier's verdict (#94)
+
+- capture red verdicts, which the classifier sends to stderr (#97)
+
+- shellcheck hooks and bats, run them on a hook-only push (#103)
+
+- scope each bench to its Criterion target, stop swallowing failures (#104)
+
 
 
 ## CI
@@ -22,10 +36,6 @@
 
 
 ## Documentation
-
-- ADR-0022 cosmic-ray supersedes mutmut
-
-- pointer stub per ADR-0020 (#80)
 
 - update README and add ADR-0023 for pytest migration
 
@@ -49,35 +59,35 @@
 
 - add maintainability-pass backlog row
 
+- spec per-project mutation testing split
+
+- revise mutation spec after multi-lens review
+
+- cut mutation spec to phase A after round 2 review
+
+- fix three defects found in peer architectural review
+
+- make MUTANTS_UNCAPPED work on the platform CI runs on
+
+- plan for mutation testing phase A
+
+- mark mutation testing phase A done
+
+- record the ruff config adopted this cycle
+
+- document the repo-level Python test runner and vendored triage_log
+
 
 
 ## Features
-
-- swap mutmut → cosmic-ray for 8 Python sub-projects (#77)
-
-- migrate to pytest and ruff format check
-
-- migrate to pytest and ruff format check
-
-- migrate pi and e to pytest and ruff format check
-
-- migrate to pytest and ruff format check
-
-- migrate to pytest and ruff format check
-
-- migrate to pytest and ruff format check
-
-- migrate to pytest and ruff format check
 
 - math adds python.md + rust.md language standards
 
 - add release SBOM vulnerability monitor (#88)
 
+- enforce C-DEBUG and C-CONV across all 11 Rust crates (#101)
 
-
-## Refactoring
-
-- adopt canonical .claude/memory + .claude/retrospectives layout (ADR-0014) (#78)
+- adopt shared ruff rule set and pin 0.16.1 (#102)
 
 
 
