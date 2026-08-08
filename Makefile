@@ -12,8 +12,12 @@
 # environment (ci.md/shell.md); without it this parse-time assignment can
 # silently resolve against the wrong repository.
 SHELLCHECK := $(shell command -v shellcheck 2>/dev/null)
-SHELL_SOURCES := $(shell env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
-                   git ls-files '*.sh' '*.bash') scripts/pre-commit scripts/pre-push scripts/commit-msg
+# Split so the derived half can be checked on its own: appending the three
+# literal hook paths would otherwise mask an empty git ls-files, and lint would
+# report a pass having examined 3 files instead of the full tracked set.
+SHELL_TRACKED := $(shell env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
+                   git ls-files '*.sh' '*.bash')
+SHELL_SOURCES := $(SHELL_TRACKED) scripts/pre-commit scripts/pre-push scripts/commit-msg
 BATS_SOURCES := $(shell env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
                    git ls-files '*.bats')
 
@@ -38,6 +42,10 @@ test: test-hooks test-python
 # shellcheck's default: bats' run/@test model emits SC2030/SC2031 subshell
 # notices structurally, which say nothing about correctness.
 lint-hooks:
+	@if [ -z "$(SHELL_TRACKED)" ]; then \
+	  printf 'lint-hooks: derived shell file list is EMPTY — refusing to report a pass having linted only the literal hook paths.\n' >&2; \
+	  exit 1; \
+	fi
 	@if [ -n "$(SHELLCHECK)" ]; then \
 	  shellcheck $(SHELL_SOURCES) && printf "shellcheck OK\n" || exit 1; \
 	  if [ -n "$(BATS_SOURCES)" ]; then shellcheck --severity=warning $(BATS_SOURCES) && printf "shellcheck bats OK\n" || exit 1; fi; \
