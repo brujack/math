@@ -1,0 +1,8 @@
+# .shellcheckrc — shared minimal configuration.
+#
+# SC1091 (not following sourced file) is the only repo-wide suppression, and it
+# is structurally unavoidable rather than a preference: the lib architecture
+# resolves source paths at runtime through $(dirname "${BASH_SOURCE[0]}"), which
+# does not exist at lint time. Every other suppression lives at its site with a
+# reason on the same line.
+disable=SC1091

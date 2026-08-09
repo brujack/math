@@ -1,12 +1,25 @@
 .PHONY: install-hooks test-hooks test-python test lint-hooks changelog validate-plan
 
-# Every shell file at the repo root that nothing else lints: the six scripts in
-# scripts/ (three of them extensionless hooks, so an extension-keyed sweep skips
-# them) and the bats suites that cover them. None of these was shellchecked by
-# any target or workflow before.
-SHELL_SOURCES := scripts/ci-gate.sh scripts/mutation-classify.sh scripts/rust-check.sh \
-                 scripts/pre-commit scripts/pre-push scripts/commit-msg
-BATS_SOURCES := $(shell find tests -name '*.bats' | sort)
+# Derived from the tracked set (git ls-files), not a hand-maintained list --
+# an omitted file leaves a hand-list's coverage unchanged rather than lowering
+# it (tdd.md "Coverage Denominators"), which is exactly how the previous
+# 6-file literal list covered only scripts/{ci-gate,mutation-classify,
+# rust-check}.sh and the three extensionless hooks, missing all 19
+# install_deps.sh scripts under the sub-projects and tests/helpers/common.bash.
+# The three hooks (pre-commit/pre-push/commit-msg) have no extension for a
+# `git ls-files` glob to match, so they stay listed explicitly. The env -u
+# prefix strips a GIT_DIR that git exports into a worktree pre-push hook's
+# environment (ci.md/shell.md); without it this parse-time assignment can
+# silently resolve against the wrong repository.
+SHELLCHECK := $(shell command -v shellcheck 2>/dev/null)
+# Split so the derived half can be checked on its own: appending the three
+# literal hook paths would otherwise mask an empty git ls-files, and lint would
+# report a pass having examined 3 files instead of the full tracked set.
+SHELL_TRACKED := $(shell env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
+                   git ls-files '*.sh' '*.bash')
+SHELL_SOURCES := $(SHELL_TRACKED) scripts/pre-commit scripts/pre-push scripts/commit-msg
+BATS_SOURCES := $(shell env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
+                   git ls-files '*.bats')
 
 install-hooks:
 	ln -sf "../../scripts/pre-commit" "$$(git rev-parse --git-path hooks)/pre-commit"
@@ -25,12 +38,20 @@ test-python:
 
 test: test-hooks test-python
 
-# --severity=warning, not shellcheck's default: bats' run/@test model emits
-# SC2030/SC2031 subshell notices structurally, which say nothing about
-# correctness. Everything at warning+ is fixed and this target is clean.
+# BATS_SOURCES run at --severity=warning, unlike SHELL_SOURCES which run at
+# shellcheck's default: bats' run/@test model emits SC2030/SC2031 subshell
+# notices structurally, which say nothing about correctness.
 lint-hooks:
-	shellcheck --severity=warning $(SHELL_SOURCES)
-	@if [ -n "$(BATS_SOURCES)" ]; then shellcheck --severity=warning $(BATS_SOURCES); fi
+	@if [ -z "$(SHELL_TRACKED)" ]; then \
+	  printf 'lint-hooks: derived shell file list is EMPTY — refusing to report a pass having linted only the literal hook paths.\n' >&2; \
+	  exit 1; \
+	fi
+	@if [ -n "$(SHELLCHECK)" ]; then \
+	  shellcheck $(SHELL_SOURCES) && printf "shellcheck OK\n" || exit 1; \
+	  if [ -n "$(BATS_SOURCES)" ]; then shellcheck --severity=warning $(BATS_SOURCES) && printf "shellcheck bats OK\n" || exit 1; fi; \
+	else \
+	  printf "shellcheck not found, skipping (install: brew install shellcheck)\n"; \
+	fi
 
 changelog:
 	git-cliff -o CHANGELOG.md
