@@ -74,18 +74,20 @@ jobs:
           sudo install -m755 "/tmp/shellcheck-v${SC_VER}/shellcheck" /usr/local/bin/shellcheck
           shellcheck --version | grep -q "version: ${SC_VER}"
 
-      # TODO(bruce, 2026-08-09, math bash-coverage port): bootstrap floor. 1%
-      # is a placeholder until CI has actually measured a figure here -- a
-      # floor set from a local run can disagree with CI's ubuntu-latest on
-      # the identical commit (dotfiles measured an 11-covered-line platform
-      # delta between a local macOS run and CI this way) and fail its own PR.
-      # FLOOR is defined once in the step below; changing that one value is
-      # the whole edit, and it silences the reminder automatically.
+      # Floor set from CI's own first measurement, not a local run. This job
+      # measured 267/1048 = 25% on ubuntu-latest, identical to the local macOS
+      # figure including both heuristic disagreements. FLOOR sits one point
+      # below at 24, matching dotfiles, ai-config and terraform_ansible.
       #
-      # A 1% gate is indistinguishable from a passing gate forever, so the
-      # step below emits a ::warning:: on every run while the placeholder is
-      # still in place, so the reminder appears in each PR's own checks
-      # summary instead of depending on someone re-reading this comment.
+      # Read this gate for what it is: 19 of the 26 instrumented files are
+      # per-subproject install_deps.sh that no suite invokes, so 73% of the
+      # denominator can never move. They stay in because untested is not
+      # uncoverable -- dropping them would raise the number by deleting the
+      # untested majority. The floor is therefore a ratchet against
+      # regression in the reachable quarter, not a quality bar for the repo.
+      #
+      # FLOOR is defined once below and referenced by the gate, the reminder
+      # condition and its message, so raising it is a one-line change.
       - name: Run bash coverage (bootstrap gate)
         run: |
           make bash-coverage > /tmp/bash-cov-out.txt 2>&1 || { cat /tmp/bash-cov-out.txt; exit 1; }
@@ -95,7 +97,7 @@ jobs:
           # therefore a ONE-line change; leaving it a literal in three places
           # is what would let the reminder keep announcing "1%" after the
           # floor moved, which is a false statement on every PR.
-          FLOOR=1
+          FLOOR=24
           PCT=$(grep "^Overall bash coverage:" /tmp/bash-cov-out.txt | grep -oE '[0-9]+')
           if [ -z "${PCT}" ]; then
             printf "FAIL: coverage output not found\n" >&2
