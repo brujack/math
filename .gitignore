@@ -23,6 +23,9 @@ __pycache__/
 .coverage.*
 htmlcov/
 
+# Bash coverage tracer output (scripts/run-bash-coverage.sh)
+coverage/
+
 # Mutation testing artifacts (cosmic-ray)
 cosmic-ray-session.sqlite
 mutants-report.txt
