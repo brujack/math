@@ -1,4 +1,4 @@
-.PHONY: install-hooks test-hooks test-python test lint-hooks changelog validate-plan
+.PHONY: install-hooks test-hooks test-python test lint-hooks changelog validate-plan bash-coverage
 
 # Derived from the tracked set (git ls-files), not a hand-maintained list --
 # an omitted file leaves a hand-list's coverage unchanged rather than lowering
@@ -12,6 +12,7 @@
 # environment (ci.md/shell.md); without it this parse-time assignment can
 # silently resolve against the wrong repository.
 SHELLCHECK := $(shell command -v shellcheck 2>/dev/null)
+BATS := $(shell command -v bats 2>/dev/null)
 # Split so the derived half can be checked on its own: appending the three
 # literal hook paths would otherwise mask an empty git ls-files, and lint would
 # report a pass having examined 3 files instead of the full tracked set.
@@ -37,6 +38,20 @@ test-python:
 	python3 -m unittest discover -s tests -p 'test_*.py'
 
 test: test-hooks test-python
+
+# Not wired into `test` or `lint-hooks` — it re-runs the entire bats suite
+# under a PS4 xtrace tracer, which takes minutes, so it stays an explicit,
+# separately-invoked target (CI runs it in its own job; see
+# .github/workflows/auto-merge.yml). Guarded the same way as SHELLCHECK
+# above: a missing bats would otherwise hard-lock a machine out of this one
+# target, but since it's not part of the pre-commit/pre-push gate, a hard
+# $(error) here (matching dotfiles' bash-coverage target) is fine — nothing
+# else depends on this succeeding locally.
+bash-coverage:
+ifndef BATS
+	$(error bats not found. Install: brew install bats-core (macOS) or sudo apt-get install bats (Linux))
+endif
+	@bash scripts/run-bash-coverage.sh
 
 # BATS_SOURCES run at --severity=warning, unlike SHELL_SOURCES which run at
 # shellcheck's default: bats' run/@test model emits SC2030/SC2031 subshell

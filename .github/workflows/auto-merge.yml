@@ -50,8 +50,71 @@ jobs:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: snyk code test
 
+  bash-coverage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install bats
+        run: sudo apt-get install -y bats
+
+      - name: Install shellcheck (pinned)
+        env:
+          SC_VER: "0.11.0"
+          SC_SHA256: "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
+        run: |
+          curl -fsSL -o /tmp/sc.tar.xz \
+            "https://github.com/koalaman/shellcheck/releases/download/v${SC_VER}/shellcheck-v${SC_VER}.linux.x86_64.tar.xz"
+          echo "${SC_SHA256}  /tmp/sc.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/sc.tar.xz -C /tmp
+          sudo install -m755 "/tmp/shellcheck-v${SC_VER}/shellcheck" /usr/local/bin/shellcheck
+          shellcheck --version | grep -q "version: ${SC_VER}"
+
+      # TODO(bruce, 2026-08-09, math bash-coverage port): bootstrap floor. 1%
+      # is a placeholder until CI has actually measured a figure here -- a
+      # floor set from a local run can disagree with CI's ubuntu-latest on
+      # the identical commit (dotfiles measured an 11-covered-line platform
+      # delta between a local macOS run and CI this way) and fail its own PR.
+      # FLOOR is defined once in the step below; changing that one value is
+      # the whole edit, and it silences the reminder automatically.
+      #
+      # A 1% gate is indistinguishable from a passing gate forever, so the
+      # step below emits a ::warning:: on every run while the placeholder is
+      # still in place, so the reminder appears in each PR's own checks
+      # summary instead of depending on someone re-reading this comment.
+      - name: Run bash coverage (bootstrap gate)
+        run: |
+          make bash-coverage > /tmp/bash-cov-out.txt 2>&1 || { cat /tmp/bash-cov-out.txt; exit 1; }
+          cat /tmp/bash-cov-out.txt
+          # Single source of truth for the floor -- referenced by the gate,
+          # the placeholder reminder, and its message. Raising the floor is
+          # therefore a ONE-line change; leaving it a literal in three places
+          # is what would let the reminder keep announcing "1%" after the
+          # floor moved, which is a false statement on every PR.
+          FLOOR=1
+          PCT=$(grep "^Overall bash coverage:" /tmp/bash-cov-out.txt | grep -oE '[0-9]+')
+          if [ -z "${PCT}" ]; then
+            printf "FAIL: coverage output not found\n" >&2
+            exit 1
+          fi
+          printf "Coverage: %d%%\n" "${PCT}"
+          if [ "${PCT}" -lt "${FLOOR}" ]; then
+            printf "FAIL: bash coverage %d%% is below the %d%% gate\n" "${PCT}" "${FLOOR}" >&2
+            exit 1
+          fi
+          # Self-surfacing placeholder reminder -- see the TODO above. Fires
+          # while the floor sits far below the measured figure; disappears on
+          # its own once the floor is raised, so it cannot become stale noise.
+          if [ "$((PCT - FLOOR))" -gt 20 ]; then
+            printf "::warning::bash-coverage floor (%d%%) is still the bootstrap placeholder; measured %d%% -- raise FLOOR in auto-merge.yml\n" "${FLOOR}" "${PCT}"
+          fi
+
   auto-merge:
-    needs: [secret-scan]
+    needs: [secret-scan, bash-coverage]
     runs-on: ubuntu-latest
     permissions:
       contents: write

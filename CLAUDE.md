@@ -385,39 +385,39 @@ With this assertion, the filename encodes the actual N value — a mutant that a
 
 ## CI
 
-Forty-one workflow files (`git ls-files .github/workflows/ | wc -l`). Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail.
+Forty-one workflow files (`git ls-files .github/workflows/ | wc -l`). Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail. `bash-coverage` is a new job (auto-merge.yml) — see Bash Coverage below.
 
-| Workflow                | File                                            | Jobs                                                                                            |
-| ----------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| pi.py                   | `.github/workflows/pi-py.yml`                   | test                                                                                            |
-| pi-rs                   | `.github/workflows/pi-rs.yml`                   | test → build + artifact                                                                         |
-| prime-rs                | `.github/workflows/prime-rs.yml`                | test → build + artifact                                                                         |
-| fib.py                  | `.github/workflows/fib-py.yml`                  | test                                                                                            |
-| fib-rs                  | `.github/workflows/fib-rs.yml`                  | test → build + artifact                                                                         |
-| sq.py                   | `.github/workflows/sq-py.yml`                   | test                                                                                            |
-| sq-rs                   | `.github/workflows/sq-rs.yml`                   | test → build + artifact                                                                         |
-| twin-primes-rs          | `.github/workflows/twin-primes-rs.yml`          | test → build + artifact                                                                         |
-| release-pi-rs           | `.github/workflows/release-pi-rs.yml`           | release (manual dispatch)                                                                       |
-| release-prime-rs        | `.github/workflows/release-prime-rs.yml`        | release (manual dispatch)                                                                       |
-| release-fib-rs          | `.github/workflows/release-fib-rs.yml`          | release (manual dispatch)                                                                       |
-| release-sq-rs           | `.github/workflows/release-sq-rs.yml`           | release (manual dispatch)                                                                       |
-| release-twin-primes-rs  | `.github/workflows/release-twin-primes-rs.yml`  | release (manual dispatch)                                                                       |
-| e.py                    | `.github/workflows/e-py.yml`                    | test                                                                                            |
-| e-rs                    | `.github/workflows/e-rs.yml`                    | test → build + artifact                                                                         |
-| release-e-rs            | `.github/workflows/release-e-rs.yml`            | release (manual dispatch)                                                                       |
-| factorial.py            | `.github/workflows/factorial-py.yml`            | test                                                                                            |
-| factorial-rs            | `.github/workflows/factorial-rs.yml`            | test → build + artifact                                                                         |
-| release-factorial-rs    | `.github/workflows/release-factorial-rs.yml`    | release (manual dispatch)                                                                       |
-| collatz.py              | `.github/workflows/collatz-py.yml`              | test                                                                                            |
-| collatz-rs              | `.github/workflows/collatz-rs.yml`              | test → build + artifact                                                                         |
-| goldbach-rs             | `.github/workflows/goldbach-rs.yml`             | test → build + artifact                                                                         |
-| amicable.py             | `.github/workflows/amicable-py.yml`             | test                                                                                            |
-| amicable-rs             | `.github/workflows/amicable-rs.yml`             | test → build + artifact                                                                         |
-| auto-merge              | `.github/workflows/auto-merge.yml`              | secret-scan → ci-gate (polls required checks, merges on pass) → snyk-scan (advisory, not gated) |
-| mutation-pr             | `.github/workflows/mutation-pr.yml`             | cosmic-ray on changed Python sub-projects (advisory; survivors warn, not block)                 |
-| mutation-testing        | `.github/workflows/mutation-testing.yml`        | cargo mutants on all Rust crates (monthly + workflow_dispatch)                                  |
-| mutation-testing-python | `.github/workflows/mutation-testing-python.yml` | cosmic-ray on all Python sub-projects (monthly + workflow_dispatch)                             |
-| scripts                 | `.github/workflows/scripts.yml`                 | test (bats --recursive tests/)                                                                  |
+| Workflow                | File                                            | Jobs                                                                                                                    |
+| ----------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| pi.py                   | `.github/workflows/pi-py.yml`                   | test                                                                                                                    |
+| pi-rs                   | `.github/workflows/pi-rs.yml`                   | test → build + artifact                                                                                                 |
+| prime-rs                | `.github/workflows/prime-rs.yml`                | test → build + artifact                                                                                                 |
+| fib.py                  | `.github/workflows/fib-py.yml`                  | test                                                                                                                    |
+| fib-rs                  | `.github/workflows/fib-rs.yml`                  | test → build + artifact                                                                                                 |
+| sq.py                   | `.github/workflows/sq-py.yml`                   | test                                                                                                                    |
+| sq-rs                   | `.github/workflows/sq-rs.yml`                   | test → build + artifact                                                                                                 |
+| twin-primes-rs          | `.github/workflows/twin-primes-rs.yml`          | test → build + artifact                                                                                                 |
+| release-pi-rs           | `.github/workflows/release-pi-rs.yml`           | release (manual dispatch)                                                                                               |
+| release-prime-rs        | `.github/workflows/release-prime-rs.yml`        | release (manual dispatch)                                                                                               |
+| release-fib-rs          | `.github/workflows/release-fib-rs.yml`          | release (manual dispatch)                                                                                               |
+| release-sq-rs           | `.github/workflows/release-sq-rs.yml`           | release (manual dispatch)                                                                                               |
+| release-twin-primes-rs  | `.github/workflows/release-twin-primes-rs.yml`  | release (manual dispatch)                                                                                               |
+| e.py                    | `.github/workflows/e-py.yml`                    | test                                                                                                                    |
+| e-rs                    | `.github/workflows/e-rs.yml`                    | test → build + artifact                                                                                                 |
+| release-e-rs            | `.github/workflows/release-e-rs.yml`            | release (manual dispatch)                                                                                               |
+| factorial.py            | `.github/workflows/factorial-py.yml`            | test                                                                                                                    |
+| factorial-rs            | `.github/workflows/factorial-rs.yml`            | test → build + artifact                                                                                                 |
+| release-factorial-rs    | `.github/workflows/release-factorial-rs.yml`    | release (manual dispatch)                                                                                               |
+| collatz.py              | `.github/workflows/collatz-py.yml`              | test                                                                                                                    |
+| collatz-rs              | `.github/workflows/collatz-rs.yml`              | test → build + artifact                                                                                                 |
+| goldbach-rs             | `.github/workflows/goldbach-rs.yml`             | test → build + artifact                                                                                                 |
+| amicable.py             | `.github/workflows/amicable-py.yml`             | test                                                                                                                    |
+| amicable-rs             | `.github/workflows/amicable-rs.yml`             | test → build + artifact                                                                                                 |
+| auto-merge              | `.github/workflows/auto-merge.yml`              | secret-scan + bash-coverage (gated) → ci-gate (polls required checks, merges on pass) → snyk-scan (advisory, not gated) |
+| mutation-pr             | `.github/workflows/mutation-pr.yml`             | cosmic-ray on changed Python sub-projects (advisory; survivors warn, not block)                                         |
+| mutation-testing        | `.github/workflows/mutation-testing.yml`        | cargo mutants on all Rust crates (monthly + workflow_dispatch)                                                          |
+| mutation-testing-python | `.github/workflows/mutation-testing-python.yml` | cosmic-ray on all Python sub-projects (monthly + workflow_dispatch)                                                     |
+| scripts                 | `.github/workflows/scripts.yml`                 | test (bats --recursive tests/)                                                                                          |
 
 **Pre-commit hook** — `scripts/pre-commit` is committed to the repo and installed as a symlink via `make install-hooks`. It runs `make lint` on staged sub-projects and `ggshield secret scan pre-commit` (skipped if not installed). CI gitleaks is a backstop — install and activate ggshield locally so secrets are caught before they leave the machine.
 
@@ -441,7 +441,24 @@ it writes is gitignored.
 
 - `tests/helpers/common.bash` — shared REPO_ROOT export and `load_mocks()` (prepends `tests/mocks/` to PATH)
 - `tests/mocks/` — PATH-injected mock executables: `make` (logs calls, exits `$MOCK_MAKE_EXIT`), `git` (dispatches by subcommand, outputs from per-subcommand env vars), `ggshield` (logs calls, exits `$MOCK_GGSHIELD_EXIT`), `gh` (sequential JSON responses via `MOCK_GH_PR_CHECKS_N`, exits `$MOCK_GH_EXIT`)
-- `tests/scripts/` — BATS test files; one per script tested (`rust_check.bats`, `pre_commit.bats`, `pre_push.bats`, `ci_gate.bats`, `makefile.bats`)
+- `tests/scripts/` — BATS test files; one per script tested (`rust_check.bats`, `pre_commit.bats`, `pre_push.bats`, `ci_gate.bats`, `makefile.bats`, `bash_coverage.bats`)
+
+### Bash Coverage
+
+Ported from `dotfiles/scripts/run-bash-coverage.sh` @ `c27cc4e` (2026-08-09) — a PS4 xtrace tracer that runs the whole bats suite under `BASH_ENV=scripts/bash-tracer.sh` and reports per-file and overall line coverage. Per-repo copy is deliberate; there is no cross-repo sharing mechanism today, and the copy carries the six rounds of defect-correction (plus two more found porting it into ai-config) baked in — see the header comment in `scripts/run-bash-coverage.sh` for math's specific divergences from the dotfiles source.
+
+- **Run:** `make bash-coverage` (guarded on a missing `bats` binary; not wired into `make test` or `make lint-hooks` — it re-runs the whole bats suite under the tracer, which takes minutes)
+- **Inspect without a full run:** `bash scripts/run-bash-coverage.sh --list-sources` (the instrumented set), `--count-coverable <file>`, `--file-coverage <file> <trace>`
+- **CI:** `.github/workflows/auto-merge.yml`'s `bash-coverage` job, gated in `auto-merge`'s `needs:` — see the bootstrap-floor note below
+- **Test:** `tests/scripts/bash_coverage.bats` — regression coverage for the `INCLUDE_FILES` predicate (every element derived independently in the test, never hardcoded against the script's own output)
+
+**Predicate — instrumented set is 26 files, tracked shell is 28.** The instrumented set is `git ls-files 'scripts/*.sh' '*/install_deps.sh' '*/*/install_deps.sh' scripts/pre-push scripts/pre-commit scripts/commit-msg`, less `scripts/bash-tracer.sh` (structurally uncoverable — `set -x` is its own last command, so nothing before it can be traced and nothing follows it). That is 4 `scripts/*.sh` files (`ci-gate.sh`, `mutation-classify.sh`, `rust-check.sh`, `run-bash-coverage.sh`; `bash-tracer.sh` matches the glob too but is filtered after derivation) + 19 `install_deps.sh` scripts across both directory-nesting depths + 3 extensionless hooks = **26 instrumented files**. Tracked shell overall is `git ls-files '*.sh' '*.bash'` (25, after this port added `run-bash-coverage.sh` and `bash-tracer.sh`) + the 3 hooks = 28; the instrumented set excludes only `tests/helpers/common.bash` (test code) and `bash-tracer.sh` (uncoverable) from that total. `run-bash-coverage.sh` is itself instrumented — it is not self-referentially traced when it runs the suite (`BASH_ENV` is only exported around the `bats` invocation), but every direct `bash scripts/run-bash-coverage.sh ...` subprocess call inside `tests/scripts/bash_coverage.bats` inherits `BASH_ENV` from the tracer's own bats run and gets traced that way.
+
+**The 19 `install_deps.sh` scripts are ~73% of math's instrumented set (19 of 26), and no bats suite executes any of them.** They are in the predicate anyway, and this is the load-bearing judgement of the whole port: a script no suite invokes is **untested**, not uncoverable. Excluding it would raise the reported percentage by deleting the untested majority from the denominator — precisely the flattering-denominator defect this tooling exists to eliminate (see `tdd.md`'s Coverage Denominators section). Expect a low headline percentage as a result — that is the honest number, not a bug in the port. (The count is 19, not 16 — an earlier estimate for this port undercounted the nested `<name>-rs/install_deps.sh` depth for `goldbach`, `prime`, and `twin-primes`, which have no top-level `install_deps.sh` at all, only the nested one. `git ls-files '*/install_deps.sh' '*/*/install_deps.sh' | wc -l` is the derivation; the Makefile's `SHELL_SOURCES` comment independently records the same 19.)
+
+**Floor is a bootstrap placeholder, not a measured gate.** `auto-merge.yml`'s `bash-coverage` job gates at `FLOOR=1` — a deliberate placeholder, not a real threshold, because a floor set from a local run can disagree with CI's `ubuntu-latest` on the identical commit (dotfiles measured an 11-covered-line platform delta this way) and fail its own PR. The job emits a `::warning::` on every run while `PCT - FLOOR > 20`, which self-silences once `FLOOR` is raised to a real value after this job has actually run in CI. Raising the floor is a one-line edit (`FLOOR=1` in the workflow step) — do not hardcode it in more than that one place.
+
+**Reachability was not separately re-measured for math.** dotfiles measured 14% of tracked shell lines reachable by its bats suite before any predicate correction; math's own figure will only be known once `bash-coverage` has actually run in CI (or a local `make bash-coverage` — not authoritative for the CI-set floor, but informative for a first read). Given 19 of 26 instrumented files are completely untested `install_deps.sh` scripts, expect a comparably low reachable fraction here too — publish the real number once the job has run rather than estimating it further.
 
 **Auto-merge gate:** `scripts/ci-gate.sh <PR>` is called by the `auto-merge` job before merging. It polls `gh pr checks` until all checks are terminal, then verifies no check outside the advisory list (`snyk-scan`) and self-checks (`secret-scan`, `auto-merge`) has failed. Docs-only PRs trigger no project workflows and merge immediately. The gate is tested via `tests/scripts/ci_gate.bats` using the `tests/mocks/gh` mock (runs fully offline).
 
