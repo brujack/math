@@ -25,21 +25,17 @@
 
 - scope each bench to its Criterion target, stop swallowing failures (#104)
 
+- sync tracer with dotfiles PR #204 hardening (#108)
+
 
 
 ## CI
 
-- add pytest and pytest-cov to all Python workflow pip installs
-
-- add mutation-pr per-PR gate workflow (#81)
+- lint all tracked shell at default severity (#105)
 
 
 
 ## Documentation
-
-- update README and add ADR-0023 for pytest migration
-
-- add bug-scan to Phase 3 chain
 
 - update test count tables for goldbach-rs and perfect-numbers-rs
 
@@ -77,17 +73,21 @@
 
 - document the repo-level Python test runner and vendored triage_log
 
+- name the tracer's real origin commit and expect re-syncs
+
 
 
 ## Features
-
-- math adds python.md + rust.md language standards
 
 - add release SBOM vulnerability monitor (#88)
 
 - enforce C-DEBUG and C-CONV across all 11 Rust crates (#101)
 
 - adopt shared ruff rule set and pin 0.16.1 (#102)
+
+- port the bash coverage tracer from dotfiles (#106)
+
+- set the floor from CI's own measurement (#107)
 
 
 
