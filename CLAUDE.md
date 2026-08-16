@@ -435,7 +435,14 @@ and `make test` runs `test-hooks` then `test-python`. Added 2026-08-07 (#104). B
 its 8 tests had never once run. `scripts.yml` now calls `make test-python` alongside the bats step. Note this
 is repo-level only — each sub-project keeps its own `make test`.
 
-**`.claude/scripts/triage_log.py`** — vendored per-repo (it does not ship via the `~/.claude/scripts/` symlink)
+**`.claude/scripts/triage_log.py`** — vendored per-repo because of its resolver, not its availability. It
+does ship via the `~/.claude/scripts/` symlink like every other script there; what fails is that its output
+dir is `Path(__file__).resolve().parent.parent / "triage-log"` and `.resolve()` follows the symlink, so
+invoking it through the home path writes this repo's triage log into ai-config. The vendored copy exists to
+put the log in the right repo. Sibling scripts need no vendoring — `cost_log.py`/`cost_summary.py` resolve
+`.claude/cost-log/` relative to the cwd and `dod_log.py` is home-anchored, so both are correct to invoke as
+`~/.claude/scripts/<name>`. Retiring this one means fixing the resolver (ai-config spec
+`2026-07-29-telemetry-home-anchoring-design.md`, still Status: Spec)
 because `bug-fix-cycle` emits its telemetry through it. Paired suite at `tests/test_triage_log.py`; the JSONL
 it writes is gitignored.
 
