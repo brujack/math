@@ -65,7 +65,8 @@ load '../helpers/common'
 
     while IFS= read -r wf; do
         [[ -z "${wf}" ]] && continue
-        grep -q 'cargo-machete' "${REPO_ROOT}/${wf}" || missing="${missing}${wf} "
+        grep -qE '^[[:space:]]*run:[[:space:]]*cargo install cargo-machete' \
+            "${REPO_ROOT}/${wf}" || missing="${missing}${wf} "
     done <<< "${workflows}"
 
     if [[ -n "${missing}" ]]; then
