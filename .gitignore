@@ -26,6 +26,9 @@ htmlcov/
 # Bash coverage tracer output (scripts/run-bash-coverage.sh)
 coverage/
 
+# Rust coverage output -- all 11 crates run `cargo tarpaulin --out Json`
+tarpaulin-report.json
+
 # Mutation testing artifacts (cosmic-ray)
 cosmic-ray-session.sqlite
 mutants-report.txt
