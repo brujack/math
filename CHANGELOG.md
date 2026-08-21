@@ -3,8 +3,6 @@
 
 ## Bug Fixes
 
-- make cosmic-ray Python mutation check advisory, not a required gate (#82)
-
 - flush BufWriter before returning Ok(()) (#86)
 
 - bump crossbeam-epoch to 0.9.20 across all Rust crates (#87)
@@ -74,6 +72,8 @@
 - document the repo-level Python test runner and vendored triage_log
 
 - name the tracer's real origin commit and expect re-syncs
+
+- triage_log.py is vendored for its resolver, not availability
 
 
 
