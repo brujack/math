@@ -74,3 +74,18 @@ load '../helpers/common'
         return 1
     fi
 }
+
+# The push path is what this pins, not the Makefile's aesthetics: pre-push
+# invokes a root target when scripts/, tests/ or the Makefile change, and until
+# this prerequisite existed that target ran bats without ever linting the shell.
+# `make lint-hooks` had exactly one call site in the repo and it was CI. See
+# code-standards.md: the requirement is that every changed component's lint
+# runs on the push path.
+#
+# (A comment line must not START with the word shellcheck -- that is parsed as
+# a directive, SC1072/SC1073. Caught by this very prerequisite on its first run.)
+@test "root make test reaches shell lint" {
+    run make -C "${REPO_ROOT}" -n test --no-print-directory
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"shellcheck"* ]]
+}

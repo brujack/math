@@ -66,7 +66,7 @@ teardown() {
     [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 2 ]
 }
 
-@test "hook/script change runs the bats suite via test-hooks" {
+@test "hook/script change runs the root test target" {
     # Regression guard: the sub-project loop only matches <dir>/*.py and
     # <dir>/**/*.rs, so a change to the hooks themselves matched nothing and
     # pushed with no local test at all.
@@ -74,15 +74,15 @@ teardown() {
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
-    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test-hooks" "${MOCK_CALLS_FILE}"
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
 }
 
-@test "bats-only change runs test-hooks and no sub-project suite" {
+@test "bats-only change runs the root test target and no sub-project suite" {
     export MOCK_GIT_DIFF_NAMES="tests/scripts/pre_push.bats"
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
-    grep -q "test-hooks" "${MOCK_CALLS_FILE}"
+    grep -qE "^make -C [^ ]+ test$" "${MOCK_CALLS_FILE}"
     [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 1 ]
 }
 
@@ -122,4 +122,28 @@ teardown() {
     [ "$status" -eq 0 ]
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi test" "${MOCK_CALLS_FILE}"
     assert_no_match "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi/pi-rs test"
+}
+
+@test "scripts-only change reaches the root test target" {
+    export MOCK_GIT_DIFF_NAMES="scripts/run-bash-coverage.sh"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -qE "^make -C [^ ]+ test$" "${MOCK_CALLS_FILE}" || {
+        printf 'expected the root test target, got:\n%s\n' \
+            "$(cat "${MOCK_CALLS_FILE}")" >&2
+        return 1
+    }
+}
+
+@test "repo-level python test change triggers the root suite" {
+    export MOCK_GIT_DIFF_NAMES="tests/test_triage_log.py"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -qE "^make" "${MOCK_CALLS_FILE}" || {
+        printf 'expected a make call for a tests/*.py change, got:\n%s\n' \
+            "$(cat "${MOCK_CALLS_FILE}")" >&2
+        return 1
+    }
 }

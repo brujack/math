@@ -49,7 +49,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         fi
     done
 
-    if git diff --name-only "${range}" | grep -qE '^scripts/|^tests/.*\.bats$|^Makefile$'; then
+    if git diff --name-only "${range}" | grep -qE '^scripts/|^tests/|^Makefile$'; then
         RUN_HOOK_TESTS=1
     fi
 done
@@ -60,7 +60,7 @@ done
 # limits in the Python suites, which the bats suite does not share.
 if [[ "${RUN_HOOK_TESTS}" -eq 1 ]]; then
     printf "test: hooks and scripts (bats)\n"
-    make -C "${REPO_ROOT}" test-hooks < /dev/null || exit 1
+    make -C "${REPO_ROOT}" test < /dev/null || exit 1
 fi
 
 if [[ "${#DIRS_TO_TEST[@]}" -eq 0 ]]; then

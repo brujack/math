@@ -65,7 +65,7 @@ esac
 
 echo ""
 echo "==> Installing Python packages..."
-python3 -m pip install --upgrade mpmath gmpy2 coverage cosmic-ray hypothesis
+python3 -m pip install --upgrade mpmath gmpy2 coverage cosmic-ray hypothesis pytest pytest-cov
 python3 -m pip install ruff==0.16.1
 
 echo ""
