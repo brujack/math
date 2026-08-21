@@ -37,7 +37,7 @@ test-hooks:
 test-python:
 	python3 -m unittest discover -s tests -p 'test_*.py'
 
-test: test-hooks test-python
+test: lint-hooks test-hooks test-python
 
 # Not wired into `test` or `lint-hooks` — it re-runs the entire bats suite
 # under a PS4 xtrace tracer, which takes minutes, so it stays an explicit,
