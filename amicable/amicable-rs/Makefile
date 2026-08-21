@@ -6,7 +6,7 @@ amicable:
 lint:
 	../../scripts/rust-check.sh lint
 
-test:
+test: lint
 	../../scripts/rust-check.sh test
 
 bench:

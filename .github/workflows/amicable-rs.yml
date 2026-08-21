@@ -25,6 +25,8 @@ jobs:
         run: cargo install cargo-tarpaulin --locked
       - name: Install cargo-nextest
         run: cargo install cargo-nextest --locked
+      - name: Install cargo-machete
+        run: cargo install cargo-machete --locked
       - run: make test
         working-directory: amicable/amicable-rs
       - name: Coverage
