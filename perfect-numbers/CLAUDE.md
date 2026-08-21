@@ -24,7 +24,7 @@ Current structure:
 ```bash
 make run       # python3 perfect_numbers.py
 make lint      # ruff check .
-make test      # lint, then python3 -m unittest test_perfect_numbers -v
+make test      # lint, then pytest test_perfect_numbers.py -v
 make coverage  # run tests and print coverage report
 ```
 
@@ -58,7 +58,7 @@ python3 perfect_numbers.py 8      # find perfect numbers up to 10^8
 
 ```bash
 make test      # lint + unittest
-make coverage  # coverage run + report
+make coverage  # pytest --cov, fails under 90%
 ```
 
 ### Test coverage (≥90% target)

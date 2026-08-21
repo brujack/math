@@ -18,7 +18,7 @@ Current structure:
 ```bash
 make run       # python3 sq.py
 make lint      # ruff check .
-make test      # lint, then python3 -m unittest test_sq -v
+make test      # lint, then pytest test_sq.py -v
 make coverage  # run tests and print coverage report
 ```
 
@@ -55,7 +55,7 @@ Every test must cover more than the happy path. Three categories are required fo
 
 ```bash
 make test      # lint + unittest
-make coverage  # coverage run + report
+make coverage  # pytest --cov, fails under 90%
 ```
 
 ### Test coverage

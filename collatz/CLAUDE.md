@@ -16,8 +16,8 @@ A record-setter is a number whose chain length strictly exceeds all prior number
 ```bash
 make run       # python3 collatz.py (interactive)
 make lint      # ruff check .
-make test      # lint + python3 -m unittest test_collatz -v
-make coverage  # coverage run + report
+make test      # lint + pytest test_collatz.py -v
+make coverage  # pytest --cov, fails under 90%
 ```
 
 Or directly:
@@ -47,7 +47,7 @@ python3 collatz.py 6      # scan 1..10^6
 
 ```bash
 make test      # lint + unittest
-make coverage  # coverage run + report
+make coverage  # pytest --cov, fails under 90%
 ```
 
 | Class                 | Tests |

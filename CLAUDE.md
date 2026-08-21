@@ -50,27 +50,27 @@ When web research (web-research skill) or context-mode fetches produce findings 
 
 Each project has its own installer:
 
-| Script                                               | Installs                                          |
-| ---------------------------------------------------- | ------------------------------------------------- |
-| `pi/install_deps.sh`                                 | GMP + MPFR, `mpmath`, `gmpy2`, `coverage`         |
-| `pi/pi-rs/install_deps.sh`                           | GMP + MPFR, Rust toolchain, `cargo-tarpaulin`     |
-| `prime/prime-rs/install_deps.sh`                     | Rust toolchain, `cargo-tarpaulin`                 |
-| `fib/install_deps.sh`                                | `ruff`, `coverage`                                |
-| `fib/fib-rs/install_deps.sh`                         | GMP, Rust toolchain, `cargo-tarpaulin`            |
-| `sq/install_deps.sh`                                 | `ruff`, `coverage`                                |
-| `sq/sq-rs/install_deps.sh`                           | Rust toolchain                                    |
-| `twin-primes/twin-primes-rs/install_deps.sh`         | Rust toolchain, `cargo-tarpaulin`                 |
-| `e/install_deps.sh`                                  | GMP + MPFR, `mpmath`, `gmpy2`, `ruff`, `coverage` |
-| `e/e-rs/install_deps.sh`                             | GMP + MPFR, Rust toolchain, `cargo-tarpaulin`     |
-| `factorial/install_deps.sh`                          | GMP + MPFR, `gmpy2`, `mpmath`, `ruff`, `coverage` |
-| `factorial/factorial-rs/install_deps.sh`             | GMP + MPFR, Rust toolchain, `cargo-tarpaulin`     |
-| `perfect-numbers/install_deps.sh`                    | `ruff`, `coverage`                                |
-| `perfect-numbers/perfect-numbers-rs/install_deps.sh` | GMP, Rust toolchain, `cargo-tarpaulin`            |
-| `collatz/install_deps.sh`                            | `ruff`, `coverage`                                |
-| `collatz/collatz-rs/install_deps.sh`                 | Rust toolchain, `cargo-tarpaulin`                 |
-| `goldbach/goldbach-rs/install_deps.sh`               | Rust toolchain, `cargo-tarpaulin`                 |
-| `amicable/install_deps.sh`                           | `ruff`, `coverage`                                |
-| `amicable/amicable-rs/install_deps.sh`               | Rust toolchain, `cargo-tarpaulin`                 |
+| Script                                               | Installs                                                                  |
+| ---------------------------------------------------- | ------------------------------------------------------------------------- |
+| `pi/install_deps.sh`                                 | GMP + MPFR, `mpmath`, `gmpy2`, `ruff`, `coverage`, `pytest`, `pytest-cov` |
+| `pi/pi-rs/install_deps.sh`                           | GMP + MPFR, Rust toolchain, `cargo-tarpaulin`                             |
+| `prime/prime-rs/install_deps.sh`                     | Rust toolchain, `cargo-tarpaulin`                                         |
+| `fib/install_deps.sh`                                | `ruff`, `coverage`, `pytest`, `pytest-cov`                                |
+| `fib/fib-rs/install_deps.sh`                         | GMP, Rust toolchain, `cargo-tarpaulin`                                    |
+| `sq/install_deps.sh`                                 | `ruff`, `coverage`, `pytest`, `pytest-cov`                                |
+| `sq/sq-rs/install_deps.sh`                           | Rust toolchain                                                            |
+| `twin-primes/twin-primes-rs/install_deps.sh`         | Rust toolchain, `cargo-tarpaulin`                                         |
+| `e/install_deps.sh`                                  | GMP + MPFR, `mpmath`, `gmpy2`, `ruff`, `coverage`, `pytest`, `pytest-cov` |
+| `e/e-rs/install_deps.sh`                             | GMP + MPFR, Rust toolchain, `cargo-tarpaulin`                             |
+| `factorial/install_deps.sh`                          | GMP + MPFR, `gmpy2`, `mpmath`, `ruff`, `coverage`, `pytest`, `pytest-cov` |
+| `factorial/factorial-rs/install_deps.sh`             | GMP + MPFR, Rust toolchain, `cargo-tarpaulin`                             |
+| `perfect-numbers/install_deps.sh`                    | `ruff`, `coverage`, `pytest`, `pytest-cov`                                |
+| `perfect-numbers/perfect-numbers-rs/install_deps.sh` | GMP, Rust toolchain, `cargo-tarpaulin`                                    |
+| `collatz/install_deps.sh`                            | `ruff`, `coverage`, `pytest`, `pytest-cov`                                |
+| `collatz/collatz-rs/install_deps.sh`                 | Rust toolchain, `cargo-tarpaulin`                                         |
+| `goldbach/goldbach-rs/install_deps.sh`               | Rust toolchain, `cargo-tarpaulin`                                         |
+| `amicable/install_deps.sh`                           | `ruff`, `coverage`, `pytest`, `pytest-cov`                                |
+| `amicable/amicable-rs/install_deps.sh`               | Rust toolchain, `cargo-tarpaulin`                                         |
 
 ## Quick Reference
 
@@ -86,20 +86,24 @@ make install-hooks   # installs pre-commit and pre-push hooks
 cd pi
 make run       # python3 pi.py
 make lint      # ruff check .
-make test      # lint, then python3 -m unittest test_pi -v
-make coverage  # coverage run + report
+make test      # lint, then pytest test_pi.py -v
+make coverage  # pytest --cov, fails under 90%
 ```
 
 **Ruff config.** A single `ruff.toml` at the repo root reaches all 8 Python subprojects
 via ancestor discovery — do not create per-subproject configs. It is the fleet-wide shared
 `select` list (ai-config ADR-0058) plus one math-local addition, `C901`, retained because
-this repo already enforced complexity. `ruff==0.16.1` is pinned at all 15 install sites
-(8 `*-py.yml` workflows + 7 `install_deps.sh`).
+this repo already enforced complexity. `ruff==0.16.1` is pinned at all 16 install sites
+(8 `*-py.yml` workflows + 8 `install_deps.sh`).
 
 `make lint` inside a subproject is correct as written. A bare `ruff check .` **from the
 repo root** is a different thing and is red — 7 findings in `scripts/` and `tests/`, which
-sit outside every gated scope and are linted by nothing. `pi/install_deps.sh` also installs
-no ruff while `pi/Makefile` runs it; both are known gaps, tracked in ai-config's backlog.
+sit outside every gated scope and are linted by nothing. That remains a known gap, tracked
+in ai-config's backlog. The companion gap — `pi/install_deps.sh` installing no ruff while
+`pi/Makefile` runs it — was closed in #110, along with all 8 installers omitting the
+`pytest`/`pytest-cov` their Makefiles invoke. `tests/scripts/install_deps.bats` now derives
+the installer/Makefile comparison from `git ls-files`, so a sub-project added later is
+covered without anyone remembering to extend a list.
 
 The two `# noqa: C901` directives in `e/e.py` and `pi/pi.py` are load-bearing: both
 functions measure complexity 21 against a ceiling of 10, and `maintainability-review`
@@ -130,8 +134,8 @@ make test      # lint, then cargo test
 cd fib
 make run       # python3 fib.py
 make lint      # ruff check .
-make test      # lint, then python3 -m unittest test_fib -v
-make coverage  # coverage run + report
+make test      # lint, then pytest test_fib.py -v
+make coverage  # pytest --cov, fails under 90%
 ```
 
 ### Rust (`fib/fib-rs/`)
@@ -149,8 +153,8 @@ make test      # lint, then cargo test
 cd sq
 make run       # python3 sq.py
 make lint      # ruff check .
-make test      # lint, then python3 -m unittest test_sq -v
-make coverage  # coverage run + report
+make test      # lint, then pytest test_sq.py -v
+make coverage  # pytest --cov, fails under 90%
 ```
 
 ### Rust (`sq/sq-rs/`)
@@ -177,8 +181,8 @@ make test         # lint, then cargo test
 cd e
 make run       # python3 e.py
 make lint      # ruff check .
-make test      # lint, then python3 -m unittest test_e -v
-make coverage  # coverage run + report
+make test      # lint, then pytest test_e.py -v
+make coverage  # pytest --cov, fails under 90%
 ```
 
 ### Rust (`e/e-rs/`)
@@ -196,8 +200,8 @@ make test      # lint, then cargo test
 cd factorial
 make run       # python3 factorial.py
 make lint      # ruff check .
-make test      # lint, then python3 -m unittest test_factorial -v
-make coverage  # coverage run + report
+make test      # lint, then pytest test_factorial.py -v
+make coverage  # pytest --cov, fails under 90%
 ```
 
 ### Rust (`factorial/factorial-rs/`)
@@ -215,8 +219,8 @@ make test      # lint, then cargo test
 cd perfect-numbers
 make run       # python3 perfect_numbers.py
 make lint      # ruff check .
-make test      # lint, then python3 -m unittest test_perfect_numbers -v
-make coverage  # coverage run + report
+make test      # lint, then pytest test_perfect_numbers.py -v
+make coverage  # pytest --cov, fails under 90%
 ```
 
 ### Rust (`perfect-numbers/perfect-numbers-rs/`)
@@ -234,8 +238,8 @@ make test             # lint, then cargo test
 cd collatz
 make run       # python3 collatz.py
 make lint      # ruff check .
-make test      # lint, then python3 -m unittest test_collatz -v
-make coverage  # coverage run + report
+make test      # lint, then pytest test_collatz.py -v
+make coverage  # pytest --cov, fails under 90%
 ```
 
 ### Rust (`collatz/collatz-rs/`)
@@ -262,8 +266,8 @@ make test      # lint, then cargo test
 cd amicable
 make run       # python3 amicable.py
 make lint      # ruff check .
-make test      # lint, then python3 -m unittest test_amicable -v
-make coverage  # coverage run + report
+make test      # lint, then pytest test_amicable.py -v
+make coverage  # pytest --cov, fails under 90%
 ```
 
 ### Rust (`amicable/amicable-rs/`)
@@ -421,7 +425,7 @@ Forty-one workflow files (`git ls-files .github/workflows/ | wc -l`). Project wo
 
 **Pre-commit hook** — `scripts/pre-commit` is committed to the repo and installed as a symlink via `make install-hooks`. It runs `make lint` on staged sub-projects and `ggshield secret scan pre-commit` (skipped if not installed). CI gitleaks is a backstop — install and activate ggshield locally so secrets are caught before they leave the machine.
 
-**Pre-push hook** — `scripts/pre-push` is committed to the repo and installed as a symlink via `make install-hooks`. It detects which sub-projects have **source file** (`.py`, `.rs`) changes in the push range and runs `make test` for each. Skips branch deletions and CI/Makefile-only changes. Permanent — conserves GitHub Actions minutes by catching failures locally.
+**Pre-push hook** — `scripts/pre-push` is committed to the repo and installed as a symlink via `make install-hooks`. It detects which sub-projects have **source file** (`.py`, `.rs`) changes in the push range and runs `make test` for each. It separately runs the **root** `make test` target — `lint-hooks test-hooks test-python`, i.e. shellcheck then bats then the repo-level Python suite — whenever the push touches `scripts/`, `tests/`, or the root `Makefile`. Skips branch deletions. Permanent — conserves GitHub Actions minutes by catching failures locally.
 
 **ProcessPoolExecutor resource_tracker gotcha (macOS):** Python's `spawn` multiprocessing context starts a `resource_tracker` daemon that can deadlock with git's push pipe. `< /dev/null` on `make test` prevents the stdin deadlock for a single test run. However, running many sequential test suites (e.g. a cross-cutting Makefile change touching all 7 Python CLIs at once) causes resource_tracker daemons to accumulate — later suites fail to acquire semaphores and hang indefinitely. Fix: scope the test trigger to `.py`/`.rs` source changes only. Makefile, workflow, and doc changes never affect test outcomes and must not trigger the pre-push test suite.
 
@@ -465,7 +469,7 @@ Ported from `dotfiles/scripts/run-bash-coverage.sh` @ `67417bc` (re-synced 2026-
 
 **The 19 `install_deps.sh` scripts are ~73% of math's instrumented set (19 of 26), and no bats suite executes any of them.** They are in the predicate anyway, and this is the load-bearing judgement of the whole port: a script no suite invokes is **untested**, not uncoverable. Excluding it would raise the reported percentage by deleting the untested majority from the denominator — precisely the flattering-denominator defect this tooling exists to eliminate (see `tdd.md`'s Coverage Denominators section). Expect a low headline percentage as a result — that is the honest number, not a bug in the port. (The count is 19, not 16 — an earlier estimate for this port undercounted the nested `<name>-rs/install_deps.sh` depth for `goldbach`, `prime`, and `twin-primes`, which have no top-level `install_deps.sh` at all, only the nested one. `git ls-files '*/install_deps.sh' '*/*/install_deps.sh' | wc -l` is the derivation; the Makefile's `SHELL_SOURCES` comment independently records the same 19.)
 
-**Floor: 24%, set from CI's own measurement.** `auto-merge.yml`'s `bash-coverage` job gates at `FLOOR=24`, defined once in that job's step and referenced by the gate, the reminder condition and the reminder message, so raising it is a one-line change. CI measured **25% (267/1048)** on `ubuntu-latest` — identical to the local macOS run including both heuristic disagreements — and the floor sits one point below, matching dotfiles, ai-config and terraform_ansible. Publish the CI figure, not a local one: dotfiles measured an 11-covered-line platform delta between macOS (92%) and `ubuntu-latest` (91%) on the identical commit, and this repo's agreement is a property of its simple instrumented set, not something to assume elsewhere.
+**Floor: 24%, set from CI's own measurement.** `auto-merge.yml`'s `bash-coverage` job gates at `FLOOR=24`, defined once in that job's step and referenced by the gate, the reminder condition and the reminder message, so raising it is a one-line change. CI measured **30% (331/1085)** on `ubuntu-latest` — identical to the local macOS run including both heuristic disagreements — and the floor sits one point below, matching dotfiles, ai-config and terraform_ansible. Publish the CI figure, not a local one: dotfiles measured an 11-covered-line platform delta between macOS (92%) and `ubuntu-latest` (91%) on the identical commit, and this repo's agreement is a property of its simple instrumented set, not something to assume elsewhere.
 
 **Read the gate for what it is.** 19 of the 26 instrumented files are per-subproject `install_deps.sh` that no bats suite invokes, so roughly three-quarters of the denominator can never move. They are in the denominator deliberately — a script no suite runs is **untested**, not uncoverable, and excluding them would raise the figure by deleting the untested majority, which is the flattering-denominator defect this tooling exists to prevent. (`scripts/bash-tracer.sh` _is_ excluded, because no test **could** reach it: `set -x` is its own last command.) The floor is therefore a regression ratchet over the reachable quarter, not a quality bar for the repo's shell.
 

@@ -12,7 +12,7 @@ in O(N log N) by iterating each d and accumulating into multiples.
 make run       # python3 amicable.py (interactive)
 make lint      # ruff check .
 make test      # lint + unittest
-make coverage  # coverage run + report
+make coverage  # pytest --cov, fails under 90%
 ```
 
 ## Code Layout

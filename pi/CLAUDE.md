@@ -100,7 +100,7 @@ A `Makefile` is provided in `pi/`:
 
 - `make run` — runs `python3 pi.py`
 - `make lint` — runs `ruff check .`
-- `make test` — runs lint then `python3 -m unittest test_pi -v`
+- `make test` — runs lint then `pytest test_pi.py -v`
 - `make coverage` — runs tests and prints a line coverage report
 - `make clean` — removes `__pycache__` and `.coverage`
 
@@ -214,14 +214,14 @@ Every test must cover more than the happy path. Three categories are required fo
 Run the full suite:
 
 ```bash
-make test      # python3 -m unittest test_pi -v
+make test      # pytest test_pi.py -v
 make coverage  # run tests + print coverage report
 ```
 
 Or directly:
 
 ```bash
-python3 -m unittest test_pi -v
+pytest test_pi.py -v
 python3 -m pytest test_pi.py -v   # if pytest is installed
 ```
 

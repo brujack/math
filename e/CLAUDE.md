@@ -53,7 +53,7 @@ A `Makefile` is provided in `e/`:
 
 - `make run` -- runs `python3 e.py`
 - `make lint` -- runs `ruff check .`
-- `make test` -- runs lint then `python3 -m unittest test_e -v`
+- `make test` -- runs lint then `pytest test_e.py -v`
 - `make coverage` -- runs tests and prints a line coverage report
 - `make clean` -- removes `__pycache__` and `.coverage`
 
@@ -162,14 +162,14 @@ Every test must cover more than the happy path. Three categories are required fo
 Run the full suite:
 
 ```bash
-make test      # python3 -m unittest test_e -v
+make test      # pytest test_e.py -v
 make coverage  # run tests + print coverage report
 ```
 
 Or directly:
 
 ```bash
-python3 -m unittest test_e -v
+pytest test_e.py -v
 python3 -m pytest test_e.py -v   # if pytest is installed
 ```
 
