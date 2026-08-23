@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-import json
-import math
 import os
 import sys
 import time
 import unittest
+from io import StringIO
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from scripts.time_tests import TimingResult, compute_slow
+from scripts.time_tests import TimingResult, compute_slow, fetch_historical
 
 
 class TestTimingResult(unittest.TestCase):
@@ -35,7 +35,7 @@ class TestTimingResult(unittest.TestCase):
         result = TimingResult()
         self._suite().run(result)
         self.assertGreater(len(result.timings), 0)
-        for name, ms in result.timings.items():
+        for ms in result.timings.values():
             self.assertIsInstance(ms, float)
             self.assertGreaterEqual(ms, 0.0)
 
@@ -81,3 +81,53 @@ class TestComputeSlow(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestFetchHistoricalErrorPath(unittest.TestCase):
+    """fetch_historical had no tests at all and swallowed every exception.
+
+    The assertion that discriminates is the WARNING, not the skip: the previous
+    `except Exception: continue` also skipped cleanly and returned [], so a test
+    asserting only "returns []" passes identically against the defect. What
+    changed is that an unreadable artifact is now reported instead of silently
+    shrinking the sample the statistics are computed over.
+    """
+
+    def _run_with_unreadable_artifact(self):
+        # First gh call lists one artifact id; second "downloads" it and reports
+        # success without creating the file, so ZipFile raises FileNotFoundError
+        # -- an OSError, one of the types the narrowed except names.
+        calls = [
+            mock.Mock(returncode=0, stdout="[1]"),
+            mock.Mock(returncode=0, stdout=""),
+        ]
+        buf = StringIO()
+        with (
+            mock.patch("scripts.time_tests.subprocess.run", side_effect=calls),
+            mock.patch("sys.stderr", buf),
+        ):
+            runs = fetch_historical("math", "test-metrics")
+        return runs, buf.getvalue()
+
+    def test_unreadable_artifact_is_skipped_not_fatal(self):
+        runs, _ = self._run_with_unreadable_artifact()
+        self.assertEqual(runs, [])
+
+    def test_unreadable_artifact_is_reported(self):
+        _, err = self._run_with_unreadable_artifact()
+        self.assertIn("warning", err)
+        self.assertIn("skipping unreadable artifact", err)
+
+    def test_no_artifacts_returns_empty_without_warning(self):
+        # Boundary: the empty-list path must not emit a warning, so a quiet run
+        # stays quiet and the warning above means something when it appears.
+        buf = StringIO()
+        with (
+            mock.patch(
+                "scripts.time_tests.subprocess.run",
+                return_value=mock.Mock(returncode=0, stdout="[]"),
+            ),
+            mock.patch("sys.stderr", buf),
+        ):
+            self.assertEqual(fetch_historical("math", "test-metrics"), [])
+        self.assertEqual(buf.getvalue(), "")
