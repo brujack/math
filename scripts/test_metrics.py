@@ -6,6 +6,7 @@ Usage:
     python3 scripts/test_metrics.py --repo REPO --run-id RUN_ID [--junit junit.xml] \
         [--artifact-name test-metrics-factorial-rs]
 """
+
 import argparse
 import json
 import math
@@ -38,7 +39,9 @@ def parse_junit(path: str):
             total += 1
 
             if reruns and not failures:
-                flaky.append({"name": name, "attempts": len(reruns) + 1, "final": "pass"})
+                flaky.append(
+                    {"name": name, "attempts": len(reruns) + 1, "final": "pass"}
+                )
                 passed += 1
             elif failures:
                 failed += 1
@@ -57,10 +60,20 @@ def parse_junit(path: str):
 
 def fetch_historical(repo: str, artifact_name: str = "test-metrics") -> list:
     r = subprocess.run(
-        ["gh", "api", f"repos/brujack/{repo}/actions/artifacts",
-         "--field", f"name={artifact_name}", "--field", "per_page=10",
-         "--jq", "[.artifacts[].id]"],
-        capture_output=True, text=True, check=False,
+        [
+            "gh",
+            "api",
+            f"repos/brujack/{repo}/actions/artifacts",
+            "--field",
+            f"name={artifact_name}",
+            "--field",
+            "per_page=10",
+            "--jq",
+            "[.artifacts[].id]",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if r.returncode != 0 or not r.stdout.strip():
         return []
@@ -70,16 +83,32 @@ def fetch_historical(repo: str, artifact_name: str = "test-metrics") -> list:
         with tempfile.TemporaryDirectory() as d:
             zp = os.path.join(d, "a.zip")
             dl = subprocess.run(
-                ["gh", "api", f"repos/brujack/{repo}/actions/artifacts/{aid}/zip",
-                 "--output", zp],
-                capture_output=True, check=False,
+                [
+                    "gh",
+                    "api",
+                    f"repos/brujack/{repo}/actions/artifacts/{aid}/zip",
+                    "--output",
+                    zp,
+                ],
+                capture_output=True,
+                check=False,
             )
             if dl.returncode != 0:
                 continue
             try:
                 with zipfile.ZipFile(zp) as z, z.open("test-metrics.json") as f:
                     runs.append(json.load(f))
-            except Exception:
+            # Narrow, and reported. A blind `except Exception: continue` here
+            # meant a corrupt or truncated artifact was skipped silently and the
+            # statistics below were computed over fewer runs than the caller
+            # believes -- a smaller sample is not a visible failure. Types
+            # measured rather than guessed: a missing member raises KeyError,
+            # a corrupt archive BadZipFile.
+            except (zipfile.BadZipFile, KeyError, json.JSONDecodeError, OSError) as exc:
+                print(
+                    f"warning: skipping unreadable artifact {zp}: {exc}",
+                    file=sys.stderr,
+                )
                 continue
     return runs
 
@@ -99,7 +128,9 @@ def compute_slow(timings: dict, historical: list, z_threshold: float = 2.0) -> l
         std = math.sqrt(sum((x - mean) ** 2 for x in hist) / len(hist))
         if std < 1.0:
             if mean > 0 and ms > mean * 3:
-                slow.append({"name": name, "duration_ms": ms, "z_score": round(ms / mean, 2)})
+                slow.append(
+                    {"name": name, "duration_ms": ms, "z_score": round(ms / mean, 2)}
+                )
             continue
         z = (ms - mean) / std
         if z >= z_threshold:
@@ -137,7 +168,9 @@ def main():
     }
     with open("test-metrics.json", "w") as f:
         json.dump(result, f, indent=2)
-    print(f"test-metrics.json: {stats['total']} tests, {stats['flaky']} flaky, {len(slow)} slow")
+    print(
+        f"test-metrics.json: {stats['total']} tests, {stats['flaky']} flaky, {len(slow)} slow"
+    )
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ Usage:
     python3 scripts/time_tests.py --repo REPO --run-id RUN_ID \
         --module MODULE [--artifact-name test-metrics-factorial-py]
 """
+
 import argparse
 import json
 import math
@@ -39,10 +40,20 @@ class TimingResult(unittest.TestResult):
 
 def fetch_historical(repo: str, artifact_name: str) -> list:
     r = subprocess.run(
-        ["gh", "api", f"repos/brujack/{repo}/actions/artifacts",
-         "--field", f"name={artifact_name}", "--field", "per_page=10",
-         "--jq", "[.artifacts[].id]"],
-        capture_output=True, text=True, check=False,
+        [
+            "gh",
+            "api",
+            f"repos/brujack/{repo}/actions/artifacts",
+            "--field",
+            f"name={artifact_name}",
+            "--field",
+            "per_page=10",
+            "--jq",
+            "[.artifacts[].id]",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if r.returncode != 0 or not r.stdout.strip():
         return []
@@ -52,16 +63,32 @@ def fetch_historical(repo: str, artifact_name: str) -> list:
         with tempfile.TemporaryDirectory() as d:
             zp = os.path.join(d, "a.zip")
             dl = subprocess.run(
-                ["gh", "api", f"repos/brujack/{repo}/actions/artifacts/{aid}/zip",
-                 "--output", zp],
-                capture_output=True, check=False,
+                [
+                    "gh",
+                    "api",
+                    f"repos/brujack/{repo}/actions/artifacts/{aid}/zip",
+                    "--output",
+                    zp,
+                ],
+                capture_output=True,
+                check=False,
             )
             if dl.returncode != 0:
                 continue
             try:
                 with zipfile.ZipFile(zp) as z, z.open("test-metrics.json") as f:
                     runs.append(json.load(f))
-            except Exception:
+            # Narrow, and reported. A blind `except Exception: continue` here
+            # meant a corrupt or truncated artifact was skipped silently and the
+            # statistics below were computed over fewer runs than the caller
+            # believes -- a smaller sample is not a visible failure. Types
+            # measured rather than guessed: a missing member raises KeyError,
+            # a corrupt archive BadZipFile.
+            except (zipfile.BadZipFile, KeyError, json.JSONDecodeError, OSError) as exc:
+                print(
+                    f"warning: skipping unreadable artifact {zp}: {exc}",
+                    file=sys.stderr,
+                )
                 continue
     return runs
 
@@ -82,7 +109,9 @@ def compute_slow(timings: dict, historical: list, z_threshold: float = 2.5) -> l
         if std < 1.0:
             # fall back to ratio-based detection for near-constant tests
             if mean > 0 and ms > mean * 3:
-                slow.append({"name": name, "duration_ms": ms, "z_score": round(ms / mean, 2)})
+                slow.append(
+                    {"name": name, "duration_ms": ms, "z_score": round(ms / mean, 2)}
+                )
             continue
         z = (ms - mean) / std
         if z >= z_threshold:

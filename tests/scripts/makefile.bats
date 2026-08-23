@@ -89,3 +89,48 @@ load '../helpers/common'
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"shellcheck"* ]]
 }
+
+# Companion to the shell-lint assertion above. ruff.toml at the repo root
+# already reaches every .py in the repo by ancestor discovery -- the config was
+# never the gap, the invocation was. scripts/ and tests/ sat outside every
+# gated scope and were linted by nothing, which math's own CLAUDE.md recorded
+# as a known gap. `ruff check .` from the root needs no derived file list and
+# so has no denominator to drift.
+@test "root make lint reaches ruff" {
+    run make -C "${REPO_ROOT}" -n lint RUFF=/usr/bin/true --no-print-directory
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"ruff check"* ]]
+}
+
+@test "root make test reaches ruff" {
+    run make -C "${REPO_ROOT}" -n test RUFF=/usr/bin/true --no-print-directory
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"ruff check"* ]]
+}
+
+@test "lint-python runs both ruff check and ruff format" {
+    run make -C "${REPO_ROOT}" -n lint-python RUFF=/usr/bin/true --no-print-directory
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"ruff check"* ]]
+    [[ "${output}" == *"ruff format --check"* ]]
+}
+
+# The guard is tested rather than incidental, and it is why the three above
+# force RUFF. `ifndef RUFF` is evaluated at parse time, so on a machine without
+# ruff -- the bash-coverage CI job, for one -- `make -n` prints the skip notice
+# instead of the recipe. That notice contains the word "ruff", so an assertion
+# matching the bare substring passes while reporting the gate was SKIPPED.
+# Caught by CI on this branch, not by review.
+@test "lint-python skips with a remedy when ruff is absent" {
+    run make -C "${REPO_ROOT}" -n lint-python RUFF= --no-print-directory
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"ruff not found"* ]]
+    [[ "${output}" == *"pip install ruff=="* ]]
+    [[ "${output}" != *"ruff check"* ]]
+}
+
+@test "the workflow running root lint installs ruff" {
+    run grep -E '^[[:space:]]*run: pip install .*ruff==' \
+        "${REPO_ROOT}/.github/workflows/scripts.yml"
+    [ "${status}" -eq 0 ]
+}

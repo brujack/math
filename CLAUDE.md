@@ -93,13 +93,23 @@ make coverage  # pytest --cov, fails under 90%
 **Ruff config.** A single `ruff.toml` at the repo root reaches all 8 Python subprojects
 via ancestor discovery — do not create per-subproject configs. It is the fleet-wide shared
 `select` list (ai-config ADR-0058) plus one math-local addition, `C901`, retained because
-this repo already enforced complexity. `ruff==0.16.1` is pinned at all 16 install sites
-(8 `*-py.yml` workflows + 8 `install_deps.sh`).
+this repo already enforced complexity. `ruff==0.16.1` is pinned at all 17 install sites
+(8 `*-py.yml` workflows + `scripts.yml` + 8 `install_deps.sh`).
 
-`make lint` inside a subproject is correct as written. A bare `ruff check .` **from the
-repo root** is a different thing and is red — 7 findings in `scripts/` and `tests/`, which
-sit outside every gated scope and are linted by nothing. That remains a known gap, tracked
-in ai-config's backlog. The companion gap — `pi/install_deps.sh` installing no ruff while
+`make lint` at the repo root now runs `ruff check .` plus a `ruff format --check` scoped to
+the tracked `.py` set, alongside `lint-hooks`. That closed the gap this paragraph used to
+record: `scripts/` and `tests/` sat outside every gated scope, and a bare `ruff check .`
+from the root was red at 7 findings nothing would ever have caught.
+
+Two details are load-bearing. **`check` takes `.` and `format` does not** — ruff's formatter
+rewrites Python code blocks inside markdown, so `ruff format --check .` reports 18 `docs/`
+files whose ADR and plan snippets are deliberately as-written; the format scope is derived
+from `git ls-files '*.py'` instead, which covers the tracked set with nothing to maintain.
+And **`lint-python` guards a missing ruff and exits 0**, which is correct locally (`test`
+depends on it and the pre-push hook runs `test`, so a hard failure would lock a machine out
+of committing the change that installs ruff) but makes the gate decorative in CI — hence
+`scripts.yml` installs `ruff==0.16.1` and `tests/scripts/makefile.bats` asserts that it
+does. The companion gap — `pi/install_deps.sh` installing no ruff while
 `pi/Makefile` runs it — was closed in #110, along with all 8 installers omitting the
 `pytest`/`pytest-cov` their Makefiles invoke. `tests/scripts/install_deps.bats` now derives
 the installer/Makefile comparison from `git ls-files`, so a sub-project added later is
@@ -425,7 +435,7 @@ Forty-one workflow files (`git ls-files .github/workflows/ | wc -l`). Project wo
 
 **Pre-commit hook** — `scripts/pre-commit` is committed to the repo and installed as a symlink via `make install-hooks`. It runs `make lint` on staged sub-projects and `ggshield secret scan pre-commit` (skipped if not installed). CI gitleaks is a backstop — install and activate ggshield locally so secrets are caught before they leave the machine.
 
-**Pre-push hook** — `scripts/pre-push` is committed to the repo and installed as a symlink via `make install-hooks`. It detects which sub-projects have **source file** (`.py`, `.rs`) changes in the push range and runs `make test` for each. It separately runs the **root** `make test` target — `lint-hooks test-hooks test-python`, i.e. shellcheck then bats then the repo-level Python suite — whenever the push touches `scripts/`, `tests/`, or the root `Makefile`. Skips branch deletions. Permanent — conserves GitHub Actions minutes by catching failures locally.
+**Pre-push hook** — `scripts/pre-push` is committed to the repo and installed as a symlink via `make install-hooks`. It detects which sub-projects have **source file** (`.py`, `.rs`) changes in the push range and runs `make test` for each. It separately runs the **root** `make test` target — `lint test-hooks test-python`, where `lint` is `lint-hooks` (shellcheck) plus `lint-python` (ruff check + format) — whenever the push touches `scripts/`, `tests/`, or the root `Makefile`. Skips branch deletions. Permanent — conserves GitHub Actions minutes by catching failures locally.
 
 **ProcessPoolExecutor resource_tracker gotcha (macOS):** Python's `spawn` multiprocessing context starts a `resource_tracker` daemon that can deadlock with git's push pipe. `< /dev/null` on `make test` prevents the stdin deadlock for a single test run. However, running many sequential test suites (e.g. a cross-cutting Makefile change touching all 7 Python CLIs at once) causes resource_tracker daemons to accumulate — later suites fail to acquire semaphores and hang indefinitely. Fix: scope the test trigger to `.py`/`.rs` source changes only. Makefile, workflow, and doc changes never affect test outcomes and must not trigger the pre-push test suite.
 
@@ -460,7 +470,7 @@ Ported from `dotfiles/scripts/run-bash-coverage.sh` @ `67417bc` (re-synced 2026-
 
 **Re-sync from dotfiles master, and expect to do it again.** The original port landed at `c27cc4e`; three further upstream fixes (#202/#203/#204) put this copy a full PR behind within a day, and closing that took its own PR. ADR-0061 decision 5 predicted this drift and it is now measured — budget one PR per copy per upstream change. Code drift across the three copies was zero; what went stale was a header's divergence enumeration, which is prose nothing tests.
 
-- **Run:** `make bash-coverage` (guarded on a missing `bats` binary; not wired into `make test` or `make lint-hooks` — it re-runs the whole bats suite under the tracer, which takes minutes)
+- **Run:** `make bash-coverage` (guarded on a missing `bats` binary; not wired into `make test` or `make lint` — it re-runs the whole bats suite under the tracer, which takes minutes)
 - **Inspect without a full run:** `bash scripts/run-bash-coverage.sh --list-sources` (the instrumented set), `--count-coverable <file>`, `--file-coverage <file> <trace>`
 - **CI:** `.github/workflows/auto-merge.yml`'s `bash-coverage` job, gated in `auto-merge`'s `needs:` — see the floor note below
 - **Test:** `tests/scripts/bash_coverage.bats` — regression coverage for the `INCLUDE_FILES` predicate (every element derived independently in the test, never hardcoded against the script's own output)
