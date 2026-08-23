@@ -20,7 +20,7 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v6
-      - run: pip install ruff==0.16.1 coverage hypothesis pyright pip-audit pytest pytest-cov
+      - run: pip install ruff==0.16.4 coverage hypothesis pyright pip-audit pytest pytest-cov
       - run: make test
         working-directory: amicable
       - name: Run pip-audit

@@ -1,5 +1,22 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>brujack/ai-config//renovate-presets/default.json"],
-  "enabledManagers": ["github-actions", "cargo"]
+  "description": [
+    "pinDigests matches ai-config's and state-ledger's shape. It converges existing drift rather than only preventing new: 11 of this repo's 12 third-party action references were on mutable tags when this landed, and dtolnay/rust-toolchain@stable -- a branch, so it moves with no release at all -- appeared in 26 of 41 workflow files.",
+    "The pinDigest automerge rule is deliberately explicit, not inherited. The shared preset only sets automerge for minor/patch, and pinDigest is a distinct updateType that should not match those rules -- but that is a reading of Renovate's matching behaviour, not something verified here, and the first pass is a burst of PRs against 41 workflow files. An explicit false costs nothing if redundant and is load-bearing if the reading is wrong.",
+    "Remove the rule once the initial pinning pass has been reviewed and merged; ongoing digest updates are routine and can rejoin the automerge group."
+  ],
+  "extends": [
+    "github>brujack/ai-config//renovate-presets/default.json"
+  ],
+  "enabledManagers": [
+    "github-actions",
+    "cargo"
+  ],
+  "pinDigests": true,
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["pinDigest"],
+      "automerge": false
+    }
+  ]
 }

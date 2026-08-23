@@ -93,8 +93,17 @@ make coverage  # pytest --cov, fails under 90%
 **Ruff config.** A single `ruff.toml` at the repo root reaches all 8 Python subprojects
 via ancestor discovery — do not create per-subproject configs. It is the fleet-wide shared
 `select` list (ai-config ADR-0058) plus one math-local addition, `C901`, retained because
-this repo already enforced complexity. `ruff==0.16.1` is pinned at all 17 install sites
+this repo already enforced complexity. `ruff==0.16.4` is pinned at all 17 install sites
 (8 `*-py.yml` workflows + `scripts.yml` + 8 `install_deps.sh`).
+
+The 0.16.1 -> 0.16.4 bump was measured, not assumed. Two pinned venvs run over this
+repo's exact gated scope -- `ruff check .` and `ruff format --check .` in each of the 8
+sub-projects, plus the root `ruff check .` and the `git ls-files`-derived format check --
+produced **byte-identical** output. With a positive control, since two agreeing clean runs
+could equally mean neither executed: removing each `# noqa: C901` makes both versions
+report `too complex (21 > 10)` at `e/e.py:332` and `pi/pi.py:444`. Identical *score*, not
+just identical verdict -- a changed complexity analysis would have moved the number, and
+that is the one thing those two suppressions depend on.
 
 `make lint` at the repo root now runs `ruff check .` plus a `ruff format --check` scoped to
 the tracked `.py` set, alongside `lint-hooks`. That closed the gap this paragraph used to
@@ -108,7 +117,7 @@ from `git ls-files '*.py'` instead, which covers the tracked set with nothing to
 And **`lint-python` guards a missing ruff and exits 0**, which is correct locally (`test`
 depends on it and the pre-push hook runs `test`, so a hard failure would lock a machine out
 of committing the change that installs ruff) but makes the gate decorative in CI — hence
-`scripts.yml` installs `ruff==0.16.1` and `tests/scripts/makefile.bats` asserts that it
+`scripts.yml` installs `ruff==0.16.4` and `tests/scripts/makefile.bats` asserts that it
 does. The companion gap — `pi/install_deps.sh` installing no ruff while
 `pi/Makefile` runs it — was closed in #110, along with all 8 installers omitting the
 `pytest`/`pytest-cov` their Makefiles invoke. `tests/scripts/install_deps.bats` now derives

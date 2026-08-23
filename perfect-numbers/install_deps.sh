@@ -15,7 +15,7 @@ echo "=== perfect-numbers.py dependency installer ==="
 echo ""
 echo "==> Installing Python packages..."
 python3 -m pip install --upgrade coverage cosmic-ray hypothesis pytest pytest-cov
-python3 -m pip install ruff==0.16.1
+python3 -m pip install ruff==0.16.4
 
 echo ""
 echo "==> Verifying installation..."
