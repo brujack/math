@@ -2,6 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
     "pinDigests matches ai-config's and state-ledger's shape. It converges existing drift rather than only preventing new: 11 of this repo's 12 third-party action references were on mutable tags when this landed, and dtolnay/rust-toolchain@stable -- a branch, so it moves with no release at all -- appeared in 26 of 41 workflow files.",
+    "dtolnay/rust-toolchain was hand-pinned to 4360b525 (branch `stable`, 37 occurrences across 26 workflow files) rather than left for Renovate, because Renovate has produced no PR in this repo ever and none anywhere in the fleet since 2026-06-06 -- the App is installed but is not processing this repo. A branch ref moves with no upstream release at all, so it was not worth leaving pinned to a mechanism that is not running. The trailing `# stable` comment is Renovate's own format, so it will adopt and keep updating the digest once the App is enabled rather than fighting the hand-pin. The remaining 10 floating-major refs are deliberately left for it.",
     "The pinDigest automerge rule is deliberately explicit, not inherited. The shared preset only sets automerge for minor/patch, and pinDigest is a distinct updateType that should not match those rules -- but that is a reading of Renovate's matching behaviour, not something verified here, and the first pass is a burst of PRs against 41 workflow files. An explicit false costs nothing if redundant and is load-bearing if the reading is wrong.",
     "Remove the rule once the initial pinning pass has been reviewed and merged; ongoing digest updates are routine and can rejoin the automerge group."
   ],
@@ -15,7 +16,9 @@
   "pinDigests": true,
   "packageRules": [
     {
-      "matchUpdateTypes": ["pinDigest"],
+      "matchUpdateTypes": [
+        "pinDigest"
+      ],
       "automerge": false
     }
   ]

@@ -134,3 +134,28 @@ load '../helpers/common'
         "${REPO_ROOT}/.github/workflows/scripts.yml"
     [ "${status}" -eq 0 ]
 }
+
+# ADR-0006: pin GitHub Actions to immutable SHA digests. A *branch* ref is the
+# worst case -- it moves with no upstream release at all, so a compromised or
+# simply changed action reaches CI with nothing to notice. This asserts the
+# whole class rather than one action, because the next branch ref will not be
+# dtolnay's. Local `./.github/workflows/*.yml` reusable-workflow calls carry no
+# `@` and cannot be digest-pinned, so they never match.
+@test "no workflow pins a third-party action to a mutable branch ref" {
+    local refs bad=""
+    refs="$(cd "${REPO_ROOT}" && git grep -hoE 'uses: [^ ]+@[A-Za-z0-9._/-]+' -- '.github/workflows/*.yml' \
+        | sed 's/uses: //' | sort -u)"
+    [ -n "${refs}" ]
+
+    while IFS= read -r r; do
+        [[ -z "${r}" ]] && continue
+        case "${r##*@}" in
+        stable | main | master | nightly | dev) bad="${bad}${r} " ;;
+        esac
+    done <<< "${refs}"
+
+    if [[ -n "${bad}" ]]; then
+        printf 'action(s) pinned to a mutable branch ref: %s\n' "${bad}" >&2
+        return 1
+    fi
+}
