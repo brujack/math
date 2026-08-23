@@ -159,3 +159,25 @@ load '../helpers/common'
         return 1
     fi
 }
+
+# renovate.json must not extend a preset hosted in another repo. Renovate
+# resolves `extends` at initRepo, BEFORE any dependency extraction, so a preset
+# it cannot fetch throws config-validation and abandons the entire repository --
+# silently, from the repo's point of view: no PRs, no dashboard, no error
+# anywhere a maintainer looks. math is public and the shared preset lives in a
+# private repo, so this repo extracted 0 of its 291 dependencies from
+# 2026-05-18 until the preset was inlined. Reproduced: result config-validation
+# in 207ms, versus a full extraction in 6578ms once inlined.
+@test "renovate.json extends no cross-repo preset" {
+    local bad
+    bad="$(python3 -c "
+import json
+for e in json.load(open('${REPO_ROOT}/renovate.json')).get('extends', []):
+    if not e.startswith('config:'):
+        print(e)
+")"
+    if [[ -n "${bad}" ]]; then
+        printf 'renovate.json extends a non-official preset, which is fetched at initRepo and aborts the repo if unreachable: %s\n' "${bad}" >&2
+        return 1
+    fi
+}
