@@ -97,31 +97,38 @@ load '../helpers/common'
 # as a known gap. `ruff check .` from the root needs no derived file list and
 # so has no denominator to drift.
 @test "root make lint reaches ruff" {
-    run make -C "${REPO_ROOT}" -n lint --no-print-directory
+    run make -C "${REPO_ROOT}" -n lint RUFF=/usr/bin/true --no-print-directory
     [ "${status}" -eq 0 ]
-    [[ "${output}" == *"ruff"* ]]
+    [[ "${output}" == *"ruff check"* ]]
 }
 
 @test "root make test reaches ruff" {
-    run make -C "${REPO_ROOT}" -n test --no-print-directory
-    [ "${status}" -eq 0 ]
-    [[ "${output}" == *"ruff"* ]]
-}
-
-@test "root-scope Python is clean under the repo's own ruff config" {
-    run make -C "${REPO_ROOT}" -n lint-python --no-print-directory
+    run make -C "${REPO_ROOT}" -n test RUFF=/usr/bin/true --no-print-directory
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"ruff check"* ]]
-    [[ "${output}" == *"ruff format"* ]]
 }
 
-# Coupled to the target above, exactly as the cargo-machete assertion is coupled
-# to `test: lint`. `lint-python` guards a missing ruff and returns 0 with a
-# "skipping" notice -- correct locally, since `test` depends on it and the
-# pre-push hook runs `test`, so a hard failure would lock a machine out of
-# committing the change that installs ruff (ci.md). In CI that same guard makes
-# the gate decorative: green having examined nothing. Verified by running
-# `make lint-python` with ruff off PATH -- it prints "skipping" and exits 0.
+@test "lint-python runs both ruff check and ruff format" {
+    run make -C "${REPO_ROOT}" -n lint-python RUFF=/usr/bin/true --no-print-directory
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"ruff check"* ]]
+    [[ "${output}" == *"ruff format --check"* ]]
+}
+
+# The guard is tested rather than incidental, and it is why the three above
+# force RUFF. `ifndef RUFF` is evaluated at parse time, so on a machine without
+# ruff -- the bash-coverage CI job, for one -- `make -n` prints the skip notice
+# instead of the recipe. That notice contains the word "ruff", so an assertion
+# matching the bare substring passes while reporting the gate was SKIPPED.
+# Caught by CI on this branch, not by review.
+@test "lint-python skips with a remedy when ruff is absent" {
+    run make -C "${REPO_ROOT}" -n lint-python RUFF= --no-print-directory
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"ruff not found"* ]]
+    [[ "${output}" == *"pip install ruff=="* ]]
+    [[ "${output}" != *"ruff check"* ]]
+}
+
 @test "the workflow running root lint installs ruff" {
     run grep -E '^[[:space:]]*run: pip install .*ruff==' \
         "${REPO_ROOT}/.github/workflows/scripts.yml"
