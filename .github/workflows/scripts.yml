@@ -29,9 +29,9 @@ jobs:
           sudo install -m755 "/tmp/shellcheck-v${SC_VER}/shellcheck" /usr/local/bin/shellcheck
           shellcheck --version | grep -q "version: ${SC_VER}"
       - name: Install Python dependencies
-        run: pip install defusedxml pyright pip-audit
+        run: pip install ruff==0.16.1 defusedxml pyright pip-audit
       - name: Lint hooks, scripts and bats suites
-        run: make lint-hooks
+        run: make lint
       - name: Run hook and script tests
         run: bats --recursive tests/
 

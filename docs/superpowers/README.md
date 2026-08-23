@@ -60,6 +60,7 @@ Ideas approved for future specs, in no particular order:
 | Maintainability pass               | Once the ai-config maintainability gate (2026-07-24 spec) ships, run a worldclass pass in this repo against its thresholds — not scheduled yet.                                                       |
 | Pin CI `cargo install` versions    | All 33 `cargo install` lines across the 11 `*-rs.yml` workflows are unpinned (0 of 36 carry `--version`); `--locked` bounds the transitive tree but not the tool version, so a bad upstream release lands on every PR at once |
 | Guard `cargo machete` in rust-check.sh | `test)` mode guards a missing `cargo-nextest` with an install hint; `lint)` mode calls `cargo fmt && clippy && machete` unguarded, so an absent machete falls through to the generic "Code failure: cargo lint reported lint/test errors" — wrong diagnosis for a missing tool. Affects all 11 crates |
+| Merge `time_tests.py` / `test_metrics.py` | Their `fetch_historical` is byte-identical apart from a default argument, and `compute_slow` differs only in `z_threshold` (2.5 vs 2.0); both now carry duplicate error-path tests. Merging is its own change — check both call sites and the two workflows that invoke them |
 
 ---
 

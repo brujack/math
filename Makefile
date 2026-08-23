@@ -1,4 +1,4 @@
-.PHONY: install-hooks test-hooks test-python test lint-hooks changelog validate-plan bash-coverage
+.PHONY: install-hooks test-hooks test-python test lint lint-hooks lint-python changelog validate-plan bash-coverage
 
 # Derived from the tracked set (git ls-files), not a hand-maintained list --
 # an omitted file leaves a hand-list's coverage unchanged rather than lowering
@@ -12,6 +12,7 @@
 # environment (ci.md/shell.md); without it this parse-time assignment can
 # silently resolve against the wrong repository.
 SHELLCHECK := $(shell command -v shellcheck 2>/dev/null)
+RUFF := $(shell command -v ruff 2>/dev/null)
 BATS := $(shell command -v bats 2>/dev/null)
 # Split so the derived half can be checked on its own: appending the three
 # literal hook paths would otherwise mask an empty git ls-files, and lint would
@@ -37,7 +38,7 @@ test-hooks:
 test-python:
 	python3 -m unittest discover -s tests -p 'test_*.py'
 
-test: lint-hooks test-hooks test-python
+test: lint test-hooks test-python
 
 # Not wired into `test` or `lint-hooks` — it re-runs the entire bats suite
 # under a PS4 xtrace tracer, which takes minutes, so it stays an explicit,
@@ -67,6 +68,27 @@ lint-hooks:
 	else \
 	  printf "shellcheck not found, skipping (install: brew install shellcheck)\n"; \
 	fi
+
+# `ruff check .` from the repo root, not a derived file list. ruff.toml here
+# reaches every .py in the repo by ancestor discovery, so the whole tracked set
+# is covered with no denominator that can silently drift -- an omitted file
+# would leave a hand-list's result unchanged rather than lowering it (tdd.md
+# "Coverage Denominators"). It duplicates each sub-project's own `make lint`,
+# which is cheap and is the point: nothing can sit outside it.
+#
+# Guarded like SHELLCHECK above. `test` depends on this and the pre-push hook
+# runs `test`, so a hard failure on a missing ruff would lock a machine out of
+# committing the very change that installs it (ci.md).
+lint-python:
+ifndef RUFF
+	@printf "ruff not found, skipping (install: pip install ruff==0.16.1)\n"
+else
+	ruff check .
+	@env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
+	  git ls-files -z '*.py' | xargs -0 ruff format --check
+endif
+
+lint: lint-hooks lint-python
 
 changelog:
 	git-cliff -o CHANGELOG.md

@@ -89,3 +89,41 @@ load '../helpers/common'
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"shellcheck"* ]]
 }
+
+# Companion to the shell-lint assertion above. ruff.toml at the repo root
+# already reaches every .py in the repo by ancestor discovery -- the config was
+# never the gap, the invocation was. scripts/ and tests/ sat outside every
+# gated scope and were linted by nothing, which math's own CLAUDE.md recorded
+# as a known gap. `ruff check .` from the root needs no derived file list and
+# so has no denominator to drift.
+@test "root make lint reaches ruff" {
+    run make -C "${REPO_ROOT}" -n lint --no-print-directory
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"ruff"* ]]
+}
+
+@test "root make test reaches ruff" {
+    run make -C "${REPO_ROOT}" -n test --no-print-directory
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"ruff"* ]]
+}
+
+@test "root-scope Python is clean under the repo's own ruff config" {
+    run make -C "${REPO_ROOT}" -n lint-python --no-print-directory
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"ruff check"* ]]
+    [[ "${output}" == *"ruff format"* ]]
+}
+
+# Coupled to the target above, exactly as the cargo-machete assertion is coupled
+# to `test: lint`. `lint-python` guards a missing ruff and returns 0 with a
+# "skipping" notice -- correct locally, since `test` depends on it and the
+# pre-push hook runs `test`, so a hard failure would lock a machine out of
+# committing the change that installs ruff (ci.md). In CI that same guard makes
+# the gate decorative: green having examined nothing. Verified by running
+# `make lint-python` with ruff off PATH -- it prints "skipping" and exits 0.
+@test "the workflow running root lint installs ruff" {
+    run grep -E '^[[:space:]]*run: pip install .*ruff==' \
+        "${REPO_ROOT}/.github/workflows/scripts.yml"
+    [ "${status}" -eq 0 ]
+}
