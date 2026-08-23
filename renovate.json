@@ -1,13 +1,14 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
+    "The shared preset is INLINED rather than extended. github>brujack/ai-config//renovate-presets/default.json lives in a PRIVATE repo; Renovate resolves extends at initRepo before any dependency extraction, so an unfetchable preset throws config-validation and abandons the whole repository. Reproduced against this repo: result config-validation in 207ms, zero extraction. That is why math -- public -- received no PR from the 2026-06-06 run while private terraform_ansible received five, three weeks after both were configured. ai-config's renovate-presets/default.json remains the canonical text; re-sync by hand when it changes.",
     "pinDigests matches ai-config's and state-ledger's shape. It converges existing drift rather than only preventing new: 11 of this repo's 12 third-party action references were on mutable tags when this landed, and dtolnay/rust-toolchain@stable -- a branch, so it moves with no release at all -- appeared in 26 of 41 workflow files.",
     "dtolnay/rust-toolchain was hand-pinned to 4360b525 (branch `stable`, 37 occurrences across 26 workflow files) rather than left for Renovate, because Renovate has produced no PR in this repo ever and none anywhere in the fleet since 2026-06-06 -- the App is installed but is not processing this repo. A branch ref moves with no upstream release at all, so it was not worth leaving pinned to a mechanism that is not running. The trailing `# stable` comment is Renovate's own format, so it will adopt and keep updating the digest once the App is enabled rather than fighting the hand-pin. The remaining 10 floating-major refs are deliberately left for it.",
     "The pinDigest automerge rule is deliberately explicit, not inherited. The shared preset only sets automerge for minor/patch, and pinDigest is a distinct updateType that should not match those rules -- but that is a reading of Renovate's matching behaviour, not something verified here, and the first pass is a burst of PRs against 41 workflow files. An explicit false costs nothing if redundant and is load-bearing if the reading is wrong.",
     "Remove the rule once the initial pinning pass has been reviewed and merged; ongoing digest updates are routine and can rejoin the automerge group."
   ],
   "extends": [
-    "github>brujack/ai-config//renovate-presets/default.json"
+    "config:recommended"
   ],
   "enabledManagers": [
     "github-actions",
@@ -17,9 +18,30 @@
   "packageRules": [
     {
       "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "all non-major dependencies",
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "automerge": false
+    },
+    {
+      "matchUpdateTypes": [
         "pinDigest"
       ],
       "automerge": false
     }
+  ],
+  "schedule": [
+    "before 5am on monday"
+  ],
+  "labels": [
+    "renovate"
   ]
 }
