@@ -24,7 +24,10 @@
       ],
       "groupName": "all non-major dependencies",
       "automerge": true,
-      "automergeType": "pr"
+      "automergeType": "pr",
+      "addLabels": [
+        "automerge-ok"
+      ]
     },
     {
       "matchUpdateTypes": [
