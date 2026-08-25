@@ -456,7 +456,10 @@ Forty-one workflow files (`git ls-files .github/workflows/ | wc -l`). Project wo
 and `make test` runs `test-hooks` then `test-python`. Added 2026-08-07 (#104). Before that nothing executed
 `tests/*.py` at all: `scripts.yml` ran bats and pyright, so `tests/test_time_tests.py` was type-checked but
 its 8 tests had never once run. `scripts.yml` now calls `make test-python` alongside the bats step. Note this
-is repo-level only — each sub-project keeps its own `make test`.
+is repo-level only — each sub-project keeps its own `make test`. The suite is **53 tests** as of
+2026-08-24: `test_time_tests.py`, `test_test_metrics.py`, `test_triage_log.py`, and
+`test_renovate_automerge_policy.py` (added in #123 — it asserts `renovate.json`'s auto-merge policy is
+exhaustive over the ten-member `updateType` enum; see the Renovate auto-merge policy section above).
 
 **`.claude/scripts/triage_log.py`** — vendored per-repo because of its resolver, not its availability. It
 does ship via the `~/.claude/scripts/` symlink like every other script there; what fails is that its output
