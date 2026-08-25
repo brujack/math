@@ -1,5 +1,6 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use e::compute_e;
+use std::hint::black_box;
 
 fn bench_e(c: &mut Criterion) {
     let mut group = c.benchmark_group("e");

@@ -1,5 +1,6 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use factorial::calculate_factorial;
+use std::hint::black_box;
 
 fn bench_factorial(c: &mut Criterion) {
     let mut group = c.benchmark_group("factorial");

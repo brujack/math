@@ -1,5 +1,6 @@
 use amicable::proper_divisor_sum_sieve;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
 
 fn bench_amicable(c: &mut Criterion) {
     let mut group = c.benchmark_group("amicable");
