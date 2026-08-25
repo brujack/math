@@ -2,11 +2,11 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
     "The shared preset is INLINED rather than extended. github>brujack/ai-config//renovate-presets/default.json lives in a PRIVATE repo; Renovate resolves extends at initRepo before any dependency extraction, so an unfetchable preset throws config-validation and abandons the whole repository. Reproduced against this repo: result config-validation in 207ms, zero extraction. That is why math -- public -- received no PR from the 2026-06-06 run while private terraform_ansible received five, three weeks after both were configured. ai-config's renovate-presets/default.json remains the canonical text; re-sync by hand when it changes.",
-    "TEMPORARY: schedule is 'at any time' rather than the shared preset's 'before 5am on monday', so the first pinning pass runs tonight instead of waiting for the Monday window. This is the operator's call and is meant to be reverted once that pass has been reviewed and merged -- restore ['before 5am on monday'] to match the shared preset. Tracked in docs/superpowers/README.md's Backlog so it is not left indefinitely.",
-    "pinDigests matches ai-config's and state-ledger's shape. It converges existing drift rather than only preventing new: 11 of this repo's 12 third-party action references were on mutable tags when this landed, and dtolnay/rust-toolchain@stable -- a branch, so it moves with no release at all -- appeared in 26 of 41 workflow files.",
-    "dtolnay/rust-toolchain was hand-pinned to 4360b525 (branch `stable`, 37 occurrences across 26 workflow files) rather than left for Renovate, because Renovate has produced no PR in this repo ever and none anywhere in the fleet since 2026-06-06 -- the App is installed but is not processing this repo. A branch ref moves with no upstream release at all, so it was not worth leaving pinned to a mechanism that is not running. The trailing `# stable` comment is Renovate's own format, so it will adopt and keep updating the digest once the App is enabled rather than fighting the hand-pin. The remaining 10 floating-major refs are deliberately left for it.",
-    "The pinDigest automerge rule is deliberately explicit, not inherited. The shared preset only sets automerge for minor/patch, and pinDigest is a distinct updateType that should not match those rules -- but that is a reading of Renovate's matching behaviour, not something verified here, and the first pass is a burst of PRs against 41 workflow files. An explicit false costs nothing if redundant and is load-bearing if the reading is wrong.",
-    "Remove the rule once the initial pinning pass has been reviewed and merged; ongoing digest updates are routine and can rejoin the automerge group."
+    "The inlining is now measured rather than reasoned. The Mend job at 2026-08-23T01:53:54Z began 16 seconds after the commit that inlined the preset and threw zero preset and config-validation errors across 242 lines, reporting 'Repository result: done, status: onboarded, enabled: true'. Every branch it resolved was blocked by mode=silent alone, which the operator lifted the same day.",
+    "schedule is 'at any time'. This was a local override when it landed; ai-config#201 made it the canonical value in renovate-presets/default.json, so it is now fleet-consistent rather than a deviation and is not to be reverted.",
+    "dtolnay/rust-toolchain was hand-pinned to 4360b525 (branch `stable`, 37 occurrences across 26 workflow files) rather than left for Renovate, because at the time Renovate had produced no PR in this repo ever. A branch ref moves with no upstream release at all, so it was not worth leaving pinned to a mechanism that was not running. The trailing `# stable` comment is Renovate's own format, so it adopts and keeps updating the digest rather than fighting the hand-pin.",
+    "packageRules must BEGIN with the canonical pair from ai-config's renovate-presets/default.json -- renovate_preset_sync.py:87 tests prefix equality element-by-element and reports DRIFT (exit 1) when it does not hold, while anything appended after the canonical prefix is a deviation (exit 0) and is the designed extension point. Renovate itself is indifferent to the order here because the three rules match disjoint updateTypes, so 'later overrides earlier' never fires between them.",
+    "Four of the schema's ten updateTypes -- lockFileMaintenance, rollback, bump, replacement -- match no rule below and are therefore held. That is deliberate, not an omission: packageRules are additive overrides merged onto base config, and base automerge is false, so an unmatched type is held with no addLabels and the auto-merge label guard leaves it for triage. Naming them here would buy documentation and no mechanism, so the declaration lives in tests/test_renovate_automerge_policy.py where it is asserted instead."
   ],
   "extends": [
     "config:recommended"
@@ -37,9 +37,15 @@
     },
     {
       "matchUpdateTypes": [
-        "pinDigest"
+        "pin",
+        "pinDigest",
+        "digest"
       ],
-      "automerge": false
+      "automerge": true,
+      "automergeType": "pr",
+      "addLabels": [
+        "automerge-ok"
+      ]
     }
   ],
   "schedule": [
