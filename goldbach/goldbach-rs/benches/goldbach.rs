@@ -1,7 +1,8 @@
 use std::io;
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use goldbach::{build_sieve, goldbach_pairs};
+use std::hint::black_box;
 
 fn bench_goldbach(c: &mut Criterion) {
     let mut group = c.benchmark_group("goldbach");

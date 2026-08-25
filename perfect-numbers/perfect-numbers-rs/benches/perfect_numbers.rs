@@ -1,7 +1,8 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use perfect_numbers::generate_perfect_numbers;
 use rug::ops::PowAssign;
 use rug::Integer;
+use std::hint::black_box;
 
 fn bench_perfect_numbers(c: &mut Criterion) {
     let mut group = c.benchmark_group("perfect_numbers");
