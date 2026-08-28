@@ -3,12 +3,6 @@
 
 ## Bug Fixes
 
-- flush BufWriter before returning Ok(()) (#86)
-
-- bump crossbeam-epoch to 0.9.20 across all Rust crates (#87)
-
-- use exact-phrase title search in SBOM issue dedup check (#89)
-
 - end six months of dead mutation runs (#91)
 
 - restore the standards @-include paths
@@ -25,33 +19,27 @@
 
 - sync tracer with dotfiles PR #204 hardening (#108)
 
+- restore the lint gate on make test (#109)
+
+- run shell lint on the push path, and install what the Makefiles invoke (#110)
+
+- pin dtolnay/rust-toolchain to a SHA digest (#113)
+
+- inline the shared preset, which a public repo cannot fetch (#114)
+
+- use std::hint::black_box, unblocking the criterion 0.8 bump (#122)
+
 
 
 ## CI
 
 - lint all tracked shell at default severity (#105)
 
+- hold unlabelled Renovate PRs for triage (#120)
+
 
 
 ## Documentation
-
-- update test count tables for goldbach-rs and perfect-numbers-rs
-
-- add two new equivalent-mutation patterns to CLAUDE.md
-
-- remove content promoted to global standards
-
-- add July 2026 retro action items
-
-- mark python-mutant-killing Done (PR #84)
-
-- update test counts and CI table for PR #84
-
-- add release-sbom-monitor implementation plan
-
-- mark release-sbom-monitor plan Done (PR #88)
-
-- add maintainability-pass backlog row
 
 - spec per-project mutation testing split
 
@@ -75,11 +63,19 @@
 
 - triage_log.py is vendored for its resolver, not availability
 
+- sync CLAUDE.md with the pytest migration and #109/#110
+
+- backlog the download-artifact v8 / continue-on-error interaction
+
+- cite action.yml for the download-artifact digest-mismatch option
+
+- record the 53-test root suite and backlog the inert master ruleset
+
+- backlog the undocumented bench black_box import convention
+
 
 
 ## Features
-
-- add release SBOM vulnerability monitor (#88)
 
 - enforce C-DEBUG and C-CONV across all 11 Rust crates (#101)
 
@@ -89,12 +85,6 @@
 
 - set the floor from CI's own measurement (#107)
 
-
-
-## Testing
-
-- kill surviving mutants in goldbach/perfect-numbers/amicable/collatz (#83)
-
-- kill surviving mutants in sq, fib, perfect-numbers (#84)
+- wire root-scope Python into make lint and the push path (#111)
 
 
