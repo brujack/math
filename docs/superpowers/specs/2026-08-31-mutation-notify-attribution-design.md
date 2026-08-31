@@ -323,6 +323,17 @@ a live repository on the day the test regresses. `REPO` is set to a fixture valu
 case so that the destructive branch fails at an earlier guard rather than reaching
 `brujack/math`.
 
+> **Correction, 2026-08-31, measured after this section was written.** The sentence above
+> is false as it stands and is left in place with this note rather than silently rewritten,
+> because the Risk lens finding below is the reason it changed. `REPO` governs only the
+> `gh api repos/${REPO}/...` probe. All six issue-tracker calls are repo-implicit —
+> `mutation-testing.yml:116,121,122,137,139,141` carry no `--repo` — so `gh` resolves from
+> the checkout's remote, `brujack/math`, and `gh issue list --label mutation-failure
+> --state open` returns an open issue (#98) today. The reached branch on a regressed test is
+> therefore `gh issue comment 98` on a live issue, not a create that might fail. The fix is
+> `--repo "${REPO}"` on every `gh issue` and `gh label` invocation, which makes a fixture
+> `REPO` fail at gh's own resolution. Disposition pending.
+
 ## Verification
 
 Runnable before implementation:
@@ -364,3 +375,179 @@ will very likely not land first. That is not a blocker — the current behaviour
 misattributed issue body, not a wrong verdict. A run under the old text is mildly useful:
 its jobs API response becomes a real fixture to check the branch table against, rather than
 a hand-built one.
+
+
+## Multi-Lens Review
+
+Reviewed at commit: `25c8bce1ed6afc25f8632c1b28329593851f6342` (Step 7 self-review commit,
+before Step 8 dispatch). Round 1. Dispositions are blank pending operator review.
+
+Every lens verified the load-bearing premise with its own commands and all three confirmed
+it: the misattributing `else` branch is live at `master` in both workflows, the `notify`
+permissions block lists only `issues: write`, and `grep -c '^      - name: Upload'` returns
+1 per file. The Risk lens additionally confirmed cause 2 structurally — the `no crates
+found` guard exits at `mutation-testing.yml:52-54`, five lines *upstream* of the
+`mkdir -p "${GITHUB_WORKSPACE}/status"` at line 58, and no workflow sets
+`if-no-files-found`, so the default `warn` applies and a guard trip produces no artifact at
+all.
+
+Note on independence: three lenses of the same model class reading the same spec text is
+not ensemble confirmation. Where they converged — on proportionality — that is evidence
+they were not contradicted, not that the point is independently established. Each claim
+below was re-verified against the repository by the author before being recorded here.
+
+### Goal-Fit
+
+Finding: three parts.
+
+1. **Proportionality.** The spec states its own substance is the removal of an unsupported
+   claim, which a two-line string edit achieves — no new file, no new permission scope, no
+   API call, no shared-mock edit, no test surface. Everything beyond that buys *which* of
+   four causes fired. Measured against the event rate, that is thin: the Python workflow has
+   **3 runs, 3 successes, never red** (`gh run list --workflow mutation-testing-python.yml`,
+   re-verified), so half the blast radius serves a branch that has never executed. The Rust
+   workflow's 9 failures in 14 runs are dominated by one debugging session on 2026-08-01/02;
+   its scheduled population is 3, all predating the ADR-0024 memory-cap fix, so the post-fix
+   base rate of the artifact-absent branch is unmeasured. The lens also holds that the
+   extraction argument is circular as written — "extraction is what makes the change
+   gateable" is true only because the change adds logic, and a string edit adds none.
+2. **Branch-table row 4 reproduces the defect it fixes.** *"Artifact contains no `status/`
+   — the job failed before the loop began"* is another unconditional cause assertion from
+   evidence that does not determine it. Artifact upload elides empty directories, so a run
+   where the loop *did* begin, crate 1 produced `mutants.out/`, and the job died before the
+   first `tee` wrote `status/<slug>` lands in this row with the message false. The artifact
+   itself discriminates: `artifact/**/mutants.out` present means the loop began. Split the
+   row on that or hedge it as every other row is hedged.
+3. **Case 1 pins an open bug as intended behaviour.** `math#100` is open — *"mutation: a
+   single-crate green run closes the full-sweep issue"* — and describes a defect in the exact
+   green branch this spec rewrites: notify closed #98 on a single-crate green run while
+   `pi-rs` and `e-rs` were still broken. Verified open. Case 1 asserts comment-then-close is
+   correct, which makes #100 harder to fix later, since fixing it turns a passing test red
+   and a test's presence reads as intent. The spec already has the right machinery — it
+   handles `RESULT=cancelled` with an explicit preserved-behaviour paragraph — and should
+   apply it here or drop case 1.
+
+Reads-it test: every mechanism's consumer is the body of a `mutation-failure` issue, which
+persists after the session, so none is pure decoration. The exception is
+`digest-mismatch: error`, which restates the v8 default and cannot make any verdict differ;
+defensible as documentation-as-config, but not a fix, and the spec presents it beside the
+fixes.
+
+Verdict count: 12 cases, 7 satisfied by an empty body. The spec identifies this and names
+case 7 as the positive control. Residual the spec misses: case 7 pins the `status/`
+derivation and nothing pins the *probe's* derivation — cases 3–6 are satisfied by branch
+selection alone. Case 3 closes this at zero cost if its assertion is on the fixture's
+literal step-name string rather than on the sentence.
+
+Assumption: that the jobs API, queried by `notify` **during the same run**, returns the
+`mutants` job's `steps[]` already populated with terminal conclusions — specifically for a
+runner-reaped job, where the runner never reported step completion and the service must
+backfill. Every measurement in this spec was taken post-hoc, days to weeks after the run
+finished; none establishes what the array looks like at the instant `notify` executes.
+"Terminal in the workflow graph, so `needs:` released the dependent job" and "finalised in
+the REST API's `steps[]`" are different guarantees, and the SIGTERM case is where they are
+most likely to diverge. If the array is empty or non-terminal at that moment, every red path
+falls into the probe-failure branch and the design delivers less than the two-line edit
+would. Settle it with a `workflow_dispatch` run carrying a temporary step in `notify` that
+dumps `gh api repos/${REPO}/actions/runs/${GITHUB_RUN_ID}/jobs` and asserts the `Mutation
+testing` job's `steps[]` is non-empty with terminal conclusions at that moment — one extra
+`run:` line on a dispatch the Verification section already calls for.
+
+Disposition:
+
+### Ergonomics
+
+Finding: five parts.
+
+1. **The dedup lookup does not work in production, and case 10 would pin the failure as
+   passing.** Verified: #99 was created 2026-08-02T02:13:37Z while #98 — identical title,
+   identical label — was open, created 01:57:03Z and still open four weeks later. A mock
+   that faithfully returns a number cannot express that, so case 10 is green forever while
+   the operator gets a new issue per red run instead of one thread. Re-checked by the author:
+   the workflow's exact lookup run today **does** return `98`, so the query is not broken —
+   the dependency is on GitHub's issue **search index**, which `--search` uses and `--label`
+   filtering does not. The fix does not require settling whether the 2026-08-02 event was
+   index lag or a race between three overlapping dispatch runs: keying on the label and
+   filtering titles client-side removes the index from the path either way.
+2. **`JOB_NAME` is a duplicated reference with no equality check and no case.**
+   `jobs.mutants.name` and the notify `env` are two strings in one file with nothing forcing
+   them equal — the displaced-reference shape. Rename the job and the probe returns rc=0,
+   well-formed JSON, and an **empty selection**, a third probe outcome cases 8a/8b do not
+   cover. Both workflows have exactly two jobs, so `select(.name != "notify")` removes the
+   duplicate string entirely.
+3. **Case 8a is unwritable against the current mock.** `tests/mocks/gh:4` checks
+   `MOCK_GH_EXIT` *before* any dispatch, so a non-zero exit applies to every call including
+   the `gh issue` write whose body 8a must assert on. Expressing it needs a per-arm exit
+   variable — a third mock edit the Scope section does not list, and one touching the branch
+   `ci_gate.bats` depends on. The claim that the mock edit is "purely additive" is true of
+   the two output arms and false of what 8a requires.
+4. **The `Evidence —` line is asserted by zero cases** while being the headline deliverable.
+   Its `mutants job:` and `download step:` fields feed no branch selection, so a `jq`
+   producing empty strings leaves every case green and ships a half-blank line to the
+   operator. Needs one case asserting the fully rendered line against a fixture whose four
+   fields are non-empty and mutually distinct.
+5. **The Verification section's `workflow_dispatch` step writes to the live tracker** —
+   which is how #92/#96/#98/#99 came to exist. Name the cleanup, or the implementer
+   reproduces the 2026-08-02 pattern while verifying a change about issue quality. Also
+   `gh issue comment --body "Run: …/actions/runs/123…"` matches the proposed
+   `*"actions/runs"*` mock arm, so arm order is load-bearing; match on `$1`, not `$*`.
+
+Assumption: that the operator reads one accumulating tracking issue. The whole
+comment-on-existing / close-on-green design rests on the dedup lookup finding the open
+issue, and there is one measured counter-example whose mechanism is unestablished — search
+index lag, which would be intrinsic and make the comment path mostly dead, versus a race
+between overlapping dispatch runs, which would be a testing artifact and harmless monthly.
+Those point opposite ways. The proposed discriminator is to create an issue and immediately
+run the workflow's exact lookup against it; the author declined to run that unprompted
+because it writes to the live tracker, and notes the label-only fix is correct under either
+mechanism.
+
+Disposition:
+
+### Risk
+
+Finding: four parts.
+
+1. **The stated failure-mode safety does not hold — a regressed test writes to
+   `brujack/math`.** Verified and corrected inline above: `REPO` governs only the probe, all
+   six issue-tracker calls are repo-implicit, and an open #98 means the reached branch is a
+   live `gh issue comment`, not a create that might fail. `tdd.md` E2. One flag per call
+   site fixes it.
+2. **Proportionality**, reached independently of the Goal-Fit lens: the spec concedes its
+   own substance is a string replacement and then builds a mechanism around it without
+   stating why the one-liner was rejected. Three of the four defects in this list are
+   introduced by the mechanism and none exists in the one-liner.
+3. **No default arm for an unmatched upload conclusion.** On `JOB_NAME` drift the selector
+   matches nothing and the conclusion is the empty string — `set -u` does not fire, because
+   the variable is set and empty — and none of the table's three enumerated values match.
+   There is also no arm for `cancelled`, which is attested in this repo: run 28495704109's
+   `Run mutants` is `cancelled` and this spec's own measurements table prints it. The script
+   needs a default arm saying the upload conclusion could not be determined, plus a case.
+   Case 11 as written guards the wrong drift — a third `Upload` step, which nobody is about
+   to add.
+4. **The mock edit is not additive**, same finding as Ergonomics 3, reached independently.
+
+Verdict count: 13 rows, 7 asserting a fixed literal in a failure body; the spec's own
+positive-control reasoning is correct as far as it goes. Gap one level down: cases 4, 5 and
+6 discriminate on the upload conclusion but nothing pins the jobs-JSON parse producing
+anything at all except case 3.
+
+Assumption: that `Upload: skipped` discriminates termination from an ordinary `Run mutants`
+failure. The spec flags this boundary honestly — all three measured failures are exit-143,
+there is no negative sample — and then builds the branch table's top row on the reverse
+implication anyway. If GitHub also reports a post-step as `skipped` when a job fails without
+being reaped, that row misattributes a plain build failure as a runner kill, which is the
+original defect relocated one layer down rather than fixed. Falsifiable cheaply:
+`gh workflow run mutation-testing.yml -f crate=<a crate whose baseline tests fail>` produces
+an ordinary non-terminated failure, then read that run's `steps[]`. It should run before the
+branch table is written, not after.
+
+Disposition:
+
+### Adversarial Spec Review (comparison/judge designs only)
+
+N/A — spec has no comparison, evaluator, or ambiguous-criteria trigger. The branch table is
+a classifier over observed fields, not an evaluator comparing arms, and every acceptance
+criterion names a concrete assertion.
+
+Disposition: N/A — trigger does not apply.
