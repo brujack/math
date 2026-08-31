@@ -127,9 +127,14 @@ permissions:
 
 Specifying `permissions` sets every unlisted scope to none, so the `GITHUB_TOKEN` in that
 job cannot read the Actions API. Without adding `actions: read`, every probe returns 403
-and the design is inert. This is the load-bearing premise: if it were false in the other
-direction — if the scope were already present — the change would be smaller, but the
-approach would be unaffected.
+and the design is inert.
+
+The basis for the two halves of that claim differs and is worth separating. That the block
+lists only `issues: write` is measured — it is in the file. That an unlisted scope
+therefore resolves to none is GitHub's documented behaviour for an explicit `permissions`
+block, **not** something reproduced here; no run has been made to observe the 403. If it
+were wrong the change would merely be one line smaller, and the probe would already work —
+the design depends only on adding the scope being harmless, not on which way that goes.
 
 ## Design
 
@@ -219,8 +224,11 @@ jobs_json=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs") || probe_rc=$?
 Derived from it: the mutants job's `conclusion`; the first step whose conclusion is neither
 `success` nor `skipped` (the last thing that actually ran); and the conclusion of the single
 step whose name begins with `Upload`. Both workflows have exactly one such step
-(`Upload mutants output`, `Upload mutants reports`), so the prefix match is stable across
-the pair without hardcoding either name.
+(`Upload mutants output` at `mutation-testing.yml:85` and `Upload mutants reports` at
+`mutation-testing-python.yml:87`; `grep -c '^      - name: Upload'` returns 1 for each), so
+the prefix match is stable across the pair without hardcoding either name. A third such
+step added later would break the match silently, so the script fails loudly when the count
+is not 1 rather than taking the first.
 
 | upload step | `DL_OUTCOME` | `status/` | message                                                                                                                                                                            |
 | ----------- | ------------ | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -278,9 +286,12 @@ edit and must actually be re-run rather than reasoned about.
 | 5   | upload `success`, `DL_OUTCOME=failure`                         | body states uploaded-but-not-downloadable                        |
 | 6   | upload `success`, dl `success`, no `status/`                   | body states the job died before the loop                         |
 | 7   | full artifact with a `^red` status file                        | **body names that specific crate**                               |
-| 8   | jobs API exits non-zero, and separately returns malformed JSON | body states the probe failed with its rc, and names no cause     |
-| 9   | `status/` present with no `^red` line                          | preserves today's `(none flagged; see run log)`                  |
-| 10  | red path with an existing open issue                           | comments; does not create a second issue                         |
+| 8a | jobs API exits non-zero | body states the probe failed with its rc, and names no cause |
+| 8b | jobs API returns malformed JSON | same: probe-failed body, no cause named |
+| 9 | `status/` present with no `^red` line | preserves today's `(none flagged; see run log)` |
+| 10 | red path with an existing open issue | comments; does not create a second issue |
+| 11 | more than one step whose name begins with `Upload` | script fails loudly rather than matching the first |
+| 12 | `RESULT=cancelled` | files an issue, as today — see below |
 
 **Case 7 is the positive control and is not optional.** Cases 3 through 6 and case 8 all
 assert on the content of a failure message, so a script emitting an empty body would satisfy
@@ -291,6 +302,17 @@ parsing silently produces nothing.
 Case 8 must also assert the negative — that no cause string appears in the body. A probe
 failure falling through into an attribution is the original defect reintroduced, and only an
 absence assertion detects it.
+
+### One preserved behaviour, stated rather than inherited
+
+The current script treats every `RESULT` other than `success` as red, so a manually
+cancelled run files a "monthly run failed" issue. `needs.mutants.result` is `cancelled` in
+that case, distinct from the `failure` that a terminated job produced in every run measured
+above, so the two are separable if that is ever wanted.
+
+This spec preserves the existing behaviour unchanged and case 12 pins it. Changing it is a
+different decision about what the tracking issue is for, and folding it into a change about
+misattribution would make both harder to review.
 
 ### Failure-mode safety
 
