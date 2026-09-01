@@ -32,6 +32,9 @@ tarpaulin-report.json
 # Mutation testing artifacts (cosmic-ray)
 cosmic-ray-session.sqlite
 mutants-report.txt
+# cargo-mutants writes these into each Rust crate on every local `make mutants`
+mutants.out/
+mutants.out.old/
 .mutmut-cache
 
 # Rust build artifacts

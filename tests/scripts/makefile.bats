@@ -181,3 +181,47 @@ for e in json.load(open('${REPO_ROOT}/renovate.json')).get('extends', []):
         return 1
     fi
 }
+
+# `cargo mutants --timeout` bounds every cargo command it runs, including the
+# unmutated baseline -- not just the per-mutant budget the flag name suggests.
+# A crate whose baseline test phase exceeds a fixed --timeout (pi-rs, e-rs at
+# 54s+ against 30s) times out before evaluating a single mutant. The fix is a
+# multiplier derived from the measured baseline, floored so the nine
+# already-working crates don't fall below their current 30s budget.
+#
+# The mocks directory is stripped from PATH before the `git ls-files` call:
+# tests/mocks/git has no ls-files branch, so an inherited mock silently
+# returns an empty list and every assertion below would pass vacuously
+# (math#95 -- see shell.md's PATH-mock-shadowing pitfall).
+#
+# --timeout-multiplier and --minimum-test-timeout both contain the substring
+# "timeout", and --timeout-multiplier even starts with "--timeout" -- a bare
+# `grep -q -- '--timeout'` cannot tell the fixed form from the fix. Matching
+# "--timeout" followed by whitespace then a digit is what discriminates them.
+@test "no crate Makefile caps the mutants baseline with a fixed --timeout" {
+    local _clean_path
+    _clean_path="$(printf '%s' "${PATH}" | tr ':' '\n' | grep -v 'tests/mocks' | tr '\n' ':' | sed 's/:$//')"
+
+    local makefiles count=0 bad=""
+    makefiles="$(cd "${REPO_ROOT}" && PATH="${_clean_path}" command git ls-files '*/*/Makefile')"
+    [ -n "${makefiles}" ]
+
+    while IFS= read -r mf; do
+        [[ -z "${mf}" ]] && continue
+        grep -q '^mutants:' "${REPO_ROOT}/${mf}" || continue
+        count=$((count + 1))
+
+        if grep -qE -- '--timeout[[:space:]]+[0-9]' "${REPO_ROOT}/${mf}"; then
+            bad="${bad}${mf}(fixed --timeout caps the baseline) "
+        fi
+        grep -qE -- '--minimum-test-timeout' "${REPO_ROOT}/${mf}" \
+            || bad="${bad}${mf}(missing --minimum-test-timeout) "
+    done <<< "${makefiles}"
+
+    [ "${count}" -eq 11 ]
+
+    if [[ -n "${bad}" ]]; then
+        printf 'mutants recipe does not scale the baseline timeout: %s\n' "${bad}" >&2
+        return 1
+    fi
+}

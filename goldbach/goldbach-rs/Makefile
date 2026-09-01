@@ -21,7 +21,7 @@ mutants:
 	      printf "  An allocation-unbounded mutant will consume system memory until the OS intervenes.\n" >&2; \
 	      printf "  Re-run with MUTANTS_UNCAPPED=1 to proceed anyway, or use the Linux path.\n" >&2; \
 	      exit 1; }; \
-	  fi; exec cargo mutants --timeout 30 --no-shuffle'
+	  fi; exec cargo mutants --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle'
 
 clean:
 	cargo clean
