@@ -29,6 +29,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      - name: Mark job start
+        run: mkdir -p "${GITHUB_WORKSPACE}/marker" && date -u > "${GITHUB_WORKSPACE}/marker/job-began"
+
       - name: Install cosmic-ray
         run: pip install cosmic-ray
 
@@ -93,6 +96,7 @@ jobs:
             **/mutants-report.txt
             **/cosmic-ray-session.sqlite
             status/
+            marker/
           retention-days: 30
 
   notify:
@@ -103,43 +107,21 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - id: dl
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         continue-on-error: true
         with:
           name: mutants-report-python
           path: artifact
+          digest-mismatch: error
       - name: File, comment, or close the tracking issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RESULT: ${{ needs.mutants.result }}
+          DL_OUTCOME: ${{ steps.dl.outcome }}
+          ARTIFACT_DIR: artifact
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -u
-          title="mutation-testing-python: monthly run failed"
-          existing=$(gh issue list --state open --label mutation-failure \
-            --search "in:title \"${title}\"" --json number --jq '.[0].number // empty')
-
-          if [[ "${RESULT}" == "success" ]]; then
-            if [[ -n "${existing}" ]]; then
-              gh issue comment "${existing}" --body "Green as of ${RUN_URL}. Closing."
-              gh issue close "${existing}"
-            fi
-            exit 0
-          fi
-
-          if [[ -d artifact/status ]]; then
-            subprojects=$(grep -l '^red' artifact/status/* 2>/dev/null \
-              | xargs -r -n1 basename | sed 's/^/- /')
-            detail="Failing sub-projects:"$'\n'"${subprojects:-- (none flagged; see run log)}"
-          else
-            detail="No artifact was produced. The runner was terminated (exit 143) or the job timed out, so the failing sub-project cannot be attributed from CI alone — inspect the run log."
-          fi
-          body="Run: ${RUN_URL}"$'\n\n'"${detail}"
-
-          if [[ -n "${existing}" ]]; then
-            gh issue comment "${existing}" --body "${body}"
-          else
-            gh label create mutation-failure --color B60205 \
-              --description "Monthly mutation run failed" 2>/dev/null || true
-            gh issue create --title "${title}" --label mutation-failure --body "${body}"
-          fi
+          ISSUE_TITLE: "mutation-testing-python: monthly run failed"
+          UNIT_NOUN: sub-project
+          REPO: ${{ github.repository }}
+        run: scripts/mutation-notify.sh
