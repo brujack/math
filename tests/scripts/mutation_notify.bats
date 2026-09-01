@@ -394,3 +394,65 @@ assert_all_gh_calls_carry_repo() {
     run bash "${REPO_ROOT}/scripts/mutation-notify.sh"
     [ "${status}" -eq 0 ]
 }
+
+# Every case above fixtures marker/ itself, so the suite is exhaustive over
+# "given a marker exists, does attribution route correctly" and silent on
+# "does a marker ever exist in production" -- attribute()'s entire verdict
+# space keys off three strings agreeing: the "Mark job start" step's write
+# path, that same workflow's Upload step's `path:` list, and the directory
+# attribute() probes. Mutation-confirmed: renaming a workflow's marker
+# directory in both the write step and the upload path left every case
+# above green, because every one of them creates marker/ in its own
+# fixture rather than reading what the workflow produces.
+#
+# The probed directory name is derived from scripts/mutation-notify.sh
+# itself, not typed as a literal here -- typing "marker" on both the
+# derivation side and the workflow side would recreate the exact displaced
+# reference this test exists to close.
+@test "each mutation workflow's Mark-job-start write and Upload path agree with what attribute() probes" {
+    local _dir_name
+    _dir_name=$(grep -oE '! -d "\$\{_dir\}/[A-Za-z0-9_-]+"' "${REPO_ROOT}/scripts/mutation-notify.sh")
+    _dir_name="${_dir_name%\"}"
+    _dir_name="${_dir_name##*/}"
+    [ -n "${_dir_name}" ]
+
+    # load_mocks() (setup()) put tests/mocks/ ahead of the real git on PATH,
+    # and that mock has no ls-files branch -- it would print nothing and
+    # exit 0, so the enumeration this test depends on has to bypass it
+    # rather than rely on `command git` (which still finds the mock first).
+    local _real_path
+    _real_path=$(printf '%s' "${PATH}" | tr ':' '\n' | grep -v 'tests/mocks' | tr '\n' ':' | sed 's/:$//')
+
+    local _workflows
+    _workflows=$(cd "${REPO_ROOT}" && PATH="${_real_path}" git ls-files '.github/workflows/mutation-testing*.yml')
+    [ -n "${_workflows}" ]
+
+    local _workflow _wf_path _upload_block _conformant
+    _conformant=0
+    while IFS= read -r _workflow; do
+        _wf_path="${REPO_ROOT}/${_workflow}"
+
+        # The write step: mkdir the directory, then redirect job-began into it,
+        # both under GITHUB_WORKSPACE -- exactly the shape production writes.
+        grep -qE "mkdir -p \"\\\$\{GITHUB_WORKSPACE\}/${_dir_name}\" && date -u > \"\\\$\{GITHUB_WORKSPACE\}/${_dir_name}/job-began\"" \
+            "${_wf_path}"
+
+        # The Upload step's own path: list -- scoped to that step's block, not
+        # the whole file, so an unrelated later occurrence of the same name
+        # could not pass this by accident.
+        _upload_block=$(awk '
+            /^ *- name: Upload/ { capture=1 }
+            capture && /^ *- (name|uses):/ && !/^ *- name: Upload/ { capture=0 }
+            capture { print }
+        ' "${_wf_path}")
+        [ -n "${_upload_block}" ]
+        printf '%s\n' "${_upload_block}" | grep -qE "^ +${_dir_name}/ *\$"
+
+        _conformant=$((_conformant + 1))
+    done <<< "${_workflows}"
+
+    # A third mutation workflow added later without this write/upload pair
+    # must fail this count rather than pass unnoticed -- membership alone
+    # (does at least one conform) would not catch that.
+    [ "${_conformant}" -eq 2 ]
+}
