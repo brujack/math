@@ -156,8 +156,27 @@ assert_all_gh_calls_carry_repo() {
     [ "${result}" = "loop-began-no-verdict" ]
 }
 
+# The case above puts the root-level entry at a directory. A probe with
+# -type d added would still pass it while silently dropping any root-level
+# FILE output -- not reachable today (both workflows' **/ upload patterns
+# yield a sub-project directory), but this pins the probe as type-agnostic
+# too rather than only name-agnostic.
+@test "marker + a plain file at the artifact root, no status -> loop-began-no-verdict (root-level file, not a directory)" {
+    mkdir -p "${ARTIFACT_DIR}/marker"
+    printf 'placeholder\n' > "${ARTIFACT_DIR}/some-future-tool-output.txt"
+
+    result="$(attribute)"
+    [ "${result}" = "loop-began-no-verdict" ]
+}
+
 @test "marker only -> died-before-loop" {
     mkdir -p "${ARTIFACT_DIR}/marker"
+    # The real fixture: mutation-testing.yml's "Mark job start" step writes
+    # exactly this file, so an empty marker/ is a shape production cannot
+    # produce. job-began sits at depth 2 under ARTIFACT_DIR, which is what
+    # pins the probe's -maxdepth 1 -- a recursive probe matches it and
+    # misattributes every real died-before-loop run as loop-began-no-verdict.
+    printf '2026-09-01T00:00:00Z\n' > "${ARTIFACT_DIR}/marker/job-began"
 
     result="$(attribute)"
     [ "${result}" = "died-before-loop" ]
@@ -205,6 +224,7 @@ assert_all_gh_calls_carry_repo() {
 
 @test "marker + empty status directory, no mutants.out -> falls through to died-before-loop" {
     mkdir -p "${ARTIFACT_DIR}/marker" "${ARTIFACT_DIR}/status"
+    printf '2026-09-01T00:00:00Z\n' > "${ARTIFACT_DIR}/marker/job-began"
 
     result="$(attribute)"
     [ "${result}" = "died-before-loop" ]

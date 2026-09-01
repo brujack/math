@@ -35,12 +35,14 @@ attribute() {
         return 0
     fi
 
-    # "The loop began" is: the artifact contains any entry other than
-    # marker/ and status/. This must stay tool-agnostic -- cargo-mutants
-    # uploads mutants.out/, cosmic-ray uploads mutants-report.txt and
-    # cosmic-ray-session.sqlite, and this script is shared by both
-    # workflows. Naming either tool's filenames here would misattribute the
-    # other's run the moment it began the loop and wrote no verdict.
+    # "The loop began" is: the artifact contains any ROOT-LEVEL entry other
+    # than marker/ and status/ (-maxdepth 1 -- marker/job-began itself sits
+    # one level deeper and must not match). This must stay tool-agnostic --
+    # cargo-mutants uploads mutants.out/, cosmic-ray uploads
+    # mutants-report.txt and cosmic-ray-session.sqlite, and this script is
+    # shared by both workflows. Naming either tool's filenames here would
+    # misattribute the other's run the moment it began the loop and wrote
+    # no verdict.
     if find "${_dir}" -mindepth 1 -maxdepth 1 ! -name marker ! -name status -print -quit | grep -q .; then
         printf 'loop-began-no-verdict'
         return 0
