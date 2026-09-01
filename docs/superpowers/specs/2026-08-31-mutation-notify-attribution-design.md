@@ -1,7 +1,7 @@
-# Mutation-testing notify: attribute the failure instead of asserting one
+# Mutation-testing notify: let the job attest its own progress
 
-Date: 2026-08-31
-Status: Spec (revised after Multi-Lens Review round 1)
+Date: 2026-08-31 (revised 2026-09-01 after Multi-Lens Review round 2)
+Status: Spec
 
 ## Problem
 
@@ -36,9 +36,7 @@ remainder into whichever member was written down first.
 Causes 2 and 3 are live today and predate v8. Cause 2 is confirmed structurally: the
 `no crates found` guard exits at `mutation-testing.yml:52-54`, five lines **upstream** of
 the `mkdir -p` at line 58, and no workflow sets `if-no-files-found`, so the default `warn`
-applies and a guard trip produces no artifact at all. Cause 2 also couples to the repo's
-separate backlog item on 33 unpinned `cargo install` lines: a bad upstream `cargo-mutants`
-release would produce an issue blaming the GitHub runner.
+applies and a guard trip uploads nothing.
 
 The deeper defect is that the sentence has no supporting field at all. `needs.mutants.result`
 is `failure` for a SIGTERM and `failure` for an ordinary step failure alike, and the exit
@@ -48,431 +46,300 @@ cause it has no instrument for.
 ### Why now
 
 `actions/download-artifact` moved to v8 in #119 (`7e8241b`, 2026-08-24). The pinned tree at
-`3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` carries a new input:
+`3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` adds a `digest-mismatch` input with
+`default: 'error'`, retrieved with
+`gh api "repos/actions/download-artifact/contents/action.yml?ref=3e5f45b2..."`. Both call
+sites pair that default with `continue-on-error: true`, adding cause 4 to a branch that
+already misreported causes 2 and 3.
 
-```yaml
-digest-mismatch:
-  description:
-    "The behavior when a downloaded artifact's digest does not match the expected digest.
-    Options: ignore, info, warn, error. Default is error which will fail the action."
-  required: false
-  default: "error"
-```
+### How often the misattribution fires: unmeasured, not rare
 
-Retrieved with `gh api "repos/actions/download-artifact/contents/action.yml?ref=3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"`.
-Both call sites pair that new default with `continue-on-error: true`, adding cause 4 to a
-branch that already misreported causes 2 and 3. The crons are `0 4 1 * *` (Rust) and
-`0 6 1 * *` (Python), so 2026-09-01 is the first execution under v8.
-
-There is no false-clean here: the verdict comes from `needs.mutants.result`, not from the
-artifact. The cost is entirely diagnostic — an issue that names a cause which did not
-occur, which is what sent ADR-0024's original investigation after the 360-minute job
-timeout instead of the missing memory bound.
-
-### How often the misattribution actually fires: unmeasured, not rare
-
-This distinction decides the sizing and an earlier draft of this spec got it wrong by
-calling the rate "low". Low would license shrinking the design against a known number.
-Unmeasured licenses only measuring or deferring.
-
-```
-$ gh run list --workflow mutation-testing-python.yml --limit 20 --json event,conclusion
-2026-08-01 schedule success
-2026-07-01 schedule success
-2026-06-01 schedule success
-```
-
-The Python workflow has **3 runs, 3 successes, and has never gone red**. The Rust workflow
-shows 9 failures in 14 runs, but 8 of the 14 are `workflow_dispatch` from one debugging
-session on 2026-08-01/02; its scheduled population is 3, all of them predating the
-ADR-0024 memory-cap fix that removed the dominant cause. So the post-fix rate of the
-artifact-absent branch is **not known**, in either direction.
+An earlier draft called this rate "low", which is the wrong claim: low would license
+shrinking the design against a known number, unmeasured licenses only measuring or
+deferring. The Python workflow has **4 runs, 4 successes**, and has never gone red. The Rust
+workflow's scheduled population is **4**, of which 3 predate the ADR-0024 memory-cap fix.
+11 of its 14 non-scheduled runs are `workflow_dispatch` from one debugging session on
+2026-08-01/02. So the post-fix rate of the artifact-absent branch is not known in either
+direction.
 
 ## Measurements
 
-Figures below were taken on 2026-08-31 against `brujack/math` unless marked otherwise.
+### The 2026-09-01 cron settled the question the design was going to buy a probe branch for
 
-### The step conclusions discriminate; durations are not needed
-
-`ci.md` documents identical job durations and `started_at == run created_at` as the tell
-for a runner-reaped job. That heuristic is unnecessary here, because the jobs API carries
-per-step conclusions directly:
+The Rust cron ran at 04:01:01Z on 2026-09-01 — the first execution under v8 — and produced
+the **ordinary non-terminated failure** this repository had never previously recorded:
 
 ```
-gh api "repos/brujack/math/actions/runs/<id>/jobs" \
-  --jq '.jobs[]|select(.name=="Mutation testing")|{conclusion, steps:[.steps[]|{name,conclusion}]}'
+run 33468276278 (schedule, failure)
+  Run mutants:            failure        <- ordinary failure, not reaped
+  Upload mutants output:  success        <- `if: always()` DID run
+  Post Run actions/checkout: success
+  artifacts: 1  (mutants-output, 3,073,920 bytes, not expired)
+  notify: commented on the open #98 -- "Failing crates: e-e-rs, pi-pi-rs"
 ```
 
-| run         | date                | `Run mutants` | `Upload mutants output` |
-| ----------- | ------------------- | ------------- | ----------------------- |
-| 28495704109 | 2026-07-01 cron     | `cancelled`   | `skipped`               |
-| 30685027791 | 2026-08-01 cron     | `failure`     | `skipped`               |
-| 30728417809 | 2026-08-02 dispatch | `failure`     | `skipped`               |
-| 30728211305 | 2026-08-02 dispatch | `success`     | `success`               |
+Set against the four prior runs, the discrimination is now measured in both directions:
 
-`if: always()` was present on the upload step in all four cases. That was verified by
-reading the workflow file at each run's own `head_sha` rather than at `master`, because a
-run executes the file at its own ref and reading master would have answered about a
-different artifact:
+| run         | date       | `Run mutants` | `Upload mutants output` | reading                  |
+| ----------- | ---------- | ------------- | ----------------------- | ------------------------ |
+| 28495704109 | 2026-07-01 | `cancelled`   | `skipped`               | terminated               |
+| 30685027791 | 2026-08-01 | `failure`     | `skipped`               | terminated (exit 143)    |
+| 30728417809 | 2026-08-02 | `failure`     | `skipped`               | terminated (exit 143)    |
+| 30728211305 | 2026-08-02 | `success`     | `success`               | green                    |
+| 33468276278 | 2026-09-01 | `failure`     | **`success`**           | **ordinary failure**     |
 
-```
-gh api "repos/brujack/math/contents/.github/workflows/mutation-testing.yml?ref=<head_sha>"
-```
+`if: always()` was present on the upload step in every case, verified by reading the
+workflow at each run's own `head_sha` rather than at `master`.
 
-All three failures returned `if: always()` at the upload step. Run 30728417809's log
-confirms the mechanism directly: `##[error]Process completed with exit code 143`, preceded
-by `ERROR interrupted` from cargo-mutants.
+Two consequences. The gate this spec previously called **G1** — does `Upload: skipped`
+discriminate termination from an ordinary failure — is **answered yes, by the calendar**,
+with no dispatch and no deliberately OOM-reaped runner. And the design below no longer
+depends on the answer, which is the better outcome.
 
-### Two gating measurements, NOT YET RUN
+The same run also shows the dedup lookup working: notify commented on #98 rather than
+opening a duplicate. Combined with the earlier finding that the same lookup returns `98`
+when run by hand, that favours search-index lag over an overlapping-run race as the cause of
+the 2026-08-02 duplicate. Recorded in the backlog row; not settled here.
 
-The four runs above are the entire evidence base and **all three failures are exit-143
-terminations**, taken post-hoc, days to weeks after each run finished. Two claims the design
-depends on are therefore unestablished, and neither can be settled by re-reading old runs.
-They are gates on tier 3 below, not follow-ups.
+### What the run did not settle
 
-**G1 — does `Upload: skipped` discriminate termination from an ordinary failure?** There is
-no sample in this repository of a non-terminated `Run mutants` failure. If GitHub also
-reports a post-step as `skipped` when a job fails without being reaped, the branch table's
-top row misattributes a plain build failure as a runner kill — the original defect relocated
-one layer down rather than fixed.
-
-Settle it with a dispatch against a crate whose baseline tests fail, producing an ordinary
-non-terminated failure, then read that run's `steps[]`.
-
-**G2 — is `steps[]` populated with terminal conclusions at the instant `notify` queries it,
-for a reaped job?** Every measurement here is post-hoc. "Terminal in the workflow graph, so
-`needs:` released the dependent job" and "finalised in the REST API's `steps[]`" are
-different guarantees, and the SIGTERM case is exactly where they would diverge — the runner
-never reported step completion, so the service must backfill. If the array is empty or
-non-terminal at that moment, **every** red path falls into the probe-failure branch and the
-design delivers less than tier 1's string edit. That is an inversion, not a degradation.
-
-G2 needs a genuinely reaped job, so a clean failing-baseline dispatch cannot answer it — that
-run exercises the path where the runner did report. The reproduction recipe already exists
-and has been exercised: run 30728417809 carried `MUTANTS_UNCAPPED: "1"` at its `head_sha`,
-commented `# PROBE BRANCH ONLY - reproduces the pre-fix OOM`, and each crate's `mutants`
-recipe branches on that variable to skip the `ulimit -v 8388608` cap. Confirmed that variable
-appears in **zero** workflows on master, so the cap is on in CI as ADR-0024 intends and this
-is a probe-branch technique rather than a live defect.
-
-So G2 requires a probe branch carrying `MUTANTS_UNCAPPED: "1"` plus a temporary step in
-`notify` dumping `gh api repos/${REPO}/actions/runs/${GITHUB_RUN_ID}/jobs`.
-`mutation-testing.yml` is registered on master, so `gh workflow run --ref <probe-branch>`
-runs the branch's copy (per `ci.md`, a workflow that exists *only* on a feature branch would
-404 instead).
-
-**Cost, stated because it is not one line.** G1 and G2 are two dispatches, one of them
-needing a probe branch and a deliberately OOM-reaped runner. Both write to the live issue
-tracker — that is how #92, #96, #98 and #99 came to exist. The plan must name the cleanup of
-whatever issues they file.
-
-### The permissions block blocks the whole approach
-
-Both `notify` jobs declare:
-
-```yaml
-permissions:
-  issues: write
-```
-
-Specifying `permissions` sets every unlisted scope to none, so the `GITHUB_TOKEN` in that
-job cannot read the Actions API. Without adding `actions: read`, every probe returns 403.
-
-The basis for the two halves of that claim differs. That the block lists only
-`issues: write` is measured — it is in the file. That an unlisted scope therefore resolves
-to none is GitHub's documented behaviour for an explicit `permissions` block, **not**
-reproduced here; no run has observed the 403. If it were wrong the change is one line
-smaller and the probe already works. The design depends only on adding the scope being
-harmless.
+`RESULT=cancelled` has still never occurred. All four failures carry a **job** conclusion of
+`failure`; `cancelled` is attested only at the **step** level, on run 28495704109's
+`Run mutants`. An earlier draft asserted that a cancelled run is separable by
+`needs.mutants.result` and cited that step as evidence — wrong field, and about a different
+step than the one the claim was used to justify.
 
 ## Design
 
-Three tiers. Tier 1 stands alone and needs nothing measured. Tier 2 is deliberately not in
-this spec. Tier 3 is gated on G1 and G2.
+**Have the job attest its own progress instead of inferring it from platform semantics.**
 
-### Tier 1 — remove the unsupported claim (no new premises)
+The previous draft inferred the cause from the mutants job's *step conclusions*, read back
+through the Actions API. That required `actions: read`, a jobs-API probe with its own
+failure branch, and two gating measurements about what GitHub's step conclusions mean and
+when they are populated. A file written by the job itself answers the same question by
+attestation, which is the standard `USER.md` states for any trust signal: it must carry the
+confidence its mechanism earned.
 
-Replace each workflow's `else` detail string with one that enumerates rather than asserts:
+### The breadcrumb
 
-```bash
-  detail="No status/ directory in the artifact. That is reachable several ways — the job was
-terminated before its upload step ran, it failed before the crate loop began, the upload
-produced nothing, or the download failed. CI cannot tell them apart today; inspect the run log."
+In the mutants job, immediately after checkout and **before** `cargo install`:
+
+```yaml
+      - name: Mark job start
+        run: mkdir -p "${GITHUB_WORKSPACE}/marker" && date -u > "${GITHUB_WORKSPACE}/marker/job-began"
 ```
 
-Two strings, two files, no new file, no permission change, no API call, no test surface.
-This is the substance of the whole change: the current sentence's defect is that it asserts
-a cause the workflow has no field for, and enumeration cures that completely. Tier 3
-supersedes this text later; landing it first removes a false statement from master without
-waiting on G1 and G2.
+and `marker/` added to the upload step's `path:`, beside `**/mutants.out/` and `status/`.
 
-### Tier 2 — the dedup defect (backlogged, not in this spec)
+Placement is load-bearing. After checkout, so the workspace exists; before `cargo install`,
+so a toolchain or install failure still leaves the breadcrumb. Every cause-2 route — the
+`no crates found` guard, a failed `cargo install`, any failure inside `Run mutants` — now
+runs with the marker already on disk.
 
-`gh issue list --search 'in:title "..."'` depends on GitHub's issue **search index**, and
-#99 was created 2026-08-02T02:13:37Z while #98 — identical title, identical label — was open
-since 01:57:03Z and still is. The same lookup run 2026-08-31 returns `98`, so the query is
-not broken; the index is the dependency, and `--label` filtering does not use it.
+### What notify reads
 
-That is a live production defect affecting what the operator sees monthly, it is independent
-of everything else here, and it is now a row in `docs/superpowers/README.md`'s Backlog. It is
-named in this section only so a reader does not conclude the omission was an oversight.
+| artifact                                         | cause, as reported                                                                                                                                                                |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **no `marker/`** — download failed, or the artifact is empty or lacks it | `Cause: no-attestation`. The job's own reporting never ran. One of: terminated before the upload step; a checkout failure before the marker; the upload itself failed; the artifact was corrupt on download. |
+| `marker/` + `status/`                            | `Cause: verdicts-present`. Normal red: name the failing `<UNIT_NOUN>`s. Unchanged from today.                                                                                     |
+| `marker/` + `mutants.out`, no `status/`          | `Cause: loop-began-no-verdict`. At least one `<UNIT_NOUN>` ran `make mutants`; the job stopped before the first `tee`.                                                            |
+| `marker/` only                                   | `Cause: died-before-loop`. Checkout succeeded and the job did not reach the first `make mutants`. Failing step is in the log.                                                     |
 
-**Consequence for tier 3's test matrix:** with the dedup path unchanged, no case may assert
-comment-not-create as *correct*. See the preserved-behaviour rule below.
+**The discriminator is the marker's presence, not the download step's outcome**, and that
+ordering is deliberate. `actions/download-artifact` may fail when the named artifact does not
+exist, or it may succeed having downloaded nothing — the spec does not depend on which,
+because both land in row 1 by the same test. That removes an unstated assumption the previous
+draft's branch table rested on, where a missing artifact and a corrupt one had to produce
+different step outcomes for two of its rows to discriminate at all.
 
-### Tier 3 — attribution (gated on G1 and G2)
+The `died-before-loop` row is the substance. Cause 2 — the one this spec confirms is live and
+structural — is now **positively attested** rather than inferred, and the sentence naming it
+is true because a file the job wrote says so.
 
-**Extract the notify logic into `scripts/mutation-notify.sh`; the workflows call it.**
+`no-attestation`'s residual is four causes in one sentence, all rare, none asserted. That is
+the honest floor: a job that died before it could report anything cannot be attributed from
+the artifact, and no amount of probing changes that. The run log is linked in the same issue
+body.
 
-Shell inside a `run:` block cannot be tested, and this repo's Definition of Done requires
-boundary, error-path and state-transition tests for new logic. Note the argument's shape
-honestly: extraction is required *because tier 3 adds logic*, so it is a consequence of
-choosing tier 3, not an independent reason to choose it. Tier 1 adds no logic and needs no
-script.
+### What this design deletes, relative to the previous draft
 
-Given tier 3, the placement is right for three further reasons: `tests/mocks/gh` already
-logs every invocation to `MOCK_CALLS_FILE`, which is what allows assertions on issue-body
-content rather than on a return code; `scripts/*.sh` is inside the `bash-coverage`
-instrumented predicate, so a tested script raises the reachable quarter of that measurement;
-and `lint-hooks` shellcheck picks the file up through its `git ls-files`-derived scope with
-no scope list to edit.
+`actions: read` on both jobs; the jobs-API probe and its own failure branch;
+`select(.name != "notify")` and the duplicated job-identity reference it replaced; the
+`Upload`-prefix step match and its count guard; the `MOCK_GH_JOBS`/`MOCK_GH_JOBS_EXIT` mock
+arms, including the non-additive one that touched `ci_gate.bats`; and both gating
+measurements, G1 and G2. G1 is now answered by the 2026-09-01 cron. G2 — whether `steps[]`
+is populated at the instant notify queries it for a reaped job — is not answered and no
+longer needs to be, because nothing queries it.
 
-Inputs from the environment:
+**It also removes a dependency on `upload-artifact`'s zero-match behaviour.** With the
+marker written after checkout, the upload always has at least one file to match, so the
+question of what `if-no-files-found: warn` does to the step's own conclusion stops
+mattering for every post-checkout cause.
 
-| variable                   | meaning                                                     |
-| -------------------------- | ----------------------------------------------------------- |
-| `RESULT`                   | `needs.mutants.result`                                      |
-| `DL_OUTCOME`               | the download step's `outcome` (requires an `id:`)           |
-| `RUN_ID`, `REPO`, `RUN_URL`| run identity, for the probe and the issue body              |
-| `ARTIFACT_DIR`             | where the artifact was downloaded (`artifact`)              |
-| `ISSUE_TITLE`              | `mutation-testing: monthly run failed` / `…-python: …`      |
-| `UNIT_NOUN`                | `crate` / `sub-project`                                     |
+### `digest-mismatch`
 
-`JOB_NAME` is deliberately **absent** from that table. An earlier draft carried it, and it
-was a duplicated reference: `jobs.mutants.name` in the YAML and `JOB_NAME` in the notify
-`env` are two strings in one file with nothing forcing them equal, so a job rename yields
-rc=0, well-formed JSON and an **empty selection** — a probe outcome distinct from both
-"probe failed" and any real conclusion. Both workflows have exactly two jobs, so the
-selector is `select(.name != "notify")` and the string is gone rather than duplicated.
+`digest-mismatch: error` is set explicitly on both download steps. It restates the v8
+default, so **no verdict can differ because of it** — documentation-as-config, not a fix,
+and listed separately from the fixes for that reason. It is kept because inheriting an
+upstream default is how cause 4 arrived.
+
+`continue-on-error: true` stays. An absent artifact is a legitimate state the notify job
+exists to report; dropping it would make a terminated run produce two red jobs and no issue.
+
+### Message text
+
+Each arm emits a stable machine token before its prose:
+
+```
+Cause: loop-began-no-verdict
+
+The loop began and no verdict was written. At least one crate ran `make mutants`;
+the job stopped before the first status file was written. Run: <url>
+```
+
+The token is what tests assert on. Prose about a failure is the single most likely thing an
+operator asks to reword, and a script whose entire purpose is message wording should not
+have six tests go red when its messages are reworded. The token also gives the operator a
+greppable key across #98's comment history.
+
+No message asserts a cause the artifact does not attest, and no message names exit 143 —
+the run log carries the exit code and nothing in the notify job can see it.
+
+### Extraction
+
+`scripts/mutation-notify.sh`, called by both workflows. The two notify bodies are
+near-identical shell embedded in YAML, shell inside a `run:` block cannot be tested, and
+this repo's Definition of Done requires boundary, error-path and state-transition tests for
+new logic. The argument's shape is stated honestly: extraction is required *because this
+change adds branching logic*, not as an independent virtue.
+
+Inputs from the environment: `RESULT`, `DL_OUTCOME`, `ARTIFACT_DIR`, `RUN_URL`,
+`ISSUE_TITLE`, `UNIT_NOUN`, `REPO`.
 
 **Every `gh issue` and `gh label` call takes `--repo "${REPO}"`.** All six are repo-implicit
 today (`mutation-testing.yml:116,121,122,137,139,141`), so `gh` resolves from the checkout's
-remote. This is a test-safety requirement rather than a production fix — with no script
-there are no tests and nothing reaches the tracker — but under tier 3 it is load-bearing:
-`gh issue list --label mutation-failure --state open` returns an open #98 right now, so a
-regressed test's reached branch is `gh issue comment 98` on a live issue, not a create that
-might fail. `tdd.md` E2. With `--repo` on every call, a fixture `REPO` fails at gh's own
-resolution.
+remote. `gh issue list --label mutation-failure --state open` returns an open #98 right now,
+so a regressed test's reached branch is `gh issue comment 98` on a live issue — not a create
+that might fail. `tdd.md` E2. With `--repo` on every call, a fixture `REPO` fails at gh's own
+resolution, and that assertion is itself a test case rather than a claim.
 
-#### Workflow changes, per file
+Placement consequences, all favourable: `scripts/*.sh` is inside the `bash-coverage`
+instrumented predicate, so a tested script raises the reachable quarter of that measurement;
+`lint-hooks` shellcheck picks it up through its `git ls-files`-derived scope; and
+`tests/mocks/gh` already logs every invocation to `MOCK_CALLS_FILE`, which is what allows
+assertions on issue-body content rather than on a return code.
 
-```yaml
-  notify:
-    needs: [mutants]
-    if: always()
-    runs-on: ubuntu-latest
-    permissions:
-      issues: write
-      actions: read              # NEW — without it the jobs API returns 403
-    steps:
-      - uses: actions/checkout@...
-      - id: dl                   # NEW — makes steps.dl.outcome readable
-        uses: actions/download-artifact@3e5f45b2... # v8
-        continue-on-error: true
-        with:
-          name: mutants-output
-          path: artifact
-          digest-mismatch: error # NEW — explicit, not inherited
-```
-
-`continue-on-error: true` stays: an absent artifact is a legitimate state the notify job
-exists to report, and dropping it would make a terminated run produce two red jobs and no
-issue at all.
-
-`digest-mismatch: error` restates the v8 default, so **no verdict can differ because of it**
-— it is documentation-as-config, not a fix, and is listed here rather than among the fixes.
-It is kept because inheriting an upstream default is how this defect arrived.
-
-#### Attribution
-
-The probe runs only on the red path, so the green path spends no API call:
-
-```bash
-jobs_json=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs") || probe_rc=$?
-```
-
-Derived: the mutants job's `conclusion`; the first step whose conclusion is neither
-`success` nor `skipped` (the last thing that actually ran); and the conclusion of the single
-step whose name begins with `Upload`. Both workflows have exactly one such step
-(`Upload mutants output` at `mutation-testing.yml:85`, `Upload mutants reports` at
-`mutation-testing-python.yml:87`; `grep -c '^      - name: Upload'` returns 1 for each). A
-third such step added later would break the match silently, so the script fails loudly when
-the count is not 1 rather than taking the first.
-
-| upload step   | `DL_OUTCOME` | artifact                             | message                                                                                                                                    |
-| ------------- | ------------ | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `skipped`     | any          | any                                  | The upload step did not run although `if: always()` is declared on it, which is how a terminated job presents. Last step to run: `<name>` (`<conclusion>`). The exit code is in the run log. |
-| `failure`     | any          | any                                  | The artifact upload itself failed.                                                                                                          |
-| `success`     | `failure`    | —                                    | Artifact uploaded but not downloadable — digest mismatch or a transient failure. See the notify job's download step.                        |
-| `success`     | `success`    | no `status/`, no `mutants.out`       | No `<UNIT_NOUN>` was reached: the loop had not started. Failing step: `<name>`.                                                             |
-| `success`     | `success`    | no `status/`, `mutants.out` present  | The loop began and no verdict was written. At least one `<UNIT_NOUN>` ran `make mutants`; the job stopped before the first `tee`.           |
-| `success`     | `success`    | `status/` present                    | Normal red: name the failing `<UNIT_NOUN>`s.                                                                                                |
-| anything else | any          | any                                  | The upload step's conclusion could not be determined (`<value or empty>`). Attribution unavailable; inspect the run log.                    |
-
-Three properties of that table are deliberate and were not true of the previous draft.
-
-**Row 1 is hedged, because the Boundary above says it must be.** The earlier draft asserted
-"Job terminated before the upload step ran" as fact while its own measurements section
-recorded that the reverse implication was unmeasured. That is the same distance between what
-is known and what is said that this whole document is about. The row now states the
-observation and names termination as how it presents. **G1 may allow the stronger wording;
-until G1 runs, it may not.**
-
-**The `mutants.out` split exists because the artifact discriminates.** Artifact upload elides
-empty directories, so `status/` absent does not imply the loop never started: a run where
-crate 1 produced `mutants.out/` and the job died before the first `tee` — under GitHub's
-`bash -e`, a failing `tee` alone does it — lands here, and the single-row wording would have
-been false. `artifact/**/mutants.out` present means the loop began. This was the previous
-draft reproducing, in its own fix, the defect it was fixing.
-
-**The last row is a real arm, not a fallback comment.** An empty or unrecognised conclusion
-must not fall through into row 1. `cancelled` is attested in this repo — run 28495704109's
-`Run mutants` is `cancelled` — so an enumeration of three values is not exhaustive over what
-GitHub emits.
-
-Every body carries the line its verdict was derived from:
-
-```
-Evidence — mutants job: failure · last step run: Run mutants (failure) · upload step: skipped · download step: failure
-```
-
-Two error-path rules follow from the class of defect being fixed.
-
-**The probe's own failure gets its own branch.** A `gh api` that 403s, rate-limits, or
-returns unparseable JSON produces *"attribution probe failed (rc=N) — inspect the run log"*
-and names no cause. A bare `||` falling through into the termination message would recreate
-the original bug one layer up.
-
-**No branch asserts exit 143.** The jobs API does not carry an exit code. Removing the claim
-the workflow cannot support is the substance; the branch table is how it stays useful
-afterwards.
-
-## Testing (tier 3)
+## Testing
 
 `tests/scripts/mutation_notify.bats`, following the existing `ci_gate.bats` pattern.
 
-### The shared `gh` mock needs three edits, and they are not all additive
+### The `gh` mock needs one arm, and it is additive
 
-Two output arms are additive: `*"actions/runs"*` → `MOCK_GH_JOBS` and an issue arm →
-`MOCK_GH_ISSUE_LIST`, ahead of the existing fallback. Match on `$1` rather than `$*`,
-because `gh issue comment --body "Run: …/actions/runs/123…"` would otherwise hit the
-`actions/runs` arm and make arm order load-bearing.
-
-The third is **not** additive and an earlier draft wrongly claimed the whole edit was.
-`tests/mocks/gh:4` checks `MOCK_GH_EXIT` before any dispatch, so a non-zero exit applies to
-every call — including the `gh issue` write whose body case 8a must assert on. Isolating a
-failing probe needs a per-arm exit variable (`MOCK_GH_JOBS_EXIT`), which touches the branch
-`ci_gate.bats` depends on. That suite is the regression check and must actually be re-run.
+An arm for `issue` returning `MOCK_GH_ISSUE_LIST`, ahead of the existing fallback, matching
+on `$1` rather than `$*`. No jobs-API arm and no per-arm exit variable are needed, because
+there is no probe — which is what makes this edit genuinely additive, unlike the previous
+draft's. `ci_gate.bats` is still the regression check for the shared file and must be re-run.
 
 ### Case matrix
 
-| #   | inputs                                                | assertion                                                                    |
-| --- | ----------------------------------------------------- | ---------------------------------------------------------------------------- |
-| 2   | `RESULT=success`, no open issue                       | exits 0 with no `gh issue` write at all                                      |
-| 3   | upload `skipped`                                      | body names the **literal last-step string from the fixture**, not the sentence |
-| 4   | upload `failure`                                      | body states the upload failed, and its Evidence line names the fixture's step |
-| 5   | upload `success`, `DL_OUTCOME=failure`                | body states uploaded-but-not-downloadable                                    |
-| 6a  | upload `success`, dl `success`, no `status/`, no `mutants.out` | body states the loop had not started                                  |
-| 6b  | upload `success`, dl `success`, no `status/`, `mutants.out` present | body states the loop began and no verdict was written            |
-| 7   | full artifact with a `^red` status file               | **body names that specific crate**                                           |
-| 8a  | `MOCK_GH_JOBS_EXIT` non-zero, issue calls unaffected  | body states the probe failed with its rc, **and names no cause**             |
-| 8b  | jobs API returns malformed JSON                       | same: probe-failed body, no cause named                                      |
-| 8c  | jobs JSON valid but the job selection is empty        | body states the conclusion could not be determined                           |
-| 9   | `status/` present with no `^red` line                 | preserves today's `(none flagged; see run log)`                              |
-| 11  | more than one step whose name begins with `Upload`    | script fails loudly rather than matching the first                           |
-| 12  | `RESULT=cancelled`                                    | files an issue, as today — preserved behaviour, see below                    |
-| 13  | any red path                                          | the **fully rendered `Evidence —` line**, four non-empty mutually distinct fields |
+Artifact-shaped cases build a real fixture directory; none needs a mocked API response.
 
-**Cases 1 and 10 from the previous draft are deleted, both for the same reason.** Case 1
-asserted that a green run comments then closes the tracking issue. `math#100` is open and
-describes exactly that as a defect — a single-crate green run closed #98 while `pi-rs` and
-`e-rs` were still broken, destroying the tracking record for failures the run never looked
-at. Case 10 asserted comment-not-create on the red path, which tier 2 records as broken.
-Pinning either would make its bug harder to fix later, because a passing test's presence
-reads as intent. Neither behaviour changes in tier 3; both are simply not asserted.
+| #   | inputs                                                          | assertion                                                                             |
+| --- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| 1   | `RESULT=success`, open issue exists                             | **no new issue created**, and every `gh` call carries `--repo`. Characterization only — see below |
+| 2   | `RESULT=success`, no open issue                                 | exits 0 with no `gh issue` write at all                                                 |
+| 3   | red, `marker/` + `status/` with a `^red` file                   | **body names that specific crate**; token `Cause: verdicts-present`                     |
+| 4   | red, `marker/` + `mutants.out`, no `status/`                    | token `Cause: loop-began-no-verdict`                                                    |
+| 5   | red, `marker/` only                                             | token `Cause: died-before-loop`                                                          |
+| 6   | red, `DL_OUTCOME=failure`                                       | token `Cause: no-attestation`; body names all four residual causes and asserts none      |
+| 7   | red, `DL_OUTCOME=success` but the artifact has no `marker/`     | token `Cause: no-attestation` — **same token as case 6**, proving the marker and not the download outcome is the discriminator |
+| 8   | red, `status/` present with no `^red` line                      | preserves today's `(none flagged; see run log)`                                          |
+| 9   | red, `status/` with two `^red` files                            | **both** crate names appear                                                             |
+| 10  | `RESULT=cancelled`                                              | files an issue, as today — preserved behaviour, see below                               |
 
-**Case 7 is the positive control and is not optional.** Cases 3–6b, 8a–8c and 9 all assert
-on the content of a failure message, so a script emitting an empty body would satisfy every
-one of them.
+**Case 3 is the positive control and is not optional.** Cases 4–8 assert only that a token
+appears in a failure body, so a script emitting the right token and nothing else satisfies
+all of them. Case 3 pins a value derived from fixture content — the crate name read out of
+`status/` — and is the only case that fails if that derivation silently produces nothing.
 
-**Case 13 is the second positive control, and the previous draft had no equivalent.** The
-`Evidence` line is the headline deliverable and its `mutants job:` and `download step:`
-fields feed no branch selection, so a `jq` producing empty strings left every case green
-while shipping a half-blank line to the operator. Case 3's assertion is on the literal
-fixture step name for the same reason: cases 3–6b are otherwise satisfied by branch
-selection alone, with the probe's own derivation never under test.
+**Case 9 is the second control, and it replaces a requirement the previous draft could not
+satisfy.** That draft asked for four "mutually distinct" Evidence fields; the value domains
+are too small for distinctness to hold on any natural fixture, so the cheapest reconciliation
+would have been to weaken the assertion to "non-empty", which is the vacuity the case existed
+to prevent. Two red crates in one fixture tests the same property — that the derivation
+enumerates rather than returning a fixed string — and is satisfiable.
 
-**Case 12 is preserved behaviour, stated rather than inherited.** Every `RESULT` other than
-`success` is treated as red today, so a manually cancelled run files a "monthly run failed"
-issue. `needs.mutants.result` is `cancelled` there, distinct from the `failure` every
-measured termination produced, so the two are separable if that is ever wanted. This spec
-changes nothing and case 12 pins the current behaviour.
+**Case 1 is a characterization test and asserts nothing about closing.** `math#100` is open
+and describes the green path as buggy: a single-crate green run closed #98 while `pi-rs` and
+`e-rs` were still broken, and the 2026-09-01 cron confirms those two crates are still red.
+Asserting comment-then-close as correct would make #100 harder to fix, because a passing
+test reads as intent. But asserting *nothing* would leave `gh issue close` — the only
+destructive call — with no coverage in a change whose purpose is to make that code testable,
+and would drop the `--repo` safety assertion with it. So the case asserts the safety property
+and the absence of a new issue, and is silent on the behaviour #100 disputes.
+
+**Case 10 is preserved behaviour, stated rather than inherited.** Every `RESULT` other than
+`success` is treated as red today, so a manually cancelled run would file a "monthly run
+failed" issue. This has never occurred — all four measured failures carry a job conclusion of
+`failure` — so the case pins current behaviour without claiming the shape has been observed.
 
 ### Failure-mode safety
 
 Every case runs with `tests/mocks/` prepended to `PATH`, the script resolves `gh` through
 `PATH` with no absolute-path default, **and every `gh issue`/`gh label` call carries
-`--repo "${REPO}"`** so a fixture value fails at gh's own resolution. The third clause is
-the one that actually protects: `PATH` alone does not, and an earlier draft claimed a
-fixture `REPO` was sufficient when `REPO` governed only the probe.
+`--repo "${REPO}"`** so a fixture value fails at gh's own resolution. The third clause is the
+one that protects; `PATH` alone does not, and an earlier draft claimed a fixture `REPO` was
+sufficient when `REPO` governed only a probe that no longer exists.
 
 ## Verification
 
-Already run, quoted in Measurements above:
+Already run, quoted above:
 
-- `gh api "repos/actions/download-artifact/contents/action.yml?ref=3e5f45b2..."` — confirms
-  `digest-mismatch` exists with `default: 'error'`.
-- `gh api "repos/brujack/math/actions/runs/<id>/jobs"` across four runs — confirms per-step
-  conclusions are available.
-- The workflow file at each run's `head_sha` — confirms `if: always()` was present.
-- `grep -rn MUTANTS_UNCAPPED .github/workflows/` — empty; the cap is on in CI.
-
-Gates on tier 3, not yet run: **G1** and **G2** above. Each is a dispatch; G2 needs a probe
-branch. Both write to the live issue tracker and the plan must name the cleanup.
+- The five-run step-conclusion table, including the 2026-09-01 ordinary failure.
+- The workflow at each run's `head_sha`, confirming `if: always()`.
+- `gh api .../actions/runs/33468276278/artifacts` — 1 artifact, 3,073,920 bytes.
+- `grep -rn MUTANTS_UNCAPPED .github/workflows/` — empty; the memory cap is on in CI.
+- `grep -rn if-no-files-found .github/workflows/` — empty; the default `warn` applies.
 
 Requires the implementation:
 
-- `bats tests/scripts/mutation_notify.bats` — all cases green, 7 naming a crate and 13
-  rendering four distinct fields.
-- `bats tests/scripts/ci_gate.bats` — unchanged after the mock edit, including the
-  `MOCK_GH_EXIT` branch.
+- `bats tests/scripts/mutation_notify.bats` — all cases green, 3 naming a crate, 9 naming two.
+- `bats tests/scripts/ci_gate.bats` — unchanged after the mock edit.
 - `make lint` — shellcheck clean at default severity.
 - `make bash-coverage` — not below `FLOOR=24` (CI measures 30, six points of slack).
+- One `workflow_dispatch` per workflow against a green crate, confirming the marker reaches
+  the artifact and the normal-red path is unaffected. This writes to the live tracker only if
+  the run is red; against a green crate it does not.
+
+No probe branch, no deliberately reaped runner, and no measurement whose failure mode is an
+issue-tracker write.
 
 ## Scope
 
-In scope: tier 1's two strings; and, gated on G1/G2, tier 3's extracted script, its tests,
-the three `gh`-mock edits, and the two workflows' notify jobs.
+In scope: the marker step and upload path in both workflows; the extracted script; its tests;
+one additive `gh`-mock arm; `--repo` on the six tracker calls; explicit `digest-mismatch`.
 
-Out of scope, each already a backlog row rather than a deferral invented here:
+Out of scope, each a backlog row rather than a deferral invented here:
 
-- The dedup defect (tier 2).
+- The dedup defect — `--search` depends on GitHub's issue search index and `--label` does not.
 - `math#100`, the single-crate green run closing the full-sweep issue.
-- Pinning the 33 unpinned `cargo install` lines — one input to cause 2; this change makes
-  that cause legible rather than fixing it.
-- Any change to `scripts/mutation-classify.sh` or the red/green rules. This alters what the
-  issue *says*, never what the run *decides*.
-- `mutation-pr.yml`, which has no notify job.
+- Pinning the 33 unpinned `cargo install` lines — one input to cause 2; this change makes that
+  cause legible rather than fixing it.
+- Adding a `concurrency` block to either workflow. Neither has one, which is what makes
+  overlapping runs possible at all; it is the suspected mechanism behind the 2026-08-02
+  duplicate and is worth its own change.
+- `e-e-rs` and `pi-pi-rs` failing their mutation runs, per #95 and the 2026-09-01 cron. This
+  spec changes how failures are reported, never what fails.
+- Any change to `scripts/mutation-classify.sh` or the red/green rules.
 
 ## Timing
 
-The crons fire at 04:00 and 06:00 UTC on 2026-09-01, so nothing here lands first. That is
-not a blocker — the current behaviour produces a misattributed body, not a wrong verdict —
-and a run under the old text supplies a real fixture for the branch table. Tier 1 should
-still land promptly rather than wait on G1/G2, since it removes a false statement from
-master at a cost of two strings.
+The 2026-09-01 crons have fired. The Rust run was red, took the normal path, and produced a
+correct message, so no misattribution occurred and there is no deadline pressure. The
+previously proposed "tier 1" string edit is dropped: it existed to remove a false sentence
+before that cron, the cron has passed, and this design replaces the sentence anyway.
 
-## Multi-Lens Review
+## Multi-Lens Review — Round 1
 
 Reviewed at commit: `25c8bce1ed6afc25f8632c1b28329593851f6342` (Step 7 self-review commit,
 before Step 8 dispatch). Round 1. Dispositions are blank pending operator review.
@@ -700,3 +567,126 @@ a classifier over observed fields, not an evaluator comparing arms, and every ac
 criterion names a concrete assertion.
 
 Disposition: N/A — trigger does not apply.
+
+
+## Multi-Lens Review — Round 2
+
+Reviewed at commit: `03ce65d762c14481ca521fa6461c79580e5c232e`. All three lenses re-run,
+not only the ones that raised round 1's findings, because the round 1 revision changed
+design substance and a correction is new design carrying its own defects. That judgement is
+vindicated here: **every round 2 finding below is about text the round 1 revision
+introduced.**
+
+All three verified the premise independently and all three confirmed it. Between dispatch
+and disposition the 2026-09-01 cron fired, which answered one of the two gates the round 1
+design rested on and made the other unnecessary.
+
+### Goal-Fit
+
+Finding: the tiering is a false dichotomy — the spec only ever considered inferring the
+cause from outside the job, never having the job attest it. The jobs-API probe's entire
+marginal contribution is separating cause 1 from cause 2, and both gates existed for that
+one distinction; a breadcrumb file written before `cargo install` names cause 2 positively
+in ~5 lines of YAML and folds cause 1 into an honest residual. **The cost of deciding
+whether to build the probe exceeds the cost of building the alternative outright.** Also:
+deleting case 1 left `gh issue close` — the only destructive call — with zero coverage in a
+change whose stated purpose is making that code testable; the assertion had to go, not the
+case. Also: G1/G2 had no named destination for their answers. Also: "tier 2" is not a tier
+of this design and numbering it between two deliverables makes the sequence read as
+non-monotonic.
+
+Assumption: that automatic cause attribution is worth building at all once the false
+sentence is removed, since the one attested cost of this defect — ADR-0024's investigation
+chasing the 360-minute timeout — is cured by enumeration alone.
+
+Disposition: **Addressed** (operator, 2026-09-01, choosing the breadcrumb over the probe).
+The breadcrumb is now the design; the probe, `actions: read`, the jobs API, G1 and G2 are
+all deleted. One correction to the lens's own proposal, made by the author: its residual is
+four causes rather than two, because `download-artifact` failure absorbs digest mismatch and
+a pre-marker checkout failure as well as a reap. That is named in the `no-attestation` row
+and asserted of none of them. Case 1 restored as a characterization test asserting the
+`--repo` safety property and the absence of a new issue, silent on the behaviour `math#100`
+disputes. Tiers collapsed to a single design. The assumption is moot rather than answered:
+the breadcrumb makes attribution nearly free, so it no longer has to justify two dispatches.
+
+### Ergonomics
+
+Finding: five parts, all in round 1's new text. **Case 13 was unsatisfiable** — it required
+four "mutually distinct" Evidence fields, and the value domains (job conclusion ∈ {failure,
+cancelled}, upload ∈ {skipped, failure, success}, download ∈ {success, failure}) collide on
+every natural fixture, so an implementer's cheapest reconciliation is to weaken it to
+"non-empty with four colons", precisely the vacuity the case existed to prevent. **The
+`download step:` field carries no information whenever upload ≠ `success`** and reads to the
+operator as a second independent fault. **`JOB_NAME` was not removed but converted** into a
+duplicated reference to the job *id*, whose failure mode is a selection of two rather than
+zero — and case 8c guarded only the empty case, while the identical "fail loudly when the
+count is not 1" discipline was applied to the `Upload` step one paragraph earlier. **Tier
+1's replacement sentence presupposed an artifact** ("No `status/` directory in the artifact")
+in exactly the case where none exists, the same shape as the sentence it replaced, and as
+drafted its continuation lines terminated the `run: |` block scalar. **The tests were coupled
+to operator-facing prose**, which is the single most likely maintenance request for a script
+whose whole purpose is message wording.
+
+Assumption: that `download-artifact@v8` fails rather than succeeding with a warning when the
+named artifact does not exist — load-bearing for round 1's row 3 and never stated.
+
+Disposition: **Addressed.** Case 13 is replaced by case 9, a two-red-crate fixture testing
+the same property (the derivation enumerates rather than returning a fixed string) by a
+satisfiable means. The Evidence line, `download step:` and the job selector are all gone with
+the probe. Tier 1 is dropped — the cron it was racing has passed and this design replaces the
+sentence anyway. Machine tokens (`Cause: <slug>`) adopted, with tests asserting the token and
+prose left free to be reworded. The assumption is **structurally removed rather than
+answered**: the design now keys on the marker's presence, not the download step's outcome, so
+a missing artifact and a corrupt one land in the same row by the same test and it no longer
+matters which outcome GitHub reports. The lens also caught a factual error — 11 of 14 runs
+are `workflow_dispatch`, not 8 — verified and corrected.
+
+### Risk
+
+Finding: **round 1's row 3 misattributed cause 2, the one cause the spec confirms is live,
+and did so more falsely than master.** With no `if-no-files-found` set, the `if: always()`
+upload step runs on a cause-2 failure, matches zero files, warns, and concludes `success`
+with no artifact created; the download then fails, and row 3 asserted "Artifact uploaded but
+not downloadable — digest mismatch or a transient failure". Master's text says "No artifact
+was produced", which is **true** for cause 2 and false only in its second clause. **Case 12's
+factual premise is false**: `cancelled` is attested at the step level only, all four measured
+failures carry a job conclusion of `failure`, so `RESULT=cancelled` has never occurred and
+the default arm's stated evidence was about a different step than the field it justified.
+**G1/G2's tracker writes were avoidable** — the probe branch already edits `notify` and could
+replace the issue-write step outright — and neither workflow has a `concurrency` block, so a
+gating dispatch overlapping the 2026-09-01 crons would have reproduced the very
+overlapping-run condition the backlog names as the suspected cause of the duplicate.
+**Deleting case 1 left the only destructive call untested**, including its `--repo` assertion.
+
+Assumption: that `upload-artifact` concludes `success` when its glob matches zero files —
+documented under `if-no-files-found: warn` but unmeasured in this repository, and decisive
+for two of round 1's seven rows.
+
+Disposition: **Addressed.** Row 3 no longer exists. Verified the job-level conclusions
+directly (`28495704109`, `30685027791`, `30728417809` all `job=failure`; `30728211305`
+`job=success`), confirming the case 12 finding, and the claim is retired rather than repaired
+— case 10 now pins current behaviour without asserting the shape has been observed. Verified
+`grep -n concurrency` returns nothing in both workflows; adding one is a backlog row rather
+than a silent inclusion here. Case 1 restored per Goal-Fit. The assumption is **structurally
+removed**: with the marker written after checkout, every post-checkout upload has at least
+one file to match, so what a zero-match upload concludes stops mattering for every cause the
+design attributes.
+
+### Adversarial Spec Review (comparison/judge designs only)
+
+N/A — no comparison, evaluator, or ambiguous-criteria trigger. The branch table is a
+classifier over files present in an artifact, not an evaluator comparing arms, and every
+acceptance criterion names a concrete assertion.
+
+Disposition: N/A — trigger does not apply.
+
+### Stopping
+
+Round 2's findings are design findings, and the skill's criterion says to continue while that
+holds. Review stops here anyway, for a reason the criterion does not cover: the findings were
+concentrated in a mechanism that has now been **replaced rather than repaired**. Reviewing
+round 1's probe further would have been review of text that no longer exists. The breadcrumb
+design is materially smaller than what either round reviewed — no API, no permissions change,
+no gating measurements, one additive mock arm — and its remaining risk is concentrated in
+apparatus (fixture directories, the `gh` mock) that Phase 2's first red test examines faster
+and more reliably than a third round of prose review.
