@@ -127,6 +127,35 @@ assert_all_gh_calls_carry_repo() {
     [[ "${body}" == *"loop began and no verdict was written"* ]]
 }
 
+@test "marker + amicable/mutants-report.txt, no status -> loop-began-no-verdict (python artifact shape)" {
+    mkdir -p "${ARTIFACT_DIR}/marker" "${ARTIFACT_DIR}/amicable"
+    printf 'placeholder\n' > "${ARTIFACT_DIR}/amicable/mutants-report.txt"
+
+    result="$(attribute)"
+    [ "${result}" = "loop-began-no-verdict" ]
+}
+
+@test "marker + amicable/cosmic-ray-session.sqlite, no status -> loop-began-no-verdict (python artifact shape)" {
+    mkdir -p "${ARTIFACT_DIR}/marker" "${ARTIFACT_DIR}/amicable"
+    printf 'placeholder\n' > "${ARTIFACT_DIR}/amicable/cosmic-ray-session.sqlite"
+
+    result="$(attribute)"
+    [ "${result}" = "loop-began-no-verdict" ]
+}
+
+# Pins that the probe is tool-agnostic -- any entry other than marker/ and
+# status/ means the loop began -- rather than a longer hardcoded list of
+# known filenames. A probe that merely added mutants-report.txt and
+# cosmic-ray-session.sqlite to a fixed-name set would satisfy the two cases
+# above and still fail this one, which is the whole point of it.
+@test "marker + an arbitrarily-named entry, no status -> loop-began-no-verdict (tool-agnostic probe)" {
+    mkdir -p "${ARTIFACT_DIR}/marker" "${ARTIFACT_DIR}/some-future-tool"
+    printf '{}\n' > "${ARTIFACT_DIR}/some-future-tool/output.json"
+
+    result="$(attribute)"
+    [ "${result}" = "loop-began-no-verdict" ]
+}
+
 @test "marker only -> died-before-loop" {
     mkdir -p "${ARTIFACT_DIR}/marker"
 

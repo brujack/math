@@ -28,14 +28,20 @@ attribute() {
 
     # A status/ directory that exists but is empty is a third state -- the
     # loop created the directory and wrote nothing yet -- and must not read
-    # as verdicts-present. Fall through to the mutants.out / died-before-loop
+    # as verdicts-present. Fall through to the loop-began / died-before-loop
     # checks below, the same as if status/ were absent entirely.
     if [[ -d "${_dir}/status" ]] && find "${_dir}/status" -mindepth 1 -print -quit | grep -q .; then
         printf 'verdicts-present'
         return 0
     fi
 
-    if find "${_dir}" -type d -name mutants.out -print -quit | grep -q .; then
+    # "The loop began" is: the artifact contains any entry other than
+    # marker/ and status/. This must stay tool-agnostic -- cargo-mutants
+    # uploads mutants.out/, cosmic-ray uploads mutants-report.txt and
+    # cosmic-ray-session.sqlite, and this script is shared by both
+    # workflows. Naming either tool's filenames here would misattribute the
+    # other's run the moment it began the loop and wrote no verdict.
+    if find "${_dir}" -mindepth 1 -maxdepth 1 ! -name marker ! -name status -print -quit | grep -q .; then
         printf 'loop-began-no-verdict'
         return 0
     fi
