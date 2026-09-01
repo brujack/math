@@ -222,10 +222,69 @@ Bats cases:
 
 ---
 
-### Task 4: Wire `mutation-testing.yml` to the marker and the script
+### Task 4: Generalise the "loop began" probe so it is not cargo-mutants-specific
 
 ```yaml-task
 id: 4
+description: Replace attribute()'s mutants.out probe with a tool-agnostic test so the shared script attributes the Python workflow's artifact correctly
+role: executor
+model: sonnet
+tdd: required
+acceptance:
+  - cmd: bats tests/scripts/mutation_notify.bats
+    exit_code: 0
+  - cmd: make test
+    exit_code: 0
+max_retries: 3
+files_touched:
+  - scripts/mutation-notify.sh
+  - tests/scripts/mutation_notify.bats
+depends_on: [3]
+```
+
+**Files:** `scripts/mutation-notify.sh`, `tests/scripts/mutation_notify.bats`
+
+**Why this task exists.** `attribute()` decides `loop-began-no-verdict` by looking for a directory named `mutants.out`. That is a cargo-mutants artifact and the script is shared between both workflows. The Python workflow uploads `**/mutants-report.txt` and `**/cosmic-ray-session.sqlite` — `grep -c mutants.out .github/workflows/mutation-testing-python.yml` is **0**. So a cosmic-ray run that began the loop and wrote no verdict is currently attributed `died-before-loop`, which is false, and is exactly the class of wrong statement this whole change exists to remove. Measured 2026-09-01:
+
+```
+marker/ + pi/pi-rs/mutants.out         -> loop-began-no-verdict   (correct)
+marker/ + amicable/mutants-report.txt  -> died-before-loop        (WRONG)
+```
+
+This is a spec defect, not an implementation miss — neither review could see it, because both were scoped to a diff and the evidence lives in the other workflow's upload path.
+
+**The fix.** "The loop began" is *the artifact contains any entry other than `marker/` and `status/`*. No new environment variable, no per-workflow configuration, correct for both tools and for any tool added later:
+
+```bash
+if find "${_dir}" -mindepth 1 -maxdepth 1 ! -name marker ! -name status -print -quit | grep -q .; then
+    printf 'loop-began-no-verdict'
+    return 0
+fi
+```
+
+Validated against five artifact shapes before this task was written — the three below plus `marker/` alone and `marker/` + empty `status/`, which must both stay `died-before-loop`.
+
+**Tests.** Keep every existing case green. Add three that fail against the current implementation:
+
+- `marker/` + `amicable/mutants-report.txt`, no `status/` → `loop-began-no-verdict`
+- `marker/` + `amicable/cosmic-ray-session.sqlite`, no `status/` → `loop-began-no-verdict`
+- `marker/` + an arbitrarily-named entry (e.g. `some-future-tool/output.json`) → `loop-began-no-verdict`, pinning that the probe is tool-agnostic rather than a longer list of known filenames
+
+Verify the third by mutation: replacing the generalised probe with any fixed-name list must turn it red. A probe that merely adds `mutants-report.txt` and `cosmic-ray-session.sqlite` to a hardcoded set satisfies the first two cases and is the wrong fix.
+
+Also update the comment above the `status/` non-empty guard, which currently says "Fall through to the mutants.out / died-before-loop checks below" and names a file that is no longer probed for.
+
+**Interfaces:**
+
+- Consumes: `attribute()` and `build_body()` from Tasks 2 and 3.
+- Produces: no signature change. Tasks 5 and 6 invoke the script unchanged.
+
+---
+
+### Task 5: Wire `mutation-testing.yml` to the marker and the script
+
+```yaml-task
+id: 5
 description: Add the marker step, extend the upload path, and replace the inline notify shell with the script in the Rust workflow
 role: executor
 model: sonnet
@@ -240,7 +299,7 @@ acceptance:
 max_retries: 3
 files_touched:
   - .github/workflows/mutation-testing.yml
-depends_on: [3]
+depends_on: [4]
 ```
 
 `tdd: not-applicable` — workflow YAML has no unit-test surface in this repo, and a `grep` gate asserting the marker step's exact text would dictate its formatting rather than test it (see `writing-plans`, literal-match gates). Behaviour is covered by Task 2/3's suite plus the post-merge dispatch named in Session-level verification.
@@ -286,10 +345,10 @@ The `exit 143` gate is the one falsifiable assertion available here: that string
 
 ---
 
-### Task 5: Wire `mutation-testing-python.yml` to the marker and the script
+### Task 6: Wire `mutation-testing-python.yml` to the marker and the script
 
 ```yaml-task
-id: 5
+id: 6
 description: Add the marker step, extend the upload path, and replace the inline notify shell with the script in the Python workflow
 role: executor
 model: sonnet
@@ -304,16 +363,16 @@ acceptance:
 max_retries: 3
 files_touched:
   - .github/workflows/mutation-testing-python.yml
-depends_on: [3]
+depends_on: [4]
 ```
 
-`tdd: not-applicable` — same justification as Task 4.
+`tdd: not-applicable` — same justification as Task 5.
 
 **Files:** `.github/workflows/mutation-testing-python.yml`
 
-Identical to Task 4 with three substitutions: the marker step goes after checkout and before the `cosmic-ray` install; the artifact name is `mutants-report-python`; and the env block carries `ISSUE_TITLE: "mutation-testing-python: monthly run failed"` and `UNIT_NOUN: sub-project`.
+Identical to Task 5 with three substitutions: the marker step goes after checkout and before the `cosmic-ray` install; the artifact name is `mutants-report-python`; and the env block carries `ISSUE_TITLE: "mutation-testing-python: monthly run failed"` and `UNIT_NOUN: sub-project`.
 
-Read the file's own step names rather than copying Task 4's — the upload step here is `Upload mutants reports`, not `Upload mutants output`, and its `path:` list differs.
+Read the file's own step names rather than copying Task 5's — the upload step here is `Upload mutants reports`, not `Upload mutants output`, and its `path:` list differs.
 
 **Interfaces:**
 
@@ -322,10 +381,10 @@ Read the file's own step names rather than copying Task 4's — the upload step 
 
 ---
 
-### Task 6: Documentation and index
+### Task 7: Documentation and index
 
 ```yaml-task
-id: 6
+id: 7
 description: Update CLAUDE.md's CI and bash-coverage sections, mark the spec Done, and fill the plan index row (docs-only, no behavior change)
 role: executor
 model: sonnet
@@ -340,7 +399,7 @@ files_touched:
   - CLAUDE.md
   - docs/superpowers/README.md
   - docs/superpowers/specs/2026-08-31-mutation-notify-attribution-design.md
-depends_on: [4, 5]
+depends_on: [5, 6]
 ```
 
 `tdd: not-applicable` — documentation only.
