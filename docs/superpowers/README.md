@@ -38,7 +38,7 @@ Master status index for all specs and implementation plans in this directory.
 | 2026-07-03 | [python-mutant-killing](plans/2026-07-03-python-mutant-killing.md)                 | [spec](specs/2026-07-03-python-mutant-killing-design.md)                                                                          | Done    |
 | 2026-07-16 | [release-sbom-monitor](plans/2026-07-16-release-sbom-monitor.md)                   | [spec](https://github.com/brujack/ai-config/blob/master/docs/superpowers/specs/2026-07-16-release-sbom-vuln-monitoring-design.md) | Done    |
 | 2026-08-01 | [mutation-testing-phase-a](plans/2026-08-01-mutation-testing-phase-a.md) | [spec](specs/2026-08-01-mutation-testing-per-project-design.md) | Done |
-| 2026-08-31 | _(pending)_ | [spec](specs/2026-08-31-mutation-notify-attribution-design.md) | In Progress |
+| 2026-09-01 | [mutation-notify-attribution](plans/2026-09-01-mutation-notify-attribution.md) | [spec](specs/2026-08-31-mutation-notify-attribution-design.md) | In Progress |
 
 ---
 
