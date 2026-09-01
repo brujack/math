@@ -1,7 +1,7 @@
 # Mutation-testing notify: let the job attest its own progress
 
 Date: 2026-08-31 (revised 2026-09-01 after Multi-Lens Review round 2)
-Status: Spec
+Status: Done
 
 ## Problem
 
@@ -26,12 +26,12 @@ fact. This is the two-valued-field failure described in `behavior.md`: the outco
 has more members than the field chosen to report it, so the reporter collapses the
 remainder into whichever member was written down first.
 
-| #   | cause                                                                                                                                                                                       | today's message                                                                             |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| 1   | mutants job terminated; `if: always()` upload step never ran                                                                                                                                | correct                                                                                     |
+| #   | cause                                                                                                                                                                                         | today's message                                                                             |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| 1   | mutants job terminated; `if: always()` upload step never ran                                                                                                                                  | correct                                                                                     |
 | 2   | job died before `mkdir -p "${GITHUB_WORKSPACE}/status"` — failed checkout, failed `cargo install cargo-mutants --locked`, or the `no crates found — refusing to report green` guard exiting 1 | wrong: asserts a runner kill for an install failure                                         |
-| 3   | artifact uploaded containing `mutants.out/` but no `status/`                                                                                                                                | wrong, and self-contradicting: claims no artifact was produced about one it just downloaded |
-| 4   | `actions/download-artifact` v8 digest-mismatch failure, swallowed by `continue-on-error: true`                                                                                              | wrong                                                                                       |
+| 3   | artifact uploaded containing `mutants.out/` but no `status/`                                                                                                                                  | wrong, and self-contradicting: claims no artifact was produced about one it just downloaded |
+| 4   | `actions/download-artifact` v8 digest-mismatch failure, swallowed by `continue-on-error: true`                                                                                                | wrong                                                                                       |
 
 Causes 2 and 3 are live today and predate v8. Cause 2 is confirmed structurally: the
 `no crates found` guard exits at `mutation-testing.yml:52-54`, five lines **upstream** of
@@ -80,13 +80,13 @@ run 33468276278 (schedule, failure)
 
 Set against the four prior runs, the discrimination is now measured in both directions:
 
-| run         | date       | `Run mutants` | `Upload mutants output` | reading                  |
-| ----------- | ---------- | ------------- | ----------------------- | ------------------------ |
-| 28495704109 | 2026-07-01 | `cancelled`   | `skipped`               | terminated               |
-| 30685027791 | 2026-08-01 | `failure`     | `skipped`               | terminated (exit 143)    |
-| 30728417809 | 2026-08-02 | `failure`     | `skipped`               | terminated (exit 143)    |
-| 30728211305 | 2026-08-02 | `success`     | `success`               | green                    |
-| 33468276278 | 2026-09-01 | `failure`     | **`success`**           | **ordinary failure**     |
+| run         | date       | `Run mutants` | `Upload mutants output` | reading               |
+| ----------- | ---------- | ------------- | ----------------------- | --------------------- |
+| 28495704109 | 2026-07-01 | `cancelled`   | `skipped`               | terminated            |
+| 30685027791 | 2026-08-01 | `failure`     | `skipped`               | terminated (exit 143) |
+| 30728417809 | 2026-08-02 | `failure`     | `skipped`               | terminated (exit 143) |
+| 30728211305 | 2026-08-02 | `success`     | `success`               | green                 |
+| 33468276278 | 2026-09-01 | `failure`     | **`success`**           | **ordinary failure**  |
 
 `if: always()` was present on the upload step in every case, verified by reading the
 workflow at each run's own `head_sha` rather than at `master`.
@@ -113,7 +113,7 @@ step than the one the claim was used to justify.
 
 **Have the job attest its own progress instead of inferring it from platform semantics.**
 
-The previous draft inferred the cause from the mutants job's *step conclusions*, read back
+The previous draft inferred the cause from the mutants job's _step conclusions_, read back
 through the Actions API. That required `actions: read`, a jobs-API probe with its own
 failure branch, and two gating measurements about what GitHub's step conclusions mean and
 when they are populated. A file written by the job itself answers the same question by
@@ -125,8 +125,8 @@ confidence its mechanism earned.
 In the mutants job, immediately after checkout and **before** `cargo install`:
 
 ```yaml
-      - name: Mark job start
-        run: mkdir -p "${GITHUB_WORKSPACE}/marker" && date -u > "${GITHUB_WORKSPACE}/marker/job-began"
+- name: Mark job start
+  run: mkdir -p "${GITHUB_WORKSPACE}/marker" && date -u > "${GITHUB_WORKSPACE}/marker/job-began"
 ```
 
 and `marker/` added to the upload step's `path:`, beside `**/mutants.out/` and `status/`.
@@ -138,12 +138,12 @@ runs with the marker already on disk.
 
 ### What notify reads
 
-| artifact                                         | cause, as reported                                                                                                                                                                |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| artifact                                                                 | cause, as reported                                                                                                                                                                                           |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **no `marker/`** — download failed, or the artifact is empty or lacks it | `Cause: no-attestation`. The job's own reporting never ran. One of: terminated before the upload step; a checkout failure before the marker; the upload itself failed; the artifact was corrupt on download. |
-| `marker/` + `status/`                            | `Cause: verdicts-present`. Normal red: name the failing `<UNIT_NOUN>`s. Unchanged from today.                                                                                     |
-| `marker/` + `mutants.out`, no `status/`          | `Cause: loop-began-no-verdict`. At least one `<UNIT_NOUN>` ran `make mutants`; the job stopped before the first `tee`.                                                            |
-| `marker/` only                                   | `Cause: died-before-loop`. Checkout succeeded and the job did not reach the first `make mutants`. Failing step is in the log.                                                     |
+| `marker/` + `status/`                                                    | `Cause: verdicts-present`. Normal red: name the failing `<UNIT_NOUN>`s. Unchanged from today.                                                                                                                |
+| `marker/` + `mutants.out`, no `status/`                                  | `Cause: loop-began-no-verdict`. At least one `<UNIT_NOUN>` ran `make mutants`; the job stopped before the first `tee`.                                                                                       |
+| `marker/` only                                                           | `Cause: died-before-loop`. Checkout succeeded and the job did not reach the first `make mutants`. Failing step is in the log.                                                                                |
 
 **The discriminator is the marker's presence, not the download step's outcome**, and that
 ordering is deliberate. `actions/download-artifact` may fail when the named artifact does not
@@ -210,8 +210,8 @@ the run log carries the exit code and nothing in the notify job can see it.
 `scripts/mutation-notify.sh`, called by both workflows. The two notify bodies are
 near-identical shell embedded in YAML, shell inside a `run:` block cannot be tested, and
 this repo's Definition of Done requires boundary, error-path and state-transition tests for
-new logic. The argument's shape is stated honestly: extraction is required *because this
-change adds branching logic*, not as an independent virtue.
+new logic. The argument's shape is stated honestly: extraction is required _because this
+change adds branching logic_, not as an independent virtue.
 
 Inputs from the environment: `RESULT`, `DL_OUTCOME`, `ARTIFACT_DIR`, `RUN_URL`,
 `ISSUE_TITLE`, `UNIT_NOUN`, `REPO`.
@@ -244,18 +244,18 @@ draft's. `ci_gate.bats` is still the regression check for the shared file and mu
 
 Artifact-shaped cases build a real fixture directory; none needs a mocked API response.
 
-| #   | inputs                                                          | assertion                                                                             |
-| --- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| 1   | `RESULT=success`, open issue exists                             | **no new issue created**, and every `gh` call carries `--repo`. Characterization only — see below |
-| 2   | `RESULT=success`, no open issue                                 | exits 0 with no `gh issue` write at all                                                 |
-| 3   | red, `marker/` + `status/` with a `^red` file                   | **body names that specific crate**; token `Cause: verdicts-present`                     |
-| 4   | red, `marker/` + `mutants.out`, no `status/`                    | token `Cause: loop-began-no-verdict`                                                    |
-| 5   | red, `marker/` only                                             | token `Cause: died-before-loop`                                                          |
-| 6   | red, `DL_OUTCOME=failure`                                       | token `Cause: no-attestation`; body names all four residual causes and asserts none      |
-| 7   | red, `DL_OUTCOME=success` but the artifact has no `marker/`     | token `Cause: no-attestation` — **same token as case 6**, proving the marker and not the download outcome is the discriminator |
-| 8   | red, `status/` present with no `^red` line                      | preserves today's `(none flagged; see run log)`                                          |
-| 9   | red, `status/` with two `^red` files                            | **both** crate names appear                                                             |
-| 10  | `RESULT=cancelled`                                              | files an issue, as today — preserved behaviour, see below                               |
+| #   | inputs                                                      | assertion                                                                                                                      |
+| --- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | `RESULT=success`, open issue exists                         | **no new issue created**, and every `gh` call carries `--repo`. Characterization only — see below                              |
+| 2   | `RESULT=success`, no open issue                             | exits 0 with no `gh issue` write at all                                                                                        |
+| 3   | red, `marker/` + `status/` with a `^red` file               | **body names that specific crate**; token `Cause: verdicts-present`                                                            |
+| 4   | red, `marker/` + `mutants.out`, no `status/`                | token `Cause: loop-began-no-verdict`                                                                                           |
+| 5   | red, `marker/` only                                         | token `Cause: died-before-loop`                                                                                                |
+| 6   | red, `DL_OUTCOME=failure`                                   | token `Cause: no-attestation`; body names all four residual causes and asserts none                                            |
+| 7   | red, `DL_OUTCOME=success` but the artifact has no `marker/` | token `Cause: no-attestation` — **same token as case 6**, proving the marker and not the download outcome is the discriminator |
+| 8   | red, `status/` present with no `^red` line                  | preserves today's `(none flagged; see run log)`                                                                                |
+| 9   | red, `status/` with two `^red` files                        | **both** crate names appear                                                                                                    |
+| 10  | `RESULT=cancelled`                                          | files an issue, as today — preserved behaviour, see below                                                                      |
 
 **Case 3 is the positive control and is not optional.** Cases 4–8 assert only that a token
 appears in a failure body, so a script emitting the right token and nothing else satisfies
@@ -273,7 +273,7 @@ enumerates rather than returning a fixed string — and is satisfiable.
 and describes the green path as buggy: a single-crate green run closed #98 while `pi-rs` and
 `e-rs` were still broken, and the 2026-09-01 cron confirms those two crates are still red.
 Asserting comment-then-close as correct would make #100 harder to fix, because a passing
-test reads as intent. But asserting *nothing* would leave `gh issue close` — the only
+test reads as intent. But asserting _nothing_ would leave `gh issue close` — the only
 destructive call — with no coverage in a change whose purpose is to make that code testable,
 and would drop the `--repo` safety assertion with it. So the case asserts the safety property
 and the absence of a new issue, and is silent on the behaviour #100 disputes.
@@ -348,7 +348,7 @@ Every lens verified the load-bearing premise with its own commands and all three
 it: the misattributing `else` branch is live at `master` in both workflows, the `notify`
 permissions block lists only `issues: write`, and `grep -c '^      - name: Upload'` returns
 1 per file. The Risk lens additionally confirmed cause 2 structurally — the `no crates
-found` guard exits at `mutation-testing.yml:52-54`, five lines *upstream* of the
+found` guard exits at `mutation-testing.yml:52-54`, five lines _upstream_ of the
 `mkdir -p "${GITHUB_WORKSPACE}/status"` at line 58, and no workflow sets
 `if-no-files-found`, so the default `warn` applies and a guard trip produces no artifact at
 all.
@@ -364,7 +364,7 @@ Finding: three parts.
 
 1. **Proportionality.** The spec states its own substance is the removal of an unsupported
    claim, which a two-line string edit achieves — no new file, no new permission scope, no
-   API call, no shared-mock edit, no test surface. Everything beyond that buys *which* of
+   API call, no shared-mock edit, no test surface. Everything beyond that buys _which_ of
    four causes fired. Measured against the event rate, that is thin: the Python workflow has
    **3 runs, 3 successes, never red** (`gh run list --workflow mutation-testing-python.yml`,
    re-verified), so half the blast radius serves a branch that has never executed. The Rust
@@ -373,15 +373,15 @@ Finding: three parts.
    base rate of the artifact-absent branch is unmeasured. The lens also holds that the
    extraction argument is circular as written — "extraction is what makes the change
    gateable" is true only because the change adds logic, and a string edit adds none.
-2. **Branch-table row 4 reproduces the defect it fixes.** *"Artifact contains no `status/`
-   — the job failed before the loop began"* is another unconditional cause assertion from
+2. **Branch-table row 4 reproduces the defect it fixes.** _"Artifact contains no `status/`
+   — the job failed before the loop began"_ is another unconditional cause assertion from
    evidence that does not determine it. Artifact upload elides empty directories, so a run
-   where the loop *did* begin, crate 1 produced `mutants.out/`, and the job died before the
+   where the loop _did_ begin, crate 1 produced `mutants.out/`, and the job died before the
    first `tee` wrote `status/<slug>` lands in this row with the message false. The artifact
    itself discriminates: `artifact/**/mutants.out` present means the loop began. Split the
    row on that or hedge it as every other row is hedged.
-3. **Case 1 pins an open bug as intended behaviour.** `math#100` is open — *"mutation: a
-   single-crate green run closes the full-sweep issue"* — and describes a defect in the exact
+3. **Case 1 pins an open bug as intended behaviour.** `math#100` is open — _"mutation: a
+   single-crate green run closes the full-sweep issue"_ — and describes a defect in the exact
    green branch this spec rewrites: notify closed #98 on a single-crate green run while
    `pi-rs` and `e-rs` were still broken. Verified open. Case 1 asserts comment-then-close is
    correct, which makes #100 harder to fix later, since fixing it turns a passing test red
@@ -397,7 +397,7 @@ fixes.
 
 Verdict count: 12 cases, 7 satisfied by an empty body. The spec identifies this and names
 case 7 as the positive control. Residual the spec misses: case 7 pins the `status/`
-derivation and nothing pins the *probe's* derivation — cases 3–6 are satisfied by branch
+derivation and nothing pins the _probe's_ derivation — cases 3–6 are satisfied by branch
 selection alone. Case 3 closes this at zero cost if its assertion is on the fixture's
 literal step-name string rather than on the sentence.
 
@@ -457,7 +457,7 @@ Finding: five parts.
    cover. Both workflows have exactly two jobs, so `select(.name != "notify")` removes the
    duplicate string entirely.
 3. **Case 8a is unwritable against the current mock.** `tests/mocks/gh:4` checks
-   `MOCK_GH_EXIT` *before* any dispatch, so a non-zero exit applies to every call including
+   `MOCK_GH_EXIT` _before_ any dispatch, so a non-zero exit applies to every call including
    the `gh issue` write whose body 8a must assert on. Expressing it needs a per-arm exit
    variable — a third mock edit the Scope section does not list, and one touching the branch
    `ci_gate.bats` depends on. The claim that the mock edit is "purely additive" is true of
@@ -568,7 +568,6 @@ criterion names a concrete assertion.
 
 Disposition: N/A — trigger does not apply.
 
-
 ## Multi-Lens Review — Round 2
 
 Reviewed at commit: `03ce65d762c14481ca521fa6461c79580e5c232e`. All three lenses re-run,
@@ -618,7 +617,7 @@ every natural fixture, so an implementer's cheapest reconciliation is to weaken 
 "non-empty with four colons", precisely the vacuity the case existed to prevent. **The
 `download step:` field carries no information whenever upload ≠ `success`** and reads to the
 operator as a second independent fault. **`JOB_NAME` was not removed but converted** into a
-duplicated reference to the job *id*, whose failure mode is a selection of two rather than
+duplicated reference to the job _id_, whose failure mode is a selection of two rather than
 zero — and case 8c guarded only the empty case, while the identical "fail loudly when the
 count is not 1" discipline was applied to the `Upload` step one paragraph earlier. **Tier
 1's replacement sentence presupposed an artifact** ("No `status/` directory in the artifact")
