@@ -179,7 +179,7 @@ tdd: required
 acceptance:
   - cmd: bats tests/scripts/mutation_notify.bats
     exit_code: 0
-  - cmd: 'bash -c ''! grep -nE "gh (issue|label) [a-z]+" scripts/mutation-notify.sh | grep -qv -- "--repo"'''
+  - cmd: 'bash -c ''n=$(grep -cE "gh (issue|label) " scripts/mutation-notify.sh); r=$(grep -E "gh (issue|label) " scripts/mutation-notify.sh | grep -c -- "--repo"); [ "$n" -gt 0 ] && [ "$n" -eq "$r" ]'''
     exit_code: 0
   - cmd: make test
     exit_code: 0
@@ -192,7 +192,14 @@ depends_on: [2]
 
 **Files:** `scripts/mutation-notify.sh`, `tests/scripts/mutation_notify.bats`
 
-Port the existing dispatch from `mutation-testing.yml:113-142` unchanged in behaviour, adding `--repo "${REPO}"` to all six calls: `gh issue list`, `gh issue comment` (green), `gh issue close`, `gh issue comment` (red), `gh label create`, `gh issue create`.
+> **Gate corrected 2026-09-01, before dispatch.** The original form was
+> `! grep -nE "gh (issue|label) [a-z]+" … | grep -qv -- "--repo"`, which passes vacuously
+> when the first `grep` matches nothing — the state the task starts in. It also used the
+> `-q`+`-v` combination `shell.md` records as diverging between the ugrep an agent shell
+> resolves and the POSIX grep CI runs. The replacement counts both sides and requires the
+> count to be non-zero and equal, so an empty result now fails.
+
+Add `main "$@"` as the file's final statement — the sourcing guard is currently last, so `&&` short-circuits and direct execution exits 1, which is exactly how Task 4 invokes it. Then port the existing dispatch from `mutation-testing.yml:113-142` unchanged in behaviour, adding `--repo "${REPO}"` to all six calls: `gh issue list`, `gh issue comment` (green), `gh issue close`, `gh issue comment` (red), `gh label create`, `gh issue create`.
 
 The lookup keeps `--search "in:title \"${ISSUE_TITLE}\""` exactly as it is. Its index dependency is a backlog row and **must not** be fixed here.
 
