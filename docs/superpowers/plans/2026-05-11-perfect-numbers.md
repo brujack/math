@@ -1,5 +1,7 @@
 # Perfect Numbers Implementation Plan
 
+> **Status: DONE** — merged; index row marked Done. Banner added retroactively by a 2026-09-01 docs audit, which found the row and the banner had drifted apart.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a new `perfect-numbers/` project (Python + Rust) that finds all perfect numbers up to 10^N using the Lucas-Lehmer Mersenne primality test and the multiplicative σ formula for verification.

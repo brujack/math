@@ -1,5 +1,7 @@
 # Mutation Notify Attribution Implementation Plan
 
+> **Status: DONE** — merged as #125 (7 tasks, 1 re-plan). Both mutation workflows now attest progress with a `marker/job-began` breadcrumb; ADR-0025 records the decision.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the mutation workflows' tracking issue report a cause the run actually attested, instead of asserting a runner kill the workflow has no field to observe.
