@@ -10,9 +10,35 @@ setup() {
     export UNIT_NOUN="crate"
     export RUN_URL="https://github.com/brujack/math/actions/runs/123"
     export ARTIFACT_DIR="${BATS_TEST_TMPDIR}/artifact"
-    export REPO="example-org/fixture-repo-do-not-use"
+    # A malformed spec (no slash) so that if a load_mocks regression ever let
+    # a real `gh` run, it would fail in gh's own argument parser before any
+    # network call. A well-formed OWNER/REPO fixture would instead reach a
+    # live authenticated GraphQL request -- the PATH mock is the only thing
+    # standing between a regressed test and the operator's real tracker, and
+    # this makes REPO itself unresolvable as a second line of defense.
+    export REPO="invalid-repo-spec-no-slash"
     export ISSUE_TITLE="mutation-testing: monthly run failed"
     export MOCK_CALLS_FILE="${BATS_TEST_TMPDIR}/calls"
+}
+
+# Lifted out of a single test so a --repo regression on any gh call site --
+# including `gh label create`, whose --repo is exercised only on the
+# no-existing-issue red path -- is caught wherever that call site actually
+# fires, rather than depending on which literal strings one test greps for.
+#
+# Anchored on lines starting "gh " rather than every non-blank line: a
+# red-path --body is build_body()'s multi-line output, and the mock logs
+# each call's full "$*" verbatim, embedded newlines included -- so one gh
+# invocation with a red-path body spans several lines in MOCK_CALLS_FILE.
+# Counting every non-blank line (as this helper's first draft did) inflates
+# the total against a single-line --repo hit and fails on every call whose
+# body has more than one line, which is every red-path create/comment.
+assert_all_gh_calls_carry_repo() {
+    local _total _with_repo
+    _total=$(grep -c '^gh ' "${MOCK_CALLS_FILE}")
+    _with_repo=$(grep '^gh ' "${MOCK_CALLS_FILE}" | grep -c -- "--repo")
+    [ "${_total}" -gt 0 ]
+    [ "${_total}" -eq "${_with_repo}" ]
 }
 
 # Every body-asserting case below checks the full contract, not just a
@@ -181,11 +207,7 @@ setup() {
     [ -n "${_close_line}" ]
     [ "${_comment_line}" -lt "${_close_line}" ]
 
-    local _total _with_repo
-    _total=$(grep -c . "${MOCK_CALLS_FILE}")
-    _with_repo=$(grep -c -- "--repo" "${MOCK_CALLS_FILE}")
-    [ "${_total}" -gt 0 ]
-    [ "${_total}" -eq "${_with_repo}" ]
+    assert_all_gh_calls_carry_repo
 
     # NOT asserting that closing is correct behaviour: math#100 is open and
     # describes exactly this path as a defect -- a single-crate green run
@@ -218,22 +240,34 @@ setup() {
 
     grep -q "gh issue comment 98 --repo" "${MOCK_CALLS_FILE}"
     run ! grep -q "gh issue create" "${MOCK_CALLS_FILE}"
+    assert_all_gh_calls_carry_repo
 }
 
-@test "RESULT=failure with no open issue creates one carrying the attributed cause" {
+@test "RESULT=failure with no open issue creates one carrying the attributed cause, title, and label" {
     export RESULT="failure"
     export MOCK_GH_ISSUE_LIST=""
+    # Distinct from setup()'s default ISSUE_TITLE so a mutant that hardcodes
+    # the workflow's original literal title ("mutation-testing: monthly run
+    # failed") diverges from this fixture value instead of matching it by
+    # coincidence.
+    export ISSUE_TITLE="mutation-testing: fixture-distinct-title-9f3c"
     mkdir -p "${ARTIFACT_DIR}/marker" "${ARTIFACT_DIR}/status"
     printf 'red: pi-rs - exit code 2\n' > "${ARTIFACT_DIR}/status/pi-rs"
 
     run main
     [ "${status}" -eq 0 ]
 
-    grep -q "gh issue create --repo" "${MOCK_CALLS_FILE}"
+    # The whole call, not a prefix: --title and --label mutation-failure are
+    # both required, in this order, for the next month's lookup to find this
+    # issue again. A prefix-only "gh issue create --repo" check cannot tell
+    # a hardcoded title or a dropped --label from the real thing, and either
+    # one causes an unbounded issue to be created every run forever.
+    grep -qF -- "gh issue create --repo ${REPO} --title ${ISSUE_TITLE} --label mutation-failure --body" "${MOCK_CALLS_FILE}"
     grep -q "Cause: verdicts-present" "${MOCK_CALLS_FILE}"
+    assert_all_gh_calls_carry_repo
 }
 
-@test "RESULT=cancelled files an issue -- pinned, though never observed in this repo" {
+@test "RESULT=cancelled files an issue carrying the right title and label -- pinned, though never observed in this repo" {
     # cancelled has never occurred here: all four measured failures carry a
     # job conclusion of "failure", and "cancelled" is attested only at the
     # step level. This pins current behaviour (anything other than
@@ -241,12 +275,58 @@ setup() {
     # has ever actually been observed.
     export RESULT="cancelled"
     export MOCK_GH_ISSUE_LIST=""
+    export ISSUE_TITLE="mutation-testing: fixture-distinct-title-9f3c"
     mkdir -p "${ARTIFACT_DIR}/marker"
 
     run main
     [ "${status}" -eq 0 ]
 
-    grep -q "gh issue create --repo" "${MOCK_CALLS_FILE}"
+    grep -qF -- "gh issue create --repo ${REPO} --title ${ISSUE_TITLE} --label mutation-failure --body" "${MOCK_CALLS_FILE}"
+    assert_all_gh_calls_carry_repo
+}
+
+@test "main propagates a failing gh rather than reporting success" {
+    export RESULT="failure"
+    export MOCK_GH_EXIT=4
+    mkdir -p "${ARTIFACT_DIR}/marker"
+
+    run main
+    [ "${status}" -ne 0 ]
+}
+
+@test "main fails visibly when RESULT is unset" {
+    unset RESULT
+    export MOCK_GH_ISSUE_LIST=""
+
+    run main
+    [ "${status}" -ne 0 ]
+}
+
+@test "main fails visibly when ISSUE_TITLE is unset" {
+    unset ISSUE_TITLE
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST=""
+
+    run main
+    [ "${status}" -ne 0 ]
+}
+
+# The mock echoes MOCK_GH_ISSUE_LIST verbatim -- it never runs the real
+# --jq '.[0].number // empty' filter, so this suite cannot exercise that
+# fallback directly (see the comment above the gh issue list call in
+# scripts/mutation-notify.sh). What IS exercised, and worth pinning because
+# there is no second line of defense: bash's [[ -n ]] test treats the
+# 4-character string "null" as non-empty, so a literal JSON null from a
+# malformed --jq expression would be read as a real, existing issue number.
+@test "MOCK_GH_ISSUE_LIST=null is read as an existing issue number, not as absent" {
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST="null"
+
+    run main
+    [ "${status}" -eq 0 ]
+
+    grep -q "gh issue comment null --repo" "${MOCK_CALLS_FILE}"
+    grep -q "gh issue close null --repo" "${MOCK_CALLS_FILE}"
 }
 
 @test "main fails visibly when REPO is unset" {

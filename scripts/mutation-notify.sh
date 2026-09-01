@@ -4,8 +4,12 @@
 # attribute() and build_body() key the red-path body on the downloaded
 # artifact's own contents (ARTIFACT_DIR, RUN_URL, UNIT_NOUN). main() adds the
 # green-path close and the issue create/comment dispatch, consuming RESULT,
-# ISSUE_TITLE and REPO on top of those. Ported from
-# .github/workflows/mutation-testing.yml, unchanged in behaviour.
+# ISSUE_TITLE and REPO on top of those. main()'s dispatch logic is ported
+# from .github/workflows/mutation-testing.yml's notify job -- but not
+# byte-for-byte: it drops that block's `set -u` in favour of explicit `:?`
+# guards per input, and adds --repo "${REPO}" to every gh issue/label call
+# so a malformed fixture REPO fails in gh's own argument parser rather than
+# reaching the network (tdd.md E2).
 
 # attribute() keys the red-path cause on the downloaded artifact's own
 # contents and nothing else -- specifically NOT on DL_OUTCOME. A failed
@@ -66,15 +70,24 @@ build_body() {
     printf 'Cause: %s\n\n%s\n\nRun: %s\n' "${_token}" "${_detail}" "${RUN_URL}"
 }
 
-# File, comment, or close the tracking issue -- ported unchanged in
-# behaviour from .github/workflows/mutation-testing.yml:113-142. Every gh
-# issue/label call carries --repo "${REPO}" so a fixture REPO fails at gh's
-# own resolution rather than reaching a live tracker (tdd.md E2).
+# File, comment, or close the tracking issue. Same decision tree as
+# .github/workflows/mutation-testing.yml's notify job -- Task 4 replaces
+# that block, so no line range is cited here since it would rot -- with two
+# deliberate differences: no `set -u` (RESULT, REPO and ISSUE_TITLE each get
+# an explicit `:?` guard instead, since RESULT alone selects the branch),
+# and every gh issue/label call carries --repo "${REPO}" so a malformed
+# fixture REPO fails in gh's own argument parser instead of reaching a live
+# tracker (tdd.md E2).
 main() {
+    : "${RESULT:?}"
     : "${REPO:?}"
     : "${ISSUE_TITLE:?}"
 
     local _existing
+    # --jq '.[0].number // empty' is real gh/jq behaviour; the test mock
+    # echoes MOCK_GH_ISSUE_LIST verbatim and never runs jq, so this suite
+    # cannot exercise the `// empty` fallback itself -- only that whatever
+    # gh returns is treated as truthy/falsy by bash's -n test below.
     _existing=$(gh issue list --repo "${REPO}" --state open --label mutation-failure \
         --search "in:title \"${ISSUE_TITLE}\"" --json number --jq '.[0].number // empty') || return 1
 
