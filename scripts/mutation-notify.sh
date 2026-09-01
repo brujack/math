@@ -1,27 +1,39 @@
 #!/usr/bin/env bash
 # Reports the cause of a mutation-testing workflow run to its tracking issue.
 #
-# Environment inputs: RESULT, DL_OUTCOME, ARTIFACT_DIR, RUN_URL, ISSUE_TITLE,
-# UNIT_NOUN, REPO.
-#
+# This task implements the red-path attribution only: attribute() and
+# build_body(). Consumed here: ARTIFACT_DIR, RUN_URL, UNIT_NOUN.
+
 # attribute() keys the red-path cause on the downloaded artifact's own
 # contents and nothing else -- specifically NOT on DL_OUTCOME. A failed
 # download leaves ARTIFACT_DIR without a marker/ directory, so it reaches
 # "no-attestation" by the same test as an empty or marker-less artifact.
 # actions/download-artifact may fail on a missing artifact or succeed having
 # downloaded nothing, and the attribution must not depend on which.
-
 attribute() {
+    : "${ARTIFACT_DIR:?}"
     local _dir="${ARTIFACT_DIR}"
+
     if [[ ! -d "${_dir}/marker" ]]; then
         printf 'no-attestation'
-    elif [[ -d "${_dir}/status" ]]; then
-        printf 'verdicts-present'
-    elif find "${_dir}" -type d -name mutants.out -print -quit 2>/dev/null | grep -q .; then
-        printf 'loop-began-no-verdict'
-    else
-        printf 'died-before-loop'
+        return 0
     fi
+
+    # A status/ directory that exists but is empty is a third state -- the
+    # loop created the directory and wrote nothing yet -- and must not read
+    # as verdicts-present. Fall through to the mutants.out / died-before-loop
+    # checks below, the same as if status/ were absent entirely.
+    if [[ -d "${_dir}/status" ]] && find "${_dir}/status" -mindepth 1 -print -quit | grep -q .; then
+        printf 'verdicts-present'
+        return 0
+    fi
+
+    if find "${_dir}" -type d -name mutants.out -print -quit | grep -q .; then
+        printf 'loop-began-no-verdict'
+        return 0
+    fi
+
+    printf 'died-before-loop'
 }
 
 build_body() {
@@ -31,7 +43,7 @@ build_body() {
     case "${_token}" in
         verdicts-present)
             local _names
-            _names=$(grep -l '^red' "${ARTIFACT_DIR}"/status/* 2>/dev/null | xargs -r -n1 basename | sed 's/^/- /')
+            _names=$(grep -l '^red' "${ARTIFACT_DIR}"/status/* 2>/dev/null | sed 's|.*/|- |')
             _detail="Failing ${UNIT_NOUN}s:"$'\n'"${_names:-- (none flagged; see run log)}"
             ;;
         loop-began-no-verdict)
