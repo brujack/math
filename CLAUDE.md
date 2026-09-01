@@ -101,7 +101,7 @@ repo's exact gated scope -- `ruff check .` and `ruff format --check .` in each o
 sub-projects, plus the root `ruff check .` and the `git ls-files`-derived format check --
 produced **byte-identical** output. With a positive control, since two agreeing clean runs
 could equally mean neither executed: removing each `# noqa: C901` makes both versions
-report `too complex (21 > 10)` at `e/e.py:332` and `pi/pi.py:444`. Identical *score*, not
+report `too complex (21 > 10)` at `e/e.py:332` and `pi/pi.py:444`. Identical _score_, not
 just identical verdict -- a changed complexity analysis would have moved the number, and
 that is the one thing those two suppressions depend on.
 
@@ -377,7 +377,7 @@ For a mathematical library, **correctness is the primary quality metric** — co
 - **Memory cap:** `ulimit -v 8388608` (8 GiB) in the same recipe. `cargo mutants --timeout` is wall-clock only with no memory bound, so an allocation-unbounded mutant exhausts the 16 GB runner well inside the 30s budget and kills the runner agent along with the job. This is why all six `mutation-testing.yml` runs between 2026-06-01 and 2026-08-01 failed with exit 143 (SIGTERM). An earlier note here blamed the 360-minute job timeout combined with infinite-loop mutations and reduced `--timeout` from 120 to 30 in response; **that diagnosis was wrong** — the 2026-08-01 run died 119 seconds in, and the change did not help. See ADR-0024.
 - **`MUTANTS_UNCAPPED=1`** runs without the cap. Required on macOS, which cannot enforce `ulimit -v` at all (`cannot modify limit: Invalid argument`) — a local `make mutants` fails closed with an explicit message rather than silently running uncapped and eating system memory. Also the way to reproduce the pre-fix OOM deliberately.
 - **Green/red:** a leg is red only when it evaluated nothing (`caught + missed == 0`, which covers all-unviable, all-timeout, and zero-mutant), when the baseline tests fail, or when the runner dies. Survivors (exit 2) and timeouts (exit 3) are green and reported to the job summary — both are the expected steady state, and gating on them guarantees a red run every month. `scripts/mutation-classify.sh` implements this; `tests/scripts/mutation_classify.bats` covers every rule.
-- **Notification:** a red run files or updates a labelled `mutation-failure` issue; a green run closes it. The notify job is separate from the mutants job with `needs: [mutants], if: always()`, because SIGTERM skips `if: always()` _steps_ inside the job it kills — which is why six months of runs uploaded zero artifacts.
+- **Notification:** a red run files or updates a labelled `mutation-failure` issue; a green run closes it. The notify job is separate from the mutants job with `needs: [mutants], if: always()`, because SIGTERM skips `if: always()` _steps_ inside the job it kills — which is why six months of runs uploaded zero artifacts. The issue body's cause comes from `scripts/mutation-notify.sh`, keyed on a `marker/job-began` breadcrumb the mutants job writes after checkout and before its tool install: the artifact attests what actually happened, where a step conclusion only supports an inference about it. Each attribution arm emits a stable `Cause: <slug>` token. Nothing reads the Actions API, so the notify job's permissions stay `issues: write` only.
 
 When adding a new Rust crate, include `mutants` in its `Makefile` `.PHONY` list and target. Periodically run mutation testing per crate; investigate any surviving mutants in `lib/`-style code (logic, not main glue).
 
@@ -456,8 +456,8 @@ Forty-one workflow files (`git ls-files .github/workflows/ | wc -l`). Project wo
 and `make test` runs `test-hooks` then `test-python`. Added 2026-08-07 (#104). Before that nothing executed
 `tests/*.py` at all: `scripts.yml` ran bats and pyright, so `tests/test_time_tests.py` was type-checked but
 its 8 tests had never once run. `scripts.yml` now calls `make test-python` alongside the bats step. Note this
-is repo-level only — each sub-project keeps its own `make test`. The suite is **53 tests** as of
-2026-08-24: `test_time_tests.py`, `test_test_metrics.py`, `test_triage_log.py`, and
+is repo-level only — each sub-project keeps its own `make test`. The suite is **51 tests** as of
+2026-09-01: `test_time_tests.py`, `test_test_metrics.py`, `test_triage_log.py`, and
 `test_renovate_automerge_policy.py` (added in #123 — it asserts `renovate.json`'s auto-merge policy is
 exhaustive over the ten-member `updateType` enum; see the Renovate auto-merge policy section above).
 
@@ -474,7 +474,7 @@ it writes is gitignored.
 
 - `tests/helpers/common.bash` — shared REPO_ROOT export and `load_mocks()` (prepends `tests/mocks/` to PATH)
 - `tests/mocks/` — PATH-injected mock executables: `make` (logs calls, exits `$MOCK_MAKE_EXIT`), `git` (dispatches by subcommand, outputs from per-subcommand env vars), `ggshield` (logs calls, exits `$MOCK_GGSHIELD_EXIT`), `gh` (sequential JSON responses via `MOCK_GH_PR_CHECKS_N`, exits `$MOCK_GH_EXIT`)
-- `tests/scripts/` — BATS test files; one per script tested (`rust_check.bats`, `pre_commit.bats`, `pre_push.bats`, `ci_gate.bats`, `makefile.bats`, `bash_coverage.bats`)
+- `tests/scripts/` — BATS test files; one per script tested (`rust_check.bats`, `pre_commit.bats`, `pre_push.bats`, `ci_gate.bats`, `makefile.bats`, `bash_coverage.bats`, `mutation_notify.bats`)
 
 ### Bash Coverage
 
@@ -487,7 +487,7 @@ Ported from `dotfiles/scripts/run-bash-coverage.sh` @ `67417bc` (re-synced 2026-
 - **CI:** `.github/workflows/auto-merge.yml`'s `bash-coverage` job, gated in `auto-merge`'s `needs:` — see the floor note below
 - **Test:** `tests/scripts/bash_coverage.bats` — regression coverage for the `INCLUDE_FILES` predicate (every element derived independently in the test, never hardcoded against the script's own output)
 
-**Predicate — instrumented set is 26 files, tracked shell is 28.** The instrumented set is `git ls-files 'scripts/*.sh' '*/install_deps.sh' '*/*/install_deps.sh' scripts/pre-push scripts/pre-commit scripts/commit-msg`, less `scripts/bash-tracer.sh` (structurally uncoverable — `set -x` is its own last command, so nothing before it can be traced and nothing follows it). That is 4 `scripts/*.sh` files (`ci-gate.sh`, `mutation-classify.sh`, `rust-check.sh`, `run-bash-coverage.sh`; `bash-tracer.sh` matches the glob too but is filtered after derivation) + 19 `install_deps.sh` scripts across both directory-nesting depths + 3 extensionless hooks = **26 instrumented files**. Tracked shell overall is `git ls-files '*.sh' '*.bash'` (25, after this port added `run-bash-coverage.sh` and `bash-tracer.sh`) + the 3 hooks = 28; the instrumented set excludes only `tests/helpers/common.bash` (test code) and `bash-tracer.sh` (uncoverable) from that total. `run-bash-coverage.sh` is itself instrumented — it is not self-referentially traced when it runs the suite (`BASH_ENV` is only exported around the `bats` invocation), but every direct `bash scripts/run-bash-coverage.sh ...` subprocess call inside `tests/scripts/bash_coverage.bats` inherits `BASH_ENV` from the tracer's own bats run and gets traced that way.
+**Predicate — instrumented set is 27 files, tracked shell is 29.** The instrumented set is `git ls-files 'scripts/*.sh' '*/install_deps.sh' '*/*/install_deps.sh' scripts/pre-push scripts/pre-commit scripts/commit-msg`, less `scripts/bash-tracer.sh` (structurally uncoverable — `set -x` is its own last command, so nothing before it can be traced and nothing follows it). That is 5 `scripts/*.sh` files (`ci-gate.sh`, `mutation-classify.sh`, `mutation-notify.sh`, `rust-check.sh`, `run-bash-coverage.sh`; `bash-tracer.sh` matches the glob too but is filtered after derivation) + 19 `install_deps.sh` scripts across both directory-nesting depths + 3 extensionless hooks = **27 instrumented files**. Tracked shell overall is `git ls-files '*.sh' '*.bash'` (26, after this port added `run-bash-coverage.sh` and `bash-tracer.sh`, and `mutation-notify.sh` joined it) + the 3 hooks = 29; the instrumented set excludes only `tests/helpers/common.bash` (test code) and `bash-tracer.sh` (uncoverable) from that total. `run-bash-coverage.sh` is itself instrumented — it is not self-referentially traced when it runs the suite (`BASH_ENV` is only exported around the `bats` invocation), but every direct `bash scripts/run-bash-coverage.sh ...` subprocess call inside `tests/scripts/bash_coverage.bats` inherits `BASH_ENV` from the tracer's own bats run and gets traced that way.
 
 **The 19 `install_deps.sh` scripts are ~73% of math's instrumented set (19 of 26), and no bats suite executes any of them.** They are in the predicate anyway, and this is the load-bearing judgement of the whole port: a script no suite invokes is **untested**, not uncoverable. Excluding it would raise the reported percentage by deleting the untested majority from the denominator — precisely the flattering-denominator defect this tooling exists to eliminate (see `tdd.md`'s Coverage Denominators section). Expect a low headline percentage as a result — that is the honest number, not a bug in the port. (The count is 19, not 16 — an earlier estimate for this port undercounted the nested `<name>-rs/install_deps.sh` depth for `goldbach`, `prime`, and `twin-primes`, which have no top-level `install_deps.sh` at all, only the nested one. `git ls-files '*/install_deps.sh' '*/*/install_deps.sh' | wc -l` is the derivation; the Makefile's `SHELL_SOURCES` comment independently records the same 19.)
 
@@ -514,7 +514,7 @@ Omitting this causes `ModuleNotFoundError: No module named 'defusedxml'` in CI. 
 `renovate.json`'s `packageRules` must **begin** with the canonical pair from ai-config's
 `renovate-presets/default.json` — `renovate_preset_sync.py:87` tests prefix equality
 element-by-element and reports DRIFT (exit 1) when it does not hold. Anything appended
-after that prefix is a *deviation* (exit 0) and is the designed extension point. Renovate
+after that prefix is a _deviation_ (exit 0) and is the designed extension point. Renovate
 itself is indifferent to the order, because the three rules match disjoint `updateType`s
 so "later overrides earlier" never fires between them — only preset-sync cares.
 
