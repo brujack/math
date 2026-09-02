@@ -127,13 +127,14 @@ its runs to date succeeded. That is why it is worth fixing cheaply rather than e
 
 ### 1. Per-workflow labels — `mutation-notify.sh` and both workflows
 
-Give each workflow its own label and delete the title comparison entirely.
+Give each workflow its own label and delete the title comparison. **The naming is
+deliberately asymmetric: Rust keeps the incumbent label, only Python gets a new one.**
 
 ```yaml
 # mutation-testing.yml notify step env:
-ISSUE_LABEL: mutation-failure-rust
+  ISSUE_LABEL: mutation-failure          # incumbent, unchanged
 # mutation-testing-python.yml notify step env:
-ISSUE_LABEL: mutation-failure-python
+  ISSUE_LABEL: mutation-failure-python   # new
 ```
 
 ```bash
@@ -152,36 +153,50 @@ main() {
     gh issue create --repo "${REPO}" --title "${ISSUE_TITLE}" --label "${ISSUE_LABEL}" ...
 ```
 
-`ISSUE_TITLE` is still used for `--title` on create. It is no longer a _lookup_ input, which
-is the whole point.
+`ISSUE_TITLE` still supplies `--title` on create. It is no longer a *lookup* input, which is
+the point: the label becomes the discriminator, so there is no token matching to get wrong.
 
-Why this rather than a client-side title filter, which earlier drafts specified:
+**Why asymmetric rather than `-rust`/`-python`.** Symmetry is the obvious shape and it costs a
+manual, untestable, production-side migration step. Earlier drafts specified
+`gh issue edit 98 --add-label mutation-failure-rust --remove-label mutation-failure` after
+merge. Three independent review lenses found three different ways that fails, and keeping the
+incumbent name for Rust removes all three at once:
 
-- **It deletes the defect instead of compensating for it.** The label becomes the
-  discriminator, so there is no token matching to get wrong.
-- **It deletes the machinery where every review finding landed.** No jq filter program, no
-  `env.ISSUE_TITLE` channel, no `export ISSUE_TITLE` (a set-but-unexported variable silently
-  yields empty and files a duplicate — measured), no jq-aware mock arm, no `command -v jq`
-  guard, no conversion of ten test fixtures to JSON, no gojq-vs-jq version question. Rounds 1
-  and 2 each found a defect in that surface; removing it is worth more than defending it.
-- **`--search` goes away as a side effect**, taking the search-index dependency with it. That
-  is a _consequence_, not a motivation — no index failure has ever been witnessed here.
+- The step was **already stale when written**. #98 was closed by the operator at
+  `2026-09-01T23:22:29Z`, four seconds after the commit that specified it
+  (`22babba`, `23:22:25Z`). Zero open issues carry the label.
+- Its **forgotten-observable on the green path is silence**, which is worse than the
+  duplicate the Risks section named. A missed relabel makes the old issue invisible to the
+  new lookup in both directions: a red run files a second issue (visible), and a *green* run
+  does nothing at all — the old issue never closes and can never be closed by the machine
+  again, while still reading as a live failure. With `cron: "0 4 1 * *"` the next run is
+  ~30 days out and the session that owed the step is long gone.
+- It **depends on repo state at merge time**, which no test can pin and which measurably
+  moved inside four seconds.
 
-**One-time migration step, required and easy to forget.** #98 currently carries
-`mutation-failure` and is open. After merge it must be relabelled or the next Rust run will
-file a fresh issue beside it:
+Under asymmetric naming there is nothing to migrate: every existing issue already carries the
+label Rust will keep looking for.
 
-```bash
-gh issue edit 98 --repo brujack/math \
-  --add-label mutation-failure-rust --remove-label mutation-failure
-```
+**One residual, stated rather than hidden.** `mutation-failure-python` does not exist —
+measured: `gh label list` returns 15 labels including `mutation-failure` and neither
+`-rust` nor `-python`. So Python's first red run must self-provision it, a path never
+exercised here because the incumbent label always pre-existed. The chain is sound but worth
+naming: `issues: write` **is** sufficient for label creation (GitHub's "Create a label"
+endpoint documents Issues-write), `gh label create` is `2>/dev/null || true`, and
+`gh issue create --label <nonexistent>` **fails** — so a swallowed label-create failure
+resurfaces one line later as a red `notify` job that filed nothing, on precisely the run
+where the notification is the product. That is loud rather than silent, so it is acceptable;
+`gh label create mutation-failure-python --repo brujack/math --color B60205` before merge
+removes even that, is idempotent, and needs no ordering against the merge.
 
-The old label is left in place on the three closed issues as history.
+No `--limit` is specified. Steady state under a per-workflow label is one open issue, `.[0]`
+takes the newest, and gh's default page of 30 is two orders of margin.
 
-No `--limit` is specified. Steady state under a unique label is one open issue, `.[0]` takes
-the newest, and gh's default page of 30 is two orders of margin. An earlier draft added
-`--limit 100`; under a shared label that was defensible, under a per-workflow label it is
-arguing with a number that cannot be reached.
+**The label is now the sole lookup key and gh does not validate it.** Measured:
+`gh issue list --label does-not-exist-zzz` returns `[]` with rc 0. A typo in `ISSUE_LABEL`
+yields "no open issue" forever — a fresh issue every month, never red, never noticed. That is
+the class §1 exists to delete, re-entering through the new channel, so test 5 asserts the
+**literal** values rather than merely that the two differ.
 
 ### 2. Per-call failure control — `tests/mocks/gh`
 
@@ -227,21 +242,20 @@ the same change that adds a second family. Correct that line and add
 `MOCK_GH_EXIT_<SUBCOMMAND>_<VERB>`. Required anyway by this repo's "Keeping CLAUDE.md Up To
 Date" table.
 
-`CLAUDE.md:381` also states *"a red run files or updates a labelled `mutation-failure`
-issue"* — live documentation of the label name, which §1 changes. Update it in the same
-commit.
+`CLAUDE.md:381`'s *"a red run files or updates a labelled `mutation-failure` issue"* stays
+**true** under asymmetric naming and needs no edit — that is one of the things the asymmetry
+buys. Add a clause naming Python's separate label rather than rewriting the sentence.
 
 ### 4. Tests — `tests/scripts/mutation_notify.bats`
 
-**Two existing assertions are in-diff.** `mutation_notify.bats:314` and `:333` assert the
-whole `gh issue create` call as one literal string including `--label mutation-failure`;
-both must move to the new label with §1 or they fail. They are the only existing cases
-this change touches.
-
-Existing fixtures are otherwise unchanged: `MOCK_GH_ISSUE_LIST` stays a bare number/empty string,
-because the lookup keeps `--jq '.[0].number // empty'` and the mock keeps echoing it verbatim.
-The pre-existing limitation documented at `mutation-notify.sh:95-98` — that the suite cannot
-exercise `// empty` because the mock never runs jq — is untouched by this change and stays.
+**One fixture change, and it is not the one earlier drafts named.** Those drafts said
+`mutation_notify.bats:314` and `:333` were in-diff because they assert the whole
+`gh issue create` call including `--label mutation-failure`. Under asymmetric naming Rust
+keeps that label, so **both assertions stand unchanged**. What does change is `setup()`:
+adding `: "${ISSUE_LABEL:?}"` to `main()` breaks **8** pre-existing cases unless `setup()`
+exports `ISSUE_LABEL`, exactly as it already exports `ISSUE_TITLE` at `:20`. Measured by a
+review lens against a working implementation. A `setup()` fixture change is a fixture change
+and is named here rather than discovered during implementation.
 
 1. **Each propagation site fails alone.** One test per guarded call —
    `MOCK_GH_EXIT_ISSUE_LIST`, `MOCK_GH_EXIT_ISSUE_COMMENT`, `MOCK_GH_EXIT_ISSUE_CLOSE`,
@@ -269,30 +283,54 @@ exercise `// empty` because the mock never runs jq — is untouched by this chan
 
 ## Verification
 
-| #   | command                                                                         | expects                                   |
-| --- | ------------------------------------------------------------------------------- | ----------------------------------------- |
-| V1  | `make test-hooks`                                                               | green, including `ci_gate.bats` unchanged |
-| V2  | `bats tests/scripts/mutation_notify.bats`                                       | green; case count risen from 29           |
-| V3  | strip `\|\| return 1` from `gh issue list`, run V2                              | **red**                                   |
-| V4  | strip `\|\| return 1` from `gh issue close`, run V2                             | **red**                                   |
-| V5a | strip `\|\| return 1` from `gh issue comment` **line 104** (green path), run V2 | **red**                                   |
-| V5b | strip `\|\| return 1` from `gh issue comment` **line 115** (red path), run V2   | **red**                                   |
-| V6  | strip `\|\| return 1` from `gh issue create`, run V2                            | **red**                                   |
-| V7  | neuter the mock's per-key lookup to `_rc="${MOCK_GH_EXIT:-0}"`, run V2          | **red** (group 1 only)                    |
-| V8  | `grep -c 'mutation-failure' scripts/mutation-notify.sh`                         | `0` — no hardcoded label                  |
-| V9  | both workflows declare distinct `ISSUE_LABEL` values                            | rust / python                             |
+| # | command | expects |
+| --- | --- | --- |
+| V1 | `make test-hooks` | green, including `ci_gate.bats` unchanged |
+| V2 | `bats tests/scripts/mutation_notify.bats` | green; case count risen from 29 |
+| V3 | strip `\|\| return 1` from `gh issue list` (:99), run V2 | **red** |
+| V4 | strip `\|\| return 1` from `gh issue close` (:105), run V2 | **red** |
+| V5 | strip `\|\| return 1` from `gh issue comment` **green path** (:104), run V2 | **red** |
+| V6 | neuter the mock's per-key lookup to `_rc="${MOCK_GH_EXIT:-0}"`, run V2 | **red** (group 1 only) |
+| V7 | `! command grep -q 'mutation-failure-python' scripts/mutation-notify.sh` | exit 0 — no hardcoded label |
+| V8 | `grep -c 'ISSUE_LABEL: mutation-failure$' .github/workflows/mutation-testing.yml` and `grep -c 'ISSUE_LABEL: mutation-failure-python$' .github/workflows/mutation-testing-python.yml` | `1` and `1` |
 
-**V3–V7 must be run by mutation, not by reading.** V3 and V4 are the two `bug-scan` measured
-as surviving; V5a/V5b/V6 cover the remaining guarded sites.
+**V3–V6 must be run by mutation, not by reading.**
 
-**V5 is split deliberately.** `gh issue comment` has two call sites on mutually exclusive
-branches. An earlier draft had a single "strip `|| return 1` from `gh issue comment`" row,
-which is satisfied by stripping either one — so one site could be marked verified while
-staying exactly as unpinned as before.
+**Only three of the five guards are killable, and the spec says so rather than implying
+five.** `gh issue comment` on the **red** path (:115) and `gh issue create` (:119) are each
+the last statement of their branch in `main()`'s final `if/else`, which is `main()`'s last
+statement. Stripping `|| return 1` there changes the return from `1` to the gh exit code
+`4` — both non-zero, so an oracle of `status -ne 0` cannot discriminate. **These are
+equivalent mutants.** Measured by a review lens against a working implementation, and
+confirmed by control-flow reading: :99, :104 and :105 each have further flow or an explicit
+`return 0` after them, so stripping those yields `0` and does discriminate.
 
-**V7 is the control for the control.** Without it, group 1 passing is consistent with a mock
-that honours the new keys and with one that ignores them in a way that happens to fail
+Two consequences, both stated plainly because earlier drafts implied otherwise. **Defect 1
+is 3-of-5 fixed, not 5-of-5** — three propagation sites gain a killing test and two cannot.
+And **those two `|| return 1` are decoration**: nothing downstream distinguishes rc 1 from
+rc 4, since Actions reads only non-zero. They stay for uniformity, recorded as equivalent
+the way this repo already records equivalent cargo-mutants findings in `.cargo/mutants.toml`.
+Do not invent an exact-rc assertion to manufacture a kill.
+
+**The provenance is worth keeping.** These rows were *added* by round 1's correction, *split*
+by round 2's, and executed by nobody until round 3 — in a spec whose own verification section
+says to run mutations rather than read them.
+
+**V6 is the control for the control.** Without it, group 1 passing is consistent both with a
+mock that honours the new keys and with one that ignores them in a way that happens to fail
 anyway.
+
+**V7 is `! command grep -q`, not `grep -c`.** Round 2 dispositioned a `grep -c` row as
+"replaced" and did not replace it; round 3 caught that. `grep -c` prints `0` and **exits 1**
+at a zero count, so the success case is a non-zero exit, and on a missing file it prints
+nothing and exits 2 — both the success and the broken-instrument cases are non-zero, so an
+exit-code reading cannot discriminate them. `command` bypasses this fleet's ugrep wrapper,
+whose `-q`+`-v` semantics differ from POSIX grep.
+
+**V8 has a command.** An earlier draft's row was prose — "both workflows declare distinct
+`ISSUE_LABEL` values" — with no oracle, satisfiable by reading, and it was the only
+verification §1 had. It now asserts the two **literal** values, because distinctness alone
+would pass on two labels that are both wrong.
 
 ## Out of scope — backlogged, with reasons
 
@@ -329,31 +367,17 @@ Rows go to `docs/superpowers/README.md`.
 
 - **The mock is shared.** `ci_gate.bats` is the only other consumer and its `MOCK_GH_EXIT`
   usage is preserved by the fallback, so V1 is the check. A red V1 means the fallback is
-  wrong, not the caller.
-- **The label migration is a manual step outside the diff.** Forget it and the next Rust run
-  files a second open issue beside #98. It cannot be tested; it goes in the PR description as
-  a merge step, not in a test.
-- **Two labels now exist where one did, and three live sites hardcode the old name.** An
-  earlier draft of this line asserted that nothing outside `mutation-notify.sh` keys on the
-  label and flagged itself for re-check. The re-check refuted it. Measured:
-
-  ```
-  tests/scripts/mutation_notify.bats:314  grep -qF -- "... --label mutation-failure --body"
-  tests/scripts/mutation_notify.bats:333  grep -qF -- "... --label mutation-failure --body"
-  CLAUDE.md:381                           "a red run files or updates a labelled
-                                           `mutation-failure` issue"
-  scripts/mutation-notify.sh:99,117,119   the three call sites §1 changes
-  ```
-
-  The two bats assertions are **in-diff and will fail** unless updated with §1 — they assert
-  the whole `gh issue create` call as a single literal string, label included. `CLAUDE.md:381`
-  is live documentation of the label name and is covered by §3. Hits in
-  `docs/superpowers/plans/2026-08-01-*`, `plans/2026-09-01-*` and
-  `specs/2026-08-31-*` are historical records of what was built at the time and are correctly
-  left alone. Nothing else — no skill, no workflow, no script — keys on the label. Note the
-  workflows themselves never name it; `mutation-notify.sh` hardcodes it, which is what §1
-  replaces with `ISSUE_LABEL`.
-
+  wrong, not the caller. Three review lenses ran both suites against this change in scratch
+  trees: 10/10, 39/39 and 37/37.
+- **Python's label does not exist yet** and its first red run must self-provision it — see
+  §1. Loud on failure, not silent, and removable with one pre-merge `gh label create`.
+- **`ISSUE_LABEL` is now the sole lookup key and gh does not validate it** — a typo yields
+  `[]` with rc 0, forever. V8 pins the literal values for this reason.
+- **`setup()` gains an `ISSUE_LABEL` export**, without which 8 pre-existing cases fail — a
+  fixture change, named in §4.
+- **Two labels now exist where one did**, so the GitHub UI's `label:mutation-failure` filter
+  shows only Rust history going forward. Asymmetric naming keeps that filter continuous for
+  Rust; Python's archive starts empty, which is correct since it has never filed an issue.
 - **`[[ "${_rc}" -ne 0 ]]` reads a non-numeric value as 0 silently** and errors on `4abc`.
   Identical to the existing `MOCK_GH_EXIT` line it replaces, so not a regression.
 
@@ -390,6 +414,27 @@ found and where it went:
 Both round-2 lenses independently reached per-workflow labels from different directions, and
 the `ISSUE_PREFIX: ""` defect was introduced by round 1's own correction — the third measured
 instance in this corpus of a review round finding a defect created by the previous round's fix.
+
+### Round 3 — reviewed at commit `22babba`
+
+Scoped to the newly adopted, never-reviewed label design; the mock component was excluded as
+twice-reviewed and execution-verified.
+
+| lens | finding | disposition |
+| --- | --- | --- |
+| Goal-Fit | **The migration step rests on a state claim already false** — #98 was closed 4s after the spec was committed, and 0 open issues carry the label. Third instance of the state-read-as-history error, in the paragraph instructing a future actor. Fix: keep `mutation-failure` for Rust, so there is nothing to migrate. Backlog rows render outside the table | **Addressed** — asymmetric naming adopted, migration deleted with its Risks row, the two bats edits and the `CLAUDE.md:381` edit; table rendering fixed |
+| Ergonomics | **The forgotten-migration observable on the green path is silence**, not a duplicate: the old issue never closes and can never be closed by the machine again, ~30 days to the next cron. Three of four backlog rows violate `behavior.md`'s one-liner rule, and the spec *instructed* the violation. V9 is prose with no oracle | **Addressed** — the silent half is what makes asymmetric naming the fix rather than a preference; rows reshaped to one-liners with pointers; V8 (was V9) given a command asserting literal values |
+| Risk | **V5b and V6 are equivalent mutants** — both are the last statement of `main()`, so stripping the guard returns 4 instead of 1 and no `status -ne 0` oracle can discriminate; Defect 1 is 3-of-5, and those two guards are decoration. Neither new label exists, so a swallowed `gh label create` failure resurfaces as a red job that filed nothing. `ISSUE_LABEL` is now the sole key and gh does not validate it. `: "${ISSUE_LABEL:?}"` breaks 8 cases unless `setup()` exports it. **V8 was dispositioned "replaced" in round 2 and was not replaced** | **Addressed** — equivalence recorded rather than papered over, table renumbered to three killable mutations; label bootstrap named with its pre-merge removal; V8 asserts literals; `setup()` export named in §4; the `grep -c` row actually replaced this time |
+
+All three lenses independently converged on the migration step as the weakest part, by three
+different routes. The asymmetric-naming fix removes all three at once — and it is a deletion,
+which is why review stops here: round 3's findings sit in the verification apparatus and the
+backlog prose rather than in the design, and every correction this round removes surface.
+
+Two process failures are recorded rather than quietly fixed. A round-2 disposition asserted a
+fix ("V8 replaced") that was never applied. And V5a/V5b/V6 were added by round 1, split by
+round 2, and executed by nobody until round 3 — in a spec whose verification section says to
+run mutations rather than read them.
 
 ### Adversarial Spec Review (comparison/judge designs only)
 
