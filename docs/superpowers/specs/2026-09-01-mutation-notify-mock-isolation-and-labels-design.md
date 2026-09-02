@@ -178,18 +178,18 @@ Under asymmetric naming there is nothing to migrate: every existing issue alread
 label Rust will keep looking for.
 
 **One residual, stated rather than hidden.** `mutation-failure-python` does not exist —
-measured: `gh label list` returns 15 labels including `mutation-failure` and neither
-`-rust` nor `-python`. So Python's first red run must self-provision it, a path never
-exercised here because the incumbent label always pre-existed. The chain is sound but worth
-naming: `issues: write` **is** sufficient for label creation (GitHub's "Create a label"
-endpoint documents Issues-write), `gh label create` is `2>/dev/null || true`, and
-`gh issue create --label <nonexistent>` **fails** — so a swallowed label-create failure
-resurfaces one line later as a red `notify` job that filed nothing, on precisely the run
-where the notification is the product. It is loud rather than silent — but it is loud on **the one run where the notification is the
-product**. The Python workflow's first red run is precisely when someone needs a tracking
-issue, and that run would produce a red `notify` job and no issue at all. The cost asymmetry
-settles it: one idempotent command now, against a failed notification on the single run that
-matters.
+measured: `gh label list` returns 15 labels, including `mutation-failure` and neither `-rust`
+nor `-python`. Absent a pre-merge step, Python's first red run would have to self-provision
+it, a path never exercised here because the incumbent label always pre-existed.
+
+That chain is sound and still not good enough. `issues: write` **is** sufficient for label
+creation (GitHub's "Create a label" endpoint documents Issues-write), `gh label create` is
+`2>/dev/null || true`, and `gh issue create --label <nonexistent>` **fails** — so a swallowed
+label-create failure resurfaces one line later as a red `notify` job that filed nothing. Loud
+rather than silent, which is the right direction. But it is loud on the Python workflow's
+*first red run*: precisely the occasion when someone needs a tracking issue, and the one where
+the notification is the entire product. The cost asymmetry settles it — one idempotent command
+now, against a failed notification on the single run that matters.
 
 **So pre-creating the label is the default, not an option**, and self-provisioning via
 `gh label create` is the fallback that covers a forgotten step:
@@ -399,8 +399,11 @@ Rows go to `docs/superpowers/README.md`.
   usage is preserved by the fallback, so V1 is the check. A red V1 means the fallback is
   wrong, not the caller. Three review lenses ran both suites against this change in scratch
   trees: 10/10, 39/39 and 37/37.
-- **Python's label does not exist yet** and its first red run must self-provision it — see
-  §1. Loud on failure, not silent, and removable with one pre-merge `gh label create`.
+- **Python's label does not exist yet**, so §1 makes creating it a **required pre-merge
+  step** and leaves the script's `gh label create ... || true` as the fallback. Relying on
+  the fallback instead is the risk: its failure is loud rather than silent, but it is loud
+  on the Python workflow's *first red run* — the one run where the tracking issue is the
+  product — and the observable there is a red `notify` job having filed nothing.
 - **`ISSUE_LABEL` is now the sole lookup key and gh does not validate it** — a typo yields
   `[]` with rc 0, forever. V8 pins the literal values for this reason.
 - **`setup()` gains an `ISSUE_LABEL` export**, without which 8 pre-existing cases fail — a
