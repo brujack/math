@@ -19,7 +19,7 @@ BATS := $(shell command -v bats 2>/dev/null)
 # report a pass having examined 3 files instead of the full tracked set.
 SHELL_TRACKED := $(shell env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
                    git ls-files '*.sh' '*.bash')
-SHELL_SOURCES := $(SHELL_TRACKED) scripts/pre-commit scripts/pre-push scripts/commit-msg
+SHELL_SOURCES := $(SHELL_TRACKED) scripts/pre-commit scripts/pre-push scripts/commit-msg $(wildcard tests/mocks/*)
 BATS_SOURCES := $(shell env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
                    git ls-files '*.bats')
 

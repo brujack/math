@@ -79,8 +79,8 @@ build_body() {
 }
 
 # File, comment, or close the tracking issue. Same decision tree as
-# .github/workflows/mutation-testing.yml's notify job -- Task 4 replaces
-# that block, so no line range is cited here since it would rot -- with two
+# the notify job's former inline block, which it replaced on 2026-09-01;
+# the workflows now supply only env: -- with two
 # deliberate differences: no `set -u` (RESULT, REPO, ISSUE_TITLE and
 # ISSUE_LABEL each get an explicit `:?` guard instead, since RESULT alone
 # selects the branch),
