@@ -90,13 +90,14 @@ main() {
     : "${RESULT:?}"
     : "${REPO:?}"
     : "${ISSUE_TITLE:?}"
+    : "${ISSUE_LABEL:?}"
 
     local _existing
     # --jq '.[0].number // empty' is real gh/jq behaviour; the test mock
     # echoes MOCK_GH_ISSUE_LIST verbatim and never runs jq, so this suite
     # cannot exercise the `// empty` fallback itself -- only that whatever
     # gh returns is treated as truthy/falsy by bash's -n test below.
-    _existing=$(gh issue list --repo "${REPO}" --state open --label mutation-failure \
+    _existing=$(gh issue list --repo "${REPO}" --state open --label "${ISSUE_LABEL}" \
         --search "in:title \"${ISSUE_TITLE}\"" --json number --jq '.[0].number // empty') || return 1
 
     if [[ "${RESULT}" == "success" ]]; then
@@ -114,9 +115,9 @@ main() {
     if [[ -n "${_existing}" ]]; then
         gh issue comment "${_existing}" --repo "${REPO}" --body "${_body}" || return 1
     else
-        gh label create mutation-failure --repo "${REPO}" --color B60205 \
+        gh label create "${ISSUE_LABEL}" --repo "${REPO}" --color B60205 \
             --description "Monthly mutation run failed" 2>/dev/null || true
-        gh issue create --repo "${REPO}" --title "${ISSUE_TITLE}" --label mutation-failure --body "${_body}" || return 1
+        gh issue create --repo "${REPO}" --title "${ISSUE_TITLE}" --label "${ISSUE_LABEL}" --body "${_body}" || return 1
     fi
 }
 

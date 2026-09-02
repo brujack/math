@@ -18,6 +18,7 @@ setup() {
     # this makes REPO itself unresolvable as a second line of defense.
     export REPO="invalid-repo-spec-no-slash"
     export ISSUE_TITLE="mutation-testing: monthly run failed"
+    export ISSUE_LABEL="mutation-failure"
     export MOCK_CALLS_FILE="${BATS_TEST_TMPDIR}/calls"
 }
 
@@ -383,6 +384,14 @@ assert_all_gh_calls_carry_repo() {
     export RESULT="success"
     export MOCK_GH_ISSUE_LIST=""
 
+    run main
+    [ "${status}" -ne 0 ]
+}
+
+@test "main fails visibly when ISSUE_LABEL is unset" {
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST=""
+    unset ISSUE_LABEL
     run main
     [ "${status}" -ne 0 ]
 }
