@@ -15,7 +15,7 @@ Spec: [`2026-09-01-mutation-notify-mock-isolation-and-labels-design.md`](../spec
 - `MOCK_GH_EXIT` MUST keep working as the all-calls-fail fallback. `tests/scripts/ci_gate.bats:65` depends on it and MUST NOT be edited. Its passing unchanged is the regression check for the mock change.
 - Rust's label stays **`mutation-failure`** (incumbent). Only Python gets **`mutation-failure-python`**. Do not rename Rust's — the asymmetry is deliberate and removes a manual migration step.
 - The guards at `mutation-notify.sh:115` (`gh issue comment`, red path) and `:119` (`gh issue create`) are **equivalent mutants** — each is the last statement of `main()`, so stripping `|| return 1` returns 4 instead of 1 and no `status -ne 0` oracle can discriminate. Do NOT write tests for them and do NOT invent exact-rc assertions to manufacture a kill.
-- Only three guards are killable: `:99` (`gh issue list`), `:104` (`gh issue comment`, green path), `:105` (`gh issue close`).
+- Only three guards are killable, and all three are **verified red** as of Task 1: line **100** (the `gh issue list` guard — it sits on the continuation line, NOT 99; a sed against 99 is a silent no-op), `:104` (`gh issue comment`, green path), `:105` (`gh issue close`). Measured: each strip yields 31 ok / 1 not-ok.
 - Baseline measured at `8ea4033`: `mutation_notify.bats` 29 ok / 0 not-ok; `ci_gate.bats` 10 ok / 0 not-ok.
 - `bats` is required (`brew install bats-core` / `apt-get install -y bats`).
 - **Pre-merge step, required — ALREADY DONE 2026-09-02.** `mutation-failure-python` exists
@@ -302,7 +302,7 @@ For each mutation: apply it, run `bats tests/scripts/mutation_notify.bats`, reco
 
 | #   | mutation                                                                        | expect                                 |
 | --- | ------------------------------------------------------------------------------- | -------------------------------------- |
-| V3  | strip `\|\| return 1` from `gh issue list` (`:99`)                              | **red**                                |
+| V3  | strip `\|\| return 1` from the `gh issue list` guard (**line 100**, the continuation — not 99)                              | **red**                                |
 | V4  | strip `\|\| return 1` from `gh issue close` (`:105`)                            | **red**                                |
 | V5  | strip `\|\| return 1` from `gh issue comment` green path (`:104`)               | **red**                                |
 | V6  | in `tests/mocks/gh`, replace the derived lookup with `_rc="${MOCK_GH_EXIT:-0}"` | **red, and only Task 2's three cases** |
