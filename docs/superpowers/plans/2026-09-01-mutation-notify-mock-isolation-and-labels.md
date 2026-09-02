@@ -15,7 +15,13 @@ Spec: [`2026-09-01-mutation-notify-mock-isolation-and-labels-design.md`](../spec
 - `MOCK_GH_EXIT` MUST keep working as the all-calls-fail fallback. `tests/scripts/ci_gate.bats:65` depends on it and MUST NOT be edited. Its passing unchanged is the regression check for the mock change.
 - Rust's label stays **`mutation-failure`** (incumbent). Only Python gets **`mutation-failure-python`**. Do not rename Rust's — the asymmetry is deliberate and removes a manual migration step.
 - The guards at `mutation-notify.sh:115` (`gh issue comment`, red path) and `:119` (`gh issue create`) are **equivalent mutants** — each is the last statement of `main()`, so stripping `|| return 1` returns 4 instead of 1 and no `status -ne 0` oracle can discriminate. Do NOT write tests for them and do NOT invent exact-rc assertions to manufacture a kill.
-- Only three guards are killable, and all three are **verified red** as of Task 1: line **100** (the `gh issue list` guard — it sits on the continuation line, NOT 99; a sed against 99 is a silent no-op), `:104` (`gh issue comment`, green path), `:105` (`gh issue close`). Measured: each strip yields 31 ok / 1 not-ok.
+- Only three guards are killable, all three **verified red**. **Derive their line numbers at run time — do NOT hardcode them.** They have already shifted twice in this branch (Task 1's plan correction, then Task 2 adding a guard line), and `mutation-notify.sh:82-83` states the convention: no line range, since it would rot. Anchor on content:
+  ```bash
+  LOOKUP=$(grep -n "jq '.\[0\].number // empty') || return 1" scripts/mutation-notify.sh | cut -d: -f1)
+  COMMENT=$(grep -n 'Green as of' scripts/mutation-notify.sh | cut -d: -f1)
+  CLOSE=$(grep -n 'gh issue close' scripts/mutation-notify.sh | cut -d: -f1)
+  ```
+  Each strip yields **31 ok / 1 not-ok**, killing a *different* test each time. The two equivalent mutants — the red-path `gh issue comment` and `gh issue create` — yield **0**, measured by two reviewers.
 - Baseline measured at `8ea4033`: `mutation_notify.bats` 29 ok / 0 not-ok; `ci_gate.bats` 10 ok / 0 not-ok.
 - `bats` is required (`brew install bats-core` / `apt-get install -y bats`).
 - **Pre-merge step, required — ALREADY DONE 2026-09-02.** `mutation-failure-python` exists
@@ -302,9 +308,9 @@ For each mutation: apply it, run `bats tests/scripts/mutation_notify.bats`, reco
 
 | #   | mutation                                                                        | expect                                 |
 | --- | ------------------------------------------------------------------------------- | -------------------------------------- |
-| V3  | strip `\|\| return 1` from the `gh issue list` guard (**line 100**, the continuation — not 99)                              | **red**                                |
-| V4  | strip `\|\| return 1` from `gh issue close` (`:105`)                            | **red**                                |
-| V5  | strip `\|\| return 1` from `gh issue comment` green path (`:104`)               | **red**                                |
+| V3  | strip `\|\| return 1` from the `gh issue list` guard (derive `LOOKUP`; it is the **continuation** line, not the `gh issue list` line itself)                              | **red**                                |
+| V4  | strip `\|\| return 1` from `gh issue close` (derive `CLOSE`)                                                | **red**                                |
+| V5  | strip `\|\| return 1` from `gh issue comment` green path (derive `COMMENT`)                    | **red**                                |
 | V6  | in `tests/mocks/gh`, replace the derived lookup with `_rc="${MOCK_GH_EXIT:-0}"` | **red, and only Task 2's three cases** |
 
 V6 is the control for the control: without it, Task 2's cases passing is consistent both with a working per-key mock and with one that ignores the keys but fails anyway.
