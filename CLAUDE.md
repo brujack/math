@@ -475,6 +475,10 @@ it writes is gitignored.
 
 - `tests/helpers/common.bash` — shared REPO_ROOT export and `load_mocks()` (prepends `tests/mocks/` to PATH)
 - `tests/mocks/` — PATH-injected mock executables: `make` (logs calls, exits `$MOCK_MAKE_EXIT`), `git` (dispatches by subcommand, outputs from per-subcommand env vars), `ggshield` (logs calls, exits `$MOCK_GGSHIELD_EXIT`), `gh` (sequential JSON responses via `MOCK_GH_CHECK_RUNS_N`, exits `$MOCK_GH_EXIT`, or `$MOCK_GH_EXIT_<SUBCOMMAND>_<VERB>` to fail a single call — e.g. `MOCK_GH_EXIT_ISSUE_CLOSE`)
+- `tests/mocks/*` are linted: `SHELL_SOURCES` includes them via `$(wildcard tests/mocks/*)`.
+  They are extensionless, so the `git ls-files '*.sh' '*.bash'` half of that variable
+  cannot see them — the same pathspec trap `shell.md` documents. Verified by seeding a
+  defect and watching `make lint-hooks` fail, not by reading the variable.
 - `tests/scripts/` — BATS test files; one per script tested (`rust_check.bats`, `pre_commit.bats`, `pre_push.bats`, `ci_gate.bats`, `makefile.bats`, `bash_coverage.bats`, `mutation_notify.bats`)
 
 ### Bash Coverage
