@@ -21,7 +21,7 @@ Spec: [`2026-09-01-mutation-notify-mock-isolation-and-labels-design.md`](../spec
   COMMENT=$(grep -n 'Green as of' scripts/mutation-notify.sh | cut -d: -f1)
   CLOSE=$(grep -n 'gh issue close' scripts/mutation-notify.sh | cut -d: -f1)
   ```
-  Each strip yields **31 ok / 1 not-ok**, killing a *different* test each time. The two equivalent mutants — the red-path `gh issue comment` and `gh issue create` — yield **0**, measured by two reviewers.
+  Each strip yields **31 ok / 1 not-ok**, killing a _different_ test each time. The two equivalent mutants — the red-path `gh issue comment` and `gh issue create` — yield **0**, measured by two reviewers.
 - Baseline measured at `8ea4033`: `mutation_notify.bats` 29 ok / 0 not-ok; `ci_gate.bats` 10 ok / 0 not-ok.
 - `bats` is required (`brew install bats-core` / `apt-get install -y bats`).
 - **Pre-merge step, required — ALREADY DONE 2026-09-02.** `mutation-failure-python` exists
@@ -85,7 +85,7 @@ not 32).
 cases → 32).
 
 **RED first.** Write the three tests below, run `bats tests/scripts/mutation_notify.bats`, and
-confirm they fail against the *unmodified* mock. They will — the unmodified mock ignores
+confirm they fail against the _unmodified_ mock. They will — the unmodified mock ignores
 `MOCK_GH_EXIT_ISSUE_LIST` entirely, so `main` returns 0 and the `-ne 0` assertion fails. Do not
 commit this RED state: `scripts/pre-commit` runs `make lint` and a failing suite blocks it. Verify
 RED by running bats directly, then implement, then make one combined commit.
@@ -211,7 +211,7 @@ Add one case, mirroring the three existing unset-guard tests:
 ```
 
 **Add a comment above the final `if/else` recording that its two `|| return 1` guards are
-decorative *by position*.** Each is currently the last statement of its branch, so stripping it
+decorative _by position_.** Each is currently the last statement of its branch, so stripping it
 returns 4 instead of 1 — both non-zero, so no `status -ne 0` oracle can discriminate, which is
 why Task 2 writes no test for them. Appending anything after `gh issue create` changes that:
 guarded and stripped then return 1 vs 0, the appended statement runs only in the stripped
@@ -306,12 +306,12 @@ depends_on: [3]
 
 For each mutation: apply it, run `bats tests/scripts/mutation_notify.bats`, record the not-ok count, then `git checkout --` the file before the next one. Confirm `git status --porcelain` is clean at the end.
 
-| #   | mutation                                                                        | expect                                 |
-| --- | ------------------------------------------------------------------------------- | -------------------------------------- |
-| V3  | strip `\|\| return 1` from the `gh issue list` guard (derive `LOOKUP`; it is the **continuation** line, not the `gh issue list` line itself)                              | **red**                                |
-| V4  | strip `\|\| return 1` from `gh issue close` (derive `CLOSE`)                                                | **red**                                |
-| V5  | strip `\|\| return 1` from `gh issue comment` green path (derive `COMMENT`)                    | **red**                                |
-| V6  | in `tests/mocks/gh`, replace the derived lookup with `_rc="${MOCK_GH_EXIT:-0}"` | **red, and only Task 2's three cases** |
+| #   | mutation                                                                                                                                     | expect                                 |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| V3  | strip `\|\| return 1` from the `gh issue list` guard (derive `LOOKUP`; it is the **continuation** line, not the `gh issue list` line itself) | **red**                                |
+| V4  | strip `\|\| return 1` from `gh issue close` (derive `CLOSE`)                                                                                 | **red**                                |
+| V5  | strip `\|\| return 1` from `gh issue comment` green path (derive `COMMENT`)                                                                  | **red**                                |
+| V6  | in `tests/mocks/gh`, replace the derived lookup with `_rc="${MOCK_GH_EXIT:-0}"`                                                              | **red, and only Task 2's three cases** |
 
 V6 is the control for the control: without it, Task 2's cases passing is consistent both with a working per-key mock and with one that ignores the keys but fails anyway.
 
@@ -326,6 +326,47 @@ with the not-ok counts.
 mutation-failure-python` must return a row. If it does not, report it in the task result: the
 change is still safe to merge, but Python's first red run then depends on the fallback
 `gh label create` path, which has never executed in this repo.
+
+---
+
+## Mutation results
+
+Measured at HEAD `34a343c`. Line numbers derived at run time per the `grep -n` commands in
+Global Constraints: `LOOKUP=102` (the `--jq '.[0].number // empty') || return 1` continuation
+line), `COMMENT=106` (`Green as of`, green-path `gh issue comment`), `CLOSE=107`
+(`gh issue close`). The two equivalent-mutant lines, not derived but read directly from the
+file's own comment at `mutation-notify.sh:116-123` naming them: `115`→`125` (red-path
+`gh issue comment`, current line) and `119`→`129` (`gh issue create`, current line) — the
+comment's own line numbers (115/119) had already drifted from the mutated lines (125/129) by
+the time this task ran, which is exactly why the file states the convention "no line range,
+since it would rot" rather than hardcoding one. Baseline before any mutation: 33 ok / 0 not-ok.
+
+| #   | mutation                                                                                                    | result                                  | not-ok | killed / affected case(s)                                                                      |
+| --- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------- | -----: | ---------------------------------------------------------------------------------------------- |
+| V3  | strip `\|\| return 1` at line 102 (LOOKUP)                                                                  | **RED**, as expected                    |      1 | `not ok 30 a failing issue lookup propagates and files nothing`                                |
+| V4  | strip `\|\| return 1` at line 107 (CLOSE)                                                                   | **RED**, as expected                    |      1 | `not ok 32 a failing issue close propagates rather than reporting success`                     |
+| V5  | strip `\|\| return 1` at line 106 (COMMENT)                                                                 | **RED**, as expected                    |      1 | `not ok 31 a failing green-path comment propagates and does not close the issue`               |
+| V6  | in `tests/mocks/gh`, replace `_rc="${!_key:-${MOCK_GH_EXIT:-0}}"` (line 10) with `_rc="${MOCK_GH_EXIT:-0}"` | **RED**, only Task 2's three cases      |      3 | `not ok 30`, `not ok 31`, `not ok 32` — the identical three cases from V3/V4/V5, and no others |
+| E1  | strip `\|\| return 1` at line 125 (red-path `gh issue comment`)                                             | **GREEN — equivalent mutant, expected** |      0 | none                                                                                           |
+| E2  | strip `\|\| return 1` at line 129 (`gh issue create`)                                                       | **GREEN — equivalent mutant, expected** |      0 | none                                                                                           |
+
+Each mutation was applied alone, measured, and reverted (`git checkout --`) before the next;
+`git status --porcelain` was confirmed clean between every step and after the final revert.
+
+`bats tests/scripts/ci_gate.bats` was also run while the V6 mock mutation was still in place
+(before reverting it): **10 ok / 0 not-ok** — unchanged from baseline, confirming the
+`MOCK_GH_EXIT` all-calls-fail fallback survives the per-key lookup being neutered, per
+`ci_gate.bats:65`'s dependency on it.
+
+`gh label list --repo brujack/math | grep mutation-failure-python` returned
+`mutation-failure-python	Monthly mutation run failed	#B60205` — the pre-merge label step is
+confirmed done; Python's first red run does not depend on the fallback `gh label create` path.
+
+E1 and E2 are equivalent by position, exactly as Global Constraints states: each is the last
+statement of its branch and of `main()`, so stripping `|| return 1` returns `gh`'s own exit
+code rather than `1` — both non-zero, indistinguishable to any `status -ne 0` oracle. Appending
+anything after `gh issue create` (line 129) would make both guards load-bearing and they would
+need a test at that point, per the comment at `mutation-notify.sh:121-123`.
 
 ---
 
