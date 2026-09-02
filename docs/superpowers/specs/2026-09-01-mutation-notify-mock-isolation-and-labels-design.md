@@ -291,7 +291,7 @@ and is named here rather than discovered during implementation.
 | V4 | strip `\|\| return 1` from `gh issue close` (:105), run V2 | **red** |
 | V5 | strip `\|\| return 1` from `gh issue comment` **green path** (:104), run V2 | **red** |
 | V6 | neuter the mock's per-key lookup to `_rc="${MOCK_GH_EXIT:-0}"`, run V2 | **red** (group 1 only) |
-| V7 | `! command grep -q 'mutation-failure-python' scripts/mutation-notify.sh` | exit 0 — no hardcoded label |
+| V7 | `! command grep -q 'mutation-failure' scripts/mutation-notify.sh` | exit 0 — no hardcoded label |
 | V8 | `grep -c 'ISSUE_LABEL: mutation-failure$' .github/workflows/mutation-testing.yml` and `grep -c 'ISSUE_LABEL: mutation-failure-python$' .github/workflows/mutation-testing-python.yml` | `1` and `1` |
 
 **V3–V6 must be run by mutation, not by reading.**
@@ -320,14 +320,15 @@ says to run mutations rather than read them.
 mock that honours the new keys and with one that ignores them in a way that happens to fail
 anyway.
 
-**V7 is `! command grep -q`, not `grep -c`.** Round 2 dispositioned a `grep -c` row as
-"replaced" and did not replace it; round 3 caught that. `grep -c` prints `0` and **exits 1**
-at a zero count, so the success case is a non-zero exit, and on a missing file it prints
-nothing and exits 2 — both the success and the broken-instrument cases are non-zero, so an
-exit-code reading cannot discriminate them. `command` bypasses this fleet's ugrep wrapper,
-whose `-q`+`-v` semantics differ from POSIX grep.
+**V7 greps for `mutation-failure`, not `mutation-failure-python`.** The `-python` form was
+written into an earlier draft of this table and is **vacuous**: that literal never appears in
+`mutation-notify.sh` before *or* after the change — Python's label lives in workflow YAML, and
+the script only ever sees `${ISSUE_LABEL}`. Measured on the base tree, the `-python` gate exits
+**0**, i.e. it passes on a completely unmodified repo. The incumbent literal is the one the
+change actually removes: 3 occurrences today (`:99`, `:117`, `:119`), so the corrected gate
+exits 1 on base and 0 after.
 
-**V8 has a command.** An earlier draft's row was prose — "both workflows declare distinct
+**V7 is `! command grep -q`, not `grep -c`.****V8 has a command.** An earlier draft's row was prose — "both workflows declare distinct
 `ISSUE_LABEL` values" — with no oracle, satisfiable by reading, and it was the only
 verification §1 had. It now asserts the two **literal** values, because distinctness alone
 would pass on two labels that are both wrong.
