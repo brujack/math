@@ -4,7 +4,7 @@
 # attribute() and build_body() key the red-path body on the downloaded
 # artifact's own contents (ARTIFACT_DIR, RUN_URL, UNIT_NOUN). main() adds the
 # green-path close and the issue create/comment dispatch, consuming RESULT,
-# ISSUE_TITLE and REPO on top of those. main()'s dispatch logic is ported
+# ISSUE_TITLE, REPO and ISSUE_LABEL on top of those. main()'s dispatch logic is ported
 # from .github/workflows/mutation-testing.yml's notify job -- but not
 # byte-for-byte: it drops that block's `set -u` in favour of explicit `:?`
 # guards per input, and adds --repo "${REPO}" to every gh issue/label call
@@ -81,8 +81,9 @@ build_body() {
 # File, comment, or close the tracking issue. Same decision tree as
 # .github/workflows/mutation-testing.yml's notify job -- Task 4 replaces
 # that block, so no line range is cited here since it would rot -- with two
-# deliberate differences: no `set -u` (RESULT, REPO and ISSUE_TITLE each get
-# an explicit `:?` guard instead, since RESULT alone selects the branch),
+# deliberate differences: no `set -u` (RESULT, REPO, ISSUE_TITLE and
+# ISSUE_LABEL each get an explicit `:?` guard instead, since RESULT alone
+# selects the branch),
 # and every gh issue/label call carries --repo "${REPO}" so a malformed
 # fixture REPO fails in gh's own argument parser instead of reaching a live
 # tracker (tdd.md E2).

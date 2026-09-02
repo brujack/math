@@ -18,7 +18,11 @@ setup() {
     # this makes REPO itself unresolvable as a second line of defense.
     export REPO="invalid-repo-spec-no-slash"
     export ISSUE_TITLE="mutation-testing: monthly run failed"
-    export ISSUE_LABEL="mutation-failure"
+    # Distinct from the label the script previously hardcoded, for the same
+    # reason ISSUE_TITLE below is distinct from the workflow's real title:
+    # a fixture matching the literal by coincidence cannot tell "reads the
+    # env var" from "hardcodes the old value".
+    export ISSUE_LABEL="mutation-failure-fixture-distinct-4b21"
     export MOCK_CALLS_FILE="${BATS_TEST_TMPDIR}/calls"
 }
 
@@ -312,8 +316,12 @@ assert_all_gh_calls_carry_repo() {
     # issue again. A prefix-only "gh issue create --repo" check cannot tell
     # a hardcoded title or a dropped --label from the real thing, and either
     # one causes an unbounded issue to be created every run forever.
-    grep -qF -- "gh issue create --repo ${REPO} --title ${ISSUE_TITLE} --label mutation-failure --body" "${MOCK_CALLS_FILE}"
+    grep -qF -- "gh issue create --repo ${REPO} --title ${ISSUE_TITLE} --label ${ISSUE_LABEL} --body" "${MOCK_CALLS_FILE}"
     grep -q "Cause: verdicts-present" "${MOCK_CALLS_FILE}"
+    # The lookup this whole change exists for: a hardcoded label here would
+    # make a green Rust run's issue-list query match (and therefore close)
+    # the Python tracking issue, since in:title matching is AND-over-tokens.
+    grep -qF -- "gh issue list --repo ${REPO} --state open --label ${ISSUE_LABEL}" "${MOCK_CALLS_FILE}"
     assert_all_gh_calls_carry_repo
 }
 
@@ -331,7 +339,7 @@ assert_all_gh_calls_carry_repo() {
     run main
     [ "${status}" -eq 0 ]
 
-    grep -qF -- "gh issue create --repo ${REPO} --title ${ISSUE_TITLE} --label mutation-failure --body" "${MOCK_CALLS_FILE}"
+    grep -qF -- "gh issue create --repo ${REPO} --title ${ISSUE_TITLE} --label ${ISSUE_LABEL} --body" "${MOCK_CALLS_FILE}"
     assert_all_gh_calls_carry_repo
 }
 
@@ -389,9 +397,10 @@ assert_all_gh_calls_carry_repo() {
 }
 
 @test "main fails visibly when ISSUE_LABEL is unset" {
+    unset ISSUE_LABEL
     export RESULT="success"
     export MOCK_GH_ISSUE_LIST=""
-    unset ISSUE_LABEL
+
     run main
     [ "${status}" -ne 0 ]
 }
