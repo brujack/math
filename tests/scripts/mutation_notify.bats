@@ -311,9 +311,12 @@ assert_all_gh_calls_carry_repo() {
     run main
     [ "${status}" -eq 0 ]
 
-    # The whole call, not a prefix: --title and --label mutation-failure are
-    # both required, in this order, for the next month's lookup to find this
-    # issue again. A prefix-only "gh issue create --repo" check cannot tell
+    # The whole call, not a prefix: --title and --label are both required, in
+    # this order, for the next month's lookup to find this issue again. The
+    # label is asserted through ${ISSUE_LABEL}, whose fixture value is
+    # deliberately distinct from the workflow's real one -- matching it by
+    # coincidence would make this assertion unable to tell a hardcoded label
+    # from one read out of the environment. A prefix-only "gh issue create --repo" check cannot tell
     # a hardcoded title or a dropped --label from the real thing, and either
     # one causes an unbounded issue to be created every run forever.
     grep -qF -- "gh issue create --repo ${REPO} --title ${ISSUE_TITLE} --label ${ISSUE_LABEL} --body" "${MOCK_CALLS_FILE}"
