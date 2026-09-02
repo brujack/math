@@ -143,17 +143,23 @@ required_signatures             : false
 So master is protected. But the enforced set contains **no test check**, and cannot. Every
 per-sub-project test workflow is `paths:`-filtered, and a required status check that never
 reports blocks a PR permanently — GitHub has no "skip if the workflow did not run"
-semantics for required checks. Measured: of the 41 workflow files, exactly these run
-unconditionally on `pull_request`:
+semantics for required checks. Measured over all 41 tracked workflow files, exactly three
+trigger on `pull_request` with no `paths:` filter:
 
 ```
 auto-merge.yml       (jobs: secret-scan, snyk-scan, bash-coverage, auto-merge)
 mutation-pr.yml
 pr-title-lint.yml
-benchmarks.yml
 ```
 
-The required-check universe for this repo is therefore that list and nothing else. The
+The required-check universe for this repo is therefore those three files' jobs and nothing
+else. (`benchmarks.yml` also carries no `paths:` filter and is _not_ in this set — it
+triggers on `workflow_dispatch` and a monthly `cron`, never on `pull_request`. It was
+wrongly included in the first draft of this spec, because the population was derived by
+grepping all 41 files for an absent `paths:` key and then asserting the `pull_request`
+subset without reading each trigger. That error can only over-count, which is the
+correlated-sign shape `behavior.md` warns about: every fault pointed toward "more checks
+are eligible", and a one-sided result reads as clean.) The
 current choice of `secret-scan` + `mutation-pr` is coherent rather than accidental: both
 always run. The row's "scope it to master" option is unavailable on mechanism, not on
 preference — scoping the ruleset would make seven `Test *` contexts required, and a PR
@@ -221,6 +227,10 @@ silent-skip branch that exits 0. They collapse three distinguishable outcomes in
 | `missing-asset` | **1** | tag exists, SBOM not among its assets | `release-sign.yml` failed or did not run — a real release-pipeline defect |
 | `ready`         | 0     | tag and asset both present            | proceed to scan                                                           |
 
+The two downstream steps currently gated on `steps.latest.outputs.found == 'true' &&
+steps.sbom.outputs.present == 'true'` become a single `steps.resolve.outputs.state ==
+'ready'`.
+
 `dormant` is green because under decision 1 it is the steady state for an unknown number of
 months, and a red monthly run for eleven jobs trains the reader to ignore the workflow —
 the fatigue shape already recorded in this repo as issue #100 (`mutation: a single-crate
@@ -261,7 +271,8 @@ Green, no issue filed, no noise. The point is that green stops being ambiguous w
 ### Prove the scan computed something
 
 When `state=ready` and the scan runs, write the SBOM's package count to the summary as
-well. `{"matches":[]}` over an empty or malformed SBOM is otherwise indistinguishable from a
+well — read from the downloaded SPDX file itself (`jq '.packages | length'`), not from the
+scan action's output, since an empty SBOM and a clean scan produce the same scan output. `{"matches":[]}` over an empty or malformed SBOM is otherwise indistinguishable from a
 genuinely clean scan — the same false-PASS class as the outer defect, one level down. This
 is a summary line only; it adds no branch and no failure mode.
 
@@ -384,7 +395,7 @@ re-derived:
 > "skip if the workflow did not run" semantics. So no `Test <sub-project>` context can ever
 > be a required check in this repo. The required set is drawn from the checks that run
 > unconditionally on `pull_request` (`auto-merge.yml`, `mutation-pr.yml`,
-> `pr-title-lint.yml`, `benchmarks.yml`) and is currently `secret-scan`, `mutation-pr`,
+> `pr-title-lint.yml`) and is currently `secret-scan`, `mutation-pr`,
 > `bash-coverage`. The real gate is the `auto-merge` job running `scripts/ci-gate.sh`, which
 > polls whatever actually reported; it cannot itself be a required check, because it
 > performs the merge and would deadlock.
