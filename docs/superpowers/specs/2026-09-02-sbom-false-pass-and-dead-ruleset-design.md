@@ -189,12 +189,23 @@ Neither of these two configurations lives in a tracked file. That is why a rules
 | 3   | What happens to ruleset 14955025?                 | Delete it                                                                                 |
 | 4   | Change the required-check set?                    | Add `bash-coverage`; leave `secret-scan` and `mutation-pr`                                |
 | 5   | Durable repo-side record of protection state?     | A `CLAUDE.md` subsection, no drift-check machinery                                        |
+| 6   | Delivery channel for `missing-asset` (round 2)    | A labelled issue, filed and closed by the workflow — not the job conclusion alone         |
 
 Rationale for 3, since two options were live: the ruleset's `deletion` and
 `non_fast_forward` rules are already enforced by classic protection's `allow_deletions:
 false` and `allow_force_pushes: false`, and its `required_status_checks` block can never be
 scoped for the reason above. It carries nothing classic protection does not already hold,
 while reading to any future reader as protection that exists.
+
+Rationale for 6, added after Step 8 round 1: the operator confirms failed scheduled runs do
+**not** reliably reach them by email in this repo, which is consistent with the six
+consecutive `mutation-testing.yml` exit-143 failures recorded in `CLAUDE.md` between
+2026-06-01 and 2026-08-01. A red job conclusion is therefore not a delivery mechanism here,
+only a record. `missing-asset` still exits 1, but the channel that carries it is a labelled
+issue — the same mechanism `scripts/mutation-notify.sh` already implements in this repo and
+the only durable consumer this design has. Decision 1's answer moved too: releases are
+weeks away with no blocker, so the branches that were unreachable are shortly reachable,
+which is what makes the channel worth building now rather than deferring.
 
 Rationale for 5: a drift check's output goes to a terminal nobody is watching on the day
 the config changes, and this is a single-repo, single-operator setting that changes perhaps
@@ -231,14 +242,55 @@ The two downstream steps currently gated on `steps.latest.outputs.found == 'true
 steps.sbom.outputs.present == 'true'` become a single `steps.resolve.outputs.state ==
 'ready'`.
 
-`dormant` is green because under decision 1 it is the steady state for an unknown number of
-months, and a red monthly run for eleven jobs trains the reader to ignore the workflow —
-the fatigue shape already recorded in this repo as issue #100 (`mutation: a single-crate
-green run closes the full-sweep issue`).
+`dormant` is green because it stays the steady state for the ten binaries not covered by
+the first release, and a red monthly run for eleven jobs trains the reader to ignore the
+workflow — the fatigue shape already recorded in this repo as issue #100 (`mutation: a
+single-crate green run closes the full-sweep issue`). It files no issue.
 
 `missing-asset` is red because it can only occur once a release exists, at which point a
 missing SBOM means the signing pipeline is broken and no amount of green elsewhere should
-conceal it.
+conceal it. Its exit code is a record, not a notification — see Delivery below.
+
+### Delivery: `missing-asset` files an issue
+
+Round 1 established that neither half of the green/red split reaches the operator on its
+own. Green is never emailed by GitHub, and the operator confirms red is not reliably
+emailed either. So the red branch gets the channel this repo already uses for exactly this
+purpose:
+
+- On `missing-asset`, file an issue titled
+  `[SBOM Monitor] SBOM asset missing for <binary> <tag>` under a new `sbom-asset-missing`
+  label, distinct from the existing `sbom-monitor` label that carries CVE findings. Keeping
+  them apart follows #128's per-workflow-label finding: one label per producer, so closing
+  one producer's issue cannot close another's.
+- On the next run where that binary reaches `ready`, close its open issue. A binary whose
+  SBOM reappears should not leave a stale issue behind.
+- Idempotency by **local exact title match** over `gh issue list --label sbom-asset-missing
+  --state open --json number,title`, never `--search ... in:title`. The search index lags,
+  and the backlog already carries that construct as a known false-negative source
+  (`2026-09-01-mutation-notify-mock-isolation-and-labels-design.md`, Out of scope). A
+  duplicate issue is the failure mode a lagging index produces here, and a local match over
+  a labelled list has no index between it and the answer.
+- `dormant` files nothing and closes nothing. A binary that has never been released has no
+  issue to open and no issue to leave stale.
+
+The label must be created before the first run that needs it; `gh label create
+sbom-asset-missing` is part of this change, alongside the three `gh api` calls in Section 2.
+
+### Fire on release, not only on the 3rd
+
+`release-sbom-monitor-schedule.yml` gains `on: release: types: [published]` beside its
+`cron`. With a release weeks away, the first real `ready`/`missing-asset` verdict would
+otherwise land up to 30 days after the release, on a monthly run nobody opens. Firing on
+publish puts it in front of the operator at the one moment they are already watching
+Actions — and it is the run most likely to be `missing-asset`, since a newly wired
+`release-sign.yml` has never executed once (0 runs, all 12 release workflows, measured
+2026-09-02).
+
+All eleven jobs still run on a release event; ten of them report `dormant` and the one
+matching binary reports `ready` or `missing-asset`. That is acceptable rather than
+wasteful — the jobs are seconds each when dormant, and per-binary event filtering would
+need the tag pattern matched against the release name in YAML, which buys nothing.
 
 ### Asset membership, not download failure
 
@@ -270,11 +322,22 @@ Green, no issue filed, no noise. The point is that green stops being ambiguous w
 
 ### Prove the scan computed something
 
-When `state=ready` and the scan runs, write the SBOM's package count to the summary as
-well — read from the downloaded SPDX file itself (`jq '.packages | length'`), not from the
-scan action's output, since an empty SBOM and a clean scan produce the same scan output. `{"matches":[]}` over an empty or malformed SBOM is otherwise indistinguishable from a
-genuinely clean scan — the same false-PASS class as the outer defect, one level down. This
-is a summary line only; it adds no branch and no failure mode.
+`{"matches":[]}` over an empty or malformed SBOM is indistinguishable from a genuinely
+clean scan — the same false-PASS class as the outer defect, one level down. So on
+`state=ready`, `scripts/sbom-resolve.sh` reads the downloaded SPDX file itself
+(`jq '.packages | length'`) and emits a second output, `packages=<N>`, alongside `state`.
+The workflow writes it to the summary.
+
+**The count belongs in the script, not in the workflow's scan step.** Round 1 found all
+three lenses converging here: the first draft placed it in an inline `run:` block, so the
+positive control the spec itself mandates was unsatisfiable by the suite named to contain
+it — the exact untestable layer "Extract before fixing" exists to escape. `packages` is an
+output of the script for one reason: so a bats case can assert a specific number against a
+fixture.
+
+A `packages=0` on a `ready` state is not itself an error — an SBOM legitimately containing
+zero packages is possible — but it is written and visible, which is the whole point. It
+adds no branch.
 
 ### Tests
 
@@ -289,11 +352,16 @@ is a summary line only; it adds no branch and no failure mode.
   the message names a lookup failure and not an absent asset. This is the case that
   distinguishes the fix from the bug, so it is the one that must go red first.
 - Download failure after confirmed membership; assert its own distinct message.
+- **Derived value** — `ready` against a fixture SPDX containing a known number of packages;
+  assert `packages=<that number>` exactly. This is the positive control.
 
-A positive control is required, per `bug-scan` Step 6: a `dormant` assertion passes equally
-against a script that does nothing at all, so at least one case must pin a specific non-zero
-derived value — `state=ready` reaching the scan, and the package count being written — rather
-than only a verdict.
+A positive control is required, per `bug-scan` Step 6, and round 1 showed the first draft's
+nominated control did not qualify. Every other case in this list asserts a string constant
+(`state=dormant`, `state=ready`) or an exit code, and a stub with a hardcoded lookup table
+passes all of them — including `state=ready`, which is itself the constant. Only the
+`packages=<N>` case pins a value the script had to compute from an input it actually read.
+The fixture SPDX lives beside the suite and its package count is asserted from the fixture's
+own content, derived in the test rather than copied from the script's output.
 
 `scripts/sbom-resolve.sh` joins `SHELL_SOURCES` and the bash-coverage instrumented set
 automatically through the existing `git ls-files 'scripts/*.sh'` predicate. The coverage
@@ -345,6 +413,34 @@ record of what existed. Captured 2026-09-02:
   "bypass_actors": [],
   "current_user_can_bypass": "never"
 }
+```
+
+### 1b. Capture classic protection before the PATCH
+
+Raised in round 1: the spec captured the ruleset before the irreversible DELETE but no
+pre-image before the `PATCH`, and the `PATCH` is the operation that replaces an array.
+`enforce_admins: false` means a bad result is recoverable rather than a brick, but the
+pre-image costs one read and belongs beside the ruleset JSON.
+
+```bash
+gh api repos/brujack/math/branches/master/protection > protection-pre-image.json
+```
+
+State as of 2026-09-02, to be re-read and pasted at implementation time in case it has
+moved:
+
+```
+required_status_checks.contexts : ["secret-scan", "mutation-pr"]
+required_status_checks.strict   : false
+required_linear_history         : true
+allow_force_pushes              : false
+allow_deletions                 : false
+enforce_admins                  : false
+required_signatures             : false
+block_creations                 : false
+required_conversation_resolution: false
+lock_branch                     : false
+allow_fork_syncing              : false
 ```
 
 ### 2. Add `bash-coverage` to the required contexts
@@ -432,10 +528,13 @@ run's job summary.
 
 ## Scope
 
-**In scope:** `scripts/sbom-resolve.sh` (new), `tests/scripts/sbom_resolve.bats` (new),
-`.github/workflows/release-sbom-monitor.yml` (the two resolution steps and the scan step's
-summary line), `CLAUDE.md` (Branch protection subsection, and the CI table if the new script
-warrants a row), three `gh api` calls, and the two backlog rows this spec closes.
+**In scope:** `scripts/sbom-resolve.sh` (new), `tests/scripts/sbom_resolve.bats` (new)
+plus its fixture SPDX, `.github/workflows/release-sbom-monitor.yml` (the two resolution
+steps, the summary lines, and the issue file/close arm),
+`.github/workflows/release-sbom-monitor-schedule.yml` (`on: release: types: [published]`),
+`CLAUDE.md` (Branch protection subsection, and the CI table if the new script warrants a
+row), one `gh label create`, three `gh api` calls, and the two backlog rows this spec
+closes.
 
 **Out of scope:**
 
@@ -445,8 +544,9 @@ warrants a row), three `gh api` calls, and the two backlog rows this spec closes
   it in the backlog. That is a separate finding with its own reasoning
   (`2026-09-01-mutation-notify-mock-isolation-and-labels-design.md`, Out of scope) and is
   untouched here.
-- Filing an issue on `missing-asset`. Deferred until a release exists and the red branch is
-  reachable; a job failure is a durable enough channel until then.
+- ~~Filing an issue on `missing-asset`.~~ **Moved in scope by decision 6** after round 1
+  established that a red job conclusion is not a delivery mechanism in this repo. A job
+  failure is a record, not a notification.
 - Adding job `name:` to `amicable-rs.yml` and `scripts.yml` so they stop reporting as the
   bare context `test`. Real, but unrelated to either row — backlogged.
 - Migrating classic protection to rulesets. GitHub's forward direction and a genuine
@@ -457,9 +557,17 @@ warrants a row), three `gh api` calls, and the two backlog rows this spec closes
 
 ## Risks
 
-- **`missing-asset` turning red is unreachable today**, so the branch ships untested against
-  real GitHub. Mitigated by the bats coverage and by naming the first release as the moment
-  to re-read a run.
+- **`missing-asset` is unreachable until the first release**, so the branch ships untested
+  against real GitHub. Mitigated by the bats coverage, by `on: release: types: [published]`
+  firing it at the moment the release lands rather than up to 30 days later, and by the
+  operator's answer that a release is weeks away with no blocker. Note the branch is
+  *likely* to fire on that first release: `release-sign.yml` has never run once, so its
+  first execution is also its first test.
+- **The issue file/close arm is new machinery on a path that has never executed.** A defect
+  in it produces either a missing issue (silent, the failure this spec exists to end) or a
+  duplicate every month (fatigue, issue #100's shape). The local-exact-title-match choice
+  over `--search in:title` is what bounds the duplicate side; the missing side is covered by
+  bats cases over the `gh` mock.
 - **A `PATCH` to `required_status_checks` replaces rather than appends.** Sending an
   incomplete array silently drops a required context. The verification read of
   `.required_status_checks.contexts` is what catches this and is not optional.
@@ -468,6 +576,12 @@ warrants a row), three `gh api` calls, and the two backlog rows this spec closes
 - **The `CLAUDE.md` paragraph is the only record of the protection state**, by decision 5.
   It goes stale silently if the contexts change and nobody edits it. Accepted: the
   alternative was a drift check whose output nothing reads.
+- **Decision 5 and decision 6 now answer the same question in opposite directions** — a
+  prose record for protection state, a labelled issue for `missing-asset`. That is
+  deliberate rather than inconsistent: protection changes are made *by a person who is
+  already looking*, so a record suffices, while `missing-asset` fires unattended on a
+  schedule and must reach someone who is not looking. Stated because round 1 correctly
+  flagged the first draft for answering it two ways without saying why.
 
 ## Related
 
