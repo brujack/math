@@ -396,8 +396,8 @@ assert_all_gh_calls_carry_repo() {
 }
 
 # Only three of the five `|| return 1` guards in main() are killable. The
-# other two -- `gh issue comment` on the red-existing-issue path (:115) and
-# `gh issue create` (:119) -- are each the last statement of their branch,
+# other two -- `gh issue comment` on the red-existing-issue path and
+# `gh issue create` -- are each the last statement of their branch,
 # so stripping `|| return 1` returns 4 (the mock's exit code) instead of 1,
 # both non-zero, and no `status -ne 0` oracle can discriminate. Do not add
 # cases for those two call sites.
