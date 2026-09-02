@@ -511,3 +511,39 @@ assert_all_gh_calls_carry_repo() {
     # (does at least one conform) would not catch that.
     [ "${_conformant}" -eq 2 ]
 }
+
+# main() hard-fails on an unset ISSUE_LABEL, and setup() exports it -- so every
+# test above runs with the precondition already supplied and none of them can
+# detect a workflow that never sets it. Measured: deleting the env key from
+# mutation-testing.yml leaves the whole suite green while the real notify job
+# aborts with "parameter null or not set", filing nothing. This asserts the
+# shipping artifact instead, and asserts a COUNT rather than membership so a
+# partial parse cannot pass.
+@test "every notify step that runs the script declares ISSUE_LABEL, distinctly" {
+    local _real_path
+    _real_path=$(printf '%s' "${PATH}" | tr ':' '\n' | grep -v 'tests/mocks' | tr '\n' ':' | sed 's/:$//')
+
+    local _workflows
+    _workflows=$(cd "${REPO_ROOT}" && PATH="${_real_path}" git ls-files '.github/workflows/mutation-testing*.yml')
+    [ -n "${_workflows}" ]
+    [ "$(printf '%s\n' "${_workflows}" | wc -l | tr -d ' ')" -eq 2 ]
+
+    local _labels
+    _labels=$(cd "${REPO_ROOT}" && PATH="${_real_path}" python3 -c '
+import sys, yaml
+out = []
+for f in sys.argv[1:]:
+    d = yaml.safe_load(open(f))
+    for job in d.get("jobs", {}).values():
+        for step in job.get("steps") or []:
+            if "mutation-notify.sh" in (step.get("run") or ""):
+                out.append(step.get("env", {}).get("ISSUE_LABEL", "<MISSING>"))
+print("\n".join(out))
+' ${_workflows})
+
+    # One label per workflow, none missing, and the two differ -- a shared
+    # label is what let a green Rust run close the Python tracking issue.
+    [ "$(printf '%s\n' "${_labels}" | wc -l | tr -d ' ')" -eq 2 ]
+    run ! grep -q '<MISSING>' <<< "${_labels}"
+    [ "$(printf '%s\n' "${_labels}" | sort -u | wc -l | tr -d ' ')" -eq 2 ]
+}
