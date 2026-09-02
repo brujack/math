@@ -1,5 +1,7 @@
 # Mutation-notify Mock Isolation and Per-Workflow Labels Implementation Plan
 
+> **Status: DONE** — merged as math#128 (squash `35f8831`), 2026-09-02.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make `tests/mocks/gh` able to fail one call at a time so three unpinned error-propagation guards gain killing tests, and replace `mutation-notify.sh`'s hardcoded `mutation-failure` label with a per-workflow `ISSUE_LABEL` so the Rust workflow can no longer close the Python workflow's tracking issue.
