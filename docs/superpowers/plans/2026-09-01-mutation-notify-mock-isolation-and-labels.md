@@ -18,6 +18,16 @@ Spec: [`2026-09-01-mutation-notify-mock-isolation-and-labels-design.md`](../spec
 - Only three guards are killable: `:99` (`gh issue list`), `:104` (`gh issue comment`, green path), `:105` (`gh issue close`).
 - Baseline measured at `8ea4033`: `mutation_notify.bats` 29 ok / 0 not-ok; `ci_gate.bats` 10 ok / 0 not-ok.
 - `bats` is required (`brew install bats-core` / `apt-get install -y bats`).
+- **Pre-merge step, required:** create Python's label before the PR merges. It is idempotent
+  and needs no ordering against the merge. The script's `gh label create ... || true` is the
+  fallback, not the plan — if it were relied on, a swallowed failure would surface one line
+  later as a red `notify` job that filed nothing, on the Python workflow's first red run,
+  which is the one run where the tracking issue is the product.
+
+  ```bash
+  gh label create mutation-failure-python --repo brujack/math \
+    --color B60205 --description "Monthly mutation run failed"
+  ```
 
 ## Verification Planning
 
@@ -195,6 +205,14 @@ Add one case, mirroring the three existing unset-guard tests:
 }
 ```
 
+**Add a comment above the final `if/else` recording that its two `|| return 1` guards are
+decorative *by position*.** Each is currently the last statement of its branch, so stripping it
+returns 4 instead of 1 — both non-zero, so no `status -ne 0` oracle can discriminate, which is
+why Task 2 writes no test for them. Appending anything after `gh issue create` changes that:
+guarded and stripped then return 1 vs 0, the appended statement runs only in the stripped
+version, and the guard becomes load-bearing with nothing covering it. The comment goes beside
+the code because the next editor will read the function, not the spec.
+
 **Do not touch `:314` or `:333`.** They assert `--label mutation-failure` as part of a whole-call literal, and Rust keeps that label, so both stand unchanged. This is what the asymmetric naming buys.
 
 **Interfaces:**
@@ -296,7 +314,13 @@ V6 is the control for the control: without it, Task 2's cases passing is consist
 
 **Do NOT run mutations on `:115` or `:119`.** They are equivalent mutants; a green result there is expected and is not a finding.
 
-Record the four results as a table in this plan file under a `## Mutation results` heading, with the not-ok counts.
+Record the four results as a table in this plan file under a `## Mutation results` heading,
+with the not-ok counts.
+
+**Also confirm the pre-merge label step is done** — `gh label list --repo brujack/math | grep
+mutation-failure-python` must return a row. If it does not, report it in the task result: the
+change is still safe to merge, but Python's first red run then depends on the fallback
+`gh label create` path, which has never executed in this repo.
 
 ---
 

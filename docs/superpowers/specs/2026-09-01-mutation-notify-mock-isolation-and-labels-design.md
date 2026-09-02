@@ -185,9 +185,21 @@ naming: `issues: write` **is** sufficient for label creation (GitHub's "Create a
 endpoint documents Issues-write), `gh label create` is `2>/dev/null || true`, and
 `gh issue create --label <nonexistent>` **fails** — so a swallowed label-create failure
 resurfaces one line later as a red `notify` job that filed nothing, on precisely the run
-where the notification is the product. That is loud rather than silent, so it is acceptable;
-`gh label create mutation-failure-python --repo brujack/math --color B60205` before merge
-removes even that, is idempotent, and needs no ordering against the merge.
+where the notification is the product. It is loud rather than silent — but it is loud on **the one run where the notification is the
+product**. The Python workflow's first red run is precisely when someone needs a tracking
+issue, and that run would produce a red `notify` job and no issue at all. The cost asymmetry
+settles it: one idempotent command now, against a failed notification on the single run that
+matters.
+
+**So pre-creating the label is the default, not an option**, and self-provisioning via
+`gh label create` is the fallback that covers a forgotten step:
+
+```bash
+gh label create mutation-failure-python --repo brujack/math \
+  --color B60205 --description "Monthly mutation run failed"
+```
+
+Idempotent, needs no ordering against the merge, and can be run while the plan is still open.
 
 No `--limit` is specified. Steady state under a per-workflow label is one open issue, `.[0]`
 takes the newest, and gh's default page of 30 is two orders of margin.
@@ -311,6 +323,23 @@ And **those two `|| return 1` are decoration**: nothing downstream distinguishes
 rc 4, since Actions reads only non-zero. They stay for uniformity, recorded as equivalent
 the way this repo already records equivalent cargo-mutants findings in `.cargo/mutants.toml`.
 Do not invent an exact-rc assertion to manufacture a kill.
+
+**Their decorative status is POSITIONAL, not structural, and that is the part to carry
+forward.** It holds only while each is the last statement of its branch. Append anything after
+`gh issue create` — a log line, a summary write, a second call — and the guard silently becomes
+load-bearing, with no test covering it. Demonstrated:
+
+```
+guard is the last statement:   guarded rc=1, stripped rc=4   both non-zero -> oracle blind
+one statement appended after:  guarded rc=1, stripped rc=0   oracle SEES it, and the
+                                                             appended statement runs only
+                                                             in the stripped version
+```
+
+So the pair is decorative by adjacency, exactly as a `local _out=$(...)` / `_rc=$?` pair is
+correct by adjacency. **Anyone appending to either branch of that final `if/else` is changing
+what these guards do and owes them a test at that point.** Record it beside the code, not only
+here — the next editor will read the function, not this spec.
 
 **The provenance is worth keeping.** These rows were *added* by round 1's correction, *split*
 by round 2's, and executed by nobody until round 3 — in a spec whose own verification section
