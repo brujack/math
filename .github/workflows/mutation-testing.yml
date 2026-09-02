@@ -119,6 +119,7 @@ jobs:
           ARTIFACT_DIR: artifact
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           ISSUE_TITLE: "mutation-testing: monthly run failed"
+          ISSUE_LABEL: mutation-failure
           UNIT_NOUN: crate
           REPO: ${{ github.repository }}
         run: scripts/mutation-notify.sh

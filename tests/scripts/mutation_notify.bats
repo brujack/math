@@ -18,6 +18,11 @@ setup() {
     # this makes REPO itself unresolvable as a second line of defense.
     export REPO="invalid-repo-spec-no-slash"
     export ISSUE_TITLE="mutation-testing: monthly run failed"
+    # Distinct from the label the script previously hardcoded, for the same
+    # reason ISSUE_TITLE below is distinct from the workflow's real title:
+    # a fixture matching the literal by coincidence cannot tell "reads the
+    # env var" from "hardcodes the old value".
+    export ISSUE_LABEL="mutation-failure-fixture-distinct-4b21"
     export MOCK_CALLS_FILE="${BATS_TEST_TMPDIR}/calls"
 }
 
@@ -306,13 +311,20 @@ assert_all_gh_calls_carry_repo() {
     run main
     [ "${status}" -eq 0 ]
 
-    # The whole call, not a prefix: --title and --label mutation-failure are
-    # both required, in this order, for the next month's lookup to find this
-    # issue again. A prefix-only "gh issue create --repo" check cannot tell
+    # The whole call, not a prefix: --title and --label are both required, in
+    # this order, for the next month's lookup to find this issue again. The
+    # label is asserted through ${ISSUE_LABEL}, whose fixture value is
+    # deliberately distinct from the workflow's real one -- matching it by
+    # coincidence would make this assertion unable to tell a hardcoded label
+    # from one read out of the environment. A prefix-only "gh issue create --repo" check cannot tell
     # a hardcoded title or a dropped --label from the real thing, and either
     # one causes an unbounded issue to be created every run forever.
-    grep -qF -- "gh issue create --repo ${REPO} --title ${ISSUE_TITLE} --label mutation-failure --body" "${MOCK_CALLS_FILE}"
+    grep -qF -- "gh issue create --repo ${REPO} --title ${ISSUE_TITLE} --label ${ISSUE_LABEL} --body" "${MOCK_CALLS_FILE}"
     grep -q "Cause: verdicts-present" "${MOCK_CALLS_FILE}"
+    # The lookup this whole change exists for: a hardcoded label here would
+    # make a green Rust run's issue-list query match (and therefore close)
+    # the Python tracking issue, since in:title matching is AND-over-tokens.
+    grep -qF -- "gh issue list --repo ${REPO} --state open --label ${ISSUE_LABEL}" "${MOCK_CALLS_FILE}"
     assert_all_gh_calls_carry_repo
 }
 
@@ -330,7 +342,7 @@ assert_all_gh_calls_carry_repo() {
     run main
     [ "${status}" -eq 0 ]
 
-    grep -qF -- "gh issue create --repo ${REPO} --title ${ISSUE_TITLE} --label mutation-failure --body" "${MOCK_CALLS_FILE}"
+    grep -qF -- "gh issue create --repo ${REPO} --title ${ISSUE_TITLE} --label ${ISSUE_LABEL} --body" "${MOCK_CALLS_FILE}"
     assert_all_gh_calls_carry_repo
 }
 
@@ -387,12 +399,55 @@ assert_all_gh_calls_carry_repo() {
     [ "${status}" -ne 0 ]
 }
 
+@test "main fails visibly when ISSUE_LABEL is unset" {
+    unset ISSUE_LABEL
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST=""
+
+    run main
+    [ "${status}" -ne 0 ]
+}
+
 @test "direct execution (not sourced) exits 0 on a green run with no open issue" {
     export RESULT="success"
     export MOCK_GH_ISSUE_LIST=""
 
     run bash "${REPO_ROOT}/scripts/mutation-notify.sh"
     [ "${status}" -eq 0 ]
+}
+
+# Only three of the five `|| return 1` guards in main() are killable. The
+# other two -- `gh issue comment` on the red-existing-issue path and
+# `gh issue create` -- are each the last statement of their branch,
+# so stripping `|| return 1` returns 4 (the mock's exit code) instead of 1,
+# both non-zero, and no `status -ne 0` oracle can discriminate. Do not add
+# cases for those two call sites.
+
+@test "a failing issue lookup propagates and files nothing" {
+    export RESULT="failure"
+    export MOCK_GH_EXIT_ISSUE_LIST=4
+    run main
+    [ "${status}" -ne 0 ]
+    run ! grep -q "gh issue create" "${MOCK_CALLS_FILE}"
+    run ! grep -q "gh issue comment" "${MOCK_CALLS_FILE}"
+}
+
+@test "a failing green-path comment propagates and does not close the issue" {
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST="98"
+    export MOCK_GH_EXIT_ISSUE_COMMENT=4
+    run main
+    [ "${status}" -ne 0 ]
+    run ! grep -q "gh issue close" "${MOCK_CALLS_FILE}"
+}
+
+@test "a failing issue close propagates rather than reporting success" {
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST="98"
+    export MOCK_GH_EXIT_ISSUE_CLOSE=4
+    run main
+    [ "${status}" -ne 0 ]
+    grep -q "gh issue comment 98 --repo" "${MOCK_CALLS_FILE}"
 }
 
 # Every case above fixtures marker/ itself, so the suite is exhaustive over
@@ -455,4 +510,40 @@ assert_all_gh_calls_carry_repo() {
     # must fail this count rather than pass unnoticed -- membership alone
     # (does at least one conform) would not catch that.
     [ "${_conformant}" -eq 2 ]
+}
+
+# main() hard-fails on an unset ISSUE_LABEL, and setup() exports it -- so every
+# test above runs with the precondition already supplied and none of them can
+# detect a workflow that never sets it. Measured: deleting the env key from
+# mutation-testing.yml leaves the whole suite green while the real notify job
+# aborts with "parameter null or not set", filing nothing. This asserts the
+# shipping artifact instead, and asserts a COUNT rather than membership so a
+# partial parse cannot pass.
+@test "every notify step that runs the script declares ISSUE_LABEL, distinctly" {
+    local _real_path
+    _real_path=$(printf '%s' "${PATH}" | tr ':' '\n' | grep -v 'tests/mocks' | tr '\n' ':' | sed 's/:$//')
+
+    local _workflows
+    _workflows=$(cd "${REPO_ROOT}" && PATH="${_real_path}" git ls-files '.github/workflows/mutation-testing*.yml')
+    [ -n "${_workflows}" ]
+    [ "$(printf '%s\n' "${_workflows}" | wc -l | tr -d ' ')" -eq 2 ]
+
+    local _labels
+    _labels=$(cd "${REPO_ROOT}" && PATH="${_real_path}" python3 -c '
+import sys, yaml
+out = []
+for f in sys.argv[1:]:
+    d = yaml.safe_load(open(f))
+    for job in d.get("jobs", {}).values():
+        for step in job.get("steps") or []:
+            if "mutation-notify.sh" in (step.get("run") or ""):
+                out.append(step.get("env", {}).get("ISSUE_LABEL", "<MISSING>"))
+print("\n".join(out))
+' ${_workflows})
+
+    # One label per workflow, none missing, and the two differ -- a shared
+    # label is what let a green Rust run close the Python tracking issue.
+    [ "$(printf '%s\n' "${_labels}" | wc -l | tr -d ' ')" -eq 2 ]
+    run ! grep -q '<MISSING>' <<< "${_labels}"
+    [ "$(printf '%s\n' "${_labels}" | sort -u | wc -l | tr -d ' ')" -eq 2 ]
 }

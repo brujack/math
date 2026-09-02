@@ -4,7 +4,7 @@
 # attribute() and build_body() key the red-path body on the downloaded
 # artifact's own contents (ARTIFACT_DIR, RUN_URL, UNIT_NOUN). main() adds the
 # green-path close and the issue create/comment dispatch, consuming RESULT,
-# ISSUE_TITLE and REPO on top of those. main()'s dispatch logic is ported
+# ISSUE_TITLE, REPO and ISSUE_LABEL on top of those. main()'s dispatch logic is ported
 # from .github/workflows/mutation-testing.yml's notify job -- but not
 # byte-for-byte: it drops that block's `set -u` in favour of explicit `:?`
 # guards per input, and adds --repo "${REPO}" to every gh issue/label call
@@ -79,10 +79,11 @@ build_body() {
 }
 
 # File, comment, or close the tracking issue. Same decision tree as
-# .github/workflows/mutation-testing.yml's notify job -- Task 4 replaces
-# that block, so no line range is cited here since it would rot -- with two
-# deliberate differences: no `set -u` (RESULT, REPO and ISSUE_TITLE each get
-# an explicit `:?` guard instead, since RESULT alone selects the branch),
+# the notify job's former inline block, which it replaced on 2026-09-01;
+# the workflows now supply only env: -- with two
+# deliberate differences: no `set -u` (RESULT, REPO, ISSUE_TITLE and
+# ISSUE_LABEL each get an explicit `:?` guard instead, since RESULT alone
+# selects the branch),
 # and every gh issue/label call carries --repo "${REPO}" so a malformed
 # fixture REPO fails in gh's own argument parser instead of reaching a live
 # tracker (tdd.md E2).
@@ -90,13 +91,14 @@ main() {
     : "${RESULT:?}"
     : "${REPO:?}"
     : "${ISSUE_TITLE:?}"
+    : "${ISSUE_LABEL:?}"
 
     local _existing
     # --jq '.[0].number // empty' is real gh/jq behaviour; the test mock
     # echoes MOCK_GH_ISSUE_LIST verbatim and never runs jq, so this suite
     # cannot exercise the `// empty` fallback itself -- only that whatever
     # gh returns is treated as truthy/falsy by bash's -n test below.
-    _existing=$(gh issue list --repo "${REPO}" --state open --label mutation-failure \
+    _existing=$(gh issue list --repo "${REPO}" --state open --label "${ISSUE_LABEL}" \
         --search "in:title \"${ISSUE_TITLE}\"" --json number --jq '.[0].number // empty') || return 1
 
     if [[ "${RESULT}" == "success" ]]; then
@@ -111,12 +113,20 @@ main() {
     _token=$(attribute) || return 1
     _body=$(build_body "${_token}") || return 1
 
+    # The two `|| return 1` below are decorative BY POSITION, not by construction:
+    # each is the last statement of its branch, and this if/else is the last
+    # statement of main(), so stripping one returns the gh exit code rather than
+    # 1 -- both non-zero, so no `status -ne 0` oracle can discriminate and no test
+    # covers them. Measured: stripping either leaves the suite fully green, while
+    # the three guards above each die to a distinct case. Append ANYTHING after
+    # `gh issue create` and they become load-bearing -- give them a test at that
+    # point.
     if [[ -n "${_existing}" ]]; then
         gh issue comment "${_existing}" --repo "${REPO}" --body "${_body}" || return 1
     else
-        gh label create mutation-failure --repo "${REPO}" --color B60205 \
+        gh label create "${ISSUE_LABEL}" --repo "${REPO}" --color B60205 \
             --description "Monthly mutation run failed" 2>/dev/null || true
-        gh issue create --repo "${REPO}" --title "${ISSUE_TITLE}" --label mutation-failure --body "${_body}" || return 1
+        gh issue create --repo "${REPO}" --title "${ISSUE_TITLE}" --label "${ISSUE_LABEL}" --body "${_body}" || return 1
     fi
 }
 
