@@ -18,7 +18,10 @@ Spec: [`2026-09-01-mutation-notify-mock-isolation-and-labels-design.md`](../spec
 - Only three guards are killable: `:99` (`gh issue list`), `:104` (`gh issue comment`, green path), `:105` (`gh issue close`).
 - Baseline measured at `8ea4033`: `mutation_notify.bats` 29 ok / 0 not-ok; `ci_gate.bats` 10 ok / 0 not-ok.
 - `bats` is required (`brew install bats-core` / `apt-get install -y bats`).
-- **Pre-merge step, required:** create Python's label before the PR merges. It is idempotent
+- **Pre-merge step, required — ALREADY DONE 2026-09-02.** `mutation-failure-python` exists
+  (`#B60205`, "Monthly mutation run failed"), created by the operator before the plan was
+  dispatched. Task 5's check should confirm it rather than discover it. Re-running the
+  command below is harmless but unnecessary. It was required because it is idempotent
   and needs no ordering against the merge. The script's `gh label create ... || true` is the
   fallback, not the plan — if it were relied on, a swallowed failure would surface one line
   later as a red `notify` job that filed nothing, on the Python workflow's first red run,
