@@ -479,3 +479,102 @@ warrants a row), three `gh api` calls, and the two backlog rows this spec closes
   guard itself"; "a two-valued field cannot report a three-valued outcome"
 - `~/.claude/standards/ci.md` — `required_status_checks` contexts are case-sensitive
 - Issue #100 — the alert-fatigue precedent behind keeping `dormant` green
+
+## Multi-Lens Review
+
+Reviewed at commit: `38e26426abb2d6a8226bc7a0eeac19fe0d326fc9` (Step 7 self-review commit, before Step 8 dispatch)
+
+Round 1. All three lenses independently re-verified the spec's factual premises against
+the live repo and API; every premise held, including the corrected exclusion of
+`benchmarks.yml` from the `pull_request` set (one lens confirmed it by parsing all 41
+tracked workflows with PyYAML rather than by grep). Two lenses independently confirmed a
+claim the spec asserted without evidence: `bash-coverage` reports under exactly that
+context string and its job carries no `if:`, so decision 4 cannot deadlock master on a
+name mismatch.
+
+### Goal-Fit
+
+Finding: Section 1 builds a script and a five-case suite whose only production-reachable
+outcome is `dormant`, and `dormant`'s entire delta over today is moving an existing log
+line into a step summary — `release-sbom-monitor.yml:44` already prints
+`No matching release found for pattern ${TAG_PATTERN} — skipping` into the job log. Applying
+the reads-it test to each Section 1 mechanism: the `dormant` marker and the package-count
+line change no verdict and have no durable channel (the workflow's real consumer is the
+`sbom-monitor` issue label, which stays at zero before and after); `missing-asset → exit 1`
+and the view-vs-download discrimination do change a verdict, but are unreachable until a
+`<name>-v*` release exists. So the two reachable mechanisms are decoration and the two
+load-bearing ones are deferred. The stated defect is not closed at the level anyone reads —
+a green check in the Actions list, zero labelled issues — only for a reader who deliberately
+opens a green run, who is the same reader who could already read the log. Simpler path:
+Section 2 is the whole immediately-real deliverable, and Section 1's readable-today value is
+one sentence in the same `CLAUDE.md` subsection.
+
+Assumption: that per-binary releases will actually be cut (decision 1). Everything in
+Section 1 pays out only when a `<name>-v*` tag exists; if that never happens, the correct
+action was to retire the eleven-job monthly no-op, not repair it. The lens sampled seven
+`release-*-rs.yml` workflows and found 0 runs ever. **Confirmed and widened by this session:
+all 12 release workflows, `release-sign.yml` included, report 0 runs ever** — so the SBOM
+producer has never executed. Settled by a sharper question than the one asked in
+brainstorming: is a per-binary release planned within a stated horizon, and what event
+triggers it?
+
+Disposition:
+
+### Ergonomics
+
+Finding: only the red side of decision 2 has a delivery mechanism. GitHub emails on
+scheduled-workflow failure, never success, so a green `dormant` marker on one of eleven jobs
+inside a monthly cron run is delivered nowhere — the change converts an unread ambiguous
+green into an unread unambiguous green. The transition day is invisible at the same level:
+cutting `factorial-v1.0.0` yields 1 `ready` + 10 `dormant`, all eleven green, so
+"11 dormant" and "1 scanned clean + 10 dormant" are the same observable, and the next
+scheduled run is up to 30 days out. The dormant-green / missing-asset-red split is drawn in
+the right place — dormancy is per-binary steady state for years on the ten never-released
+binaries, and a monthly 11-job red is exactly issue #100's fatigue — the defect is the
+missing channel, not the split. Three lines address the transition specifically:
+`on: release: types: [published]` on `release-sbom-monitor-schedule.yml`, so the
+`ready`/`missing-asset` verdict lands at the one moment the operator is already watching
+Actions.
+
+Assumption: that a red monthly scheduled run actually reaches the operator. The value of
+`missing-asset → exit 1` rests entirely on red producing a notification green does not, and
+GitHub emails scheduled-run failures only to the user who last modified the workflow file,
+only if their Actions notification setting is on — neither visible in the repo.
+Counter-evidence in `CLAUDE.md`: six consecutive `mutation-testing.yml` runs failed with
+exit 143 between 2026-06-01 and 2026-08-01 and were misdiagnosed once before being fixed.
+Settled by checking the operator's Actions notification settings, or asking whether email
+arrived for any of those six failures.
+
+Disposition:
+
+### Risk
+
+Finding: the one observable that would distinguish a real scan from an empty one lives in
+the layer the spec itself declares untestable, so the fix reproduces the false-PASS shape
+one level down. The spec's own positive-control clause names "the package count being
+written" as the derived value a case must pin, but Scope places that count in the workflow's
+inline `run:` scan step while the suite is `tests/scripts/sbom_resolve.bats` against the
+script — so the mandated control is unsatisfiable by the suite that is meant to contain it.
+Counting verdicts: five cases, two asserting exit 0 with a verdict string and three
+asserting non-zero plus message text; **zero assert a derived quantity**, and all five pass
+against a script whose downstream scan reads an empty or malformed SPDX. Separately, the
+spec answers one question two ways: decision 5 rejects a drift check because "its output
+goes to a terminal nobody is watching," while Section 1 relies on a summary line in the same
+category. Smaller, and not raised as a finding because the fix is one read: the spec
+captures the ruleset JSON before the irreversible DELETE but captures **no pre-image of
+classic protection before the PATCH**, and the PATCH is the operation that replaces an
+array.
+
+Assumption: that a `dormant` marker written to `$GITHUB_STEP_SUMMARY` on a monthly
+scheduled run will actually be read. If it is, the false PASS is cured today; if not, the
+deliverable is textual and nothing observable changes until the first release, at which
+point `missing-asset` — the untested branch — becomes the only real mechanism. Settled by
+asking the operator directly whether they have ever opened, or would open, the job summary
+of a scheduled run in this repo.
+
+Disposition:
+
+### Adversarial Spec Review (comparison/judge designs only)
+
+N/A — spec has no comparison/evaluator/ambiguous-criteria trigger. No arms, no judge
+component; acceptance criteria are concrete exit codes, state strings, and API reads.
