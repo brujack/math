@@ -395,6 +395,40 @@ assert_all_gh_calls_carry_repo() {
     [ "${status}" -eq 0 ]
 }
 
+# Only three of the five `|| return 1` guards in main() are killable. The
+# other two -- `gh issue comment` on the red-existing-issue path (:115) and
+# `gh issue create` (:119) -- are each the last statement of their branch,
+# so stripping `|| return 1` returns 4 (the mock's exit code) instead of 1,
+# both non-zero, and no `status -ne 0` oracle can discriminate. Do not add
+# cases for those two call sites.
+
+@test "a failing issue lookup propagates and files nothing" {
+    export RESULT="failure"
+    export MOCK_GH_EXIT_ISSUE_LIST=4
+    run main
+    [ "${status}" -ne 0 ]
+    run ! grep -q "gh issue create" "${MOCK_CALLS_FILE}"
+    run ! grep -q "gh issue comment" "${MOCK_CALLS_FILE}"
+}
+
+@test "a failing green-path comment propagates and does not close the issue" {
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST="98"
+    export MOCK_GH_EXIT_ISSUE_COMMENT=4
+    run main
+    [ "${status}" -ne 0 ]
+    run ! grep -q "gh issue close" "${MOCK_CALLS_FILE}"
+}
+
+@test "a failing issue close propagates rather than reporting success" {
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST="98"
+    export MOCK_GH_EXIT_ISSUE_CLOSE=4
+    run main
+    [ "${status}" -ne 0 ]
+    grep -q "gh issue comment 98 --repo" "${MOCK_CALLS_FILE}"
+}
+
 # Every case above fixtures marker/ itself, so the suite is exhaustive over
 # "given a marker exists, does attribution route correctly" and silent on
 # "does a marker ever exist in production" -- attribute()'s entire verdict

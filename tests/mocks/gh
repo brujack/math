@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 printf "gh %s\n" "$*" >> "${MOCK_CALLS_FILE:-/tmp/mock_calls}"
 
-if [[ "${MOCK_GH_EXIT:-0}" -ne 0 ]]; then
-    exit "${MOCK_GH_EXIT}"
+# Failure is selectable per subcommand via MOCK_GH_EXIT_<SUBCOMMAND>_<VERB>, derived
+# from "$1_$2" upper-cased with non-alphanumerics stripped: `gh issue close` reads
+# MOCK_GH_EXIT_ISSUE_CLOSE, `gh label create` reads MOCK_GH_EXIT_LABEL_CREATE.
+# MOCK_GH_EXIT remains the all-calls-fail fallback (ci_gate.bats relies on it).
+_key="MOCK_GH_EXIT_$(printf '%s_%s' "${1:-}" "${2:-}" \
+    | tr 'a-z-' 'A-Z_' | tr -cd '[:alnum:]_')"
+_rc="${!_key:-${MOCK_GH_EXIT:-0}}"
+if [[ "${_rc}" -ne 0 ]]; then
+    exit "${_rc}"
 fi
 
 if [[ "$*" == *"check-runs"* ]]; then
