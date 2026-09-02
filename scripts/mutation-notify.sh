@@ -112,6 +112,14 @@ main() {
     _token=$(attribute) || return 1
     _body=$(build_body "${_token}") || return 1
 
+    # The two `|| return 1` below are decorative BY POSITION, not by construction:
+    # each is the last statement of its branch, and this if/else is the last
+    # statement of main(), so stripping one returns the gh exit code rather than
+    # 1 -- both non-zero, so no `status -ne 0` oracle can discriminate and no test
+    # covers them. Measured: stripping either leaves the suite fully green, while
+    # the three guards above each die to a distinct case. Append ANYTHING after
+    # `gh issue create` and they become load-bearing -- give them a test at that
+    # point.
     if [[ -n "${_existing}" ]]; then
         gh issue comment "${_existing}" --repo "${REPO}" --body "${_body}" || return 1
     else
