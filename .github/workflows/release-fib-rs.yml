@@ -37,8 +37,11 @@ jobs:
         run: make test
         working-directory: fib/fib-rs
 
+      - name: Install cargo-auditable
+        run: cargo install cargo-auditable --locked
+
       - name: Build release binary
-        run: cargo build --release
+        run: cargo auditable build --release
         working-directory: fib/fib-rs
 
       - name: Generate CHANGELOG
@@ -76,6 +79,11 @@ jobs:
           (cd fib/fib-rs/target/release && sha256sum fib) > fib/fib-rs/target/release/fib.sha256
           cat fib/fib-rs/target/release/fib.sha256
 
+      - uses: ./.github/actions/sbom-sign
+        with:
+          binary_path: fib/fib-rs/target/release
+          binary_name: fib
+
       - name: Create and push tag
         env:
           VERSION: ${{ inputs.version }}
@@ -94,13 +102,6 @@ jobs:
           files: |
             fib/fib-rs/target/release/fib
             fib/fib-rs/target/release/fib.sha256
-
-  sign:
-    needs: [release]
-    uses: ./.github/workflows/release-sign.yml
-    with:
-      release_tag: "fib-v${{ inputs.version }}"
-      binary_name: "fib"
-    permissions:
-      id-token: write
-      contents: write
+            fib/fib-rs/target/release/fib.sbom.spdx.json
+            fib/fib-rs/target/release/fib.bundle
+          fail_on_unmatched_files: true

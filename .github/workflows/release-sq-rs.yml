@@ -34,8 +34,11 @@ jobs:
         run: make test
         working-directory: sq/sq-rs
 
+      - name: Install cargo-auditable
+        run: cargo install cargo-auditable --locked
+
       - name: Build release binary
-        run: cargo build --release
+        run: cargo auditable build --release
         working-directory: sq/sq-rs
 
       - name: Generate CHANGELOG
@@ -73,6 +76,11 @@ jobs:
           (cd sq/sq-rs/target/release && sha256sum sq) > sq/sq-rs/target/release/sq.sha256
           cat sq/sq-rs/target/release/sq.sha256
 
+      - uses: ./.github/actions/sbom-sign
+        with:
+          binary_path: sq/sq-rs/target/release
+          binary_name: sq
+
       - name: Create and push tag
         env:
           VERSION: ${{ inputs.version }}
@@ -91,13 +99,6 @@ jobs:
           files: |
             sq/sq-rs/target/release/sq
             sq/sq-rs/target/release/sq.sha256
-
-  sign:
-    needs: [release]
-    uses: ./.github/workflows/release-sign.yml
-    with:
-      release_tag: "sq-v${{ inputs.version }}"
-      binary_name: "sq"
-    permissions:
-      id-token: write
-      contents: write
+            sq/sq-rs/target/release/sq.sbom.spdx.json
+            sq/sq-rs/target/release/sq.bundle
+          fail_on_unmatched_files: true

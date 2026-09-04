@@ -34,8 +34,11 @@ jobs:
         run: make test
         working-directory: twin-primes/twin-primes-rs
 
+      - name: Install cargo-auditable
+        run: cargo install cargo-auditable --locked
+
       - name: Build release binary
-        run: cargo build --release
+        run: cargo auditable build --release
         working-directory: twin-primes/twin-primes-rs
 
       - name: Generate CHANGELOG
@@ -73,6 +76,11 @@ jobs:
           (cd twin-primes/twin-primes-rs/target/release && sha256sum twin-primes) > twin-primes/twin-primes-rs/target/release/twin-primes.sha256
           cat twin-primes/twin-primes-rs/target/release/twin-primes.sha256
 
+      - uses: ./.github/actions/sbom-sign
+        with:
+          binary_path: twin-primes/twin-primes-rs/target/release
+          binary_name: twin-primes
+
       - name: Create and push tag
         env:
           VERSION: ${{ inputs.version }}
@@ -91,13 +99,6 @@ jobs:
           files: |
             twin-primes/twin-primes-rs/target/release/twin-primes
             twin-primes/twin-primes-rs/target/release/twin-primes.sha256
-
-  sign:
-    needs: [release]
-    uses: ./.github/workflows/release-sign.yml
-    with:
-      release_tag: "twin-primes-v${{ inputs.version }}"
-      binary_name: "twin-primes"
-    permissions:
-      id-token: write
-      contents: write
+            twin-primes/twin-primes-rs/target/release/twin-primes.sbom.spdx.json
+            twin-primes/twin-primes-rs/target/release/twin-primes.bundle
+          fail_on_unmatched_files: true

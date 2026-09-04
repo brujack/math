@@ -37,8 +37,11 @@ jobs:
         run: make test
         working-directory: pi/pi-rs
 
+      - name: Install cargo-auditable
+        run: cargo install cargo-auditable --locked
+
       - name: Build release binary
-        run: cargo build --release
+        run: cargo auditable build --release
         working-directory: pi/pi-rs
 
       - name: Generate CHANGELOG
@@ -76,6 +79,11 @@ jobs:
           (cd pi/pi-rs/target/release && sha256sum pi) > pi/pi-rs/target/release/pi.sha256
           cat pi/pi-rs/target/release/pi.sha256
 
+      - uses: ./.github/actions/sbom-sign
+        with:
+          binary_path: pi/pi-rs/target/release
+          binary_name: pi
+
       - name: Create and push tag
         env:
           VERSION: ${{ inputs.version }}
@@ -94,13 +102,6 @@ jobs:
           files: |
             pi/pi-rs/target/release/pi
             pi/pi-rs/target/release/pi.sha256
-
-  sign:
-    needs: [release]
-    uses: ./.github/workflows/release-sign.yml
-    with:
-      release_tag: "pi-v${{ inputs.version }}"
-      binary_name: "pi"
-    permissions:
-      id-token: write
-      contents: write
+            pi/pi-rs/target/release/pi.sbom.spdx.json
+            pi/pi-rs/target/release/pi.bundle
+          fail_on_unmatched_files: true

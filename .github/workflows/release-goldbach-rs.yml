@@ -34,8 +34,11 @@ jobs:
         run: make test
         working-directory: goldbach/goldbach-rs
 
+      - name: Install cargo-auditable
+        run: cargo install cargo-auditable --locked
+
       - name: Build release binary
-        run: cargo build --release
+        run: cargo auditable build --release
         working-directory: goldbach/goldbach-rs
 
       - name: Generate CHANGELOG
@@ -73,6 +76,11 @@ jobs:
           (cd goldbach/goldbach-rs/target/release && sha256sum goldbach) > goldbach/goldbach-rs/target/release/goldbach.sha256
           cat goldbach/goldbach-rs/target/release/goldbach.sha256
 
+      - uses: ./.github/actions/sbom-sign
+        with:
+          binary_path: goldbach/goldbach-rs/target/release
+          binary_name: goldbach
+
       - name: Create and push tag
         env:
           VERSION: ${{ inputs.version }}
@@ -91,13 +99,6 @@ jobs:
           files: |
             goldbach/goldbach-rs/target/release/goldbach
             goldbach/goldbach-rs/target/release/goldbach.sha256
-
-  sign:
-    needs: [release]
-    uses: ./.github/workflows/release-sign.yml
-    with:
-      release_tag: "goldbach-v${{ inputs.version }}"
-      binary_name: "goldbach"
-    permissions:
-      id-token: write
-      contents: write
+            goldbach/goldbach-rs/target/release/goldbach.sbom.spdx.json
+            goldbach/goldbach-rs/target/release/goldbach.bundle
+          fail_on_unmatched_files: true
