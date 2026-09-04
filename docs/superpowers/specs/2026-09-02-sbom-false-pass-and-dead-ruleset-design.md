@@ -938,3 +938,140 @@ regression test for the invariant rather than only for the dedup.
 ### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+## Multi-Lens Review — Round 3
+
+Reviewed at commit: `58049c2b7a16331fdbf5a94254ee96ce1119a105` (round 2 dispositions applied)
+
+Full re-run of all three lenses. **Third consecutive round in which every finding is a defect
+created by the previous round's fix**, and the second in which a lens refuted a claim written
+during the previous round's own corrective sweep.
+
+Both load-bearing measurements were independently reproduced by this session rather than
+taken on the lenses' report.
+
+### Goal-Fit
+
+Finding: **decision 7 makes `missing-asset` unreachable on the release path, and the Risks
+section claims the opposite.** `release-sign.yml`'s last step is
+`gh release upload ... "${BINARY_NAME}.sbom.spdx.json"` with no `continue-on-error`
+(`grep -c continue-on-error` → 0), so `sign` success implies the asset is present. And
+`needs: [sign]` means a failed or cancelled `sign` **skips** the monitor job. The per-release
+job's only reachable verdict is therefore `ready`.
+
+The scenario this suppresses is the most likely real generator of `missing-asset`: in all
+eleven workflows `sign: needs: [release]`, so the release is published *before* signing, and
+`release-sign.yml` downloads the binary *from* that release — it must be. A failed `sign`
+therefore leaves a **published release carrying the binary and no SBOM**. The spec argued
+the skip as a virtue — "a `sign` that never ran cannot produce an absent-asset verdict that
+reads as a signing defect" — which treats the true positive as a false one. The Risks bullet
+then asserts the inverse, naming `needs: [sign]` as the mitigation for `missing-asset` being
+unreachable. That bullet was rewritten during the 2026-09-04 sweep this spec cites as having
+checked every mitigation-naming bullet: same sweep, same defect class, one revision later.
+
+Assumption: that `missing-asset` is a state this pipeline can reach at all. Its most
+plausible generator is a published release whose `sign` failed, and decision 7 skips the
+monitor in exactly that case.
+
+Disposition: **Addressed by redesign.** The operator has directed that the release pipeline
+change as well. See "Round 3 outcome" below — the finding is not patched with `if: always()`
+but removed at its source.
+
+### Ergonomics
+
+Finding: the round 2 fix moved the tag out of the title and into the body, but nothing ever
+writes the body again, so the operator's one durable channel freezes at the first failure and
+silently misnames the broken release thereafter. The cited precedent does not have this
+problem and the spec took half of it: `mutation-notify.sh` comments the current run onto an
+existing issue (`:125`) and comments before closing (`:106-107`), and this spec cites
+`:101-107` for the constant-title property while dropping both `gh issue comment` arms — the
+two calls that carry the varying detail a constant title can no longer hold. Live evidence:
+issue #98 (`mutation-testing: monthly run failed`) was open 2026-08-02 → 2026-09-01 and
+accumulated **3 comments**; under this design that span produces zero.
+
+Second limb: **no case asserts a close actually happens.** "Does not duplicate" asserts
+`create` was not called and "closes only its own subject" asserts a sibling issue is
+untouched — both pass trivially if `gh issue close` is never invoked. An implementation that
+files and never closes is green across all nine cases, and its production symptom is the
+permanently-open stale issue the arm exists to prevent. Third: eleven hand-maintained job
+blocks with no test asserting all eleven carry one; a twelfth binary added later ships
+unmonitored, and the failure is `dormant`-shaped.
+
+Assumption: that an SBOM-missing condition resolves inside roughly one release cycle. The
+in-repo counter-evidence points the other way — `mutation-testing.yml` failed six consecutive
+times across two months, and #98 spanned 30 days.
+
+Disposition:
+
+### Risk
+
+Finding: round 1 moved `packages=<N>` *into* `sbom-resolve.sh`; round 2 moved
+`sbom-resolve.sh` *onto the release path*. The pair was never reviewed together, and it gives
+a value the spec explicitly calls a test handle rather than a live check the power to fail a
+release run in a state the design has no name for. Reproduced independently by this session:
+
+```
+jq '.packages | length'
+  well-formed with packages   rc=0  out=[2]
+  well-formed, no .packages   rc=0  out=[0]     <- indistinguishable from a real empty SBOM
+  truncated / malformed       rc=5  out=[]      <- UNMODELLED
+  zero-byte file              rc=0  out=[]      <- packages= , neither a number nor an error
+```
+
+The `rc=5` row is the risk and the spec says nothing about it. If it propagates, `state` is
+never written, the issue arm never fires, and the result is a **red release run with no
+issue** — the silent failure this spec exists to end, relocated onto the path the operator
+was told is now in their line of sight. If it is swallowed, the positive control returns
+empty rather than failing. Round 2's confirmation that "a parser returning `{}` would fail
+it" was the wrong probe: `{}` is well-formed and returns `0` at rc=0. The failing input is
+malformed and was never tested.
+
+Smaller, same seam: `missing-asset → exit 1` makes the whole `release-<name>-rs` run report
+failed for a release whose tag, binary, checksum and CHANGELOG all shipped, so
+"release-pi-rs failed" acquires two meanings.
+
+Not raised, checked and clean: permissions and secrets on the `needs: [sign]` call — job-level
+`permissions` replaces rather than is bounded by the workflow-level block, `secrets.GITHUB_TOKEN`
+reaches a called workflow without `secrets: inherit`, and the scheduler already calls this exact
+reusable workflow with an identical block and authenticated successfully on 2026-08-03.
+
+Assumption: that there is no read-after-write propagation lag between the `sign` job's
+`gh release upload` and the monitor's `gh release view --json assets`. `needs: [sign]`
+removes the *job-ordering* race; it does not remove an *API propagation* race, and the spec
+treats the two as one problem. Nothing in this repo has observed the interval — zero release
+workflow runs, ever.
+
+Disposition:
+
+### Adversarial Spec Review (comparison/judge designs only)
+
+N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+### Round 3 outcome — the findings share one upstream cause
+
+None of the three lenses reached this, and it is the reason round 3 does not get patched the
+way rounds 1 and 2 were. **Every round 3 finding, and both earlier trigger defects, descend
+from a single ordering fact: the release is published before the SBOM is attached.**
+
+- Round 2's rejected trigger fired between publication and attachment.
+- Round 3's `needs: [sign]` skip exists because a failed `sign` can leave a *published*
+  release without an SBOM.
+- Risk's propagation-lag assumption only matters because a consumer reads the asset list
+  immediately after publication.
+
+Three rounds have produced three workarounds for one cause, each introducing defects of the
+same magnitude as the one it fixed, and the design has grown every round — the opposite of
+the convergence signal. The operator has directed that the release pipeline change as well.
+
+Publishing the release as a **draft**, attaching the SBOM and signature during `sign`, and
+flipping it to published only after `sign` succeeds makes *published implies SBOM present*
+true by construction. That removes the class rather than working around it a fourth time, and
+it collapses most of Section 1: with the invariant holding, `missing-asset` on the release
+path is not merely skipped but genuinely impossible, and the state becomes a monthly-sweep
+signal for out-of-band causes only — a manually-cut release, a deleted asset, or a release
+published before this change.
+
+That is a change to the release pipeline rather than to the monitor, with its own blast
+radius, and it is specified separately. This spec's Section 1 is **on hold pending that
+change**; Section 2 is independent, has drawn zero findings across three rounds, and is
+unaffected.
