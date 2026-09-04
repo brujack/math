@@ -438,7 +438,7 @@ work.
 
 ## Section 2 — Branch protection
 
-Three actions, in this order. No code diff.
+The numbered steps below, in order. No code diff.
 
 ### 1. Capture the ruleset before deleting it
 
@@ -577,7 +577,7 @@ Section 1, runnable locally before and after:
 
 ```bash
 make lint-hooks                                  # shellcheck the new script
-bats tests/scripts/sbom_resolve.bats             # the five cases above
+bats tests/scripts/sbom_resolve.bats             # every case listed under Tests
 make test                                        # lint + test-hooks + test-python
 ```
 
@@ -585,14 +585,24 @@ Each bats case must be seen red before its implementation exists — in particul
 `gh release view` failure-discrimination case, which is the one the current workflow gets
 wrong and therefore the one whose RED proves the fix is real.
 
-Section 2 is verified by the three `gh api` reads above, run after the three actions.
+Section 2 is verified by the `gh api` reads in its own Verification subsection, run after
+its numbered steps.
 
 The end-to-end behaviour of Section 1 cannot be verified before the first per-binary
 release exists: `dormant` is the only state reachable in production today. That is stated
 rather than worked around — the bats cases cover all three states against the `gh` mock,
 and the `ready` and `missing-asset` paths remain unexercised against real GitHub until a
-release is cut. The first per-binary release is therefore the moment to re-read a scheduled
-run's job summary.
+release is cut. Under decision 7 the first per-binary release exercises them on its own:
+the `sbom-monitor` job runs inside that release's workflow run, so its verdict appears in
+the run the operator is already watching rather than on a later scheduled run.
+
+**No count of cases, steps, or reads is restated outside the section that lists them.**
+Three had already drifted by 2026-09-04 — "the five cases above" against a list that had
+grown to nine, and "three actions" twice against a Section 2 that had grown to five numbered
+steps. Each was written true and became false when a different section grew, which is the
+same shape as the Risks bullet that claimed absent apparatus: a document asserting something
+about itself that another edit invalidated. Restating a count is what creates the drift, so
+these now point at the section instead of counting it.
 
 ## Scope
 
