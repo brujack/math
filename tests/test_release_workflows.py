@@ -249,10 +249,10 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                 lines = path.read_text().splitlines()
                 sbom_index = step_line_index(lines, "./.github/actions/sbom-sign")
                 tag_index = step_line_index(lines, "name: Create and push tag")
-                self.assertIsNotNone(sbom_index, f"{path.name} missing sbom-sign step")
-                self.assertIsNotNone(
-                    tag_index, f"{path.name} missing 'Create and push tag' step"
-                )
+                if sbom_index is None:
+                    self.fail(f"{path.name} missing sbom-sign step")
+                if tag_index is None:
+                    self.fail(f"{path.name} missing 'Create and push tag' step")
                 self.assertGreater(
                     tag_index,
                     sbom_index,
