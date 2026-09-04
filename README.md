@@ -392,9 +392,9 @@ Key decisions are recorded in [`docs/adr/`](docs/adr/README.md): algorithm choic
 
 Release binaries are signed with [cosign](https://docs.sigstore.dev/cosign/overview/) using keyless Sigstore signing. Each release includes the binary plus:
 
-- `{name}.sig` — detached signature
-- `{name}.pem` — signing certificate
+- `{name}.sha256` — SHA256 checksum
 - `{name}.sbom.spdx.json` — SPDX bill of materials
+- `{name}.bundle` — cosign signature bundle (v4 format; supersedes the separate `.sig`/`.pem` pair)
 
 To verify a release binary (example for `factorial`):
 
