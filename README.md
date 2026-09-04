@@ -400,11 +400,15 @@ To verify a release binary (example for `factorial`):
 
 ```bash
 cosign verify-blob factorial \
-  --signature factorial.sig \
-  --certificate factorial.pem \
+  --bundle factorial.bundle \
   --certificate-identity \
-    "https://github.com/brujack/math/.github/workflows/release-sign.yml@refs/tags/factorial-vTAG" \
+    "https://github.com/brujack/math/.github/workflows/release-factorial-rs.yml@refs/heads/master" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
 ```
 
-Replace `factorial` and `factorial-vTAG` with the sub-project name and tag (e.g. `fib`, `fib-v1.0.0`).
+Replace `factorial` with the sub-project name (e.g. `fib`), and `release-factorial-rs.yml` with that
+sub-project's own release workflow filename (e.g. `release-fib-rs.yml`) — the certificate identity is
+the workflow that requested the signing certificate, not the tag being released. No release has been
+cut with this pipeline yet, so treat the identity above as derived from how keyless signing works
+rather than observed — read it back from a real release's own `.bundle` to confirm it before relying
+on it.
