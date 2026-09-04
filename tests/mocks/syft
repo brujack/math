@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+printf "syft %s\n" "$*" >> "${MOCK_CALLS_FILE:-/tmp/mock_calls}"
+if [[ "${MOCK_SYFT_EXIT:-0}" -ne 0 ]]; then
+    exit "${MOCK_SYFT_EXIT}"
+fi
+
+_output=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --file)
+            _output="$2"
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+if [[ -n "${_output}" ]]; then
+    printf '{"mock":"spdx"}\n' > "${_output}"
+fi

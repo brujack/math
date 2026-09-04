@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+printf "cosign %s\n" "$*" >> "${MOCK_CALLS_FILE:-/tmp/mock_calls}"
+if [[ "${MOCK_COSIGN_EXIT:-0}" -ne 0 ]]; then
+    exit "${MOCK_COSIGN_EXIT}"
+fi
+
+_output=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --bundle)
+            _output="$2"
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+if [[ -n "${_output}" ]]; then
+    printf '{"mock":"bundle"}\n' > "${_output}"
+fi
