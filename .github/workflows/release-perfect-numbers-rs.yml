@@ -38,7 +38,7 @@ jobs:
         working-directory: perfect-numbers/perfect-numbers-rs
 
       - name: Install cargo-auditable
-        run: cargo install cargo-auditable --locked
+        run: cargo install cargo-auditable --locked --version 0.7.5
 
       - name: Build release binary
         run: cargo auditable build --release

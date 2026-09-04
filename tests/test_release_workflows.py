@@ -315,11 +315,27 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                     f"{path.name} missing 'Build release binary' step",
                 )
                 install_run = (steps[install_index].get("run") or "").strip()
-                self.assertEqual(
+                # Assert the PROPERTIES, not the exact string. An exact-equality
+                # assertion here is inverted: it rejects a strictly better
+                # implementation (a pinned --version) as readily as a worse one.
+                # cargo-auditable generates the dependency data the SBOM is built
+                # from, so --locked and a pinned version are both security
+                # properties worth pinning -- but the set of flags is open.
+                self.assertTrue(
+                    install_run.startswith("cargo install cargo-auditable"),
+                    f"{path.name} must install cargo-auditable: got {install_run!r}",
+                )
+                self.assertIn(
+                    "--locked",
                     install_run,
-                    "cargo install cargo-auditable --locked",
-                    f"{path.name} 'Install cargo-auditable' step must run the "
-                    "exact locked install command",
+                    f"{path.name} must install cargo-auditable with --locked",
+                )
+                self.assertRegex(
+                    install_run,
+                    r"--version \d+\.\d+\.\d+",
+                    f"{path.name} must pin cargo-auditable to an exact version -- "
+                    "it produces the provenance data the SBOM is derived from, so an "
+                    "unpinned install lets that tool change under us between releases",
                 )
                 self.assertLess(
                     install_index,
