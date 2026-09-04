@@ -318,7 +318,14 @@ files_touched:
 depends_on: [3]
 ```
 
-**Files:** `CLAUDE.md` — the CI table, the workflow count sentence, and a new note.
+**Files:** `CLAUDE.md` — the CI table, the workflow count sentence, the `tests/mocks/` inventory, and a new note.
+
+**Added during execution (Task 1 spec review, 2026-09-04):** `CLAUDE.md:477` enumerates the
+contents of `tests/mocks/` — `make`, `git`, `ggshield`, `gh` — and Task 1 added `syft` and
+`cosign`, so that line now under-documents the directory by two. Extend it with both, naming
+that `syft` honours `--file` and `cosign` honours `--bundle` (they write real output files so
+the sbom-sign suite discriminates a working script from a no-op stub). Recorded here rather
+than left in conversation because it sits between two tasks and would otherwise fall through.
 
 - Remove the `release-sign` row from the CI workflow table; the workflow count drops by one from its stated forty-one. State the new count by re-deriving it (`git ls-files .github/workflows/ | wc -l`) rather than by subtracting.
 - Add a note under CI recording both invariants and why they exist:
