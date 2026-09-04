@@ -147,3 +147,19 @@ teardown() {
         return 1
     }
 }
+
+@test "release workflow change reaches the root test target" {
+    # Regression guard: a change to .github/workflows/release-*.yml matches
+    # neither the sub-project loop nor the root-test pattern, so
+    # tests/test_release_workflows.py — the contract test pinning all eleven
+    # release workflows — never runs on the change class it guards.
+    export MOCK_GIT_DIFF_NAMES=".github/workflows/release-sq-rs.yml"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -qE "^make -C [^ ]+ test$" "${MOCK_CALLS_FILE}" || {
+        printf 'expected the root test target, got:\n%s\n' \
+            "$(cat "${MOCK_CALLS_FILE}")" >&2
+        return 1
+    }
+}
