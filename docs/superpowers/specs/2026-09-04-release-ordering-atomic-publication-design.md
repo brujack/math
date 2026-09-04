@@ -473,3 +473,121 @@ in both specs was correct and answered a question that could not decide anything
 population under review was the delivery mechanism rather than the payload.
 
 **Before reviewing how a thing is delivered, open it.**
+
+## Multi-Lens Review — Round 1
+
+Reviewed at commit: `2cbed5c3984d6584fe45b8b8fcc34c02083770ee` (Step 7 self-review commit)
+
+All three lenses were told the sibling spec's history and instructed to treat "I found the
+root cause" skeptically, since a fourth attempt by the same author is where the same failure
+recurs. All three findings were dispositioned **Addressed** by the operator on 2026-09-04.
+
+Independently confirmed by this session rather than taken on report: the tag-before-release
+ordering across all eleven workflows, the absence of any tag guard, `README.md:400-406`'s
+verification command, `scripts.yml`'s `paths:` and `scripts/pre-push`'s pattern, and the
+absence of `cargo-auditable` anywhere in the repo.
+
+### Goal-Fit
+
+Finding: the design guarantees the SBOM's **presence** and never its **content**. Four bats
+cases assert files exist with syft and cosign mocked; the uniformity test greps YAML text;
+Part 3's terminal assertion reads `.assets[].name`. Nothing — here or in
+`release-sbom-monitor.yml` — asserts a non-empty package list or runs `cosign verify-blob`.
+A syft run emitting valid SPDX with zero packages therefore yields four correctly-named
+assets, a green suite, a literally-true atomic-publication claim, and a monitor that scans an
+empty document and reports clean forever — the sibling spec's title, one level up.
+
+Second: **the uniformity test never runs on the change class it exists to catch.**
+`tests/test_release_workflows.py` executes only via `make test-python`, reached by
+`scripts.yml` (`paths:` = `scripts/**`, `tests/**`, `Makefile`,
+`.github/workflows/scripts.yml`) and by `scripts/pre-push`
+(`^scripts/|^tests/|^Makefile$|^\.github/workflows/mutation-testing.*\.yml$`). A PR editing
+only `.github/workflows/release-*.yml` matches neither, so the named mitigation for the top
+fan-out risk is silent by construction — the exact property it was written to prevent.
+
+Third: Part 1 is the simpler-path cut. Two of its three questions are answered identically by
+Part 3, which runs regardless; the window measurement has no consumer and no durable home.
+
+Assumption: that `syft <stripped rust binary> -o spdx-json` yields a non-empty package list.
+Refutation condition stated as "0 or 1 makes the ordering question moot."
+
+Disposition: **Addressed.** The assumption was measured and **refuted** — see "The syft probe"
+above. Part 0 is added, Parts 1-3 are re-billed, the verification bar moves from filenames to
+`packages | length > 1` plus a real `cosign verify-blob --bundle`, and
+`.github/workflows/release-*` is added to both `scripts.yml`'s `paths:` and `scripts/pre-push`'s
+pattern so the uniformity test runs on the change class it guards.
+
+### Ergonomics
+
+Finding: Part 1 is the only irreversible-cost step and no outcome of it can change the plan —
+broken means delete `release-sign.yml`, working means delete it — while its cost is larger
+than stated. `sq/sq-rs/CHANGELOG.md` does not exist (only root `CHANGELOG.md` is tracked), so
+the run creates a new tracked 80-line file covering sq's entire history, pushes it to master,
+and publishes that same text as the public release body of a throwaway release on a public
+repo. Drop Part 1, keep Part 3, cut a baseline only if Part 3 fails.
+
+Second: every one of roughly 17 verification cases expects PASS, and the uniformity test
+would pass unchanged if `scripts/sbom-sign.sh` were `exit 0`, because all four of its
+assertions read YAML text.
+
+Assumption: that `softprops/action-gh-release` publishes atomically rather than creating a
+published release and then uploading assets into it.
+
+Disposition: **Addressed, and the assumption refuted in the design's favour.** Part 1 is
+dropped. The assumption was settled by reading the action at its pinned SHA rather than by
+inference: `src/github.ts:1058` is
+`const draft = prerelease === true ? config.input_draft === true : true;` and
+`finalizeRelease` calls `updateRelease({ draft: false })` — so it already creates as a draft,
+uploads, then publishes. The atomicity claim holds on a stronger basis than the spec gave.
+
+### Risk
+
+Finding: the spec removes a visible degraded state and installs an invisible unrecoverable
+one, and never names the trade. Measured across all eleven workflows: `Commit CHANGELOG`
+(line 59 or 62) precedes `Create and push tag` (76 or 79) precedes `Create GitHub release`
+(85 or 88), and `grep -l 'ls-remote\|push --delete\|--force'` over the eleven returns
+nothing. So after the rewrite, a signing failure leaves the CHANGELOG commit already on
+master under `continue-on-error: true`, the tag already on origin, and **no release at all** —
+and a re-run hits `fatal: tag already exists`, making that version unshippable until someone
+deletes the remote tag by hand. The monitor reads releases; "tag pushed, no release" is
+invisible to it. `missing-asset` did not become impossible, it relocated to a state with zero
+monitoring.
+
+Second: `README.md:400-406` documents `cosign verify-blob` with
+`--certificate-identity ".../release-sign.yml@refs/tags/factorial-vTAG"`. Deleting that
+workflow replaces one identity with eleven, invalidating the only published verification
+command.
+
+Assumption: that `softprops/action-gh-release@v3` fails the step when a `files:` entry matches
+nothing. If it warns and publishes, a path mismatch ships a partial release silently.
+
+Disposition: **Addressed.** `Create and push tag` moves to after the composite step —
+`softprops` creates the tag from `tag_name`, so nothing needs it earlier — leaving a signing
+failure with the repo where it started. The README finding is accepted and **widened**: that
+command also specifies `--signature factorial.sig --certificate factorial.pem`, the deprecated
+cosign v3 form, while `release-sign.yml` writes `--bundle`. So it names two assets that have
+never existed and is already broken today, independent of this change; `README.md` joins the
+scope. The `files:`-miss assumption remains **unmeasured** and is carried into the plan as a
+pre-implementation probe rather than assumed favourable.
+
+### Adversarial Spec Review (comparison/judge designs only)
+
+N/A — no comparison arms, no judge component; acceptance criteria are exit codes, package
+counts, and API reads.
+
+### Independent architectural review
+
+The operator circulated the spec to a separate reviewer. Three findings, all accepted:
+
+1. **`completed_at` is job-level, not step-level** — it answers publication-to-job-completion
+   rather than publication-to-asset-presence. Correct, and **moot**: Part 1 is dropped, and
+   `softprops`'s draft-then-finalize behaviour makes the current window plainly job-scale, so
+   measuring it precisely buys nothing.
+2. **"All four artifacts" is a number established nowhere.** Deriving the expected set from
+   the composite's outputs or from `sbom-sign.sh`'s filenames is circular. The plan hardcodes
+   the set **with a comment naming what invalidates it** — a fifth artifact added to eleven
+   workflows leaves the test green while asserting an incomplete set.
+3. **The draft-alternative rejection rests on a "may".** The `GET /releases/tags/{tag}` 404
+   claim was inferred, not measured, in a document careful about that distinction elsewhere.
+   Recorded as unmeasured; settling it requires creating a draft release, and the rejection
+   stands on the stuck-draft failure class regardless.
