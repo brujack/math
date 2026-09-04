@@ -377,3 +377,99 @@ and the two throwaway releases with their verified cleanup.
 - `~/.claude/standards/ci.md` — cosign v4 `--bundle` semantics, SHA256 checksum generation,
   action SHA pinning
 - `~/.claude/standards/shell.md` — the PATH-mock hazard the bats suite must avoid
+
+## The syft probe — measured 2026-09-04, and it re-scopes this spec
+
+Step 8 round 1's goal-fit lens raised an assumption it could not settle: that
+`syft <stripped rust binary> -o spdx-json` produces an SBOM with a non-empty package list.
+Its stated refutation condition was "if it returns 0 or 1, the ordering question is moot and
+the real work is elsewhere." It returns **1**, and the 1 is the binary itself.
+
+### Measured, both formats
+
+```
+                                              syft   sbom     lockfile
+binary                        format         pkgs   bytes    crates
+sq/sq-rs/target/release/sq    Mach-O arm64      1    1208       133
+e/e-rs/target/release/e       Mach-O arm64      1       -       137
+pi/pi-rs/target/release/pi    Mach-O arm64      1       -       137
+prime/.../release/prime       Mach-O arm64      1       -       133
+sq (built on workstation)     ELF x86-64        1    1208       133
+```
+
+syft 1.51.1 in every row. The single package is named for the binary and carries
+`versionInfo: sha256:63df76fd…` with no `externalRefs` — it is syft's generic binary entry,
+not a dependency.
+
+The ELF row is the one that matters: `ubuntu-latest` builds ELF x86-64, and a macOS-only
+measurement would have been `tdd.md` pitfall G — a local pass that is not evidence for the
+class. Measured on the workstation (`ssh workstation`, Ubuntu, x86-64), same syft version,
+same result, byte-identical SBOM size.
+
+### What that means
+
+`grype` scans the SBOM's package list. That list contains zero dependencies, so **the
+monitor cannot find a CVE** — not because it is mis-ordered, mis-triggered, or
+mis-delivered, but because there is nothing in the document to scan. Every mechanism across
+this spec and its sibling guarantees the timely, atomic, correctly-named delivery of an
+empty artifact.
+
+The cause is that nothing here builds with `cargo-auditable`: `grep -rn auditable` across
+`Cargo.toml`, `Makefile` and `*.yml` returns nothing, Rust binaries carry no package-manager
+metadata, and syft's `rust-audit-binary` cataloger reads a `.dep-v0` ELF/Mach-O section that
+is only present when `cargo-auditable` emits it.
+
+### The remedy, also measured
+
+On the workstation, same binary, same syft:
+
+```
+cargo build --release             .dep-v0 absent    ->  syft  1 package   1,208 bytes
+cargo auditable build --release   .dep-v0 present   ->  syft 13 packages 22,554 bytes
+                                  anstream anstyle anstyle-parse anstyle-query
+                                  clap clap_builder clap_lex colorchoice
+                                  is_terminal_polyfill strsim utf8parse … + sq
+```
+
+`cargo-auditable` 0.7.5, installed with `--locked`. **13 against 133 lockfile crates is
+correct, not a second gap** — `cargo-auditable` records what is actually linked into the
+binary, where `Cargo.lock` also carries dev-dependencies and unbuilt optional crates. Stated
+because 13/133 invites being read as another shortfall.
+
+The remedy is measured rather than proposed, deliberately: prescribing an unverified fix is
+how the preceding four review rounds across two specs each produced their next defect.
+
+### Re-scope
+
+**Part 0, new, and it precedes everything:** eleven release workflows change
+`cargo build --release` to `cargo auditable build --release`, and `cargo install
+cargo-auditable --locked` is added to each. This is the change that makes any SBOM in this
+repo worth producing, and it edits the same build step this spec was already going to touch —
+for a different reason and with a different payload.
+
+**Parts 1-3 keep their content but lose their billing.** The ordering defect is real and the
+composite-action fix is still correct, but its stated purpose — making a meaningful SBOM
+available atomically — was unearned. Atomic publication of an empty document is not worth
+eleven job blocks. With Part 0 in place the purpose is earned and the ordering fix is worth
+making; without it, this spec was a correct fix to a secondary problem.
+
+**The verification bar moves accordingly.** Asserting the presence of `<binary>.sbom.spdx.json`
+is what let this go unnoticed through three review rounds on the sibling spec and one on this
+one. Part 3 must assert `jq '.packages | length' > 1` against the published asset and run a
+real `cosign verify-blob --bundle`, and the bats mock-fidelity case must not pass on an empty
+file.
+
+### The durable lesson
+
+Four review rounds across two specs, roughly 1.9M subagent tokens, debating how an artifact
+gets delivered. **Not one lens asked what was in it.** Every question was about ordering,
+triggering, channel, idempotency and state — the transport — because the spec framed the
+subject as delivery and the reviews inherited that frame.
+
+The check that settled it cost one `brew install` and four commands, needed no release, no
+workflow run, and no code, and it was available on day one. It is the same shape as
+`behavior.md`'s "the boundary can be wrong on the question, not the claim": every measurement
+in both specs was correct and answered a question that could not decide anything, because the
+population under review was the delivery mechanism rather than the payload.
+
+**Before reviewing how a thing is delivered, open it.**
