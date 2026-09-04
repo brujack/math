@@ -1,0 +1,18 @@
+name: SBOM and Sign
+description: Generate an SPDX SBOM and a keyless cosign bundle for a built binary
+inputs:
+  binary_path:
+    description: "Directory holding the built binary (e.g. sq/sq-rs/target/release)"
+    required: true
+  binary_name:
+    description: "Binary file name (e.g. sq)"
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0
+    - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+    - shell: bash
+      run: |
+        "${GITHUB_WORKSPACE}/scripts/sbom-sign.sh" \
+          "${{ inputs.binary_path }}" "${{ inputs.binary_name }}"
