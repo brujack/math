@@ -611,8 +611,8 @@ plus its fixture SPDX, `.github/workflows/release-sbom-monitor.yml` (the two res
 steps, the summary lines, and the issue file/close arm),
 all eleven `.github/workflows/release-<name>-rs.yml` (one `sbom-monitor` job each),
 `CLAUDE.md` (Branch protection subsection, and the CI table if the new script warrants a
-row), one `gh label create`, three `gh api` calls, and the two backlog rows this spec
-closes.
+row), one `gh label create`, the `gh api` calls enumerated in Section 2, and the two
+backlog rows this spec closes.
 
 **Out of scope:**
 
