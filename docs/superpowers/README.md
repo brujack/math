@@ -41,6 +41,7 @@ Master status index for all specs and implementation plans in this directory.
 | 2026-09-01 | [mutation-notify-attribution](plans/2026-09-01-mutation-notify-attribution.md)     | [spec](specs/2026-08-31-mutation-notify-attribution-design.md)                                                                    | Done    |
 | 2026-09-01 | [mutation-notify-mock-isolation-and-labels](plans/2026-09-01-mutation-notify-mock-isolation-and-labels.md) | [spec](specs/2026-09-01-mutation-notify-mock-isolation-and-labels-design.md)                                                         | Done        |
 | 2026-09-02 | —                                                                                                         | [spec](specs/2026-09-02-sbom-false-pass-and-dead-ruleset-design.md)                                                                  | In Progress |
+| 2026-09-04 | —                                                                                                         | [spec](specs/2026-09-04-release-ordering-atomic-publication-design.md)                                                               | In Progress |
 
 ---
 
