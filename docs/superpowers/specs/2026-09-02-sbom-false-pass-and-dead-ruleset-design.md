@@ -1075,3 +1075,44 @@ That is a change to the release pipeline rather than to the monitor, with its ow
 radius, and it is specified separately. This spec's Section 1 is **on hold pending that
 change**; Section 2 is independent, has drawn zero findings across three rounds, and is
 unaffected.
+
+---
+
+## Section 1's premise is refuted — measured 2026-09-04
+
+Everything above about the SBOM monitor assumes the SBOM it scans has content. It does not.
+
+```
+                                          syft   sbom     lockfile
+binary                    format          pkgs   bytes    crates
+sq  (this repo, Mach-O arm64)                1    1208       133
+e   (Mach-O arm64)                           1       -       137
+pi  (Mach-O arm64)                           1       -       137
+prime (Mach-O arm64)                         1       -       133
+sq  (ELF x86-64, workstation — CI's format)  1    1208       133
+```
+
+syft 1.51.1 throughout. The single package is named for the binary and carries no
+`externalRefs` — syft's generic binary entry, not a dependency. `grype` scans that list, so
+**the monitor cannot find a CVE**: there is nothing in the document to scan. Nothing in this
+repo builds with `cargo-auditable`, whose `.dep-v0` section is what syft's
+`rust-audit-binary` cataloger reads.
+
+Three full multi-lens rounds on this spec — nine lens dispatches, roughly 1.3M subagent
+tokens — argued about when the monitor fires, what it files, how it dedups, which state it
+reports and how it closes an issue. **None asked what the document contains.** The check that
+settled it needed no release, no workflow run and no code, and was available before round 1.
+
+**Section 1 is superseded, not merely on hold.** Its whole apparatus — the three-valued
+state, the `sbom-asset-missing` label, the file/close arm, the title invariant, the fourth
+`unreadable-sbom` state — describes the handling of an artifact that catalogues nothing. What
+survives is the observation that a green run currently means "examined nothing", which is
+true for a second and more fundamental reason than the one this spec found.
+
+The fix and the re-scoped work live in
+`docs/superpowers/specs/2026-09-04-release-ordering-atomic-publication-design.md`, whose
+Part 0 changes the build so an SBOM is worth producing. Rewriting Section 1 before that
+lands would be a fourth revision against a premise now known false.
+
+**Section 2 (branch protection) is unaffected.** It is independent of the SBOM entirely, drew
+zero findings across all three rounds, and remains ready to ship on its own.
