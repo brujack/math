@@ -190,6 +190,7 @@ Neither of these two configurations lives in a tracked file. That is why a rules
 | 4   | Change the required-check set?                    | Add `bash-coverage`; leave `secret-scan` and `mutation-pr`                                |
 | 5   | Durable repo-side record of protection state?     | A `CLAUDE.md` subsection, no drift-check machinery                                        |
 | 6   | Delivery channel for `missing-asset` (round 2)    | A labelled issue, filed and closed by the workflow — not the job conclusion alone         |
+| 7   | How the monitor runs on a release (round 2)       | A `needs: [sign]` job in each `release-<name>-rs.yml`, not an `on: release` trigger        |
 
 Rationale for 3, since two options were live: the ruleset's `deletion` and
 `non_fast_forward` rules are already enforced by classic protection's `allow_deletions:
@@ -258,11 +259,26 @@ own. Green is never emailed by GitHub, and the operator confirms red is not reli
 emailed either. So the red branch gets the channel this repo already uses for exactly this
 purpose:
 
-- On `missing-asset`, file an issue titled
-  `[SBOM Monitor] SBOM asset missing for <binary> <tag>` under a new `sbom-asset-missing`
-  label, distinct from the existing `sbom-monitor` label that carries CVE findings. Keeping
-  them apart follows #128's per-workflow-label finding: one label per producer, so closing
-  one producer's issue cannot close another's.
+- On `missing-asset`, file an issue titled `[SBOM Monitor] SBOM asset missing for <binary>`
+  under a new `sbom-asset-missing` label, distinct from the existing `sbom-monitor` label
+  that carries CVE findings. Keeping the labels apart follows #128's per-workflow-label
+  finding: one label per producer, so closing one producer's issue cannot close another's.
+  Keeping the **binary** in the title is the same separation one level down — a label
+  identifies the producer, the title identifies the subject within it.
+
+  > **The title is the key, not a description. Do not add the tag, the date, the CVE count,
+  > or anything else that varies between runs.** Filing looks for this exact string to avoid
+  > a duplicate and closing looks for it to find what to close, so any component that changes
+  > between two runs makes those two operations address different issues. The tag goes in
+  > the body, where it is free to vary.
+
+  This invariant is the reason the cited precedent works and is not obvious from reading it:
+  `mutation-testing.yml:121` sets `ISSUE_TITLE: "mutation-testing: monthly run failed"`, a
+  literal with no interpolation, and `mutation-notify.sh:101-107` finds by title over a
+  label-filtered list and closes `.[0].number`. Round 2 found this spec had interpolated
+  `<tag>` into the title while citing that precedent, breaking the exact property the
+  precedent depends on. Adding useful detail to the title reads as an improvement and is the
+  specific edit that reintroduces the defect.
 - On the next run where that binary reaches `ready`, close its open issue. A binary whose
   SBOM reappears should not leave a stale issue behind.
 - Idempotency by **local exact title match** over `gh issue list --label sbom-asset-missing
@@ -277,20 +293,56 @@ purpose:
 The label must be created before the first run that needs it; `gh label create
 sbom-asset-missing` is part of this change, alongside the three `gh api` calls in Section 2.
 
-### Fire on release, not only on the 3rd
+### Run after signing, as a job — not on an event
 
-`release-sbom-monitor-schedule.yml` gains `on: release: types: [published]` beside its
-`cron`. With a release weeks away, the first real `ready`/`missing-asset` verdict would
-otherwise land up to 30 days after the release, on a monthly run nobody opens. Firing on
-publish puts it in front of the operator at the one moment they are already watching
-Actions — and it is the run most likely to be `missing-asset`, since a newly wired
-`release-sign.yml` has never executed once (0 runs, all 12 release workflows, measured
-2026-09-02).
+Each `release-<name>-rs.yml` gains a third job calling the monitor for its own binary:
 
-All eleven jobs still run on a release event; ten of them report `dormant` and the one
-matching binary reports `ready` or `missing-asset`. That is acceptable rather than
-wasteful — the jobs are seconds each when dormant, and per-binary event filtering would
-need the tag pattern matched against the release name in YAML, which buys nothing.
+```yaml
+  sbom-monitor:
+    needs: [sign]
+    uses: ./.github/workflows/release-sbom-monitor.yml
+    with:
+      binary_name: <name>
+      release_tag_pattern: "<name>-v"
+    permissions:
+      contents: read
+      issues: write
+```
+
+Uniform across all eleven: each already carries `sign: needs: [release], uses:
+./.github/workflows/release-sign.yml`, measured 2026-09-04, so `needs: [sign]` hangs off
+existing structure rather than introducing a new dependency shape.
+
+**Round 2 rejected the obvious alternative, `on: release: types: [published]` on the
+scheduler, and the reasons are worth keeping because both are invisible from the YAML.**
+
+1. **It never fires.** All eleven release workflows publish via `softprops/action-gh-release`
+   with no `token:` override, i.e. `GITHUB_TOKEN`, and GitHub does not start new workflow
+   runs from `GITHUB_TOKEN`-triggered events.
+2. **If it did fire, it would fire too early.** `release: published` is emitted by the
+   `release` job; the SBOM is uploaded by the downstream `sign` job's *last* step, after a
+   checkout, a syft install, a cosign install and a keyless sign. The monitor would read the
+   asset list before the asset existed and report `missing-asset` on every healthy release —
+   a spurious red plus a spurious issue, on the one event chosen because the operator is
+   watching. That is issue #100's fatigue shape reintroduced by the mechanism added to avoid
+   it.
+
+`needs: [sign]` removes both by construction rather than by timing: same-workflow job
+dependencies are unaffected by the `GITHUB_TOKEN` rule, and the asset exists before the job
+starts because the job that uploads it has completed. It also removes the ten superfluous
+`dormant` jobs a release-wide event would run, and it makes a failed `sign` skip the monitor
+rather than misreport it — a `sign` that never ran cannot produce an absent-asset verdict
+that reads as a signing defect.
+
+`release-sbom-monitor-schedule.yml` keeps its `cron` unchanged. It is the sweep over
+already-released binaries; the per-release job is the prompt check on the one that just
+shipped.
+
+**A note on mechanism versus surface, since the two disagree here.** This change deletes one
+trigger and adds eleven job blocks: the mechanism shrinks (no event semantics, no
+`GITHUB_TOKEN` rule, no ordering race) while the touched surface widens from one file to
+eleven. Recorded because a "is the design getting smaller" signal is unfalsifiable unless it
+names which quantity it reads. This one reads mechanism.
 
 ### Asset membership, not download failure
 
@@ -354,6 +406,22 @@ adds no branch.
 - Download failure after confirmed membership; assert its own distinct message.
 - **Derived value** — `ready` against a fixture SPDX containing a known number of packages;
   assert `packages=<that number>` exactly. This is the positive control.
+
+Three further cases cover the issue file/close arm, which round 2 found was the newest and
+most delivery-critical machinery in the spec and the only part with no named test:
+
+- **Files once** — `missing-asset` with no open issue under the label; assert
+  `gh issue create` was called with the exact tag-free title and the `sbom-asset-missing`
+  label.
+- **Does not duplicate** — `missing-asset` with an issue already open under that exact
+  title; assert `gh issue create` was **not** called. Run this case a second time with the
+  release tag changed and assert it still does not duplicate — that is the assertion that
+  fails if anyone reintroduces the tag into the title, so it is the regression test for the
+  invariant, not just for the dedup.
+- **Closes only its own subject** — `ready` for `pi` while an open issue exists for
+  `factorial`; assert `factorial`'s issue is untouched. This is the case that would have
+  caught round 2's third failure mode, where an implementer following
+  `mutation-notify.sh` literally closes `.[0].number` off a label-filtered list.
 
 A positive control is required, per `bug-scan` Step 6, and round 1 showed the first draft's
 nominated control did not qualify. Every other case in this list asserts a string constant
@@ -531,7 +599,7 @@ run's job summary.
 **In scope:** `scripts/sbom-resolve.sh` (new), `tests/scripts/sbom_resolve.bats` (new)
 plus its fixture SPDX, `.github/workflows/release-sbom-monitor.yml` (the two resolution
 steps, the summary lines, and the issue file/close arm),
-`.github/workflows/release-sbom-monitor-schedule.yml` (`on: release: types: [published]`),
+all eleven `.github/workflows/release-<name>-rs.yml` (one `sbom-monitor` job each),
 `CLAUDE.md` (Branch protection subsection, and the CI table if the new script warrants a
 row), one `gh label create`, three `gh api` calls, and the two backlog rows this spec
 closes.
@@ -547,6 +615,13 @@ closes.
 - ~~Filing an issue on `missing-asset`.~~ **Moved in scope by decision 6** after round 1
   established that a red job conclusion is not a delivery mechanism in this repo. A job
   failure is a record, not a notification.
+- ~~`on: release: types: [published]` on the scheduler.~~ **Rejected in round 2** — inert
+  under `GITHUB_TOKEN` and mis-ordered against the `sign` job. Replaced by decision 7.
+- Proving the *scanner* read the SBOM. `packages=<N>` proves `sbom-resolve.sh` parsed the
+  SPDX; `anchore/scan-action` opens the file independently, so `{"matches":[]}` from an
+  inert scan step still reads as clean. All three lenses raised this in round 2 and none
+  would block on it. Backlogged rather than fixed, and named here so `packages` is not
+  mistaken for a live check on the scanner — it is a test handle.
 - Adding job `name:` to `amicable-rs.yml` and `scripts.yml` so they stop reporting as the
   bare context `test`. Real, but unrelated to either row — backlogged.
 - Migrating classic protection to rulesets. GitHub's forward direction and a genuine
@@ -558,16 +633,26 @@ closes.
 ## Risks
 
 - **`missing-asset` is unreachable until the first release**, so the branch ships untested
-  against real GitHub. Mitigated by the bats coverage, by `on: release: types: [published]`
-  firing it at the moment the release lands rather than up to 30 days later, and by the
-  operator's answer that a release is weeks away with no blocker. Note the branch is
-  *likely* to fire on that first release: `release-sign.yml` has never run once, so its
-  first execution is also its first test.
+  against real GitHub. Mitigated by the bats `missing-asset` case, by the `needs: [sign]`
+  job running it on the release itself rather than up to 30 days later, and by the
+  operator's answer that a release is weeks away with no blocker. `release-sign.yml` has
+  never run once, so its first execution is also its first test — but `needs: [sign]` means
+  a failed `sign` skips the monitor rather than producing an absent-asset verdict, so a
+  `missing-asset` from that job is a real signing defect and not an artifact of `sign`
+  having failed.
 - **The issue file/close arm is new machinery on a path that has never executed.** A defect
   in it produces either a missing issue (silent, the failure this spec exists to end) or a
   duplicate every month (fatigue, issue #100's shape). The local-exact-title-match choice
-  over `--search in:title` is what bounds the duplicate side; the missing side is covered by
-  bats cases over the `gh` mock.
+  over `--search in:title` bounds the duplicate side; the three issue-arm cases in Tests
+  cover the missing side.
+
+  Round 2 found this bullet asserting bats coverage that the test list did not contain — a
+  risk mitigation named against apparatus that was never specified. That is checkable
+  cheaply and generally: **take the noun a Risks bullet cites as its mitigation and grep the
+  test list for it.** It answers a different question from a mutation check — not "does this
+  test discriminate" but "does this test exist." Every mitigation-naming bullet in this
+  section was swept that way on 2026-09-04; this was the only false one, and the stale
+  reference to the deleted trigger in the bullet above was the only other correction.
 - **A `PATCH` to `required_status_checks` replaces rather than appends.** Sending an
   incomplete array silently drops a required context. The verification read of
   `.required_status_checks.contexts` is what catches this and is not optional.
@@ -632,7 +717,13 @@ producer has never executed. Settled by a sharper question than the one asked in
 brainstorming: is a per-binary release planned within a stated horizon, and what event
 triggers it?
 
-Disposition:
+Disposition: **Accepted in part, Addressed in part.** Accepted on proportionality: the
+operator confirms a per-binary release is weeks away with no blocker, which removes the
+"deferred value with no trigger" objection — the branches that change a verdict become
+reachable shortly rather than never. Addressed on the reads-it half: decision 6 gives
+`missing-asset` a durable consumer (a labelled issue) instead of a job summary. The lens was
+right that the `dormant` marker alone changes no verdict, and it does not claim to — it is
+the cheap half, and the issue arm is the mechanism.
 
 ### Ergonomics
 
@@ -659,7 +750,11 @@ exit 143 between 2026-06-01 and 2026-08-01 and were misdiagnosed once before bei
 Settled by checking the operator's Actions notification settings, or asking whether email
 arrived for any of those six failures.
 
-Disposition:
+Disposition: **Addressed.** The operator confirms failed scheduled runs do not reliably
+reach them by email, so the finding is stronger than stated: neither side had a channel, not
+just green. Decision 6 gives the red side a labelled issue. The lens's own proposed remedy
+for the transition-day half — an `on: release` trigger — was adopted here and then refuted by
+all three lenses in round 2; see decision 7 and the round 2 process note.
 
 ### Risk
 
@@ -686,7 +781,11 @@ point `missing-asset` — the untested branch — becomes the only real mechanis
 asking the operator directly whether they have ever opened, or would open, the job summary
 of a scheduled run in this repo.
 
-Disposition:
+Disposition: **Addressed.** `packages=<N>` moves out of the workflow's inline `run:` block
+and becomes an output of `scripts/sbom-resolve.sh`, with a bats case asserting it against a
+fixture SPDX — so the positive control is reachable by the suite named to contain it. The
+smaller item is addressed too: Section 1b now captures a classic-protection pre-image before
+the `PATCH` that replaces its contexts array.
 
 ### Adversarial Spec Review (comparison/judge designs only)
 
@@ -708,8 +807,20 @@ cases, three expecting exit 0 and three non-zero, with `packages=<N>` a genuine 
 quantity that a parser returning `{}` would fail. The verdict count is no longer
 PASS-dominated.
 
-**Dispositions below are unrecorded pending operator review. The three findings are known
-design defects in the current text — this spec is not implementable as written.**
+All three findings were dispositioned **Addressed** on 2026-09-04, after the operator
+circulated round 2 to an independent architectural reviewer whose reading is folded into the
+notes below.
+
+**A process finding this round produced, which belongs with the others: the defect round 2
+killed was a remedy round 1's own ergonomics lens proposed verbatim.** It entered the design
+without being subjected to the verification applied to the author's text, and was then
+refuted by all three lenses one round later. A fix proposed by a review lens carries review
+authority while being itself unreviewed — it arrives inside the document whose purpose is
+scrutiny, which is exactly what makes it feel already-checked. Treat a reviewer's suggested
+remedy as new design with no standing, not as a finding that has already passed review. The
+separately-nameable half, owed to the independent reviewer: the trigger was chosen for *the
+moment it fires* rather than for *what it can observe at that moment* — a delivery argument
+and an observability question, never checked against each other.
 
 ### Goal-Fit
 
@@ -739,7 +850,11 @@ by cutting one throwaway release through the documented `workflow_dispatch` path
 checking `gh run list --workflow release-sbom-monitor-schedule.yml --event release` for a
 run; an empty list refutes the first half.
 
-Disposition:
+Disposition: **Addressed.** The trigger is deleted. Decision 7 replaces it with a
+`needs: [sign]` job in each of the eleven `release-<name>-rs.yml`, removing both halves of
+the defect by construction rather than by timing. The reads-it observation is addressed too:
+`packages` is now named in Out of scope as a test handle rather than a live check on the
+scanner.
 
 ### Ergonomics
 
@@ -763,7 +878,13 @@ true positive rather than a race artifact — and the design cannot tell those t
 because both produce an absent asset at the same moment. Settled by cutting the first
 release and recording whether the asset appears, and how many seconds after `published_at`.
 
-Disposition:
+Disposition: **Addressed.** The same trigger deletion resolves the spurious-red-per-release
+consequence. The stale-issue half is resolved by the tag-free title rather than by the
+proposed prefix match — with the tag out of the title, file-key and close-key are the same
+string, so nothing goes stale and no prefix matching is needed. The missing coverage is
+addressed by three named issue-arm cases in Tests, and the false claim that prompted the
+finding is corrected in Risks, along with a sweep of every other mitigation-naming bullet in
+that section.
 
 ### Risk
 
@@ -796,7 +917,13 @@ positive, and the trigger being inert is currently the only thing preventing it.
 by timing the first real per-binary release — compare `published_at` against the sign job's
 asset-upload completion.
 
-Disposition:
+Disposition: **Addressed, and this finding produced the most durable change in the spec.**
+The title is now tag-free with the tag in the body, and the design states the invariant
+explicitly — *the title is the key, not a description* — because the fix is a state while the
+sentence is what keeps it. Adding the tag back reads as an improvement to anyone scanning an
+issue list, so the property belongs next to the field rather than in a review section. The
+"does not duplicate" bats case is specified to re-run with a changed tag, which makes it the
+regression test for the invariant rather than only for the dedup.
 
 ### Adversarial Spec Review (comparison/judge designs only)
 
