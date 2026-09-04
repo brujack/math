@@ -55,6 +55,28 @@ teardown() {
     [ "${status}" -ne 0 ]
 }
 
+# Wrong arity is a distinct failure from a missing binary -- both return 1, so
+# these assert on the Usage message rather than bare non-zero. `Usage:` and
+# `not a regular file` each appear in exactly one branch of sbom-sign.sh, so the
+# assertions discriminate; if a future edit converges the wording, these go red.
+@test "no arguments fails with usage, invoking neither tool" {
+    run "${SCRIPT}"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"Usage: sbom-sign.sh"* ]]
+    [[ "${output}" != *"not a regular file"* ]]
+    assert_no_match "^syft "
+    assert_no_match "^cosign "
+}
+
+@test "one argument fails with usage, invoking neither tool" {
+    run "${SCRIPT}" "${BIN_DIR}"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"Usage: sbom-sign.sh"* ]]
+    [[ "${output}" != *"not a regular file"* ]]
+    assert_no_match "^syft "
+    assert_no_match "^cosign "
+}
+
 @test "missing binary fails without invoking syft, naming the path" {
     run "${SCRIPT}" "${BIN_DIR}" "does-not-exist"
     [ "${status}" -ne 0 ]
