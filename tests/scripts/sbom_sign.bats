@@ -5,6 +5,10 @@
 # and the assertion cannot fail. Every negative assertion in this file goes
 # through here instead, which also names what it found on failure.
 assert_no_match() {
+    [[ -f "${MOCK_CALLS_FILE}" ]] || {
+        printf 'calls file missing: %s\n' "${MOCK_CALLS_FILE}" >&2
+        return 1
+    }
     if grep -q "$1" "${MOCK_CALLS_FILE}" 2>/dev/null; then
         printf 'expected no match for %s, but calls were:\n%s\n' \
             "$1" "$(cat "${MOCK_CALLS_FILE}")" >&2
@@ -18,6 +22,7 @@ setup() {
     load_mocks
     SCRIPT="${REPO_ROOT}/scripts/sbom-sign.sh"
     export MOCK_CALLS_FILE="${BATS_TEST_TMPDIR}/mock_calls"
+    : > "${MOCK_CALLS_FILE}"
 
     BIN_DIR="${BATS_TEST_TMPDIR}/bin"
     mkdir -p "${BIN_DIR}"
@@ -33,6 +38,8 @@ teardown() {
     [ "${status}" -eq 0 ]
     [ -f "${BIN_DIR}/mybin.sbom.spdx.json" ]
     [ -f "${BIN_DIR}/mybin.bundle" ]
+    grep -q '^syft .* -o spdx-json .*--file ' "${MOCK_CALLS_FILE}"
+    grep -q '^cosign sign-blob --yes ' "${MOCK_CALLS_FILE}"
 }
 
 @test "syft failure propagates and cosign is never invoked" {

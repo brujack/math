@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 
 sbom_sign() {
+    if [[ $# -ne 2 ]]; then
+        printf "Usage: sbom-sign.sh <binary_path> <binary_name>\n" >&2
+        return 1
+    fi
+
     local binary_path="$1"
     local binary_name="$2"
     local target="${binary_path}/${binary_name}"
