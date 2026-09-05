@@ -1,5 +1,7 @@
 # Root-scope Python Gate Holes Implementation Plan
 
+> **Status: DONE**
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Declare root-scope Python's two hard third-party dependencies in a tracked manifest with an installer, and put the 8 tracked root-scope `.py` files under a type-check gate.
@@ -35,7 +37,7 @@ exit codes:
 - **Exit 0 — regression guards, labelled as such in their tasks:** `make test` (every task),
   the `ruff==` grep and `yaml.safe_load` parse (T5).
 - **Exit 0 — falsifiable by TDD ordering, not by the base tree:** `bats
-  tests/scripts/makefile.bats` (T1) and `bats tests/scripts/pre_push.bats` (T2). Both suites
+tests/scripts/makefile.bats` (T1) and `bats tests/scripts/pre_push.bats` (T2). Both suites
   pass today because their new cases do not exist. Each task writes its cases first and must
   observe them fail before implementing; that observation is the falsifiability evidence, and
   the task report must state it.
@@ -125,6 +127,7 @@ The marker check is the exact discriminator pip itself uses. Measured: the Linux
 3. `requirements-dev.txt` parses as one pinned requirement per line, both entries carrying `==`.
 
 **Interfaces:**
+
 - Produces: `requirements-dev.txt` at repo root (Task 4 reads it); `install-deps` target (Task 6 documents it).
 
 ---
@@ -177,6 +180,7 @@ This negative case is the one the spec originally claimed already existed and do
 **Mutation 5 (required):** widen line 52 to `.`, run `bats tests/scripts/pre_push.bats`, confirm the new negative case fails, revert. Report the observed failure line.
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: nothing other tasks read.
 
@@ -229,7 +233,7 @@ depends_on: []
 `exclude` is pyright's default minus `**/.*`. **Exclude beats include** — naming `.claude/scripts` in `include` is not enough on its own; measured 7 files with the default exclude, 8 without `**/.*`. JSON takes no comments, so record this in the CLAUDE.md entry (Task 6), not in the file.
 
 Delete `scripts/pyrightconfig.json`. Safe, but **not for the reason originally recorded** —
-pyright *does* walk up (corrected in the spec 2026-09-05, measured `cd scripts && pyright` →
+pyright _does_ walk up (corrected in the spec 2026-09-05, measured `cd scripts && pyright` →
 `Loading configuration file at <root>/pyrightconfig.json`, 10 files). The 8 sub-project gates
 are unaffected because each has its own config, found before the walk-up reaches root:
 measured `2 files 0 err` for every one of them with and without a root config present.
@@ -255,12 +259,13 @@ Do **not** implement this as `==` against the tracked count alone, nor as `>=`, 
 **Mutations 1, 3, 4 (required):**
 
 1. Append `def _seed(x: int) -> str:\n    return x` to `.claude/scripts/triage_log.py`; `pyright` must report `reportReturnType`. Revert.
-3. Set `typeCheckingMode` to `off`; assertion 1 must go red. Revert.
-4. Restore `**/.*` to `exclude`; assertion 2 must go red. **Run this twice — on a clean tree and with an untracked `.py` under an include root.** The dirty run is the one that matters: a previous draft passed it. Revert.
+2. Set `typeCheckingMode` to `off`; assertion 1 must go red. Revert.
+3. Restore `**/.*` to `exclude`; assertion 2 must go red. **Run this twice — on a clean tree and with an untracked `.py` under an include root.** The dirty run is the one that matters: a previous draft passed it. Revert.
 
 Report the observed failure for each. `git status --porcelain` must be empty afterwards.
 
 **Interfaces:**
+
 - Produces: `pyrightconfig.json` at repo root (Task 5 adds it to the CI `paths:` filter, Task 6 documents it).
 
 ---
@@ -309,6 +314,7 @@ Uses `ast` and stdlib only, so it cannot depend on what it checks.
 **Mutation 2 (required):** add `import requests` unguarded to a root test file; this suite must go red and name `requests`. Revert.
 
 **Interfaces:**
+
 - Consumes: `requirements-dev.txt` from Task 1.
 
 ---
@@ -355,6 +361,7 @@ depends_on: [1, 3]
 The pyright pin is scoped to this workflow only. The other 8 `*-py.yml` sites stay unpinned — that is a backlog row, deliberately, since each needs its own green check.
 
 **Interfaces:**
+
 - Consumes: `requirements-dev.txt` (T1), `pyrightconfig.json` (T3).
 
 ---
@@ -408,8 +415,9 @@ depends_on: [1, 2, 3, 4, 5]
 
 Add a `> **Status: DONE**` banner within the first 5 lines of this plan file. The acceptance
 gate is `head -5 | grep`, deliberately: a bare `grep` over the whole file matches this very
-sentence and passes on the unmodified tree — measured, exit 0. The banner's *position* is
+sentence and passes on the unmodified tree — measured, exit 0. The banner's _position_ is
 what is being asserted, so the gate has to be anchored to it.
 
 **Interfaces:**
+
 - Consumes: every prior task's deliverable.
