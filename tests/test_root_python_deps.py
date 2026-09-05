@@ -96,9 +96,8 @@ def _collect_guarded_import_ids(tree: ast.Module) -> set[int]:
     return guarded
 
 
-def _top_level_imports(path: Path) -> set[str]:
-    """Unguarded, absolute, top-level module names imported by `path`."""
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+def _top_level_imports_from_tree(tree: ast.Module) -> set[str]:
+    """Unguarded, absolute, top-level module names imported in a parsed AST."""
     guarded_ids = _collect_guarded_import_ids(tree)
     names: set[str] = set()
     for node in ast.walk(tree):
@@ -113,6 +112,12 @@ def _top_level_imports(path: Path) -> set[str]:
             if node.module:
                 names.add(node.module.split(".")[0])
     return names
+
+
+def _top_level_imports(path: Path) -> set[str]:
+    """Unguarded, absolute, top-level module names imported by `path`."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return _top_level_imports_from_tree(tree)
 
 
 def _classify_repo() -> dict[str, dict[str, str]]:
@@ -152,6 +157,31 @@ def _declared_requirements() -> set[str]:
         if name:
             declared.add(name)
     return declared
+
+
+class TestGuardedImportClassification(unittest.TestCase):
+    """The try/except ImportError guard, exercised directly against a synthetic AST.
+
+    No file in the current population contains a guarded import, so this branch of
+    `_collect_guarded_import_ids` runs zero times under `TestRootPythonDeps` — both
+    branches of the guard (per logic-review.md) require exercise, not just the one
+    the real population happens to hit.
+    """
+
+    def test_import_error_guard_excludes_the_import(self):
+        source = "try:\n    import numpy\nexcept ImportError:\n    numpy = None\n"
+        names = _top_level_imports_from_tree(ast.parse(source))
+        self.assertNotIn("numpy", names)
+
+    def test_unguarded_import_is_included(self):
+        source = "import requests\n"
+        names = _top_level_imports_from_tree(ast.parse(source))
+        self.assertIn("requests", names)
+
+    def test_guard_on_an_unrelated_exception_does_not_count(self):
+        source = "try:\n    import somelib\nexcept ValueError:\n    somelib = None\n"
+        names = _top_level_imports_from_tree(ast.parse(source))
+        self.assertIn("somelib", names)
 
 
 class TestRootPythonDeps(unittest.TestCase):

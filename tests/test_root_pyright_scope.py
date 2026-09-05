@@ -28,6 +28,17 @@ def _load_config() -> dict:
         return json.load(f)
 
 
+# `cwd=` alone is not isolation: an exported GIT_DIR (leaked into a pre-push hook when
+# pushing from a worktree, per shell.md) still wins over `-C`/`cwd`, silently reading a
+# different repository's index. Strip the repo-location vars for every git call so this
+# test resolves the worktree it actually runs in, not whatever a leaked hook exported.
+_GIT_ENV_STRIP = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
+
+
+def _clean_git_env() -> dict[str, str]:
+    return {k: v for k, v in os.environ.items() if k not in _GIT_ENV_STRIP}
+
+
 def _git_ls_files(*args: str) -> list[str]:
     result = subprocess.run(
         ["git", "ls-files", *args, *INCLUDE_PATHSPECS],
@@ -35,6 +46,7 @@ def _git_ls_files(*args: str) -> list[str]:
         capture_output=True,
         text=True,
         check=True,
+        env=_clean_git_env(),
     )
     return [line for line in result.stdout.splitlines() if line]
 
@@ -53,6 +65,18 @@ class TestRootPyrightMode(unittest.TestCase):
         config = _load_config()
         self.assertIs(config.get("reportMissingImports"), True)
 
+    def test_include_and_exclude_are_pinned_by_identity(self):
+        # A count-only check (assertion 2 below) pins CARDINALITY, not IDENTITY: it
+        # would not notice pyright's default `**/.*` exclude being restored on a day
+        # `.claude/scripts` happens to hold as many files as it drops. Pin the actual
+        # lists. `**/.*` is deliberately absent from exclude — measured: 10 files
+        # analysed with the default exclude absent (today's config), 9 with it
+        # restored — because exclude beats include and `.claude/scripts` starts with
+        # a dot, so the whole directory (currently one file) would be dropped.
+        config = _load_config()
+        self.assertEqual(config.get("include"), ["scripts", "tests", ".claude/scripts"])
+        self.assertEqual(config.get("exclude"), ["**/node_modules", "**/__pycache__"])
+
 
 class TestRootPyrightCoverage(unittest.TestCase):
     """Assertion 2: pyright's filesAnalyzed equals tracked + untracked .py files."""
@@ -60,7 +84,10 @@ class TestRootPyrightCoverage(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.pyright_bin = shutil.which("pyright")
-        if cls.pyright_bin is None and os.environ.get("CI"):
+        # Presence, not truthiness: GitHub Actions sets CI=true, but a set-and-falsy
+        # value (CI="", CI=0) must still fail closed rather than silently skip — only
+        # a wholly UNSET CI means "not running under a CI runner at all".
+        if cls.pyright_bin is None and "CI" in os.environ:
             raise RuntimeError("pyright is required in CI but was not found on PATH")
 
     def setUp(self):
@@ -80,15 +107,26 @@ class TestRootPyrightCoverage(unittest.TestCase):
             "expected at least one tracked .py file under the include roots",
         )
 
-        assert self.pyright_bin is not None  # narrowed by setUp's skipTest above
+        pyright_bin = self.pyright_bin
+        if pyright_bin is None:
+            self.fail("pyright not found on PATH")  # unreachable: setUp already skipped
         result = subprocess.run(
-            [self.pyright_bin, "--outputjson"],
+            [pyright_bin, "--outputjson"],
             cwd=REPO_ROOT,
             capture_output=True,
             text=True,
             check=False,
         )
-        report = json.loads(result.stdout)
+        try:
+            report = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            # A crash or a bad flag empties stdout; a bare JSONDecodeError here names
+            # neither the return code nor pyright's own diagnosis, and points a
+            # reader at the file-count denominator when the fault is pyright itself.
+            self.fail(
+                f"pyright --outputjson produced no JSON (rc={result.returncode}): "
+                f"{result.stderr[:500]}"
+            )
         files_analyzed = report["summary"]["filesAnalyzed"]
 
         self.assertEqual(
