@@ -448,80 +448,6 @@ The test skips when `pyright` is absent — **except when the `CI` environment v
 set, where a missing `pyright` fails.** Assertion 2 invokes pyright, so this guard is live
 rather than vestigial.
 
-**Four `tests/scripts/pre_push.bats` cases** for the widened trigger regex, following that
-file's existing pattern of setting `MOCK_GIT_DIFF_NAMES` to one path. Three positive —
-`pyrightconfig.json`, `requirements-dev.txt`, `.claude/scripts/triage_log.py` — each
-asserting the root test target is reached.
-
-**One negative, and it is the one this spec originally got wrong.** Round 1 claimed the
-widened regex needed no over-match test because the file's existing negative cases covered
-that direction. They do not. All four `assert_no_match` calls in that file:
-
-```
-35:  assert_no_match "^make"                     # empty diff
-42:  assert_no_match "^make"                     # empty diff
-115: assert_no_match "make -C .../pi test"
-124: assert_no_match "make -C .../pi/pi-rs test"
-```
-
-The two `^make` cases run with an empty diff, which an over-broad regex passes too; the other
-two name a specific sub-project target, never the root one. **No test in that file fails if
-line 52 is widened to match everything** — and the failure would be silent, running the root
-suite on every push, on a hook that gates every push in this repo. The fourth case sets
-`MOCK_GIT_DIFF_NAMES="pi/pi.py"` and asserts the root target is *not* reached.
-
-**`tests/test_root_pyright_scope.py`** — **redesigned in Multi-Lens Review round 1.** The
-first version asserted `pyright --outputjson`'s `filesAnalyzed` equals a `git ls-files`
-count. Three lenses converged on that being wrong, and measurement confirmed both defects:
-
-```
-                           filesAnalyzed   git ls-files
-clean tree                       8              8
-1 untracked .py                  9              8
-+1 nested untracked              10             8
-```
-
-```
-mode=standard                    filesAnalyzed 8  err 0
-mode=off                         filesAnalyzed 8  err 0
-mode=off + seeded type error     filesAnalyzed 8  err 0
-```
-
-The first table is a **disk-versus-index divergence**: pyright walks the filesystem,
-`git ls-files` reads the index, so `touch tests/test_foo.py && make test` — the exact
-sequence `tdd.md` mandates — goes red on a non-defect and teaches the operator to stage
-before running the suite. The second is worse: the count-equality **pins the denominator and
-never the measurement**, so the gate passes green with `typeCheckingMode: off` and a genuine
-type error present.
-
-The replacement drops the disk walk entirely and asserts two things with distinct failure
-modes, both derived from the index and the config rather than from a second enumeration:
-
-1. **Mode.** Parse `pyrightconfig.json`; assert `typeCheckingMode == "standard"` and
-   `reportMissingImports` is true. This is the artifact under protection — the silent
-   downgrade to `off` is precisely what the old gate could not see — so reading it is the
-   right target rather than displacement onto a proxy.
-2. **Coverage.** Assert every path in
-   `git ls-files 'tests/*.py' 'scripts/*.py' '.claude/scripts/*.py'` sits under one of the
-   config's `include` roots and is not matched by its `exclude` patterns. Index-only, so an
-   untracked scratch file cannot move it. Vacuity floor: the tracked count must be non-zero,
-   and `.claude/scripts/triage_log.py` must be among the covered paths — the file the
-   `exclude` override exists to reach, so a restored `**/.*` fails here rather than silently
-   shrinking the denominator.
-
-**Deliberately not added: a standing positive control running pyright over a known-bad
-fixture.** It would prove the installed binary still reports errors, which assertion 1
-cannot. The argument against is that §2 pins `pyright==1.1.411`, so the binary cannot change
-underneath the gate without a visible diff to that pin — and the implementation-time
-mutations below already demonstrate the tool reports errors at this version. This is the
-weakest link in the redesign and is named as such: if the pin is ever dropped, this control
-becomes necessary.
-
-The test skips when `pyright` is absent — **except when the `CI` environment variable is
-set, where a missing `pyright` fails.** Assertions 1 and 2 need no pyright binary at all;
-the guard covers only any future assertion that does.
-
-
 ## Verification
 
 Runnable now, against `c95f521`, and recorded above rather than predicted:
@@ -948,9 +874,15 @@ properties of `Makefile:83-84`'s deliberate skip-on-missing-tool design, which `
 requires so a machine is never locked out of committing the change that installs the tool.
 Not introduced here and not this spec's to fix.
 
-The first-party-name collision is **carried to the backlog** rather than fixed: no current
-top-level entry is a plausible import name, and narrowing the derivation to importable
-packages is a change to a test that does not exist yet.
+The first-party-name collision is **carried to the backlog** rather than fixed, and the row
+must state its **trigger, not its current state**: it becomes live the moment a new top-level
+directory is added whose name matches a distribution this repo imports. The safe-today
+measurement — no current top-level entry among `amicable collatz docs e factorial fib
+goldbach perfect-numbers pi prime scripts sq tests twin-primes` is a plausible import name —
+is what makes deferring it reasonable, and is exactly the wrong thing to write in the row,
+because it is dated and this repo adds top-level directories. The failure mode is Row 1's
+defect reintroduced by Row 1's fix: a shadowed name silently drops a genuine dependency from
+the required set, and both vacuity floors guard under-detection only.
 
 ### Stopping
 
@@ -961,9 +893,41 @@ on both stated signals:
 - **Artifact location.** Round 3's remaining items are in the test harness and the mutation
   procedure, not the mechanism. The one design finding was resolved by a form now verified
   against its own failure modes rather than reasoned about.
-- **Direction of the corrections.** Every round removed surface: 28 lines of superseded
-  design, a Python reimplementation of pyright's matcher, and a config-read-only gate that
-  invoked nothing. Nothing was added to replace them beyond four lines of arithmetic.
+- ~~**Direction of the corrections.**~~ **Retracted — this signal was read on the wrong
+  object and does not hold.** The claim was that every round removed surface. Measured over
+  the document:
 
-Both signals agree, which is the condition for stopping. The next round should be Phase 2's
-first red test.
+  ```
+  dd573f6  327 lines
+  72a5c17  628
+  c0165ea  847
+  7b65860  969
+  ```
+
+  It grew every round. The claim is true of the *component under review* — the gate mechanism
+  shed a matcher reimplementation and a config-only read — and false of the artifact, because
+  each round also added measurements, dispositions and review prose. Reading a
+  whole-document signal off one component is the same error as measuring `pi` and claiming
+  all 8 sub-projects, committed twice in one spec.
+
+**The stop rests on artifact location alone, which does hold.** That is a weaker argument
+than two agreeing signals and is recorded as such. The next round should be Phase 2's first
+red test.
+
+Found by external review, not by this session — and the finding it came with was that the
+duplication removed in round 2 had been reintroduced by the round-3 edit, with the second
+copy carrying the *refuted* round-2 gate. Same defect, same document, one round apart:
+
+```
+338 / 451  Four `tests/scripts/pre_push.bats` cases          duplicated
+360 / 473  **tests/test_root_pyright_scope.py**              duplicated
+448        "assertion 2 invokes pyright, so this guard is live"
+521        "Assertions 1 and 2 need no pyright binary at all"
+```
+
+An implementer reading to the end would have built the design round 2 refuted. Removed, and
+the lesson is mechanical rather than attitudinal: **`str.index` anchors find the first
+occurrence, so a splice against a document that already contains a duplicate silently
+preserves the copy after it.** Any future edit to this file must re-grep for its own anchors
+afterwards, which is what the verification commands under §Verification do for code and
+nothing was doing for prose.
