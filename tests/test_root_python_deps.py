@@ -31,6 +31,7 @@ PyPI distribution name that provides them (`yaml` ships in the `pyyaml` distribu
 from __future__ import annotations
 
 import ast
+import os
 import re
 import subprocess
 import sys
@@ -49,6 +50,20 @@ _IMPORT_TO_DISTRIBUTION = {
 }
 
 
+def _clean_git_env() -> dict[str, str]:
+    """Strip the repo-location variables git exports into hook environments.
+
+    `cwd=` is not isolation: an inherited GIT_DIR still wins, so a call made from
+    a pre-push hook resolves against whatever repository invoked git rather than
+    this one (shell.md, "`git -C <dir>` does not override an exported GIT_DIR").
+    `make test` runs under that hook, so this path is reachable in normal use.
+    """
+    env = dict(os.environ)
+    for var in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"):
+        env.pop(var, None)
+    return env
+
+
 def _git_ls_files(*pathspecs: str) -> list[str]:
     result = subprocess.run(
         ["git", "ls-files", *pathspecs],
@@ -56,6 +71,7 @@ def _git_ls_files(*pathspecs: str) -> list[str]:
         capture_output=True,
         text=True,
         check=True,
+        env=_clean_git_env(),
     )
     return [line for line in result.stdout.splitlines() if line]
 
