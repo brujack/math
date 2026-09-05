@@ -1,5 +1,7 @@
 # Atomic Release Publication Implementation Plan
 
+> **Status: DONE** — merged as `b67826d` (PR #130), 2026-09-05.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the SBOM catalogue real dependencies, and publish it in the same operation that publishes the release, so a published release always carries a meaningful SBOM.
