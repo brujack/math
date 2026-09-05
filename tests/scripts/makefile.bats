@@ -452,16 +452,28 @@ STUB
 # The failing branch here has no E2 exposure at all: with no python3
 # reachable, the pip line is structurally unreachable, so there is nothing
 # for a regressed guard to install for real. PATH is not replaced wholesale
-# (an empty/nonexistent directory makes `make` itself unresolvable -- exit
-# 127, "command not found", never reaching the recipe) -- it is scrubbed:
-# every PATH entry that actually resolves a python3 executable is dropped,
-# every other entry (including wherever `make` lives) is kept.
+# PATH is neither replaced wholesale nor scrubbed by dropping python3-bearing
+# entries. Both fail, for opposite reasons:
+#
+#   empty PATH        -> `make` itself is unresolvable, exit 127, recipe never runs
+#   drop python3 dirs -> works on macOS, FAILS on Linux. Measured: this box has
+#                        python3 at ~/.pyenv/shims and make at Homebrew's gnubin,
+#                        different directories; ubuntu-latest has BOTH at
+#                        /usr/bin, so dropping python3's directory drops make too
+#                        and the recipe again never runs (exit 127).
+#
+# The scrub form shipped first and passed locally on exactly that difference --
+# tdd.md pitfall G, caught by CI on this branch, not by review. Instead: a shim
+# directory holding only a `make` symlink. `make` resolves, `python3` does not,
+# and the answer is identical on both platforms because it depends on nothing
+# about where either binary lives.
 @test "install-deps names python3 absence separately from the marker message" {
-    local scrubbed
-    scrubbed="$(printf '%s' "${PATH}" | tr ':' '\n' | while read -r d; do [[ -x "${d}/python3" ]] || printf '%s\n' "${d}"; done | tr '\n' ':')"
-    scrubbed="${scrubbed%:}"
+    local shim
+    shim="${BATS_TEST_TMPDIR}/nopy"
+    mkdir -p "${shim}"
+    ln -s "$(command -v make)" "${shim}/make"
 
-    PATH="${scrubbed}" run make -C "${REPO_ROOT}" install-deps
+    PATH="${shim}" run make -C "${REPO_ROOT}" install-deps
 
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"python3 not found on PATH"* ]]
