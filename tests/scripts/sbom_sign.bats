@@ -67,9 +67,13 @@ teardown() {
     assert_no_match "^cosign "
 }
 
-@test "SBOM with no packages key fails rather than reading as zero" {
+@test "empty SBOM package list fails, and cosign is never invoked" {
+    # MOCK_SYFT_PACKAGES=0 emits {"packages":[]}, so jq returns 0 and this
+    # exercises the -le 1 branch -- NOT the unreadable-count branch, which jq
+    # cannot reach here since `null | length` is also 0. Named for what it does.
     MOCK_SYFT_PACKAGES=0 run "${SCRIPT}" "${BIN_DIR}" mybin
     [ "${status}" -ne 0 ]
+    [[ "${output}" == *"catalogues 0 package"* ]]
     assert_no_match "^cosign "
 }
 
