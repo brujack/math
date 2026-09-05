@@ -193,8 +193,28 @@ The repo already has this pattern: `Makefile:84` prints
 
 ```make
 install-deps:
+	@python3 -c 'import os, sysconfig; raise SystemExit(1 if os.path.exists(os.path.join(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED")) else 0)' \
+	  || { printf 'python3 is externally managed (PEP 668). Create a venv first:\n  python3 -m venv .venv && . .venv/bin/activate\nthen re-run: make install-deps\n' >&2; exit 1; }
 	python3 -m pip install -r requirements-dev.txt
 ```
+
+**The PEP 668 guard is not defensive boilerplate — the bare form fails on one of the two
+development machines.** Measured over `ssh workstation` (Linux 7950X):
+
+```
+Python 3.12.3
+EXTERNALLY-MANAGED: True
+python3 -m pip install pyyaml==6.0.3  ->  error: externally-managed-environment
+```
+
+The Mac Studio's pyenv interpreter carries no marker and installs normally, so the marker is
+the exact discriminator pip itself uses. Refusing with the venv command follows this repo's
+remedy-in-the-message pattern (`Makefile:84`) and is preferable to
+`--break-system-packages`, which does what its name says to a system interpreter.
+
+Note the verification row for this target must **not** run only inside a venv: a venv is the
+one environment where PEP 668 structurally cannot fire, so testing there certifies nothing
+about the fresh-checkout path this target exists for.
 
 **`python3 -m pip`, not bare `pip`, and this is not style.** Measured on the Mac Studio:
 `pip --version` resolves to
@@ -367,42 +387,59 @@ The replacement asserts two things with distinct failure modes:
    `reportMissingImports` is true. This is the artifact under protection — the silent
    downgrade to `off` is precisely what a count-equality cannot see — so reading it is the
    right target rather than displacement onto a proxy.
-2. **Coverage, as an inequality against pyright's own output.** Assert
-   `filesAnalyzed >= len(git ls-files 'tests/*.py' 'scripts/*.py' '.claude/scripts/*.py')`.
+2. **Coverage, as an equality against pyright's own output with slack modelled.** Assert
 
-**The inequality is load-bearing and replaces a worse round-2 draft.** That draft asserted
-each tracked path "sits under an `include` root and is not matched by `exclude`" — a
-reimplementation of pyright's matcher in Python. All three round-2 lenses attacked it and
-measurement killed it:
+   ```
+   filesAnalyzed == |git ls-files       'tests/*.py' 'scripts/*.py' '.claude/scripts/*.py'|
+                  + |git ls-files -o    'tests/*.py' 'scripts/*.py' '.claude/scripts/*.py'|
+   ```
+
+   pyright analyses every `.py` under an `include` root regardless of git state; the two
+   `git ls-files` invocations enumerate exactly that set, tracked and untracked. Note `-o`
+   without `--exclude-standard`: pyright does not read `.gitignore`, so ignored files must be
+   counted too.
+
+**This is the third draft of this assertion, and the first two are recorded because each was
+refuted by the fix for its predecessor.**
+
+| draft | defeated by |
+| --- | --- |
+| `filesAnalyzed == tracked` | one untracked `.py` gives 9 vs 8 — false red inside the TDD loop `tdd.md` mandates |
+| assert each tracked path clears `exclude` in Python | `fnmatch` and `PurePath.match` both return False for `('.claude/scripts/triage_log.py', '**/.*')` while pyright drops the file; pyright excludes by directory descent and no stdlib glob has that semantics |
+| `filesAnalyzed >= tracked` | slack is one-directional in the *other* direction too: one untracked file buys back a dropped `include` root |
+
+The third refutation, measured on the real tree:
 
 ```
-pyright, exclude ["**/node_modules","**/__pycache__"]            filesAnalyzed 8
-pyright, exclude [... , "**/.*"]                                 filesAnalyzed 7
-tracked root-scope count                                         8
-
-fnmatch('.claude/scripts/triage_log.py', '**/.*')                False
-PurePath('.claude/scripts/triage_log.py').match('**/.*')         False
+baseline                        filesAnalyzed=8  tracked=8   pass
+include root dropped            filesAnalyzed=7  tracked=8   FAIL
+dropped + 1 untracked scratch   filesAnalyzed=8  tracked=8   PASS   <- triage_log.py unanalysed
 ```
 
-pyright excludes by **directory descent**; no stdlib glob call has directory-prefix
-semantics. So pyright drops the file and every stdlib matcher says it is not excluded —
-mutation 4 would have stayed green while the gate certified a file pyright never analysed.
-That is the displacement failure exactly: the gate derived from a Python glob library rather
-than from the walker it governs.
+`>=` would have gone green with the file unanalysed. Worse, the two requirements were not
+independent: Verification row 8 requires the gate green on a dirty tree, and mutation 4
+certifies it on a clean one — one mechanism read in opposite directions, with only the
+flattering direction argued.
 
-`>=` fixes all of it with less code. `8 >= 8` passes; restoring `**/.*` gives `7 >= 8` and
-fails. Untracked files only *raise* `filesAnalyzed`, so the disk-versus-index divergence that
-killed the round-1 equality cannot produce a false red — the property `>=` has and `==` does
-not. And it keeps a real pyright invocation in the standing suite, which the round-2 draft
-had removed entirely.
+The equality above is verified against all four states, including the case the `**/.*`
+removal opens:
 
-**A standing positive control is still not added, and the reason has changed.** The round-2
-draft argued the `pyright==1.1.411` pin made one unnecessary; that argument was weak, since
-the pin is scoped to `scripts.yml` and does not cover the local binary `make test-python`
-now exercises. The actual reason is that assertion 2 *is* a live pyright invocation whose
-number moves — it is no longer a config read. What it still does not prove is that pyright
-reports *errors* rather than merely counting files; mutation 3 covers that at implementation
-time. Named as the residual gap.
+```
+baseline                            fa=8   expected 8 + 0 = 8    pass
++1 untracked                        fa=9   expected 8 + 1 = 9    pass
++1 untracked, include root dropped  fa=8   expected 8 + 1 = 9    RED
+gitignored tests/.fakevenv/, 2 .py  fa=10  expected 8 + 2 = 10   pass
+```
+
+The third row is the one that matters: mutation 4 now fires **in a dirty tree**, which is the
+state the operator is usually in. The fourth confirms `git ls-files -o` recurses into ignored
+directories and lists files individually rather than collapsing the directory.
+
+A set-based assertion would be stronger and is **unavailable**: `pyright --outputjson` emits
+only `version`, `time`, `generalDiagnostics` and `summary` — no analysed-file list — and
+`--dependencies` names none either (measured: 0 matches for two known analysed filenames).
+So a cardinality check is the best available, and what it cannot express is *which* file was
+reached. Mutation 4 covers that at implementation time.
 
 Vacuity floor: the tracked count must be non-zero, so an empty `git ls-files` cannot make the
 inequality trivially true.
@@ -505,7 +542,8 @@ After implementation:
 | `bats --recursive tests/` | all pass, including the unchanged `ruff==` assertion |
 | `pyright` from repo root | `8 files, 0 errors` |
 | `cd pi && pyright` | `2 files, 0 errors` — unchanged |
-| `make install-deps` in a venv with neither package | both install; `make test-python` then `OK` |
+| `make install-deps` on the Mac Studio, neither package present | both install; `make test-python` then `OK` |
+| `make install-deps` over `ssh workstation`, no venv | exits non-zero naming the venv command — **not** tested inside a venv, where PEP 668 cannot fire |
 | `touch tests/_scratch.py && make test` | `OK` — the redesigned gate is index-only and must not go red on untracked state |
 
 Five mutations, because a gate that has never gone red is not yet a gate:
@@ -518,9 +556,9 @@ Five mutations, because a gate that has never gone red is not yet a gate:
 3. Set `typeCheckingMode` to `off` in `pyrightconfig.json`; `tests/test_root_pyright_scope.py`
    assertion 1 must go red. The old design passed this case at full green.
 4. Restore `**/.*` to the config's `exclude`; assertion 2 must go red. Measured: this takes
-   `filesAnalyzed` from 8 to 7 against a tracked count of 8, so `7 >= 8` fails. The round-1
-   equality could not see a shrinking denominator at all, and the round-2 stdlib-matcher draft
-   would have reported the file as covered.
+   `filesAnalyzed` from 8 to 7 while the expected total stays 8. **Run this mutation with an
+   untracked `.py` present as well as on a clean tree** — the `>=` draft passed the dirty
+   case, which is how the false green was found.
 5. Widen `scripts/pre-push:52` to `.` (match everything); the new negative `pre_push.bats`
    case must go red. No existing case does.
 
@@ -845,3 +883,87 @@ disagree with the trade.
 ### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — unchanged from round 1.
+
+---
+
+## Multi-Lens Review — Round 3 (scoped)
+
+Reviewed at commit: `c0165ea`. **Scoped re-review**, one lens (Risk), pointed only at the
+sections the round-2 revision changed: `make install-deps`, the four-alternative pre-push
+regex, the "third-party" definition, the coverage inequality, and the five mutations. The
+rest of the document is unchanged and reviewed twice already.
+
+### Risk (scoped)
+
+Finding, two parts:
+
+1. **The coverage inequality had a false-green mode, and the spec's own verification row
+   mandated the conditions for it.** `>=`'s tolerance of untracked files was argued only in
+   the direction that flatters it. Slack also buys back a *dropped* tracked file. Reproduced
+   on the real tree:
+
+   ```
+   baseline                        filesAnalyzed=8  tracked=8   pass
+   include root dropped            filesAnalyzed=7  tracked=8   FAIL
+   dropped + 1 untracked scratch   filesAnalyzed=8  tracked=8   PASS
+   ```
+
+   Mutation 4 was specified on a clean tree — the one state where slack is zero — while
+   Verification row 8 requires the gate green on a dirty tree, which is the state `tdd.md`'s
+   red-green loop keeps the operator in. Two requirements that are one mechanism read in
+   opposite directions.
+
+2. **`make install-deps` does not work on the Linux 7950X.** The round-2 justification for
+   `python3 -m pip` was also wrong on its own terms: on the Mac Studio `pip` and
+   `python3 -m pip` print the identical line, so the divergence the spec asserted does not
+   exist there. The remedy is right for a different, measured reason — PEP 668.
+
+Also raised and not disputed: two Verification rows (`make lint`, `make test` → exit 0) are
+satisfied by both linters being absent, since `Makefile:83-84` skips a missing ruff and exits
+0 by design; and deriving first-party names from every top-level entry means a future
+top-level directory sharing a distribution's import name would silently drop it from the
+required set — Row 1's defect reintroduced by the fix for it.
+
+Checked and explicitly cleared: the four-alternative regex over-matches nothing across 16
+probed paths; `git ls-files 'tests/*.py'` does match nested paths, so the denominator does not
+undercount; no current top-level entry is a plausible root-scope import.
+
+Premise verification: picked the round-2 claim that `>=`'s tolerance is a one-directional
+safety property. Scratch-repo differential at baseline, with an include root removed, and with
+that removal plus one untracked file: `3/3 pass`, `2/3 FAIL`, `3/3 PASS`. **Verdict: true as
+stated, false as relied on.**
+
+Assumption: that the working tree carries no untracked root-scope `.py` when the gate runs.
+**Refuted** — Verification row 8 asserts the dirty tree is the normal case, which contradicts
+it outright.
+
+Disposition: **Addressed.** Finding 1 replaced the inequality with an equality that models
+slack explicitly, verified against four states including the two that killed its predecessors
+and the gitignored-directory case the `**/.*` removal opens. Mutation 4 now requires running
+in a dirty tree as well as clean. Finding 2 added the PEP 668 guard, measured over
+`ssh workstation`, and the verification row no longer tests only inside a venv.
+
+The two null-passing `make lint` / `make test` rows are **Accepted** — they are pre-existing
+properties of `Makefile:83-84`'s deliberate skip-on-missing-tool design, which `ci.md`
+requires so a machine is never locked out of committing the change that installs the tool.
+Not introduced here and not this spec's to fix.
+
+The first-party-name collision is **carried to the backlog** rather than fixed: no current
+top-level entry is a plausible import name, and narrowing the derivation to importable
+packages is a change to a test that does not exist yet.
+
+### Stopping
+
+Three rounds, and each round found a defect created by the previous round's fix — the pattern
+this skill names as the argument against budgeting rounds on decaying yield. Stopping anyway,
+on both stated signals:
+
+- **Artifact location.** Round 3's remaining items are in the test harness and the mutation
+  procedure, not the mechanism. The one design finding was resolved by a form now verified
+  against its own failure modes rather than reasoned about.
+- **Direction of the corrections.** Every round removed surface: 28 lines of superseded
+  design, a Python reimplementation of pyright's matcher, and a config-read-only gate that
+  invoked nothing. Nothing was added to replace them beyond four lines of arithmetic.
+
+Both signals agree, which is the condition for stopping. The next round should be Phase 2's
+first red test.
