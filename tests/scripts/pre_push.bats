@@ -218,3 +218,56 @@ teardown() {
     [ "$status" -eq 0 ]
     assert_no_match "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$"
 }
+
+# ai-config#229: a gate pattern named `docs/postmortems/**`, a directory that has
+# never existed in that repo, and its whole firing matrix passed because each case
+# did `mkdir -p` first. The fixture supplied the precondition production must
+# already have, so the suite could not tell a live pattern from a dead one.
+#
+# Every case above sets MOCK_GIT_DIFF_NAMES itself, so it has the same blind spot:
+# a pattern and a fixture sharing the same wrong path agree with each other. This
+# asserts the alternatives against the tracked set instead, and counts rather than
+# checks membership -- a membership check passes on a partial parse.
+@test "every root-scope trigger alternative matches at least one tracked path" {
+    local line alts alt probe matched=0 total=0 dead="" clean_path
+    # `load_mocks` puts tests/mocks on PATH, and it contains a `git` stub -- so a
+    # bare `git ls-files` here queries the mock and reports every alternative dead.
+    # shell.md: "a PATH mock shadows the binary your production code needs".
+    clean_path="$(printf '%s' "${PATH}" | tr ':' '\n' | grep -v 'tests/mocks' | tr '\n' ':' | sed 's/:$//')"
+    # Anchor on the root-scope alternation specifically: the sub-project loop
+    # above it also pipes `git diff --name-only` into `grep -qE`, but with a
+    # built `${_pattern}` rather than a literal, and matching that line first is
+    # how the initial version of this test extracted nothing.
+    line="$(grep -n "grep -qE '\^scripts/" "${REPO_ROOT}/scripts/pre-push" | head -1)"
+    [ -n "${line}" ]
+
+    # Pull the alternation out of the single-quoted grep -E argument.
+    alts="$(printf '%s' "${line}" | sed -E "s/.*grep -qE '([^']+)'.*/\1/")"
+    [ -n "${alts}" ]
+    [ "${alts}" != "${line}" ]
+
+    while IFS= read -r alt; do
+        [ -n "${alt}" ] || continue
+        total=$((total + 1))
+        # Strip anchors and regex escapes to recover the literal path or prefix.
+        probe="${alt#^}"; probe="${probe%$}"; probe="${probe//\\./.}"
+        # A prefix alternative (no trailing $) matches a directory; a `.*` form is
+        # a glob. Reduce both to something git ls-files can answer.
+        probe="${probe%%.\**}"
+        if [ -n "$(cd "${REPO_ROOT}" && PATH="${clean_path}" git ls-files -- "${probe}" "${probe}*" 2>/dev/null | head -1)" ]; then
+            matched=$((matched + 1))
+        else
+            dead="${dead}${alt} "
+        fi
+    done < <(printf '%s' "${alts}" | tr '|' '\n')
+
+    if [ -n "${dead}" ]; then
+        printf 'trigger alternatives matching no tracked path: %s\n' "${dead}" >&2
+        return 1
+    fi
+    # Every parsed alternative matched, and the parse yielded something. Derived
+    # rather than a literal: the alternation legitimately grows, and a hardcoded
+    # count turns red on a correct addition (writing-plans, magic-number gates).
+    [ "${matched}" -eq "${total}" ]
+    [ "${total}" -ge 4 ]
+}
