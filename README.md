@@ -358,13 +358,21 @@ See [`amicable/README.md`](amicable/README.md) for full details.
 
 ## Development Setup
 
-After cloning, install the pre-commit hook:
+After cloning, install the git hooks and root-scope Python dependencies:
 
 ```bash
-make install-hooks
+make install-hooks   # symlinks pre-commit, pre-push and commit-msg
+make install-deps    # installs what tests/, scripts/ and .claude/scripts/ import
 ```
 
-This symlinks `scripts/pre-commit` into `.git/hooks/pre-commit`. The hook runs `make lint` on staged sub-projects and scans for secrets with `ggshield` (skipped gracefully if not installed). CI secret-scan via gitleaks is a backstop — local scanning catches secrets before they leave the machine.
+`install-deps` reads `requirements-dev.txt` — the third-party modules root-scope
+Python actually imports (`defusedxml`, `pyyaml`), not a tool list. It refuses on a
+PEP 668 externally-managed interpreter rather than using `--break-system-packages`,
+and the refusal names the remedy: `python3 -m venv .venv && . .venv/bin/activate`.
+Without it, `make test` fails at import — `scripts/pre-push` runs the root suite on
+any push touching `scripts/`, `tests/` or `.claude/scripts/`.
+
+`install-hooks` symlinks `scripts/pre-commit` into `.git/hooks/pre-commit`. The hook runs `make lint` on staged sub-projects and scans for secrets with `ggshield` (skipped gracefully if not installed). CI secret-scan via gitleaks is a backstop — local scanning catches secrets before they leave the machine.
 
 Install ggshield: `brew install gitguardian/tap/ggshield && ggshield auth login`.
 
