@@ -18,6 +18,21 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Real syft always emits a .packages array, and scripts/sbom-sign.sh reads its
+# length to reject an SBOM cataloguing only the binary. A stub without that key
+# is not mock-fidelitous -- it made the success case fail once the guard landed.
+# MOCK_SYFT_PACKAGES controls the count so tests can drive the guard both ways;
+# the default of 13 is what real syft reports for a cargo-auditable build.
 if [[ -n "${_output}" ]]; then
-    printf '{"mock":"spdx"}\n' > "${_output}"
+    _n="${MOCK_SYFT_PACKAGES:-13}"
+    {
+        printf '{"packages":['
+        _i=0
+        while [[ "${_i}" -lt "${_n}" ]]; do
+            [[ "${_i}" -gt 0 ]] && printf ','
+            printf '{"name":"dep%s"}' "${_i}"
+            _i=$((_i + 1))
+        done
+        printf ']}\n'
+    } > "${_output}"
 fi

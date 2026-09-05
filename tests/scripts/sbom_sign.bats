@@ -55,6 +55,24 @@ teardown() {
     [ "${status}" -ne 0 ]
 }
 
+# The guard that rejects a content-free SBOM. Without cargo-auditable, real syft
+# reports exactly 1 package (the binary itself) and the release would otherwise
+# publish an SBOM grype can never find anything in -- the failure this pipeline
+# exists to prevent. These drive the mock's package count to both sides of it.
+@test "SBOM cataloguing only the binary fails, and cosign is never invoked" {
+    MOCK_SYFT_PACKAGES=1 run "${SCRIPT}" "${BIN_DIR}" mybin
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"catalogues 1 package"* ]]
+    [[ "${output}" == *"cargo auditable build"* ]]
+    assert_no_match "^cosign "
+}
+
+@test "SBOM with no packages key fails rather than reading as zero" {
+    MOCK_SYFT_PACKAGES=0 run "${SCRIPT}" "${BIN_DIR}" mybin
+    [ "${status}" -ne 0 ]
+    assert_no_match "^cosign "
+}
+
 # Wrong arity is a distinct failure from a missing binary -- both return 1, so
 # these assert on the Usage message rather than bare non-zero. `Usage:` and
 # `not a regular file` each appear in exactly one branch of sbom-sign.sh, so the
