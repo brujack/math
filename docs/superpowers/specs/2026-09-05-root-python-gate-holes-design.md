@@ -800,11 +800,15 @@ longer depends on it.
 Disposition: **Addressed** for 6 and 7 — 6 is now recorded beside the `makefile.bats`
 constraint, 7 was already in §Documentation and is unchanged.
 
-Finding 5 — **Accepted, reason: one negative case is what the existing file's pattern
-supports, and the boundary it fails to pin is narrower than the class mutation 5 covers.** A
-regex widened to `^\.` or `^pyright` is a deliberate edit rather than the accidental
-over-broadening the case exists to catch. Recorded rather than fixed so a later reader can
-disagree with the trade.
+Finding 5 — **Accepted by the operator, 2026-09-05.** Reason: one negative case is what the
+existing file's pattern supports, and the boundary it fails to pin is narrower than the class
+mutation 5 covers — a regex widened to `^\.` or `^pyright` is a deliberate edit rather than
+the accidental over-broadening the case exists to catch. Recorded rather than fixed so a later
+reader can disagree with the trade.
+
+Provenance, because it matters for a disposition: this reason was drafted by the session and
+put to the operator twice as needing confirmation or replacement; it was confirmed on the
+second ask. It is not an inferred disposition.
 
 ### Adversarial Spec Review (comparison/judge designs only)
 
