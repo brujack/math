@@ -228,7 +228,11 @@ depends_on: []
 
 `exclude` is pyright's default minus `**/.*`. **Exclude beats include** — naming `.claude/scripts` in `include` is not enough on its own; measured 7 files with the default exclude, 8 without `**/.*`. JSON takes no comments, so record this in the CLAUDE.md entry (Task 6), not in the file.
 
-Delete `scripts/pyrightconfig.json`. Verified safe: pyright resolves config from cwd and does not walk up, so all 8 sub-project gates are unaffected — measured `2 files 0 err` for every one of them with and without a root config present.
+Delete `scripts/pyrightconfig.json`. Safe, but **not for the reason originally recorded** —
+pyright *does* walk up (corrected in the spec 2026-09-05, measured `cd scripts && pyright` →
+`Loading configuration file at <root>/pyrightconfig.json`, 10 files). The 8 sub-project gates
+are unaffected because each has its own config, found before the walk-up reaches root:
+measured `2 files 0 err` for every one of them with and without a root config present.
 
 **Tests** — `tests/test_root_pyright_scope.py`, written first and seen to fail:
 

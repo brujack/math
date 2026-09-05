@@ -113,10 +113,33 @@ pi                 2 files 0 err            2 files 0 err
 sq                 2 files 0 err            2 files 0 err
 ```
 
-pyright resolves `pyrightconfig.json` from the current working directory and does not walk
-up the tree — unlike `ruff.toml`, which this repo relies on for ancestor discovery across
-those same 8 sub-projects. Adding a root config is therefore inert for all 8 sub-project
-pyright gates.
+**Corrected 2026-09-05, during Phase 2.** This section originally read: *"pyright resolves
+`pyrightconfig.json` from the current working directory and does not walk up the tree."*
+**That is false. pyright does walk up**, exactly as `ruff.toml` does. Measured after
+`scripts/pyrightconfig.json` was deleted — the first moment a config-less directory existed:
+
+```
+cd scripts  && pyright   filesAnalyzed 10   Loading configuration file at <root>/pyrightconfig.json
+cd amicable && pyright   filesAnalyzed 2    Loading configuration file at <root>/amicable/pyrightconfig.json
+```
+
+**The conclusion the table supports is unchanged and the reason for it is different.** A root
+config is inert for the 8 sub-project gates because each sub-project has its *own* config,
+which pyright finds before the walk-up reaches the root — not because no walk-up occurs.
+
+**How the original measurement went wrong is the part worth keeping.** It ran
+`cd pi && pyright` with and without a root config and got `2 files` both times. `pi` has its
+own config, so that result is equally consistent with *"pyright does not walk up"* and with
+*"pyright walks up, and a local config wins first"* — a value compatible with both causes,
+which is the failure `behavior.md` describes under "The artifact carries the field, and its
+value is compatible with both causes". The discriminating probe is a directory with **no**
+config, and none existed until this design deleted one. The section quoted that rule and
+committed the error inside it.
+
+Two consequences. `working-directory: scripts` in `scripts.yml` no longer scopes anything —
+it loads the root config and analyses the whole root-scope set; §2 drops that line anyway, now
+for a second reason. And anyone who later deletes a sub-project's `pyrightconfig.json` should
+expect the root config to apply to it, rather than expecting no config at all.
 
 This was measured rather than assumed because a wrong answer would have silently changed all
 8. It was also measured across all 8 rather than one: the first pass ran `pi` alone and the
