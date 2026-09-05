@@ -49,7 +49,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         fi
     done
 
-    if git diff --name-only "${range}" | grep -qE '^scripts/|^tests/|^Makefile$|^\.github/workflows/mutation-testing.*\.yml$'; then
+    if git diff --name-only "${range}" | grep -qE '^scripts/|^tests/|^Makefile$|^\.github/workflows/mutation-testing.*\.yml$|^\.github/workflows/release-.*\.yml$|^\.github/actions/'; then
         RUN_HOOK_TESTS=1
     fi
 done

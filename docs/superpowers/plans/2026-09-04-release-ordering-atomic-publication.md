@@ -281,6 +281,21 @@ Two defects, one pre-existing. The command reads `--signature factorial.sig --ce
 
 Second, `--certificate-identity ".../release-sign.yml@refs/tags/factorial-vTAG"` names a workflow Task 3 deletes. Keyless cosign's identity is the workflow that requested the token, so one identity becomes eleven — `release-<name>-rs.yml`.
 
+**Added during execution (Task 3 code-quality review, 2026-09-04): the `@refs/tags/...` half is
+wrong too, and was already wrong before this PR.** Keyless cosign's SAN carries the workflow
+run's git ref, and these workflows are `workflow_dispatch`-triggered from the default branch,
+so the ref is `refs/heads/master`, not the release tag. Under the old pipeline the identity
+was `release-sign.yml@refs/heads/master` (a local reusable workflow inherits the caller's
+ref); under the new one it is `release-<name>-rs.yml@refs/heads/master`, because a composite
+action runs inside the caller's job and has no workflow ref of its own. Signing now also
+happens *before* the tag exists, which makes a tag-based identity incoherent rather than
+merely stale.
+
+So the block has three independent defects: the v3 `--signature`/`--certificate` flags, the
+deleted workflow name, and the ref. Fix all three, and add one line telling the reader the
+identity can be confirmed against a real release rather than trusted from the docs — this
+plan cannot verify it, since nothing here cuts a release.
+
 Rewrite to the v4 form, parameterised over the sub-project name so the reader substitutes once:
 
 ```bash
@@ -318,9 +333,20 @@ files_touched:
 depends_on: [3]
 ```
 
-**Files:** `CLAUDE.md` — the CI table, the workflow count sentence, and a new note.
+**Files:** `CLAUDE.md` — the CI table, the workflow count sentence, the `tests/mocks/` inventory, and a new note.
+
+**Added during execution (Task 1 spec review, 2026-09-04):** `CLAUDE.md:477` enumerates the
+contents of `tests/mocks/` — `make`, `git`, `ggshield`, `gh` — and Task 1 added `syft` and
+`cosign`, so that line now under-documents the directory by two. Extend it with both, naming
+that `syft` honours `--file` and `cosign` honours `--bundle` (they write real output files so
+the sbom-sign suite discriminates a working script from a no-op stub). Recorded here rather
+than left in conversation because it sits between two tasks and would otherwise fall through.
 
 - Remove the `release-sign` row from the CI workflow table; the workflow count drops by one from its stated forty-one. State the new count by re-deriving it (`git ls-files .github/workflows/ | wc -l`) rather than by subtracting.
+- **Added during execution (Task 3 code-quality review):** the Testing section's repo-level
+  Python line claims "**51 tests**" across four named files. Task 3 added a fifth
+  (`tests/test_release_workflows.py`) and the count has moved. Re-derive both from
+  `make test-python` output rather than adjusting the stated number.
 - Add a note under CI recording both invariants and why they exist:
   - **The SBOM is only meaningful under `cargo-auditable`.** Measured 2026-09-04: `syft` over a stripped Rust binary reports 1 package — the binary itself — on both Mach-O arm64 and ELF x86-64, against a 133-crate lockfile. With `cargo auditable build --release` it reports 13 with real dependency names. A release built without it publishes an SBOM that `grype` scans to no effect.
   - **Signing happens before publication, in the release job.** `release-sign.yml` was a reusable workflow, so it ran as its own job and had to `gh release download` the binary, which forced the release to exist first — leaving a window where a published release carried no SBOM. The composite action removes the window rather than narrowing it. Do not reintroduce a separate signing job.

@@ -34,8 +34,11 @@ jobs:
         run: make test
         working-directory: collatz/collatz-rs
 
+      - name: Install cargo-auditable
+        run: cargo install cargo-auditable --locked --version 0.7.5
+
       - name: Build release binary
-        run: cargo build --release
+        run: cargo auditable build --release
         working-directory: collatz/collatz-rs
 
       - name: Generate CHANGELOG
@@ -73,6 +76,11 @@ jobs:
           (cd collatz/collatz-rs/target/release && sha256sum collatz) > collatz/collatz-rs/target/release/collatz.sha256
           cat collatz/collatz-rs/target/release/collatz.sha256
 
+      - uses: ./.github/actions/sbom-sign
+        with:
+          binary_path: collatz/collatz-rs/target/release
+          binary_name: collatz
+
       - name: Create and push tag
         env:
           VERSION: ${{ inputs.version }}
@@ -91,13 +99,6 @@ jobs:
           files: |
             collatz/collatz-rs/target/release/collatz
             collatz/collatz-rs/target/release/collatz.sha256
-
-  sign:
-    needs: [release]
-    uses: ./.github/workflows/release-sign.yml
-    with:
-      release_tag: "collatz-v${{ inputs.version }}"
-      binary_name: "collatz"
-    permissions:
-      id-token: write
-      contents: write
+            collatz/collatz-rs/target/release/collatz.sbom.spdx.json
+            collatz/collatz-rs/target/release/collatz.bundle
+          fail_on_unmatched_files: true

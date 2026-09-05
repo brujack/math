@@ -29,3 +29,4 @@ Repo-specific decisions for the `math` repository. Cross-cutting decisions (CI t
 | [0023](0023-pytest-as-python-test-runner.md)                              | pytest as Python test runner (replaces python3 -m unittest)     | 2026-06-19 | Accepted               |
 | [0024](0024-mutation-testing-memory-cap.md)                               | Mutation testing memory cap and stateless classification        | 2026-08-01 | Accepted               |
 | [0025](0025-attest-mutation-run-progress-with-a-breadcrumb.md)            | Attest mutation-run progress with a breadcrumb, not a step conclusion | 2026-09-01 | Accepted               |
+| [0026](0026-sign-before-publishing-releases.md)                            | Sign before publishing releases, via a composite action         | 2026-09-04 | Accepted               |

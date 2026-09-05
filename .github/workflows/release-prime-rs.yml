@@ -34,8 +34,11 @@ jobs:
         run: make test
         working-directory: prime/prime-rs
 
+      - name: Install cargo-auditable
+        run: cargo install cargo-auditable --locked --version 0.7.5
+
       - name: Build release binary
-        run: cargo build --release
+        run: cargo auditable build --release
         working-directory: prime/prime-rs
 
       - name: Generate CHANGELOG
@@ -73,6 +76,11 @@ jobs:
           (cd prime/prime-rs/target/release && sha256sum prime) > prime/prime-rs/target/release/prime.sha256
           cat prime/prime-rs/target/release/prime.sha256
 
+      - uses: ./.github/actions/sbom-sign
+        with:
+          binary_path: prime/prime-rs/target/release
+          binary_name: prime
+
       - name: Create and push tag
         env:
           VERSION: ${{ inputs.version }}
@@ -91,13 +99,6 @@ jobs:
           files: |
             prime/prime-rs/target/release/prime
             prime/prime-rs/target/release/prime.sha256
-
-  sign:
-    needs: [release]
-    uses: ./.github/workflows/release-sign.yml
-    with:
-      release_tag: "prime-v${{ inputs.version }}"
-      binary_name: "prime"
-    permissions:
-      id-token: write
-      contents: write
+            prime/prime-rs/target/release/prime.sbom.spdx.json
+            prime/prime-rs/target/release/prime.bundle
+          fail_on_unmatched_files: true

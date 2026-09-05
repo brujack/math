@@ -37,8 +37,11 @@ jobs:
         run: make test
         working-directory: factorial/factorial-rs
 
+      - name: Install cargo-auditable
+        run: cargo install cargo-auditable --locked --version 0.7.5
+
       - name: Build release binary
-        run: cargo build --release
+        run: cargo auditable build --release
         working-directory: factorial/factorial-rs
 
       - name: Generate CHANGELOG
@@ -76,6 +79,11 @@ jobs:
           (cd factorial/factorial-rs/target/release && sha256sum factorial) > factorial/factorial-rs/target/release/factorial.sha256
           cat factorial/factorial-rs/target/release/factorial.sha256
 
+      - uses: ./.github/actions/sbom-sign
+        with:
+          binary_path: factorial/factorial-rs/target/release
+          binary_name: factorial
+
       - name: Create and push tag
         env:
           VERSION: ${{ inputs.version }}
@@ -94,13 +102,6 @@ jobs:
           files: |
             factorial/factorial-rs/target/release/factorial
             factorial/factorial-rs/target/release/factorial.sha256
-
-  sign:
-    needs: [release]
-    uses: ./.github/workflows/release-sign.yml
-    with:
-      release_tag: "factorial-v${{ inputs.version }}"
-      binary_name: "factorial"
-    permissions:
-      id-token: write
-      contents: write
+            factorial/factorial-rs/target/release/factorial.sbom.spdx.json
+            factorial/factorial-rs/target/release/factorial.bundle
+          fail_on_unmatched_files: true

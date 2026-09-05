@@ -8,6 +8,8 @@ on:
       - "tests/**"
       - "Makefile"
       - ".github/workflows/scripts.yml"
+      - ".github/workflows/release-*"
+      - ".github/actions/**"
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 jobs:
@@ -29,7 +31,7 @@ jobs:
           sudo install -m755 "/tmp/shellcheck-v${SC_VER}/shellcheck" /usr/local/bin/shellcheck
           shellcheck --version | grep -q "version: ${SC_VER}"
       - name: Install Python dependencies
-        run: pip install ruff==0.16.4 defusedxml pyright pip-audit
+        run: pip install ruff==0.16.4 defusedxml pyright pip-audit pyyaml==6.0.3
       - name: Lint hooks, scripts and bats suites
         run: make lint
       - name: Run hook and script tests

@@ -409,7 +409,7 @@ With this assertion, the filename encodes the actual N value — a mutant that a
 
 ## CI
 
-Forty-one workflow files (`git ls-files .github/workflows/ | wc -l`). Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail. `bash-coverage` is a new job (auto-merge.yml) — see Bash Coverage below.
+Forty workflow files (`git ls-files .github/workflows/ | wc -l`). Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail. `bash-coverage` is a new job (auto-merge.yml) — see Bash Coverage below.
 
 | Workflow                | File                                            | Jobs                                                                                                                    |
 | ----------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
@@ -443,6 +443,14 @@ Forty-one workflow files (`git ls-files .github/workflows/ | wc -l`). Project wo
 | mutation-testing-python | `.github/workflows/mutation-testing-python.yml` | cosmic-ray on all Python sub-projects (monthly + workflow_dispatch)                                                     |
 | scripts                 | `.github/workflows/scripts.yml`                 | test (bats --recursive tests/)                                                                                          |
 
+**Atomic release publication — three invariants, each with its measurement.** Every `release-*-rs.yml` workflow builds, signs, and publishes a binary in one job; each row below is a decision, not a habit, and the measurement is what makes it one rather than the other.
+
+- **The SBOM is only meaningful under `cargo-auditable`.** Measured 2026-09-04: `syft` over a stripped Rust binary reports **1** package — the binary itself — on both Mach-O arm64 and ELF x86-64, against a 133-crate lockfile. With `cargo auditable build --release` it reports **13**, with real dependency names. A release built without it publishes an SBOM that `grype` scans to no effect. (13 vs 133 is correct, not a second gap: cargo-auditable records what is _linked_, `Cargo.lock` also lists dev-dependencies and unbuilt optional crates.)
+- **Signing happens before publication, in the release job.** `release-sign.yml` was a reusable workflow, so signing ran as its own job and had to `gh release download` the binary — which forced the release to exist first, leaving a window where a published release carried no SBOM. `.github/actions/sbom-sign` is a composite action running in the release job, where the built binary is already on disk. Do not reintroduce a separate signing job. The `Create and push tag` step must stay _after_ the sbom-sign step: a signing failure before the tag is pushed leaves the repo unchanged, whereas after it leaves an unshippable version that a re-run fails on with `fatal: tag already exists`.
+- **`fail_on_unmatched_files: true` is required** on every `softprops/action-gh-release` call. The input defaults to false (verified in the action's own `action.yml` at the pinned SHA), so without it a `files:` entry matching nothing publishes the release anyway with only a console warning.
+
+`tests/test_release_workflows.py` pins all three across every `release-*-rs.yml`, parsed with `yaml.safe_load` rather than matched as raw text — see that module's docstring for why a substring check fails in both directions.
+
 **Pre-commit hook** — `scripts/pre-commit` is committed to the repo and installed as a symlink via `make install-hooks`. It runs `make lint` on staged sub-projects and `ggshield secret scan pre-commit` (skipped if not installed). CI gitleaks is a backstop — install and activate ggshield locally so secrets are caught before they leave the machine.
 
 **Pre-push hook** — `scripts/pre-push` is committed to the repo and installed as a symlink via `make install-hooks`. It detects which sub-projects have **source file** (`.py`, `.rs`) changes in the push range and runs `make test` for each. It separately runs the **root** `make test` target — `lint test-hooks test-python`, where `lint` is `lint-hooks` (shellcheck) plus `lint-python` (ruff check + format) — whenever the push touches `scripts/`, `tests/`, or the root `Makefile`. Skips branch deletions. Permanent — conserves GitHub Actions minutes by catching failures locally.
@@ -457,10 +465,16 @@ Forty-one workflow files (`git ls-files .github/workflows/ | wc -l`). Project wo
 and `make test` runs `test-hooks` then `test-python`. Added 2026-08-07 (#104). Before that nothing executed
 `tests/*.py` at all: `scripts.yml` ran bats and pyright, so `tests/test_time_tests.py` was type-checked but
 its 8 tests had never once run. `scripts.yml` now calls `make test-python` alongside the bats step. Note this
-is repo-level only — each sub-project keeps its own `make test`. The suite is **51 tests** as of
-2026-09-01: `test_time_tests.py`, `test_test_metrics.py`, `test_triage_log.py`, and
+is repo-level only — each sub-project keeps its own `make test`. The suite is **82 tests** as of
+2026-09-04: `test_time_tests.py`, `test_test_metrics.py`, `test_triage_log.py`,
 `test_renovate_automerge_policy.py` (added in #123 — it asserts `renovate.json`'s auto-merge policy is
-exhaustive over the ten-member `updateType` enum; see the Renovate auto-merge policy section above).
+exhaustive over the ten-member `updateType` enum; see the Renovate auto-merge policy section above), and
+`test_release_workflows.py` (added by the atomic-release-publication change — it parses every
+`release-*-rs.yml` with `yaml.safe_load` and asserts on the parsed structure, not raw text, that each
+workflow builds with `cargo auditable build --release`, signs via `.github/actions/sbom-sign` before the
+release tag is created, and carries `fail_on_unmatched_files: true` on its `softprops/action-gh-release`
+step — so a regression to a bare build, a re-appearing separate sign job, or a missing SBOM/checksum asset
+fails a test instead of shipping a release with no SBOM).
 
 **`.claude/scripts/triage_log.py`** — vendored per-repo because of its resolver, not its availability. It
 does ship via the `~/.claude/scripts/` symlink like every other script there; what fails is that its output
@@ -474,7 +488,7 @@ because `bug-fix-cycle` emits its telemetry through it. Paired suite at `tests/t
 it writes is gitignored.
 
 - `tests/helpers/common.bash` — shared REPO_ROOT export and `load_mocks()` (prepends `tests/mocks/` to PATH)
-- `tests/mocks/` — PATH-injected mock executables: `make` (logs calls, exits `$MOCK_MAKE_EXIT`), `git` (dispatches by subcommand, outputs from per-subcommand env vars), `ggshield` (logs calls, exits `$MOCK_GGSHIELD_EXIT`), `gh` (sequential JSON responses via `MOCK_GH_CHECK_RUNS_N`, exits `$MOCK_GH_EXIT`, or `$MOCK_GH_EXIT_<SUBCOMMAND>_<VERB>` to fail a single call — e.g. `MOCK_GH_EXIT_ISSUE_CLOSE`)
+- `tests/mocks/` — PATH-injected mock executables: `make` (logs calls, exits `$MOCK_MAKE_EXIT`), `git` (dispatches by subcommand, outputs from per-subcommand env vars), `ggshield` (logs calls, exits `$MOCK_GGSHIELD_EXIT`), `gh` (sequential JSON responses via `MOCK_GH_CHECK_RUNS_N`, exits `$MOCK_GH_EXIT`, or `$MOCK_GH_EXIT_<SUBCOMMAND>_<VERB>` to fail a single call — e.g. `MOCK_GH_EXIT_ISSUE_CLOSE`), `syft` and `cosign` (each logs its call and exits `$MOCK_SYFT_EXIT`/`$MOCK_COSIGN_EXIT`, but also honours the output flag it was actually given — `--file` for `syft`, `--bundle` for `cosign` — writing a placeholder file there, so the sbom-sign suite can assert on the file it produced rather than only on whether the mock was invoked)
 - `tests/mocks/*` are linted: `SHELL_SOURCES` includes them via `$(wildcard tests/mocks/*)`.
   They are extensionless, so the `git ls-files '*.sh' '*.bash'` half of that variable
   cannot see them — the same pathspec trap `shell.md` documents. Verified by seeding a
@@ -492,7 +506,7 @@ Ported from `dotfiles/scripts/run-bash-coverage.sh` @ `67417bc` (re-synced 2026-
 - **CI:** `.github/workflows/auto-merge.yml`'s `bash-coverage` job, gated in `auto-merge`'s `needs:` — see the floor note below
 - **Test:** `tests/scripts/bash_coverage.bats` — regression coverage for the `INCLUDE_FILES` predicate (every element derived independently in the test, never hardcoded against the script's own output)
 
-**Predicate — instrumented set is 27 files, tracked shell is 29.** The instrumented set is `git ls-files 'scripts/*.sh' '*/install_deps.sh' '*/*/install_deps.sh' scripts/pre-push scripts/pre-commit scripts/commit-msg`, less `scripts/bash-tracer.sh` (structurally uncoverable — `set -x` is its own last command, so nothing before it can be traced and nothing follows it). That is 5 `scripts/*.sh` files (`ci-gate.sh`, `mutation-classify.sh`, `mutation-notify.sh`, `rust-check.sh`, `run-bash-coverage.sh`; `bash-tracer.sh` matches the glob too but is filtered after derivation) + 19 `install_deps.sh` scripts across both directory-nesting depths + 3 extensionless hooks = **27 instrumented files**. Tracked shell overall is `git ls-files '*.sh' '*.bash'` (26, after this port added `run-bash-coverage.sh` and `bash-tracer.sh`, and `mutation-notify.sh` joined it) + the 3 hooks = 29; the instrumented set excludes only `tests/helpers/common.bash` (test code) and `bash-tracer.sh` (uncoverable) from that total. `run-bash-coverage.sh` is itself instrumented — it is not self-referentially traced when it runs the suite (`BASH_ENV` is only exported around the `bats` invocation), but every direct `bash scripts/run-bash-coverage.sh ...` subprocess call inside `tests/scripts/bash_coverage.bats` inherits `BASH_ENV` from the tracer's own bats run and gets traced that way.
+**Predicate — instrumented set is 28 files, tracked shell is 30.** The instrumented set is `git ls-files 'scripts/*.sh' '*/install_deps.sh' '*/*/install_deps.sh' scripts/pre-push scripts/pre-commit scripts/commit-msg`, less `scripts/bash-tracer.sh` (structurally uncoverable — `set -x` is its own last command, so nothing before it can be traced and nothing follows it). That is 6 `scripts/*.sh` files (`ci-gate.sh`, `mutation-classify.sh`, `mutation-notify.sh`, `rust-check.sh`, `run-bash-coverage.sh`, `sbom-sign.sh`; `bash-tracer.sh` matches the glob too but is filtered after derivation) + 19 `install_deps.sh` scripts across both directory-nesting depths + 3 extensionless hooks = **28 instrumented files**. Tracked shell overall is `git ls-files '*.sh' '*.bash'` (27, after this port added `run-bash-coverage.sh` and `bash-tracer.sh`, and `mutation-notify.sh` then `sbom-sign.sh` joined it) + the 3 hooks = 30; the instrumented set excludes only `tests/helpers/common.bash` (test code) and `bash-tracer.sh` (uncoverable) from that total. `run-bash-coverage.sh` is itself instrumented — it is not self-referentially traced when it runs the suite (`BASH_ENV` is only exported around the `bats` invocation), but every direct `bash scripts/run-bash-coverage.sh ...` subprocess call inside `tests/scripts/bash_coverage.bats` inherits `BASH_ENV` from the tracer's own bats run and gets traced that way.
 
 **The 19 `install_deps.sh` scripts are ~73% of math's instrumented set (19 of 26), and no bats suite executes any of them.** They are in the predicate anyway, and this is the load-bearing judgement of the whole port: a script no suite invokes is **untested**, not uncoverable. Excluding it would raise the reported percentage by deleting the untested majority from the denominator — precisely the flattering-denominator defect this tooling exists to eliminate (see `tdd.md`'s Coverage Denominators section). Expect a low headline percentage as a result — that is the honest number, not a bug in the port. (The count is 19, not 16 — an earlier estimate for this port undercounted the nested `<name>-rs/install_deps.sh` depth for `goldbach`, `prime`, and `twin-primes`, which have no top-level `install_deps.sh` at all, only the nested one. `git ls-files '*/install_deps.sh' '*/*/install_deps.sh' | wc -l` is the derivation; the Makefile's `SHELL_SOURCES` comment independently records the same 19.)
 

@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+printf "syft %s\n" "$*" >> "${MOCK_CALLS_FILE:-/tmp/mock_calls}"
+if [[ "${MOCK_SYFT_EXIT:-0}" -ne 0 ]]; then
+    exit "${MOCK_SYFT_EXIT}"
+fi
+
+_output=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --file)
+            [[ $# -ge 2 ]] || break
+            _output="$2"
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+# Real syft always emits a .packages array, and scripts/sbom-sign.sh reads its
+# length to reject an SBOM cataloguing only the binary. A stub without that key
+# is not mock-fidelitous -- it made the success case fail once the guard landed.
+# MOCK_SYFT_PACKAGES controls the count so tests can drive the guard both ways;
+# the default of 13 is what real syft reports for a cargo-auditable build.
+if [[ -n "${_output}" ]]; then
+    _n="${MOCK_SYFT_PACKAGES:-13}"
+    {
+        printf '{"packages":['
+        _i=0
+        while [[ "${_i}" -lt "${_n}" ]]; do
+            [[ "${_i}" -gt 0 ]] && printf ','
+            printf '{"name":"dep%s"}' "${_i}"
+            _i=$((_i + 1))
+        done
+        printf ']}\n'
+    } > "${_output}"
+fi
