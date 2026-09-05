@@ -163,3 +163,58 @@ teardown() {
         return 1
     }
 }
+
+@test "pyrightconfig.json change reaches the root test target" {
+    # Regression guard: pyrightconfig.json changes what the root suite can
+    # type-check, but the trigger pattern did not name it.
+    export MOCK_GIT_DIFF_NAMES="pyrightconfig.json"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
+}
+
+@test "requirements-dev.txt change reaches the root test target" {
+    # Regression guard: requirements-dev.txt changes what the root suite can
+    # import, but the trigger pattern did not name it.
+    export MOCK_GIT_DIFF_NAMES="requirements-dev.txt"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
+}
+
+@test ".claude/scripts/ change reaches the root test target" {
+    # Regression guard: .claude/scripts/triage_log.py enters the type-check
+    # denominator, but the trigger pattern did not name the directory.
+    export MOCK_GIT_DIFF_NAMES=".claude/scripts/triage_log.py"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
+}
+
+@test ".github/workflows/scripts.yml change reaches the root test target" {
+    # Regression guard: tests/scripts/makefile.bats:133 greps this workflow
+    # file, so editing it can turn the root suite red while the hook stays
+    # silent unless it is named in the trigger pattern.
+    export MOCK_GIT_DIFF_NAMES=".github/workflows/scripts.yml"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
+}
+
+@test "pi-only change does not reach the root test target" {
+    # The point of this file: every existing negative case here either uses
+    # an EMPTY diff (which an over-broad root-trigger regex also passes) or
+    # names a specific sub-project target rather than the root one. Neither
+    # would fail if line 52's regex were widened to match everything. This
+    # one names an ordinary sub-project-only change and asserts the root
+    # target is never reached.
+    export MOCK_GIT_DIFF_NAMES="pi/pi.py"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    assert_no_match "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$"
+}
