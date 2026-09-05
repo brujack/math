@@ -72,13 +72,26 @@ Each project has its own installer:
 | `amicable/install_deps.sh`                           | `ruff`, `coverage`, `pytest`, `pytest-cov`                                |
 | `amicable/amicable-rs/install_deps.sh`               | Rust toolchain, `cargo-tarpaulin`                                         |
 
+**Root-scope Python has no `install_deps.sh` of its own, deliberately.** The 19
+installers above each exist for a directory that has its own Makefile; the root
+diverges, so `requirements-dev.txt` (`defusedxml==0.7.1`, `pyyaml==6.0.3` — the
+third-party modules `tests/`, `scripts/`, and `.claude/scripts/` actually import,
+not a tool list) is consumed by `make install-deps` instead. `tests/scripts/install_deps.bats`
+derives its sub-project population from `git ls-files '*/Makefile' '*/*/Makefile'`,
+which cannot see a zero-slash root `Makefile` even if one existed to check against.
+
 ## Quick Reference
 
 ### Setup (run once per checkout)
 
 ```bash
 make install-hooks   # installs pre-commit and pre-push hooks
+make install-deps    # installs root-scope Python's third-party imports
 ```
+
+`install-deps` refuses on a PEP 668 externally-managed interpreter (measured: the
+Linux 7950X is Python 3.12.3 with the `EXTERNALLY-MANAGED` marker present) — the
+refusal message names the remedy (`python3 -m venv .venv && . .venv/bin/activate`).
 
 ### Python (`pi/`)
 
@@ -358,10 +371,46 @@ Every Python sub-project has a `pyrightconfig.json` and a `Run pyright` step in 
 
 | Mode       | Sub-projects                                                                                              |
 | ---------- | --------------------------------------------------------------------------------------------------------- |
-| `standard` | amicable, collatz, fib, sq, factorial, perfect-numbers, scripts                                           |
+| `standard` | amicable, collatz, fib, sq, factorial, perfect-numbers                                                    |
 | `basic`    | pi, e (gmpy2 has no type stubs; `reportAttributeAccessIssue` and `reportOptionalMemberAccess` suppressed) |
 
-Pyright runs in CI only — not in `make lint` (spawn overhead on macOS makes it slow locally). To run manually: `cd <sub-project> && pyright`.
+**Root-scope Python (`tests/`, `scripts/`, `.claude/scripts/`) is gated by a root
+`pyrightconfig.json`, not a `scripts/`-only one.** `standard` mode, `include`
+`["scripts", "tests", ".claude/scripts"]`, denominator **10 of 10** tracked
+root-scope `.py` files (measured: `git ls-files 'tests/*.py' 'scripts/*.py'
+'.claude/scripts/*.py' | wc -l` → 10, `pyright --outputjson` → `filesAnalyzed: 10`).
+Before this config existed, the denominator was **2 of 8** — `scripts.yml` ran
+`working-directory: scripts` against a config whose `include` named only
+`time_tests.py` and `test_metrics.py`, so the other 6 tracked root-scope files
+(including `tests/test_release_workflows.py`) were never type-checked at all.
+
+`exclude` is pyright's default list **minus `**/.*`**, and the omission is
+load-bearing: **exclude beats include**, so naming `.claude/scripts` in `include`
+is not enough on its own — pyright's default exclude list contains `**/.*`, which
+drops the whole directory because it starts with a dot. Measured: 9 files analysed
+with the default exclude restored, 10 without it.
+
+`pyright==1.1.411` is pinned only at the `scripts.yml` install site; the other 8
+`*-py.yml` workflows still install pyright unpinned (backlog row, deliberate — see
+`docs/superpowers/README.md`).
+
+**Pyright is not CI-only for root scope.** `tests/test_root_pyright_scope.py`
+shells out to it and runs under `make test-python`, which the pre-push hook
+invokes on any push touching `scripts/`, `tests/`, `.claude/scripts/`, or
+`pyrightconfig.json`. Measured cost: three runs of `pyright --outputjson` at the
+repo root, `real 0.80s`, `0.81s`, `0.81s` — not the macOS-spawn-overhead concern
+this line used to cite for sub-project pyright, which still runs CI-only.
+
+**pyright walks up the tree for its config, exactly like `ruff.toml`.** `cd
+scripts && pyright` loads `<root>/pyrightconfig.json` and analyses all 10
+root-scope files; a sub-project's own gate is unaffected only because its own
+`pyrightconfig.json` is found first, before the walk-up reaches root — measured
+`cd amicable && pyright` → 2 files, loading `amicable/pyrightconfig.json`. This
+means deleting a sub-project's `pyrightconfig.json` later does not remove type
+checking there; it falls through to the root config instead.
+
+To run pyright manually for a sub-project: `cd <sub-project> && pyright`. For root
+scope: `pyright` from the repo root.
 
 When adding a new Python sub-project, add `pyrightconfig.json` (copy from any `standard`-mode sub-project) and a `Run pyright` step to the CI workflow. Start with `standard` mode; fall back to `basic` only if the dependency has no stubs.
 
@@ -465,16 +514,19 @@ Forty workflow files (`git ls-files .github/workflows/ | wc -l`). Project workfl
 and `make test` runs `test-hooks` then `test-python`. Added 2026-08-07 (#104). Before that nothing executed
 `tests/*.py` at all: `scripts.yml` ran bats and pyright, so `tests/test_time_tests.py` was type-checked but
 its 8 tests had never once run. `scripts.yml` now calls `make test-python` alongside the bats step. Note this
-is repo-level only — each sub-project keeps its own `make test`. The suite is **82 tests** as of
-2026-09-04: `test_time_tests.py`, `test_test_metrics.py`, `test_triage_log.py`,
+is repo-level only — each sub-project keeps its own `make test`. The suite is **93 tests** as of
+2026-09-05 (`python3 -m unittest discover -s tests -p 'test_*.py'`): `test_time_tests.py`, `test_test_metrics.py`, `test_triage_log.py`,
 `test_renovate_automerge_policy.py` (added in #123 — it asserts `renovate.json`'s auto-merge policy is
-exhaustive over the ten-member `updateType` enum; see the Renovate auto-merge policy section above), and
+exhaustive over the ten-member `updateType` enum; see the Renovate auto-merge policy section above),
 `test_release_workflows.py` (added by the atomic-release-publication change — it parses every
 `release-*-rs.yml` with `yaml.safe_load` and asserts on the parsed structure, not raw text, that each
 workflow builds with `cargo auditable build --release`, signs via `.github/actions/sbom-sign` before the
 release tag is created, and carries `fail_on_unmatched_files: true` on its `softprops/action-gh-release`
 step — so a regression to a bare build, a re-appearing separate sign job, or a missing SBOM/checksum asset
-fails a test instead of shipping a release with no SBOM).
+fails a test instead of shipping a release with no SBOM), and `test_root_pyright_scope.py` +
+`test_root_python_deps.py` (the two root-scope Python gates added in this repo's
+`2026-09-05-root-python-gate-holes` plan — see the Type checking and Dependency
+Installation sections above).
 
 **`.claude/scripts/triage_log.py`** — vendored per-repo because of its resolver, not its availability. It
 does ship via the `~/.claude/scripts/` symlink like every other script there; what fails is that its output

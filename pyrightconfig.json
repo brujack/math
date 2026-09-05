@@ -1,5 +1,6 @@
 {
-  "include": ["time_tests.py", "test_metrics.py"],
+  "include": ["scripts", "tests", ".claude/scripts"],
+  "exclude": ["**/node_modules", "**/__pycache__"],
   "pythonVersion": "3.11",
   "typeCheckingMode": "standard",
   "reportMissingImports": true,
