@@ -30,3 +30,4 @@ Repo-specific decisions for the `math` repository. Cross-cutting decisions (CI t
 | [0024](0024-mutation-testing-memory-cap.md)                               | Mutation testing memory cap and stateless classification        | 2026-08-01 | Accepted               |
 | [0025](0025-attest-mutation-run-progress-with-a-breadcrumb.md)            | Attest mutation-run progress with a breadcrumb, not a step conclusion | 2026-09-01 | Accepted               |
 | [0026](0026-sign-before-publishing-releases.md)                            | Sign before publishing releases, via a composite action         | 2026-09-04 | Accepted               |
+| [0027](0027-root-scope-python-dependency-and-type-check.md)                 | Declare and type-check root-scope Python                        | 2026-09-05 | Accepted               |
