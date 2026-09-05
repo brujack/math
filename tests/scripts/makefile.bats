@@ -225,3 +225,31 @@ for e in json.load(open('${REPO_ROOT}/renovate.json')).get('extends', []):
         return 1
     fi
 }
+
+# install-deps must invoke pip through `python3 -m pip`, never a bare `pip` --
+# measured, bare `pip` resolves to an unrelated pyenv environment on the Mac
+# Studio, so a bare `pip install` can exit 0 while `make test-python` still
+# raises ModuleNotFoundError (ci.md/shell.md PATH-resolution class).
+@test "install-deps recipe uses python3 -m pip install" {
+    run make -C "${REPO_ROOT}" -n install-deps --no-print-directory
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"python3 -m pip install -r requirements-dev.txt"* ]]
+}
+
+# A plain substring check for "pip install" would also match inside
+# "python3 -m pip install", so it can't discriminate a bare invocation from a
+# correct one. Strip every correct occurrence first, then apply the idiom
+# from the "lint-python skips" test above to the remainder.
+@test "install-deps recipe contains no bare pip install" {
+    run make -C "${REPO_ROOT}" -n install-deps --no-print-directory
+    [ "${status}" -eq 0 ]
+    local stripped="${output//python3 -m pip install/}"
+    [[ "${stripped}" != *"pip install"* ]]
+}
+
+@test "requirements-dev.txt pins both entries with ==" {
+    [ -f "${REPO_ROOT}/requirements-dev.txt" ]
+    run grep -cE '^[A-Za-z0-9_.-]+==[0-9]' "${REPO_ROOT}/requirements-dev.txt"
+    [ "${status}" -eq 0 ]
+    [ "${output}" -eq 2 ]
+}
