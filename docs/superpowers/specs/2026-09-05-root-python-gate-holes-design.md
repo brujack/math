@@ -178,6 +178,23 @@ Rejected alternatives:
 `scripts.yml`. A manifest that pins one entry and floats the other would be worse than
 either consistent choice.
 
+**A root `make install-deps` target consumes it**, because a declaration is not a remedy.
+Without it, a fresh checkout after this change still fails with
+`ModuleNotFoundError: No module named 'yaml'` and nothing in the failure names the new file
+— the same symptom Row 1 opens with, closed by a CLAUDE.md sentence rather than a command.
+The repo already has this pattern: `Makefile:84` prints
+`ruff not found, skipping (install: pip install ruff==0.16.4)`.
+
+```make
+install-deps:
+	pip install -r requirements-dev.txt
+```
+
+This is the consumer the manifest otherwise lacks. `dependency-review`'s regex matching the
+filename is real but fires only on future additions; `install-deps` changes what a human
+runs today. Added to `.PHONY` and to CLAUDE.md's per-checkout Setup block beside
+`make install-hooks`.
+
 ### 2. `scripts.yml`
 
 Install step becomes:
@@ -231,9 +248,15 @@ CLAUDE.md documents why it is vendored here rather than reached through the
 
 ### 4. `scripts/pre-push`
 
-The root-scope trigger regex at line 52 gains `^pyrightconfig\.json$` and
-`^requirements-dev\.txt$`. A change to either alters what the root suite can import or what
-gets type-checked, so it must run the root suite locally.
+The root-scope trigger regex at line 52 gains `^pyrightconfig\.json$`,
+`^requirements-dev\.txt$`, and `^\.claude/scripts/`. The first two alter what the root suite
+can import or what gets type-checked. The third closes an asymmetry this design would
+otherwise introduce: `.claude/scripts/**` enters the CI `paths:` filter and
+`.claude/scripts/triage_log.py` enters both new gates' denominators, while
+`'.claude/scripts/triage_log.py'` does not match the existing
+`^scripts/|^tests/|^Makefile$|...` — so the one file the design argues hardest to keep in
+the denominator would be the one editable without the local suite running. Verified by
+matching that path against the current regex: no match.
 
 ### 5. Two new gates, each with a positive control
 
@@ -254,12 +277,100 @@ Vacuity guards, because an AST bug returning an empty set would pass silently:
 This is a derived denominator: a third unguarded import added later fails the suite rather
 than the next fresh checkout.
 
-**Two `tests/scripts/pre_push.bats` cases** for the widened trigger regex, following that
-file's existing pattern of setting `MOCK_GIT_DIFF_NAMES` to one path and asserting the root
-test target is reached — one for `pyrightconfig.json`, one for `requirements-dev.txt`. A
-regex alternative with no test is an untested branch, and the file's existing negative cases
-(`rust-only change does not drag in the python sibling suite`) already cover the other
-direction.
+**Four `tests/scripts/pre_push.bats` cases** for the widened trigger regex, following that
+file's existing pattern of setting `MOCK_GIT_DIFF_NAMES` to one path. Three positive —
+`pyrightconfig.json`, `requirements-dev.txt`, `.claude/scripts/triage_log.py` — each
+asserting the root test target is reached.
+
+**One negative, and it is the one this spec originally got wrong.** Round 1 claimed the
+widened regex needed no over-match test because the file's existing negative cases covered
+that direction. They do not. All four `assert_no_match` calls in that file:
+
+```
+35:  assert_no_match "^make"                     # empty diff
+42:  assert_no_match "^make"                     # empty diff
+115: assert_no_match "make -C .../pi test"
+124: assert_no_match "make -C .../pi/pi-rs test"
+```
+
+The two `^make` cases run with an empty diff, which an over-broad regex passes too; the other
+two name a specific sub-project target, never the root one. **No test in that file fails if
+line 52 is widened to match everything** — and the failure would be silent, running the root
+suite on every push, on a hook that gates every push in this repo. The fourth case sets
+`MOCK_GIT_DIFF_NAMES="pi/pi.py"` and asserts the root target is *not* reached.
+
+**`tests/test_root_pyright_scope.py`** — **redesigned in Multi-Lens Review round 1.** The
+first version asserted `pyright --outputjson`'s `filesAnalyzed` equals a `git ls-files`
+count. Three lenses converged on that being wrong, and measurement confirmed both defects:
+
+```
+                           filesAnalyzed   git ls-files
+clean tree                       8              8
+1 untracked .py                  9              8
++1 nested untracked              10             8
+```
+
+```
+mode=standard                    filesAnalyzed 8  err 0
+mode=off                         filesAnalyzed 8  err 0
+mode=off + seeded type error     filesAnalyzed 8  err 0
+```
+
+The first table is a **disk-versus-index divergence**: pyright walks the filesystem,
+`git ls-files` reads the index, so `touch tests/test_foo.py && make test` — the exact
+sequence `tdd.md` mandates — goes red on a non-defect and teaches the operator to stage
+before running the suite. The second is worse: the count-equality **pins the denominator and
+never the measurement**, so the gate passes green with `typeCheckingMode: off` and a genuine
+type error present.
+
+The replacement drops the disk walk entirely and asserts two things with distinct failure
+modes, both derived from the index and the config rather than from a second enumeration:
+
+1. **Mode.** Parse `pyrightconfig.json`; assert `typeCheckingMode == "standard"` and
+   `reportMissingImports` is true. This is the artifact under protection — the silent
+   downgrade to `off` is precisely what the old gate could not see — so reading it is the
+   right target rather than displacement onto a proxy.
+2. **Coverage.** Assert every path in
+   `git ls-files 'tests/*.py' 'scripts/*.py' '.claude/scripts/*.py'` sits under one of the
+   config's `include` roots and is not matched by its `exclude` patterns. Index-only, so an
+   untracked scratch file cannot move it. Vacuity floor: the tracked count must be non-zero,
+   and `.claude/scripts/triage_log.py` must be among the covered paths — the file the
+   `exclude` override exists to reach, so a restored `**/.*` fails here rather than silently
+   shrinking the denominator.
+
+**Deliberately not added: a standing positive control running pyright over a known-bad
+fixture.** It would prove the installed binary still reports errors, which assertion 1
+cannot. The argument against is that §2 pins `pyright==1.1.411`, so the binary cannot change
+underneath the gate without a visible diff to that pin — and the implementation-time
+mutations below already demonstrate the tool reports errors at this version. This is the
+weakest link in the redesign and is named as such: if the pin is ever dropped, this control
+becomes necessary.
+
+The test skips when `pyright` is absent — **except when the `CI` environment variable is
+set, where a missing `pyright` fails.** Assertions 1 and 2 need no pyright binary at all;
+the guard covers only any future assertion that does.
+
+**Four `tests/scripts/pre_push.bats` cases** for the widened trigger regex, following that
+file's existing pattern of setting `MOCK_GIT_DIFF_NAMES` to one path. Three positive —
+`pyrightconfig.json`, `requirements-dev.txt`, `.claude/scripts/triage_log.py` — each
+asserting the root test target is reached.
+
+**One negative, and it is the one this spec originally got wrong.** Round 1 claimed the
+widened regex needed no over-match test because the file's existing negative cases covered
+that direction. They do not. All four `assert_no_match` calls in that file:
+
+```
+35:  assert_no_match "^make"                     # empty diff
+42:  assert_no_match "^make"                     # empty diff
+115: assert_no_match "make -C .../pi test"
+124: assert_no_match "make -C .../pi/pi-rs test"
+```
+
+The two `^make` cases run with an empty diff, which an over-broad regex passes too; the other
+two name a specific sub-project target, never the root one. **No test in that file fails if
+line 52 is widened to match everything** — and the failure would be silent, running the root
+suite on every push, on a hook that gates every push in this repo. The fourth case sets
+`MOCK_GIT_DIFF_NAMES="pi/pi.py"` and asserts the root target is *not* reached.
 
 **`tests/test_root_pyright_scope.py`** asserts `filesAnalyzed` from `pyright --outputjson`
 equals the tracked root-scope `.py` count from `git ls-files`, both sides derived rather than
@@ -288,6 +399,8 @@ After implementation:
 | `bats --recursive tests/` | all pass, including the unchanged `ruff==` assertion |
 | `pyright` from repo root | `8 files, 0 errors` |
 | `cd pi && pyright` | `2 files, 0 errors` — unchanged |
+| `make install-deps` in a venv with neither package | both install; `make test-python` then `OK` |
+| `touch tests/_scratch.py && make test` | `OK` — the redesigned gate is index-only and must not go red on untracked state |
 
 Two mutations, because a gate that has never gone red is not yet a gate:
 
@@ -296,6 +409,13 @@ Two mutations, because a gate that has never gone red is not yet a gate:
    config.
 2. Add an unguarded `import requests` to a root test file; `tests/test_root_python_deps.py`
    must go red, and must name `requests`.
+3. Set `typeCheckingMode` to `off` in `pyrightconfig.json`; `tests/test_root_pyright_scope.py`
+   assertion 1 must go red. The old design passed this case at full green.
+4. Restore `**/.*` to the config's `exclude`; assertion 2 must go red naming
+   `.claude/scripts/triage_log.py`. The old design could not see this at all — a shrinking
+   denominator lowers no number.
+5. Widen `scripts/pre-push:52` to `.` (match everything); the new negative `pre_push.bats`
+   case must go red. No existing case does.
 
 Both mutations are reverted before commit, and `git status --porcelain` must be empty
 afterwards.
@@ -308,6 +428,16 @@ afterwards.
 - `CLAUDE.md` — a note naming `requirements-dev.txt`, its definition, and the fact that root
   `install_deps.sh` deliberately does not exist.
 - `CLAUDE.md` "Repo-level Python tests" — updated test count.
+- `CLAUDE.md` Setup block — `make install-deps` beside `make install-hooks`.
+- `CLAUDE.md` Type-checking section — **two corrections beyond the table row.** It currently
+  says pyright "runs in CI only — not in `make lint` (spawn overhead on macOS makes it slow
+  locally)". After this change `tests/test_root_pyright_scope.py` runs under `make
+  test-python`, which the pre-push hook invokes, so the CI-only half becomes false. The
+  severity half is already stale: three runs measured `real 0.90`, `0.89`, `0.91`.
+- `CLAUDE.md` — the `cd <sub-project> && pyright` instruction now behaves differently for
+  `scripts/`, whose config this change deletes; it falls back to pyright defaults rather than
+  erroring. Say so rather than leaving the sentence to cover nine directories it no longer
+  describes uniformly.
 - `docs/superpowers/README.md` — delete both backlog rows; add the row for pinning pyright
   at the other 8 sites.
 
@@ -325,3 +455,174 @@ Out of scope, stated so the omissions read as decisions:
 - **Guarding the imports.** Wrapping `import yaml` in a `try` would make the suite pass with
   30 tests silently absent. The current fail-closed behavior is correct; only the
   declaration is missing.
+
+---
+
+## Multi-Lens Review
+
+Reviewed at commit: `dd573f6` (Step 7 self-review commit, before Step 8 dispatch)
+
+Round 1. Three lenses, dispatched in parallel as fresh subagents with no conversation
+history. Every finding below was re-measured by the session before being recorded; two lens
+claims were refuted that way and are marked as such.
+
+### Goal-Fit
+
+Finding, four parts:
+
+1. **`requirements-dev.txt` changes no verdict today.** Its consumer (a) is
+   `scripts.yml:34`, which already installs both packages, so no CI verdict can differ. Its
+   consumer (b) is `dependency-review`'s `MANIFEST_RE`, which does match the filename — real,
+   but fires only on future additions. Row 1's stated symptom is closed by a CLAUDE.md
+   sentence, not by the file. A `make install-deps` target consuming the manifest would turn
+   the fix from prose into a command; the spec rejects a root `install_deps.sh` on
+   `dependency-review`-visibility grounds, which is not an argument against a Makefile target.
+2. **REFUTED — claimed recursion mismatch between `git ls-files 'tests/*.py'` and pyright's
+   directory `include`.** The lens asserted the pathspec is single-level. Git pathspecs use
+   wildmatch without pathname semantics, so `*` crosses `/`. Measured against untracked
+   probes:
+
+   ```
+   git ls-files -o --exclude-standard 'tests/*.py'
+     tests/_probe_flat.py
+     tests/scripts/_probe_nested.py      <- nested, matched
+   git ls-files -o --exclude-standard ':(glob)tests/*.py'
+     tests/_probe_flat.py                <- :(glob) is what makes it single-level
+   ```
+
+   The ergonomics lens independently reached the correct answer. No mismatch exists, and the
+   proposed `tests/**/*.py` "fix" would have narrowed the set rather than widening it.
+3. **`.claude/scripts/` is in the CI `paths:` filter and not in the pre-push regex.**
+   Confirmed: `'.claude/scripts/triage_log.py'` does not match
+   `^scripts/|^tests/|^Makefile$|...`. The one file the design argues hardest to keep in the
+   denominator is the one editable without the local suite running.
+4. **The pyright gate has no vacuity floor** where its sibling has explicit ones. See Risk,
+   which found the sharper instance.
+
+Premise verification: picked Row 2's "2 of the 8 tracked root-scope Python files are
+type-checked". `cat scripts/pyrightconfig.json` returns
+`"include": ["time_tests.py", "test_metrics.py"]`; `git ls-files 'tests/*.py' 'scripts/*.py'
+'.claude/scripts/*.py' | wc -l` returns 8. Confirmed. Row 1 verified independently in the
+same pass: `pyyaml` appears in exactly one tracked non-doc file.
+
+Assumption: that no root-scope Python file will ever live in a subdirectory. **Refuted** —
+the pathspec is already recursive, so the assumption is not load-bearing.
+
+Disposition: **Addressed.** Finding 1 added `make install-deps` (§1). Finding 3 added
+`^\.claude/scripts/` to the pre-push regex (§4). Finding 4 drove the §5 gate redesign.
+Finding 2 was refuted by measurement and no change was made; the refutation is recorded above
+so a later reader does not re-derive the wrong conclusion.
+
+### Ergonomics
+
+Finding, four parts:
+
+1. **No installer, no `make` target, no error path.** After this change a fresh checkout
+   still fails with `ModuleNotFoundError: No module named 'yaml'`, with nothing in the
+   failure naming the new file. The repo already has the remedy-in-the-message pattern at
+   `Makefile:84`. Same finding as Goal-Fit 1, reached independently.
+2. **The pyright gate is red-on-untracked, which breaks this repo's mandated TDD loop.**
+   pyright walks the filesystem; `git ls-files` reads the index. Confirmed by measurement
+   against the config this spec proposes:
+
+   ```
+   clean tree        pyright=8   git ls-files=8
+   1 untracked .py   pyright=9   git ls-files=8
+   +1 nested         pyright=10  git ls-files=8
+   ```
+
+   `touch tests/test_foo.py && make test` — the exact sequence `tdd.md` requires — turns the
+   gate red on a non-defect, and teaches the operator to stage before running the suite.
+
+   The session's first probe of this returned 8 vs 8 and read as a refutation. That probe
+   used the default-`exclude` config, where 7 tracked files plus 1 untracked coincidentally
+   equals the tracked count of 8 — a value compatible with both causes. Re-run with the
+   proposed config, it discriminates.
+3. **Putting pyright on the pre-push path contradicts CLAUDE.md**, which states pyright
+   "runs in CI only — not in `make lint` (spawn overhead on macOS makes it slow locally)".
+   The new test runs under `make test-python`, which the pre-push hook invokes. The severity
+   half of that sentence is also stale: three runs measured `real 0.90`, `0.89`, `0.91`. The
+   Documentation section does not list correcting it.
+4. **`.claude/scripts/` pre-push gap.** Same as Goal-Fit 3, reached independently.
+
+Premise verification: picked Row 1's single-declaration claim. A recursive grep over
+`*.yml`, `*.sh`, `*.txt`, `*.md` and `Makefile`, excluding `docs/superpowers`, returned
+exactly `.github/workflows/scripts.yml:34`. Confirmed.
+
+Assumption: that the window between creating a root-scope `.py` and staging it is rare
+enough for `filesAnalyzed == git ls-files` to behave as an identity. **Refuted by the
+measurement in finding 2** — the divergence is one `touch` away.
+
+Disposition: **Addressed.** Finding 2 removed the disk walk entirely; the redesigned gate is
+index-only and a verification row now pins that `touch tests/_scratch.py && make test` stays
+green. Findings 1 and 4 addressed as under Goal-Fit. Finding 3's documentation contradiction
+is now listed in §Documentation, including the stale macOS-slowness claim.
+
+### Risk
+
+Finding, five parts:
+
+1. **The spec cites a negative control that does not exist.** It claims the widened pre-push
+   regex needs no over-match test because existing negative cases cover that direction.
+   Measured — all four `assert_no_match` calls in `tests/scripts/pre_push.bats`:
+
+   ```
+   35:  assert_no_match "^make"                              # empty diff
+   42:  assert_no_match "^make"                              # empty diff
+   115: assert_no_match "make -C .../pi test"
+   124: assert_no_match "make -C .../pi/pi-rs test"
+   ```
+
+   The two `^make` cases run with an empty diff, which an over-broad regex passes too; the
+   other two name a specific sub-project target, not the root one. **No test in that file
+   fails if line 52 is widened to match everything.** The failure would be silent — root
+   `make test` on every push — and it gates every push in the repo.
+2. **The pyright gate pins the denominator and never the measurement.** Nothing asserts
+   `typeCheckingMode`. Measured on the real tree:
+
+   ```
+   mode=standard              filesAnalyzed 8  err 0
+   mode=off                   filesAnalyzed 8  err 0
+   mode=off + seeded error    filesAnalyzed 8  err 0
+   ```
+
+   The third row is worse than the lens reported: with checking disabled, a genuine seeded
+   type error is invisible and both the gate and the `Run pyright` step exit 0. This is the
+   every-gate-expects-PASS failure exactly.
+3. **Two independent walks over one set.** Same finding as Ergonomics 2. The `**/.*` exclude
+   removal compounds it: a developer `.venv` or `.pytest_cache` under any of the three
+   include roots is now reachable and would inflate `filesAnalyzed`.
+4. **Proportionality.** Row 1 has a reproducible failure. Row 2's evidence half is retracted
+   by this spec itself — 0 errors across all 8 files. The pyright pin, the config, the third
+   gate, the `working-directory` drop and the config deletion all sit on a hole with nothing
+   behind it. The spec uses precisely this argument to defer the other 8 pin sites and does
+   not apply it to itself.
+5. **Minor.** Deleting `scripts/pyrightconfig.json` changes CLAUDE.md's documented
+   `cd <sub-project> && pyright` for one of nine directories — it falls back to pyright
+   defaults rather than erroring. The Documentation section updates the table row but not
+   that sentence.
+
+Premise verification: picked Row 1's declaration claim; a full-repo grep returned one CI
+declaration, zero installers, one unguarded import. Confirmed. Collaterals also reproduced:
+the `include` of 2, the tracked count of 8, and `pyright` returning 7 files when
+`.claude/scripts` is named explicitly under the default exclude.
+
+Assumption: that the filesystem set and the index set stay identical. **Refuted** — the
+lens's own stated refutation command returns 9 against a tracked count of 8 once an
+untracked file exists.
+
+Disposition: **Addressed**, except finding 4. Finding 1 added a real over-match negative case
+and recorded that the control this spec claimed does not exist. Finding 2 drove the mode
+assertion; mutation 3 now pins it. Finding 3 is resolved by the gate becoming index-only.
+Finding 5 is now in §Documentation.
+
+Finding 4 — proportionality, split the PR — **Accepted, reason: the operator chose the
+redesign over the split when both were put to them.** The lens is right that Row 2 has no
+measured breakage behind it. The counter-argument is that the redesign is *smaller* than what
+it replaces — a disk walk removed, no pyright invocation in the new assertions — so it
+removes the four new failure points the lens objected to rather than deferring them.
+
+### Adversarial Spec Review (comparison/judge designs only)
+
+N/A — the spec has no comparison arms, no judge or evaluator component, and its acceptance
+criteria are concrete derived counts rather than qualitative verdicts.
