@@ -80,6 +80,7 @@ class TestRootPyrightCoverage(unittest.TestCase):
             "expected at least one tracked .py file under the include roots",
         )
 
+        assert self.pyright_bin is not None  # narrowed by setUp's skipTest above
         result = subprocess.run(
             [self.pyright_bin, "--outputjson"],
             cwd=REPO_ROOT,
