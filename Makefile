@@ -44,11 +44,31 @@ install-hooks:
 # Bare `pip` is deliberately never used here -- measured, `pip` resolves to an
 # unrelated pyenv environment on the Mac Studio, so a bare `pip install` can
 # exit 0 while `make test-python` still raises ModuleNotFoundError.
+#
+# The marker-check line below distinguishes the predicate's deliberate
+# `raise SystemExit(1)` (marker present) from python3 finding the -c
+# argument but dying for an unrelated reason (e.g. an ImportError in a
+# broken installation) -- a bare `||` cannot, and the exit code alone
+# can't either: a bare `raise SystemExit(1)` and ANY uncaught Python
+# exception (ImportError, ValueError, a syntax error) all exit 1, verified
+# empirically. What differs is stderr: `SystemExit` with an integer
+# argument prints nothing, while every other uncaught exception prints a
+# traceback. So this captures stderr (`err`) alongside the exit code: a
+# non-zero rc with EMPTY stderr is the intentional refusal and gets the PEP
+# 668 message; a non-zero rc with a traceback in `err` names the probe
+# itself as the failure and prints it, instead of sending the reader after
+# a venv for a fault that has nothing to do with PEP 668.
 install-deps:
 	@command -v python3 >/dev/null 2>&1 \
 	  || { printf 'python3 not found on PATH.\n' >&2; exit 1; }
-	@python3 -c 'import os, sys, sysconfig; raise SystemExit(1 if sys.prefix == sys.base_prefix and os.path.exists(os.path.join(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED")) else 0)' \
-	  || { printf 'python3 is externally managed (PEP 668). Create a venv first:\n  python3 -m venv .venv && . .venv/bin/activate\nthen re-run: make install-deps\n' >&2; exit 1; }
+	@err="$$(python3 -c 'import os, sys, sysconfig; raise SystemExit(1 if sys.prefix == sys.base_prefix and os.path.exists(os.path.join(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED")) else 0)' 2>&1 >/dev/null)"; rc=$$?; \
+	  if [ "$$rc" -ne 0 ] && [ -z "$$err" ]; then \
+	    printf 'python3 is externally managed (PEP 668). Create a venv first:\n  python3 -m venv .venv && . .venv/bin/activate\nthen re-run: make install-deps\n' >&2; \
+	    exit 1; \
+	  elif [ "$$rc" -ne 0 ]; then \
+	    printf 'the PEP 668 probe itself failed (rc=%s):\n%s\n' "$$rc" "$$err" >&2; \
+	    exit 1; \
+	  fi
 	python3 -m pip install -r requirements-dev.txt
 
 test-hooks:

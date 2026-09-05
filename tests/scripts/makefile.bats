@@ -251,34 +251,120 @@ for e in json.load(open('${REPO_ROOT}/renovate.json')).get('extends', []):
 # check entirely -- when sys.prefix != sys.base_prefix (i.e. running under a
 # virtualenv). A predicate that checks only the marker refuses identically
 # inside and outside a venv, which is a dead end: the guard's own remedy
-# ("create a venv") does not change its verdict. Measured on the Linux
-# workstation, Python 3.12.3:
-#   outside venv: marker present, in_venv=False -> guard refuses  (correct)
-#   inside  venv: marker present, in_venv=True  -> guard refuses  (WRONG --
-#     pip itself permits the install there, rc=0)
-# Neither development machine can reproduce marker-present-inside-a-venv
-# locally (no EXTERNALLY-MANAGED marker on macOS/pyenv), so this pins the
-# predicate text rather than exercising it end to end.
+# ("create a venv") does not change its verdict. A byte pin here (grep -F
+# over the predicate text) asserts spelling, not behaviour: reordering the
+# conjuncts or reflowing whitespace turns it red with identical semantics,
+# and reverting to a marker-only predicate (dropping the venv term -- the
+# exact bug this fixes) leaves it green, because the two stub tests below
+# only vary python3's exit code and cannot distinguish the two predicates.
 #
-# The full "SystemExit(1 if ... else 0)" string is pinned, not just the
-# "sys.prefix == sys.base_prefix" substring: an inverted predicate
-# (SystemExit(0 if ... else 1), backwards) still contains that substring, so
-# a partial match cannot tell a correct guard from an inverted one. Confirmed
-# by mutation: inverting the polarity leaves a substring-only version of this
-# test green.
-@test "install-deps predicate skips the marker check under a virtualenv" {
-    run grep -F 'raise SystemExit(1 if sys.prefix == sys.base_prefix and os.path.exists(os.path.join(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED")) else 0)' "${REPO_ROOT}/Makefile"
-    [ "${status}" -eq 0 ]
+# So this extracts the `-c` argument VERBATIM from the Makefile (anchored to
+# a tab-indented, `@`-led recipe line -- not merely to the "python3 -c"
+# substring anywhere in the file, which a comment line (tab + `#`, never
+# tab + `@`) cannot satisfy) and
+# executes it with sys.prefix/sys.base_prefix and the EXTERNALLY-MANAGED
+# marker monkeypatched, reproducing all four (in_venv, marker) combinations.
+# Measured on this machine (Python 3.14, Mac Studio) by extracting the same
+# `-c` body and monkeypatching the same two inputs:
+#   in_venv=no  marker=yes -> rc=1 (refuse, matches pip)
+#   in_venv=no  marker=no  -> rc=0
+#   in_venv=yes marker=yes -> rc=0 (the case the venv term exists for)
+#   in_venv=yes marker=no  -> rc=0
+@test "install-deps predicate matches pip's four (venv, marker) outcomes" {
+    local code
+    if ! code="$(python3 - "${REPO_ROOT}/Makefile" <<'PYEOF'
+import re
+import sys
+
+text = open(sys.argv[1]).read()
+m = re.search(r"^\t@.*?python3 -c '([^']*)'", text, re.MULTILINE)
+if not m:
+    sys.exit(1)
+print(m.group(1))
+PYEOF
+    )"; then
+        printf 'no anchored tab-indented @python3 -c recipe line found in Makefile\n' >&2
+        return 1
+    fi
+    [ -n "${code}" ]
+
+    local driver="${BATS_TEST_TMPDIR}/predicate_driver.py"
+    cat > "${driver}" <<'DRIVER'
+import os
+import sys
+import sysconfig
+import tempfile
+
+in_venv = sys.argv[1] == "1"
+marker = sys.argv[2] == "1"
+code = sys.argv[3]
+
+stdlib_dir = tempfile.mkdtemp()
+sysconfig.get_path = lambda *_a, **_kw: stdlib_dir
+sys.base_prefix = "/base-prefix"
+sys.prefix = "/venv-prefix" if in_venv else "/base-prefix"
+if marker:
+    open(os.path.join(stdlib_dir, "EXTERNALLY-MANAGED"), "w").close()
+
+exec(code)
+DRIVER
+
+    local combos=("0 1 1" "0 0 0" "1 1 0" "1 0 0")
+    local combo in_venv marker expected
+    for combo in "${combos[@]}"; do
+        read -r in_venv marker expected <<< "${combo}"
+        run python3 "${driver}" "${in_venv}" "${marker}" "${code}"
+        if [ "${status}" -ne "${expected}" ]; then
+            printf 'in_venv=%s marker=%s: expected rc=%s, got rc=%s\n' \
+                "${in_venv}" "${marker}" "${expected}" "${status}" >&2
+            return 1
+        fi
+    done
 }
 
-# `make -n` PRINTS the recipe without ever EXECUTING it, so the two tests
-# above cannot tell a working guard from a deleted or inverted one -- deleting
-# the guard, or inverting it to `SystemExit(0 if exists else 1)`, still passes
-# both. These two tests stub `python3` and actually run the recipe, asserting
-# on the branch actually taken. The stub lives in its own BATS_TEST_TMPDIR
-# directory and is prepended to PATH only for the duration of this one test --
-# adding it to tests/mocks/ would shadow python3 for the whole suite (see
-# shell.md, "A PATH mock shadows the binary your production code needs").
+# `make -n` PRINTS the recipe without ever EXECUTING it, so a test built on
+# it cannot tell a working guard from a deleted or inverted one. These two
+# tests stub `python3` and actually run the recipe, asserting on the branch
+# actually taken. The stub lives in its own BATS_TEST_TMPDIR directory and is
+# prepended to PATH only for the duration of this one test -- adding it to
+# tests/mocks/ would shadow python3 for the whole suite (see shell.md, "A
+# PATH mock shadows the binary your production code needs").
+#
+# This is the structural guard against the actual regression shell.md names
+# (an absolute path such as `/usr/bin/python3` hardcoded into the recipe): a
+# runtime `command -v python3` check cannot catch it, because PATH
+# resolution is unaffected by what the recipe's own command words are -- a
+# hardcoded absolute path bypasses PATH lookup entirely, stub or no stub. A
+# static check on the recipe body, run once, closes it for every test below
+# rather than depending on each one to notice at runtime.
+@test "install-deps recipe invokes python3 via PATH, never a hardcoded path" {
+    local recipe
+    recipe="$(awk '/^install-deps:/{f=1; next} /^[A-Za-z_.-]+:/{if(f){exit}} f' "${REPO_ROOT}/Makefile")"
+    [ -n "${recipe}" ]
+    [[ "${recipe}" != *"/python3"* ]]
+}
+
+# The positive control right after the PATH override is load-bearing, not
+# defensive noise (tdd.md E2, "a test's failure mode must be inert"): without
+# it, a regression that makes the STUB unreachable via PATH -- a typo in
+# stub_dir, a PATH restore that runs too early, another python3 earlier on
+# PATH winning the lookup -- does not merely fail the assertions below, it
+# runs a REAL `pip install` into whatever python3 actually resolves, outside
+# this repo, before the test ever gets to fail. This happened during review
+# of the prior round: a probe wrote defusedxml and PyYAML into a live pyenv
+# environment's site-packages. It does NOT, on its own, catch a hardcoded
+# absolute path inside the Makefile recipe -- that class is what the test
+# above guards, structurally, before either stub test ever runs.
+# PIP_NO_INDEX/PIP_REQUIRE_VIRTUALENV are the belt-and-braces layer under
+# BOTH: even if a bypass reaches a real interpreter, PIP_NO_INDEX=1 makes a
+# real network install unreachable (verified: even `pip install
+# --force-reinstall` under PIP_NO_INDEX=1 fails cleanly with "Could not find
+# a version ... from versions: none" and touches nothing on disk).
+# PIP_REQUIRE_VIRTUALENV=1 is NOT reliable on every machine -- verified: it
+# is a no-op whenever VIRTUAL_ENV is already set in the invoking shell (this
+# machine's session shell has one active), since pip's own check considers
+# that "already in a virtualenv". PIP_NO_INDEX is the layer both stub tests
+# actually depend on.
 @test "install-deps refuses and never reaches pip when the marker check fails" {
     local stub_dir="${BATS_TEST_TMPDIR}/stub-marker-present"
     mkdir -p "${stub_dir}"
@@ -291,7 +377,8 @@ STUB
 
     local old_path="${PATH}"
     PATH="${stub_dir}:${PATH}"
-    run make -C "${REPO_ROOT}" install-deps
+    [ "$(command -v python3)" = "${stub_dir}/python3" ]
+    PIP_NO_INDEX=1 PIP_REQUIRE_VIRTUALENV=1 run make -C "${REPO_ROOT}" install-deps
     PATH="${old_path}"
 
     [ "${status}" -ne 0 ]
@@ -318,7 +405,8 @@ STUB
 
     local old_path="${PATH}"
     PATH="${stub_dir}:${PATH}"
-    run make -C "${REPO_ROOT}" install-deps
+    [ "$(command -v python3)" = "${stub_dir}/python3" ]
+    PIP_NO_INDEX=1 PIP_REQUIRE_VIRTUALENV=1 run make -C "${REPO_ROOT}" install-deps
     PATH="${old_path}"
 
     [ "${status}" -eq 0 ]
@@ -326,19 +414,87 @@ STUB
     grep -q 'requirements-dev.txt' "${call_log}"
 }
 
-# Neither a literal count nor a fixed total works here: an added UNPINNED
-# entry still leaves the pinned count at 2 (false pass), and an added
-# legitimately PINNED entry raises the pinned count to 3 against a hardcoded
-# expectation of 2 (false fail). Comparing pinned lines against total
-# non-blank, non-comment lines asserts "every requirement is pinned" and
-# stays correct regardless of how many entries the file holds.
-@test "requirements-dev.txt pins every entry with ==" {
-    [ -f "${REPO_ROOT}/requirements-dev.txt" ]
+# The discriminator the Makefile comment above install-deps documents:
+# python3's exit code is 1 both for the predicate's deliberate
+# `raise SystemExit(1)` AND for any uncaught exception (verified: ImportError,
+# ValueError and a syntax error all exit 1), so this stub's `-c` branch
+# writes a traceback to stderr before exiting 1 -- the actual signal that
+# distinguishes "the marker check refused" from "the probe itself is
+# broken". Without the stderr split, this would misreport an unrelated
+# breakage as "python3 is externally managed", sending the reader after a
+# venv for a fault that has nothing to do with PEP 668.
+@test "install-deps names the probe itself as the failure when it dies for an unrelated reason" {
+    local stub_dir="${BATS_TEST_TMPDIR}/stub-marker-broken"
+    mkdir -p "${stub_dir}"
+    cat > "${stub_dir}/python3" <<'STUB'
+#!/usr/bin/env bash
+if [[ "$1" == "-c" ]]; then
+    echo "Traceback (most recent call last):" >&2
+    echo "ModuleNotFoundError: No module named 'sysconfig'" >&2
+    exit 1
+fi
+exit 0
+STUB
+    chmod +x "${stub_dir}/python3"
 
-    local total pinned
-    total="$(grep -cE '^[^[:space:]#]' "${REPO_ROOT}/requirements-dev.txt")"
-    pinned="$(grep -cE '^[A-Za-z0-9_.-]+==[0-9]' "${REPO_ROOT}/requirements-dev.txt")"
+    local old_path="${PATH}"
+    PATH="${stub_dir}:${PATH}"
+    [ "$(command -v python3)" = "${stub_dir}/python3" ]
+    PIP_NO_INDEX=1 PIP_REQUIRE_VIRTUALENV=1 run make -C "${REPO_ROOT}" install-deps
+    PATH="${old_path}"
 
-    [ "${total}" -gt 0 ]
-    [ "${pinned}" -eq "${total}" ]
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"the PEP 668 probe itself failed"* ]]
+    [[ "${output}" != *"externally managed"* ]]
+    [[ "${output}" != *"pip install"* ]]
+}
+
+# The failing branch here has no E2 exposure at all: with no python3
+# reachable, the pip line is structurally unreachable, so there is nothing
+# for a regressed guard to install for real. PATH is not replaced wholesale
+# (an empty/nonexistent directory makes `make` itself unresolvable -- exit
+# 127, "command not found", never reaching the recipe) -- it is scrubbed:
+# every PATH entry that actually resolves a python3 executable is dropped,
+# every other entry (including wherever `make` lives) is kept.
+@test "install-deps names python3 absence separately from the marker message" {
+    local scrubbed
+    scrubbed="$(printf '%s' "${PATH}" | tr ':' '\n' | while read -r d; do [[ -x "${d}/python3" ]] || printf '%s\n' "${d}"; done | tr '\n' ':')"
+    scrubbed="${scrubbed%:}"
+
+    PATH="${scrubbed}" run make -C "${REPO_ROOT}" install-deps
+
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"python3 not found on PATH"* ]]
+    [[ "${output}" != *"externally managed"* ]]
+}
+
+# A two-count comparison (pinned-lines vs total-lines) has false passes AND
+# false fails an added entry cannot be relied on to trip: an indented
+# unpinned line (`  pyright`) is invisible to BOTH the total-lines regex
+# (which requires a non-whitespace first character) and the pinned-lines
+# regex, so the ratio cannot move -- the exact Coverage Denominators failure
+# from tdd.md, reintroduced by the fix for a different denominator bug. And
+# `pyright[nodejs]==1.1.0` (extras), `-r other.txt` / `--index-url ...` (pip
+# directives), and `pyright ==1.1.0` (PEP 508 permits whitespace around ==)
+# are all legitimate, non-broken lines that a naive "starts with a name,
+# then ==, then a digit" regex would misclassify.
+#
+# A one-sided predicate -- name what's wrong, rather than compare two counts
+# that must independently agree -- doesn't have this shape. Comments and
+# blank lines are stripped first; directive lines (leading `-`) are exempt
+# from the == requirement; PEP 508 whitespace and extras are tolerated by
+# not anchoring the == check to the start of the line.
+@test "requirements-dev.txt has no entry that fails the == pin check" {
+    [ -s "${REPO_ROOT}/requirements-dev.txt" ]
+
+    # The trailing `|| true` is not swallowing a real failure: grep -v
+    # exits 1 when NOTHING matches, which here is the expected passing case
+    # (no bad lines) -- without it, that exit code would abort the bats body
+    # (errexit-like) at this assignment, reporting a grep failure instead of
+    # the actual (passing) result. Verified against all documented cases plus
+    # the real file.
+    local bad
+    bad="$(sed -E 's/[[:space:]]*#.*$//; s/^[[:space:]]+//; s/[[:space:]]+$//' "${REPO_ROOT}/requirements-dev.txt" \
+          | grep -vE '^$' | grep -vE '^-' | grep -vE '==[[:space:]]*[0-9]' || true)"
+    [ -z "${bad}" ]
 }
