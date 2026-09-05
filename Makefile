@@ -1,4 +1,4 @@
-.PHONY: install-hooks test-hooks test-python test lint lint-hooks lint-python changelog validate-plan bash-coverage
+.PHONY: install-hooks install-deps test-hooks test-python test lint lint-hooks lint-python changelog validate-plan bash-coverage
 
 # Derived from the tracked set (git ls-files), not a hand-maintained list --
 # an omitted file leaves a hand-list's coverage unchanged rather than lowering
@@ -28,6 +28,18 @@ install-hooks:
 	ln -sf "../../scripts/pre-push" "$$(git rev-parse --git-path hooks)/pre-push"
 	ln -sf "../../scripts/commit-msg" "$$(git rev-parse --git-path hooks)/commit-msg"
 	@printf "Pre-commit, pre-push, and commit-msg hooks installed\n"
+
+# Guards against PEP 668 (externally-managed environments): measured, the
+# Linux 7950X ships Python 3.12.3 with EXTERNALLY-MANAGED present, and a bare
+# `python3 -m pip install` there fails with "error: externally-managed-
+# environment". The marker check is the same discriminator pip itself uses.
+# Bare `pip` is deliberately never used here -- measured, `pip` resolves to an
+# unrelated pyenv environment on the Mac Studio, so a bare `pip install` can
+# exit 0 while `make test-python` still raises ModuleNotFoundError.
+install-deps:
+	@python3 -c 'import os, sysconfig; raise SystemExit(1 if os.path.exists(os.path.join(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED")) else 0)' \
+	  || { printf 'python3 is externally managed (PEP 668). Create a venv first:\n  python3 -m venv .venv && . .venv/bin/activate\nthen re-run: make install-deps\n' >&2; exit 1; }
+	python3 -m pip install -r requirements-dev.txt
 
 test-hooks:
 	bats --recursive tests/
