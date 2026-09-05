@@ -10,6 +10,9 @@ on:
       - ".github/workflows/scripts.yml"
       - ".github/workflows/release-*"
       - ".github/actions/**"
+      - "pyrightconfig.json"
+      - "requirements-dev.txt"
+      - ".claude/scripts/**"
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 jobs:
@@ -31,7 +34,7 @@ jobs:
           sudo install -m755 "/tmp/shellcheck-v${SC_VER}/shellcheck" /usr/local/bin/shellcheck
           shellcheck --version | grep -q "version: ${SC_VER}"
       - name: Install Python dependencies
-        run: pip install ruff==0.16.4 defusedxml pyright pip-audit pyyaml==6.0.3
+        run: pip install -r requirements-dev.txt ruff==0.16.4 pyright==1.1.411 pip-audit
       - name: Lint hooks, scripts and bats suites
         run: make lint
       - name: Run hook and script tests
@@ -41,7 +44,6 @@ jobs:
         run: make test-python
       - name: Run pyright
         run: pyright
-        working-directory: scripts
       - name: Run pip-audit
         run: pip-audit
         continue-on-error: true
