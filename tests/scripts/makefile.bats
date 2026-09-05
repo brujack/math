@@ -247,9 +247,98 @@ for e in json.load(open('${REPO_ROOT}/renovate.json')).get('extends', []):
     [[ "${stripped}" != *"pip install"* ]]
 }
 
-@test "requirements-dev.txt pins both entries with ==" {
-    [ -f "${REPO_ROOT}/requirements-dev.txt" ]
-    run grep -cE '^[A-Za-z0-9_.-]+==[0-9]' "${REPO_ROOT}/requirements-dev.txt"
+# pip's own check_externally_managed() returns early -- skipping the marker
+# check entirely -- when sys.prefix != sys.base_prefix (i.e. running under a
+# virtualenv). A predicate that checks only the marker refuses identically
+# inside and outside a venv, which is a dead end: the guard's own remedy
+# ("create a venv") does not change its verdict. Measured on the Linux
+# workstation, Python 3.12.3:
+#   outside venv: marker present, in_venv=False -> guard refuses  (correct)
+#   inside  venv: marker present, in_venv=True  -> guard refuses  (WRONG --
+#     pip itself permits the install there, rc=0)
+# Neither development machine can reproduce marker-present-inside-a-venv
+# locally (no EXTERNALLY-MANAGED marker on macOS/pyenv), so this pins the
+# predicate text rather than exercising it end to end.
+#
+# The full "SystemExit(1 if ... else 0)" string is pinned, not just the
+# "sys.prefix == sys.base_prefix" substring: an inverted predicate
+# (SystemExit(0 if ... else 1), backwards) still contains that substring, so
+# a partial match cannot tell a correct guard from an inverted one. Confirmed
+# by mutation: inverting the polarity leaves a substring-only version of this
+# test green.
+@test "install-deps predicate skips the marker check under a virtualenv" {
+    run grep -F 'raise SystemExit(1 if sys.prefix == sys.base_prefix and os.path.exists(os.path.join(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED")) else 0)' "${REPO_ROOT}/Makefile"
     [ "${status}" -eq 0 ]
-    [ "${output}" -eq 2 ]
+}
+
+# `make -n` PRINTS the recipe without ever EXECUTING it, so the two tests
+# above cannot tell a working guard from a deleted or inverted one -- deleting
+# the guard, or inverting it to `SystemExit(0 if exists else 1)`, still passes
+# both. These two tests stub `python3` and actually run the recipe, asserting
+# on the branch actually taken. The stub lives in its own BATS_TEST_TMPDIR
+# directory and is prepended to PATH only for the duration of this one test --
+# adding it to tests/mocks/ would shadow python3 for the whole suite (see
+# shell.md, "A PATH mock shadows the binary your production code needs").
+@test "install-deps refuses and never reaches pip when the marker check fails" {
+    local stub_dir="${BATS_TEST_TMPDIR}/stub-marker-present"
+    mkdir -p "${stub_dir}"
+    cat > "${stub_dir}/python3" <<'STUB'
+#!/usr/bin/env bash
+[[ "$1" == "-c" ]] && exit 1
+exit 0
+STUB
+    chmod +x "${stub_dir}/python3"
+
+    local old_path="${PATH}"
+    PATH="${stub_dir}:${PATH}"
+    run make -C "${REPO_ROOT}" install-deps
+    PATH="${old_path}"
+
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"externally managed"* ]]
+    [[ "${output}" != *"pip install"* ]]
+}
+
+@test "install-deps proceeds to pip install when the marker check passes" {
+    local stub_dir="${BATS_TEST_TMPDIR}/stub-marker-absent"
+    local call_log="${BATS_TEST_TMPDIR}/pip-calls.log"
+    mkdir -p "${stub_dir}"
+    cat > "${stub_dir}/python3" <<STUB
+#!/usr/bin/env bash
+if [[ "\$1" == "-c" ]]; then
+    exit 0
+fi
+if [[ "\$1" == "-m" && "\$2" == "pip" ]]; then
+    printf '%s\n' "\$*" >> "${call_log}"
+    exit 0
+fi
+exit 0
+STUB
+    chmod +x "${stub_dir}/python3"
+
+    local old_path="${PATH}"
+    PATH="${stub_dir}:${PATH}"
+    run make -C "${REPO_ROOT}" install-deps
+    PATH="${old_path}"
+
+    [ "${status}" -eq 0 ]
+    [ -f "${call_log}" ]
+    grep -q 'requirements-dev.txt' "${call_log}"
+}
+
+# Neither a literal count nor a fixed total works here: an added UNPINNED
+# entry still leaves the pinned count at 2 (false pass), and an added
+# legitimately PINNED entry raises the pinned count to 3 against a hardcoded
+# expectation of 2 (false fail). Comparing pinned lines against total
+# non-blank, non-comment lines asserts "every requirement is pinned" and
+# stays correct regardless of how many entries the file holds.
+@test "requirements-dev.txt pins every entry with ==" {
+    [ -f "${REPO_ROOT}/requirements-dev.txt" ]
+
+    local total pinned
+    total="$(grep -cE '^[^[:space:]#]' "${REPO_ROOT}/requirements-dev.txt")"
+    pinned="$(grep -cE '^[A-Za-z0-9_.-]+==[0-9]' "${REPO_ROOT}/requirements-dev.txt")"
+
+    [ "${total}" -gt 0 ]
+    [ "${pinned}" -eq "${total}" ]
 }

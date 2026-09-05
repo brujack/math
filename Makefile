@@ -32,12 +32,22 @@ install-hooks:
 # Guards against PEP 668 (externally-managed environments): measured, the
 # Linux 7950X ships Python 3.12.3 with EXTERNALLY-MANAGED present, and a bare
 # `python3 -m pip install` there fails with "error: externally-managed-
-# environment". The marker check is the same discriminator pip itself uses.
+# environment". pip's own check_externally_managed() skips the marker check
+# entirely when sys.prefix != sys.base_prefix (i.e. inside a virtualenv) --
+# checking only the marker, without the venv term, refuses identically
+# inside and outside a venv, so the guard's own "create a venv" remedy would
+# not change its verdict. Measured on the Linux workstation, Python 3.12.3:
+#   outside venv, marker present -> guard refuses (correct)
+#   inside venv, marker present  -> marker-only guard refuses (WRONG: pip
+#     itself permits the install there, rc=0); the venv-aware guard permits
+#     it too, matching pip.
 # Bare `pip` is deliberately never used here -- measured, `pip` resolves to an
 # unrelated pyenv environment on the Mac Studio, so a bare `pip install` can
 # exit 0 while `make test-python` still raises ModuleNotFoundError.
 install-deps:
-	@python3 -c 'import os, sysconfig; raise SystemExit(1 if os.path.exists(os.path.join(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED")) else 0)' \
+	@command -v python3 >/dev/null 2>&1 \
+	  || { printf 'python3 not found on PATH.\n' >&2; exit 1; }
+	@python3 -c 'import os, sys, sysconfig; raise SystemExit(1 if sys.prefix == sys.base_prefix and os.path.exists(os.path.join(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED")) else 0)' \
 	  || { printf 'python3 is externally managed (PEP 668). Create a venv first:\n  python3 -m venv .venv && . .venv/bin/activate\nthen re-run: make install-deps\n' >&2; exit 1; }
 	python3 -m pip install -r requirements-dev.txt
 
