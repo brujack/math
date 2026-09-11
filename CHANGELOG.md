@@ -3,47 +3,13 @@
 
 ## Bug Fixes
 
-- pin dtolnay/rust-toolchain to a SHA digest (#113)
-
-- inline the shared preset, which a public repo cannot fetch (#114)
-
-- use std::hint::black_box, unblocking the criterion 0.8 bump (#122)
-
 - scale the mutant timeout, stop capping the baseline (#127)
 
 - per-workflow issue labels and per-call mock isolation (#128)
 
 
 
-## CI
-
-- hold unlabelled Renovate PRs for triage (#120)
-
-
-
 ## Documentation
-
-- sync CLAUDE.md with the pytest migration and #109/#110
-
-- backlog the download-artifact v8 / continue-on-error interaction
-
-- cite action.yml for the download-artifact digest-mismatch option
-
-- record the 53-test root suite and backlog the inert master ruleset
-
-- backlog the undocumented bench black_box import convention
-
-- attribute mutation notify failures from step conclusions
-
-- separate measured from documented in the permissions premise
-
-- record Step 8 multi-lens review, dispositions pending
-
-- retier the notify spec and disposition round 1
-
-- replace the API probe with a job-written breadcrumb
-
-- breadcrumb attestation, 6 tasks
 
 - coverage is 33% (375/1132), not the 30% recorded
 
@@ -81,12 +47,64 @@
 
 - record Step 8 round 2 on the SBOM/ruleset spec
 
+- address Step 8 round 2 findings on the SBOM/ruleset spec
+
+- stop restating counts across sections in the SBOM/ruleset spec
+
+- point Scope at Section 2 instead of counting its gh api calls
+
+- record Step 8 round 3 and the shared upstream cause
+
+- spec atomic release publication to remove the sign-after-publish window
+
+- index the release-ordering spec
+
+- record the syft probe and re-scope the release-ordering spec
+
+- mark SBOM monitor Section 1 superseded by the syft probe
+
+- record round 1 dispositions on the release-ordering spec
+
+- plan atomic release publication
+
+- mark the release-ordering plan done
+
+- re-measure the cargo install pinning backlog row
+
+- backlog the missing negative wording assertion
+
+- spec the root-scope Python gate holes
+
+- redesign the pyright gate after multi-lens review
+
+- replace the matcher reimplementation with an inequality
+
+- model the slack the coverage gate was tolerating
+
+- remove the duplicate reintroduced by the round-3 edit
+
+- record the operator's disposition on round-2 risk finding 5
+
+- plan the root-scope Python gate holes
+
+- document make install-deps in the README setup block
+
+- correct the SBOM-monitor backlog row
+
+- two findings from the model-generation-audit
+
+- two stale facts from the model-generation-audit re-run
+
+- 19 shell files unreachable from the push path
+
+- fix double-tilde standards includes in CLAUDE.md
+
 
 
 ## Features
 
-- wire root-scope Python into make lint and the push path (#111)
+- sign releases before publishing them (#130)
 
-- attest mutation-run progress with a breadcrumb (#125)
+- declare and type-check root-scope Python (#131)
 
 
