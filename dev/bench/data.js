@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788229391413,
+  "lastUpdate": 1790821957969,
   "repoUrl": "https://github.com/brujack/math",
   "entries": {
     "Benchmark": [
@@ -224,6 +224,232 @@ window.BENCHMARK_DATA = {
           {
             "name": "sq/max_digits=3",
             "value": 20,
+            "range": "± 0",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "renovate[bot]",
+            "username": "renovate[bot]",
+            "email": "29139614+renovate[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "5632d58102db34663d7347c516b6fc5840be139e",
+          "message": "chore(deps): update orhun/git-cliff-action digest to a9a9552 (#133)\n\nCo-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-19T03:10:23Z",
+          "url": "https://github.com/brujack/math/commit/5632d58102db34663d7347c516b6fc5840be139e"
+        },
+        "date": 1790821957319,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "factorial/n=100",
+            "value": 72173,
+            "range": "± 2531",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "factorial/n=1000",
+            "value": 128441,
+            "range": "± 3547",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "factorial/n=5000",
+            "value": 337143,
+            "range": "± 5551",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pi/digits=100",
+            "value": 200356894,
+            "range": "± 32248",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pi/digits=1000",
+            "value": 200437767,
+            "range": "± 50300",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pi/digits=5000",
+            "value": 200586422,
+            "range": "± 102384",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e/digits=100",
+            "value": 200354770,
+            "range": "± 28441",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e/digits=1000",
+            "value": 200450140,
+            "range": "± 57364",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e/digits=5000",
+            "value": 200519501,
+            "range": "± 38483",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fib/max_digits=100",
+            "value": 11501,
+            "range": "± 77",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fib/max_digits=1000",
+            "value": 150530,
+            "range": "± 527",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fib/max_digits=5000",
+            "value": 1937250,
+            "range": "± 15744",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "collatz/limit=1000",
+            "value": 25229,
+            "range": "± 59",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "collatz/limit=10000",
+            "value": 263863,
+            "range": "± 2736",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "collatz/limit=100000",
+            "value": 2926246,
+            "range": "± 21681",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "amicable/limit=10000",
+            "value": 62481,
+            "range": "± 3262",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "amicable/limit=100000",
+            "value": 792543,
+            "range": "± 7219",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "amicable/limit=1000000",
+            "value": 12238305,
+            "range": "± 58261",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "prime/limit=10000",
+            "value": 200332469,
+            "range": "± 25797",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "prime/limit=100000",
+            "value": 200336253,
+            "range": "± 60755",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "prime/limit=1000000",
+            "value": 200345014,
+            "range": "± 129130",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "perfect_numbers/limit=10000",
+            "value": 849,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "perfect_numbers/limit=1e19",
+            "value": 6377,
+            "range": "± 85",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "perfect_numbers/limit=1e40",
+            "value": 22671,
+            "range": "± 51",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "twin_primes/limit=1000",
+            "value": 1463,
+            "range": "± 14",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "twin_primes/limit=10000",
+            "value": 11718,
+            "range": "± 48",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "twin_primes/limit=100000",
+            "value": 115859,
+            "range": "± 3750",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "goldbach/sieve=10000",
+            "value": 7211,
+            "range": "± 15",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "goldbach/sieve=100000",
+            "value": 79104,
+            "range": "± 113",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "goldbach/sieve=1000000",
+            "value": 852174,
+            "range": "± 2746",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "goldbach/pairs=10000",
+            "value": 15400860,
+            "range": "± 40163",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sq/max_digits=1",
+            "value": 2,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sq/max_digits=2",
+            "value": 6,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sq/max_digits=3",
+            "value": 22,
             "range": "± 0",
             "unit": "ns/iter"
           }
