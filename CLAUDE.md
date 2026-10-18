@@ -321,12 +321,20 @@ All Rust crate `make lint` and `make test` targets call `scripts/rust-check.sh` 
 
 ## Language Standards
 
-Language-specific standards for this repo. These supplement the universal standards loaded
-from `~/.claude/CLAUDE.md` (tdd, behavior, git-workflow, ci, code-standards, logic-review,
-repo-structure, shell).
+Neither file below is loaded at session start. Read it before the work it governs:
 
-@~/.claude/standards/python.md
-@~/.claude/standards/rust.md
+- **Read `~/.claude/standards/python.md` before writing or changing any `.py` file, or any
+  Python tooling config** (`ruff.toml`, `pyrightconfig.json`, `install_deps.sh`,
+  `requirements-dev.txt`, a `*-py.yml` workflow, mutmut/cosmic-ray setup).
+- **Read `~/.claude/standards/rust.md` before writing or changing any `.rs` file,
+  `Cargo.toml`, `.cargo/mutants.toml`, `rustfmt.toml`, `scripts/rust-check.sh`, or a
+  `*-rs.yml` workflow.**
+
+The trigger is source as well as config on purpose. Most of what these files carry for this
+repo is about ordinary code: the `ProcessPoolExecutor` spawn threshold, Hypothesis
+`deadline=None`, the gmpy2 pyright suppressions, `concat!()` for indented strings, the
+tarpaulin probe patterns. A config-only trigger would skip them in exactly the sessions that
+need them.
 
 ### API-quality lints (all 11 Rust crates)
 
