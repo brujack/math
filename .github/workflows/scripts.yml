@@ -13,6 +13,11 @@ on:
       - "pyrightconfig.json"
       - "requirements-dev.txt"
       - ".claude/scripts/**"
+      # Subjects of root unittest suites: test_automerge_bot_hold.py runs the
+      # hold step extracted from auto-merge.yml, test_renovate_automerge_policy.py
+      # asserts renovate.json. Without these an edit to either skips its test.
+      - ".github/workflows/auto-merge.yml"
+      - "renovate.json"
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 jobs:

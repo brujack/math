@@ -205,6 +205,26 @@ teardown() {
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
 }
 
+@test ".github/workflows/auto-merge.yml change reaches the root test target" {
+    # tests/test_automerge_bot_hold.py runs the hold step extracted from this
+    # workflow, so a hold-step edit must run the root suite (ADR-0085).
+    export MOCK_GIT_DIFF_NAMES=".github/workflows/auto-merge.yml"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
+}
+
+@test "renovate.json change reaches the root test target" {
+    # tests/test_renovate_automerge_policy.py asserts this file's auto-merge
+    # policy, so editing it must run the root suite.
+    export MOCK_GIT_DIFF_NAMES="renovate.json"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
+}
+
 @test "pi-only change does not reach the root test target" {
     # The point of this file: every existing negative case here either uses
     # an EMPTY diff (which an over-broad root-trigger regex also passes) or
