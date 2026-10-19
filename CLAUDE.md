@@ -157,7 +157,7 @@ In prompt tests supplying N via `io::Cursor`, assert the concrete output artifac
 
 Project workflows run on PRs to `master` only; the pre-push hook gates branch pushes locally; a build job depends on its test job (`needs: [test]`). → ai-config/docs/knowledge/math-ci.md § Workflow table
 Workflows are `<project>-py.yml` (job `test`) and `<project>-rs.yml` (`test` → build + artifact), `release-<project>-rs.yml` (manual dispatch), plus `auto-merge.yml`, `mutation-pr.yml`, `mutation-testing.yml`, `mutation-testing-python.yml`, `scripts.yml` (list with `git ls-files .github/workflows/`). → ai-config/docs/knowledge/math-ci.md § Workflow table
-`auto-merge.yml` runs secret-scan and bash-coverage (gated), then ci-gate (polls required checks, merges on pass), then snyk-scan (advisory, not gated); `scripts.yml` runs `bats --recursive tests/`. → ai-config/docs/knowledge/math-ci.md § Workflow table
+`auto-merge.yml` runs secret-scan, bash-coverage and claude-md-budget (gated), then ci-gate (polls required checks, merges on pass), then snyk-scan (advisory, not gated); `scripts.yml` runs `bats --recursive tests/`. → ai-config/docs/knowledge/math-ci.md § Workflow table
 
 
 Every `release-*-rs.yml` builds with `cargo auditable build --release` (a plain build makes the SBOM list 1 package instead of 13). → ai-config/docs/knowledge/math-ci.md § Atomic release publication
@@ -170,7 +170,7 @@ Release and CI jobs run Node.js 24 with `actions/checkout@v7`; Rust builds `need
 Pre-commit: `scripts/pre-commit` (installed by `make install-hooks`) runs `make lint` on staged sub-projects and `ggshield secret scan pre-commit` (skipped if absent); install ggshield locally. → ai-config/docs/knowledge/math-ci.md § Pre-commit hook
 
 
-Pre-push: `scripts/pre-push` (installed by `make install-hooks`) runs `make test` per sub-project with `.py`/`.rs` source changes, and the root `make test` (`lint test-hooks test-python`) when the push touches `scripts/`, `tests/` or the root `Makefile`; it skips branch deletions and is permanent. → ai-config/docs/knowledge/math-ci.md § Pre-push hook
+Pre-push: `scripts/pre-push` (installed by `make install-hooks`) runs `make test` per sub-project with `.py`/`.rs` source changes, and the root `make test` (`lint test-hooks test-python`) when the push touches `scripts/`, `tests/` or the root `Makefile`, and refuses a pushed commit that changes `CLAUDE.md` past the 30000-byte ceiling; it skips branch deletions and is permanent. → ai-config/docs/knowledge/math-ci.md § Pre-push hook
 math's hooks bypass root `test:`, so fix the hooks (not the root target) when lint or test coverage on push is wrong. → ai-config/docs/knowledge/math-ci.md § Pre-push hook
 
 

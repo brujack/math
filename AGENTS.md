@@ -2,7 +2,7 @@
 
 Cursor agent instructions for this repo.
 
-## Source of truth (exhaustive)
+## Source of truth
 
 - Top-level `CLAUDE.md` is authoritative and holds one line per rule, with detail behind pointers to `ai-config/docs/knowledge/math-*.md`.
 - Sub-project `CLAUDE.md` files are also authoritative for their directories:
