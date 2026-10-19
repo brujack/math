@@ -154,6 +154,23 @@ CASES = [
         0,
         "merge=false\n",
     ),
+    # Real Renovate PRs carry `renovate` and `automerge-ok` (renovate.json
+    # labels + addLabels). Single-label fixtures let a string-equality or a
+    # position-dependent match pass while it holds every real Renovate PR.
+    (
+        "11-several-labels-automerge-ok-last",
+        fx(True, "app/renovate", ["renovate", "automerge-ok"]),
+        False,
+        0,
+        "merge=true\n",
+    ),
+    (
+        "12-several-labels-automerge-ok-first",
+        fx(True, "app/renovate", ["automerge-ok", "renovate"]),
+        False,
+        0,
+        "merge=true\n",
+    ),
 ]
 
 
