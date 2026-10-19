@@ -1,3 +1,5 @@
+> **Status: DONE** — merged math#146 (1206743), 2026-10-19.
+
 # CLAUDE.md Budget Implementation Plan
 
 spec: docs/superpowers/specs/2026-10-19-claude-md-budget-design.md
