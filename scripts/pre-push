@@ -15,6 +15,54 @@ DIRS_TO_TEST=()
 # matched nothing and pushed with no local test at all. CI's scripts.yml caught
 # it, but only after the push.
 RUN_HOOK_TESTS=0
+# SHAs refused by the CLAUDE.md byte-ceiling check; acted on after the ref loop
+# so every pushed ref is examined and the refusal precedes all early exits.
+budget_refusals=()
+
+# Enforces the CLAUDE.md byte ceiling for one pushed commit. The change test
+# diffs against merge-base(sha, origin/master), not the remote ref's old SHA, so
+# a rebase onto (or merge from) an over-ceiling master is not counted as this
+# branch's own CLAUDE.md change. A merge-base failure falls back to the root
+# commit, as the new-branch range below does; it never refuses. Only a failed
+# diff refuses. `git diff --quiet` is read explicitly: 0 unchanged, 1 changed,
+# anything else is an error. Appends to budget_refusals on failure.
+check_claude_md_budget() {
+    local sha="$1" base rc=0 tmp
+    base="$(git merge-base "${sha}" origin/master 2>/dev/null \
+        || git rev-list --max-parents=0 "${sha}" 2>/dev/null)" || base=""
+    base="${base%%$'\n'*}"
+    if [[ -z "${base}" ]]; then
+        printf "refusing %s: cannot determine a base to test whether it changes CLAUDE.md\n" "${sha}" >&2
+        budget_refusals+=("${sha}")
+        return 0
+    fi
+    git diff --quiet "${base}" "${sha}" -- CLAUDE.md 2>/dev/null || rc=$?
+    case "${rc}" in
+        0) return 0 ;;
+        1) ;;
+        *)
+            printf "refusing %s: cannot determine whether it changes CLAUDE.md (git diff exited %s)\n" "${sha}" "${rc}" >&2
+            budget_refusals+=("${sha}")
+            return 0
+            ;;
+    esac
+
+    if [[ -z "$(git ls-tree "${sha}" -- scripts/claude_md_budget.py 2>/dev/null)" ]]; then
+        printf "skipping CLAUDE.md byte ceiling for %s: that commit has no scripts/claude_md_budget.py\n" "${sha}"
+        return 0
+    fi
+    # The checker is read from the pushed commit and run against that commit.
+    # pipefail scopes a failed `git show` to a refusal instead of an empty file.
+    tmp="$(mktemp)" || { budget_refusals+=("${sha}"); return 0; }
+    if ( set -o pipefail; git show "${sha}:scripts/claude_md_budget.py" > "${tmp}" \
+            && python3 "${tmp}" "${sha}" ); then
+        printf "CLAUDE.md byte ceiling OK for %s\n" "${sha}"
+    else
+        printf "refusing %s: CLAUDE.md byte ceiling check failed\n" "${sha}" >&2
+        budget_refusals+=("${sha}")
+    fi
+    rm -f "${tmp}"
+}
 
 # local_ref and remote_ref are unused, but git's pre-push protocol writes all
 # four fields per line in this order — they are positional placeholders, not
@@ -22,6 +70,8 @@ RUN_HOOK_TESTS=0
 # shellcheck disable=SC2034
 while read -r local_ref local_sha remote_ref remote_sha; do
     [[ "${local_sha}" = "0000000000000000000000000000000000000000" ]] && continue
+
+    check_claude_md_budget "${local_sha}"
 
     if [[ "${remote_sha}" = "0000000000000000000000000000000000000000" ]]; then
         base="$(git merge-base "${local_sha}" origin/master 2>/dev/null \
@@ -53,6 +103,11 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         RUN_HOOK_TESTS=1
     fi
 done
+
+if [[ "${#budget_refusals[@]}" -gt 0 ]]; then
+    printf "pre-push: push refused: CLAUDE.md byte ceiling (ADR-0028) failed for %s\n" "${budget_refusals[*]}" >&2
+    exit 1
+fi
 
 # Must run before both early exits below. The "no sub-projects" exit fires on
 # exactly the case this clause exists for — a scripts/- or bats-only push has an
