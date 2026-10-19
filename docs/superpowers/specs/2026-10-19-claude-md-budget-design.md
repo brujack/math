@@ -1,5 +1,7 @@
 # CLAUDE.md budget: one line per rule, and a byte ceiling that stops regrowth
 
+- **Approved:** 2026-10-19, operator: "approved for both" (revision 2)
+
 **Status:** Draft, revision 2, 2026-10-19. Method (terraform_ansible#229 / dotfiles#347) chosen
 by the operator; round-1 review findings recorded below.
 
