@@ -134,8 +134,9 @@ def python_hold_gaps(config):
     automerges or carries the guard label (labels/addLabels) excludes the Python
     interpreter by depName and packageName and excludes the terraform/gomod managers;
     the two hold rules exist exactly (same entries, automerge false, no other match*
-    key); and nothing outside packageRules (root or a top-level manager block) turns
-    on automerge or the guard label. It cannot see presets pulled in by ``extends``
+    key); the root does not turn on automerge; and neither the root nor a top-level
+    manager block adds the guard label. A manager block's own ``automerge: true`` is
+    not checked: the hold rules override it. It cannot see presets pulled in by ``extends``
     or any behaviour Renovate adds at run time.
     """
     rules = config.get("packageRules", [])

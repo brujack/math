@@ -522,8 +522,8 @@ Forty workflow files (`git ls-files .github/workflows/ | wc -l`). Project workfl
 and `make test` runs `test-hooks` then `test-python`. Added 2026-08-07 (#104). Before that nothing executed
 `tests/*.py` at all: `scripts.yml` ran bats and pyright, so `tests/test_time_tests.py` was type-checked but
 its 8 tests had never once run. `scripts.yml` now calls `make test-python` alongside the bats step. Note this
-is repo-level only — each sub-project keeps its own `make test`. The suite is **93 tests** as of
-2026-09-05 (`python3 -m unittest discover -s tests -p 'test_*.py'`): `test_time_tests.py`, `test_test_metrics.py`, `test_triage_log.py`,
+is repo-level only — each sub-project keeps its own `make test`. The suite is **112 tests** as of
+2026-10-19 (`python3 -m unittest discover -s tests -p 'test_*.py'`): `test_time_tests.py`, `test_test_metrics.py`, `test_triage_log.py`,
 `test_renovate_automerge_policy.py` (added in #123 — it asserts `renovate.json`'s auto-merge policy is
 exhaustive over the ten-member `updateType` enum; see the Renovate auto-merge policy section above),
 `test_release_workflows.py` (added by the atomic-release-publication change — it parses every
