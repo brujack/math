@@ -23,11 +23,13 @@ budget_refusals=()
 # diffs against merge-base(sha, origin/master), not the remote ref's old SHA, so
 # a rebase onto (or merge from) an over-ceiling master is not counted as this
 # branch's own CLAUDE.md change. A merge-base failure falls back to the root
-# commit, as the new-branch range below does; it never refuses. Only a failed
-# diff refuses. `git diff --quiet` is read explicitly: 0 unchanged, 1 changed,
-# anything else is an error. Appends to budget_refusals on failure.
+# commit, as the new-branch range below does; it refuses only when that
+# fallback also yields no base. A failed diff, an unreadable tree and an
+# unreadable checker refuse too: only a tree that lists no checker is skipped.
+# `git diff --quiet` is read explicitly: 0 unchanged, 1 changed, anything else
+# is an error. Appends to budget_refusals on failure.
 check_claude_md_budget() {
-    local sha="$1" base rc=0 tmp
+    local sha="$1" base rc=0 tmp listing tree_rc=0
     base="$(git merge-base "${sha}" origin/master 2>/dev/null \
         || git rev-list --max-parents=0 "${sha}" 2>/dev/null)" || base=""
     base="${base%%$'\n'*}"
@@ -47,18 +49,36 @@ check_claude_md_budget() {
             ;;
     esac
 
-    if [[ -z "$(git ls-tree "${sha}" -- scripts/claude_md_budget.py 2>/dev/null)" ]]; then
+    # Status is captured apart from the output: an ls-tree failure must not read
+    # as "this commit has no checker", which skips the check.
+    listing="$(git ls-tree "${sha}" -- scripts/claude_md_budget.py 2>/dev/null)" || tree_rc=$?
+    if [[ "${tree_rc}" -ne 0 ]]; then
+        printf "refusing %s: cannot read tree of %s (git ls-tree exited %s)\n" "${sha}" "${sha}" "${tree_rc}" >&2
+        budget_refusals+=("${sha}")
+        return 0
+    fi
+    if [[ -z "${listing}" ]]; then
         printf "skipping CLAUDE.md byte ceiling for %s: that commit has no scripts/claude_md_budget.py\n" "${sha}"
         return 0
     fi
     # The checker is read from the pushed commit and run against that commit.
-    # pipefail scopes a failed `git show` to a refusal instead of an empty file.
-    tmp="$(mktemp)" || { budget_refusals+=("${sha}"); return 0; }
-    if ( set -o pipefail; git show "${sha}:scripts/claude_md_budget.py" > "${tmp}" \
-            && python3 "${tmp}" "${sha}" ); then
-        printf "CLAUDE.md byte ceiling OK for %s\n" "${sha}"
+    # There is no pipe: `&&` keeps a failed `git show` from running an empty file.
+    tmp="$(mktemp)" || {
+        printf "refusing %s: cannot create a temp file for the CLAUDE.md checker\n" "${sha}" >&2
+        budget_refusals+=("${sha}")
+        return 0
+    }
+    if git show "${sha}:scripts/claude_md_budget.py" > "${tmp}"; then
+        # -I: the temp file lives in a shared directory, and without it Python
+        # puts that directory first on sys.path, so a planted subprocess.py runs.
+        if python3 -I "${tmp}" "${sha}" < /dev/null; then
+            printf "CLAUDE.md byte ceiling OK for %s\n" "${sha}"
+        else
+            printf "refusing %s: CLAUDE.md byte ceiling check failed\n" "${sha}" >&2
+            budget_refusals+=("${sha}")
+        fi
     else
-        printf "refusing %s: CLAUDE.md byte ceiling check failed\n" "${sha}" >&2
+        printf "refusing %s: cannot read scripts/claude_md_budget.py from %s\n" "${sha}" "${sha}" >&2
         budget_refusals+=("${sha}")
     fi
     rm -f "${tmp}"

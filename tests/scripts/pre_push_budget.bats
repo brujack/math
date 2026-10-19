@@ -118,16 +118,46 @@ run_hook() {
     [[ "${output}" == *"skipping CLAUDE.md byte ceiling for ${sha}"* ]]
 }
 
-@test "checker read failure is refused" {
+@test "checker read failure is refused with its own message" {
     big_claude_md 100
     commit_all "change"
     sha="$(head_sha)"
-    # Wrapper fails only `git show`, so the checker file cannot be read.
-    printf '#!/usr/bin/env bash\n[[ "$1" == show ]] && exit 128\nexec "%s" "$@"\n' "${REAL_GIT}" > "${STUBS}/git"
+    # Fails only the checker's `git show`; the checker's own `show sha:CLAUDE.md`
+    # still works, so only a read of the checker from the commit can trip it.
+    printf '#!/usr/bin/env bash\n[[ "$1" == show && "${!#}" == *:scripts/claude_md_budget.py ]] && exit 128\nexec "%s" "$@"\n' "${REAL_GIT}" > "${STUBS}/git"
     chmod +x "${STUBS}/git"
     run_hook "refs/heads/feat ${sha} refs/heads/feat ${ZEROS}"
     [ "$status" -eq 1 ]
+    [[ "${output}" == *"refusing ${sha}: cannot read scripts/claude_md_budget.py from ${sha}"* ]]
+    [[ "${output}" != *"skipping CLAUDE.md byte ceiling"* ]]
+}
+
+@test "tree listing failure is refused, not treated as a missing checker" {
+    big_claude_md 100
+    commit_all "change"
+    sha="$(head_sha)"
+    printf '#!/usr/bin/env bash\n[[ "$1" == ls-tree && "$*" == *scripts/claude_md_budget.py* ]] && exit 128\nexec "%s" "$@"\n' "${REAL_GIT}" > "${STUBS}/git"
+    chmod +x "${STUBS}/git"
+    run_hook "refs/heads/feat ${sha} refs/heads/feat ${ZEROS}"
+    [ "$status" -eq 1 ]
+    [[ "${output}" == *"refusing ${sha}: cannot read tree of ${sha}"* ]]
+    [[ "${output}" != *"skipping CLAUDE.md byte ceiling"* ]]
+}
+
+@test "checker runs isolated: a planted subprocess.py in TMPDIR does not run" {
+    big_claude_md 30001
+    commit_all "grow"
+    sha="$(head_sha)"
+    plant="${BATS_TEST_TMPDIR}/plant"
+    marker="${BATS_TEST_TMPDIR}/marker"
+    mkdir -p "${plant}"
+    # Without `python3 -I` the script's directory heads sys.path, so this file
+    # shadows the stdlib module, records that it ran, and makes the checker exit 0.
+    printf 'import os\nopen("%s", "w").close()\nos._exit(0)\n' "${marker}" > "${plant}/subprocess.py"
+    TMPDIR="${plant}" run_hook "refs/heads/feat ${sha} refs/heads/feat ${ZEROS}"
+    [ "$status" -eq 1 ]
     [[ "${output}" == *"refusing ${sha}"* ]]
+    [ ! -e "${marker}" ]
 }
 
 @test "failed diff is refused" {
@@ -154,18 +184,22 @@ run_hook() {
     [[ "${output}" != *"refusing"* ]]
 }
 
-@test "two-ref push with the second over ceiling is refused" {
+@test "two-ref push: checker runs per ref and a non-HEAD second ref over ceiling is refused" {
     "${REAL_GIT}" -C "${FIX}" checkout -q -b one
-    printf 'y\n' > "${FIX}/other.txt"
-    commit_all "one"
+    printf 'medium\n' > "${FIX}/CLAUDE.md"
+    commit_all "one: within ceiling"
     one="$(head_sha)"
     "${REAL_GIT}" -C "${FIX}" checkout -q master
     "${REAL_GIT}" -C "${FIX}" checkout -q -b two
     big_claude_md 30001
-    commit_all "two"
+    commit_all "two: over ceiling"
     two="$(head_sha)"
+    # HEAD returns to master (small CLAUDE.md): a checker run on HEAD instead of
+    # the pushed sha would pass ref two.
+    "${REAL_GIT}" -C "${FIX}" checkout -q master
     run_hook "$(printf 'refs/heads/one %s refs/heads/one %s\nrefs/heads/two %s refs/heads/two %s' "${one}" "${ZEROS}" "${two}" "${ZEROS}")"
     [ "$status" -eq 1 ]
+    [[ "${output}" == *"CLAUDE.md byte ceiling OK for ${one}"* ]]
     [[ "${output}" == *"refusing ${two}"* ]]
     [[ "${output}" != *"refusing ${one}"* ]]
 }
