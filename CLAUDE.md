@@ -30,7 +30,7 @@ Reference material lives in `ai-config/docs/knowledge/math-<topic>.md` (ADR-0020
 ## Dependency Installation
 
 Each sub-project has its own installer: `<project>/install_deps.sh` for Python, `<project>/<project>-rs/install_deps.sh` for Rust (19 total; `goldbach`, `prime` and `twin-primes` have only the nested Rust one). → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
-Rust installers add the toolchain, `cargo-tarpaulin` (not for `sq-rs`) and GMP (+ MPFR for pi/e/factorial) where needed; Python installers add `ruff`, `coverage`, `pytest`, `pytest-cov` (plus `mpmath`, `gmpy2` for pi/e/factorial). → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
+Rust installers add the toolchain, `cargo-tarpaulin` (not for `sq-rs`) and GMP (+ MPFR for pi/e/factorial) where needed; Python installers add `ruff`, `coverage`, `pytest`, `pytest-cov` (plus GMP + MPFR, `mpmath`, `gmpy2` for pi/e/factorial). → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
 
 Root-scope Python has no `install_deps.sh` by design: `requirements-dev.txt` (`defusedxml==0.7.1`, `pyyaml==6.0.3`) is consumed by `make install-deps`. → ai-config/docs/knowledge/math-dependency-installation.md § Root-scope Python
 
@@ -224,7 +224,7 @@ Project workflows are paths-filtered (root `Makefile` covered by `scripts.yml`);
 
 **snyk-scan** runs `snyk code test` (SAST) against the Python and Rust source. It is advisory — not in `needs` for `auto-merge`. Requires `SNYK_TOKEN` in repository secrets.
 
-A new project gets `.github/workflows/<project>.yml` triggered only by `pull_request: branches: [master]` (no `push:`), with a `test` job and a `build` job (`needs: [test]`) uploading an artifact, plus a README badge `badge.svg?event=pull_request` at the top and in the CI column. → ai-config/docs/knowledge/math-ci.md § Adding a new project workflow
+A new project gets `.github/workflows/<project>.yml` triggered only by `pull_request: branches: [master]` (no `push:`) with a `paths:` block, a `test` job and a `build` job (`needs: [test]`) uploading an artifact, plus a README badge `badge.svg?event=pull_request` at the top and in the CI column. → ai-config/docs/knowledge/math-ci.md § Adding a new project workflow
 
 
 ## Branch Workflow
