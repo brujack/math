@@ -3,7 +3,8 @@
 
 Usage: claude_md_budget.py <rev>
 
-Exit 0: CLAUDE.md absent at <rev>, or at most CEILING bytes.
+Exit 0: CLAUDE.md absent at <rev>, or at most CEILING bytes. Either way one
+        line goes to stdout so a passing CI log still records the size.
 Exit 1: CLAUDE.md larger than CEILING bytes, or not a regular file (symlink,
         submodule, directory, other mode).
 Exit 2: usage error or a git failure (unknown revision, unreadable object).
@@ -62,6 +63,7 @@ def main(argv: list[str]) -> int:
         return 2
     entry = listing.stdout.decode("utf-8", errors="replace").strip()
     if not entry:
+        print(f"CLAUDE.md absent at {rev}; nothing to measure.")
         return 0
 
     # "<mode> <type> <sha>\tCLAUDE.md". `git show rev:CLAUDE.md` on a symlink
@@ -89,6 +91,7 @@ def main(argv: list[str]) -> int:
             file=sys.stderr,
         )
         return 1
+    print(f"CLAUDE.md at {rev} is {size} bytes (ceiling {CEILING}).")
     return 0
 
 

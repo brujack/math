@@ -93,6 +93,28 @@ class BudgetTest(unittest.TestCase):
         self.commit(None)
         self.assertEqual(self.run_script("HEAD").returncode, 0)
 
+    def test_within_ceiling_prints_size_line(self) -> None:
+        self.commit(b"a" * 1234)
+        result = self.run_script("HEAD")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            result.stdout, "CLAUDE.md at HEAD is 1234 bytes (ceiling 30000).\n"
+        )
+        self.assertEqual(result.stderr, "")
+
+    def test_absent_prints_absent_line(self) -> None:
+        self.commit(None)
+        result = self.run_script("HEAD")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            result.stdout, "CLAUDE.md absent at HEAD; nothing to measure.\n"
+        )
+        self.assertEqual(result.stderr, "")
+
+    def test_over_ceiling_prints_nothing_to_stdout(self) -> None:
+        self.commit(b"a" * (CEILING + 1))
+        self.assertEqual(self.run_script("HEAD").stdout, "")
+
     def test_unknown_revision_exits_2(self) -> None:
         self.commit(b"a")
         result = self.run_script("no-such-rev")
