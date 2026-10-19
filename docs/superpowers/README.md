@@ -43,6 +43,7 @@ Master status index for all specs and implementation plans in this directory.
 | 2026-09-02 | —                                                                                                          | [spec](specs/2026-09-02-sbom-false-pass-and-dead-ruleset-design.md)                                                               | In Progress |
 | 2026-09-04 | [release-ordering-atomic-publication](plans/2026-09-04-release-ordering-atomic-publication.md)             | [spec](specs/2026-09-04-release-ordering-atomic-publication-design.md)                                                            | Done        |
 | 2026-09-05 | [root-python-gate-holes](plans/2026-09-05-root-python-gate-holes.md)                                       | [spec](specs/2026-09-05-root-python-gate-holes-design.md)                                                                         | Done        |
+| 2026-10-19 | — | [claude-md-budget](specs/2026-10-19-claude-md-budget-design.md) | Spec review |
 
 ---
 
