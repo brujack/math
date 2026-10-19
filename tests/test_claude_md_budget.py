@@ -1,10 +1,14 @@
 """Tests for scripts/claude_md_budget.py: the CLAUDE.md byte-ceiling gate."""
 
+import contextlib
+import importlib.util
+import io
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "claude_md_budget.py"
@@ -143,24 +147,25 @@ class BudgetTest(unittest.TestCase):
         _git(self.repo, "add", "real.md", "CLAUDE.md")
         _git(self.repo, "commit", "-q", "-m", "symlink")
 
-    def assert_not_regular(self, mode: str) -> None:
+    def assert_not_regular(self, mode: str, description: str) -> None:
         result = self.run_script("HEAD")
         self.assertEqual(result.returncode, 1)
         self.assertIn(
-            f"CLAUDE.md at HEAD must be a regular file (git mode {mode}), "
-            "not a symlink or submodule.",
+            f"CLAUDE.md at HEAD must be a regular file but is {description}",
             result.stderr,
         )
-        self.assertIn(ADR_PATH, result.stderr)
-        self.assertIn("ai-config/docs/knowledge/math-", result.stderr)
+        self.assertIn("Commit CLAUDE.md as a regular file.", result.stderr)
+        # A mode refusal must not offer the size remedy: shrinking does not help.
+        self.assertNotIn(ADR_PATH, result.stderr)
+        self.assertNotIn("ai-config/docs/knowledge/math-", result.stderr)
 
     def test_symlink_to_big_file_refused(self) -> None:
         self.commit_symlink(b"a" * (CEILING + 5000))
-        self.assert_not_regular("120000")
+        self.assert_not_regular("120000", "a symlink (git mode 120000)")
 
     def test_symlink_to_small_file_refused(self) -> None:
         self.commit_symlink(b"a")
-        self.assert_not_regular("120000")
+        self.assert_not_regular("120000", "a symlink (git mode 120000)")
 
     def test_gitlink_refused(self) -> None:
         self.commit(None)
@@ -172,7 +177,37 @@ class BudgetTest(unittest.TestCase):
             "160000,1111111111111111111111111111111111111111,CLAUDE.md",
         )
         _git(self.repo, "commit", "-q", "-m", "gitlink")
-        self.assert_not_regular("160000")
+        self.assert_not_regular("160000", "a submodule (git mode 160000)")
+
+    def test_directory_refused(self) -> None:
+        (self.repo / "CLAUDE.md").mkdir()
+        (self.repo / "CLAUDE.md" / "inner.txt").write_text("x")
+        _git(self.repo, "add", "CLAUDE.md/inner.txt")
+        _git(self.repo, "commit", "-q", "-m", "dir")
+        self.assert_not_regular("040000", "a directory (git mode 040000)")
+
+    def test_unrecognised_mode_uses_generic_description(self) -> None:
+        # git canonicalises every mode it reads to one of five, so no real tree
+        # reaches the fallback; feed the module a listing it cannot normalise.
+        spec = importlib.util.spec_from_file_location("claude_md_budget", SCRIPT)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        listing = subprocess.CompletedProcess(
+            [], 0, stdout=b"100664 blob abc\tCLAUDE.md\n", stderr=b""
+        )
+        stderr = io.StringIO()
+        with (
+            unittest.mock.patch.object(module, "_git", return_value=listing),
+            contextlib.redirect_stderr(stderr),
+        ):
+            rc = module.main(["HEAD"])
+        self.assertEqual(rc, 1)
+        self.assertIn(
+            "CLAUDE.md at HEAD must be a regular file but is git mode 100664. "
+            "Commit CLAUDE.md as a regular file.",
+            stderr.getvalue(),
+        )
 
     def test_executable_regular_file_sized_normally(self) -> None:
         (self.repo / "CLAUDE.md").write_bytes(b"a" * CEILING)

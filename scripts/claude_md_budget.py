@@ -5,7 +5,7 @@ Usage: claude_md_budget.py <rev>
 
 Exit 0: CLAUDE.md absent at <rev>, or at most CEILING bytes.
 Exit 1: CLAUDE.md larger than CEILING bytes, or not a regular file (symlink,
-        submodule).
+        submodule, directory, other mode).
 Exit 2: usage error or a git failure (unknown revision, unreadable object).
 
 Size is measured in bytes, not characters. There is deliberately no flag,
@@ -25,6 +25,13 @@ _REMEDY = (
     "move detail behind a pointer to ai-config/docs/knowledge/math-*.md, "
     f"or amend {ADR_PATH}"
 )
+
+_MODE_DESCRIPTIONS = {
+    "120000": "a symlink",
+    "160000": "a submodule",
+    "040000": "a directory",
+}
+_MODE_REMEDY = "Commit CLAUDE.md as a regular file."
 
 _GIT_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
 
@@ -61,9 +68,11 @@ def main(argv: list[str]) -> int:
     # returns the link target path, so only a regular file may be sized.
     mode = entry.split(maxsplit=1)[0]
     if mode not in _REGULAR_MODES:
+        kind = _MODE_DESCRIPTIONS.get(mode)
+        description = f"{kind} (git mode {mode})" if kind else f"git mode {mode}"
         print(
-            f"CLAUDE.md at {rev} must be a regular file (git mode {mode}), "
-            f"not a symlink or submodule. {_REMEDY}",
+            f"CLAUDE.md at {rev} must be a regular file but is {description}. "
+            f"{_MODE_REMEDY}",
             file=sys.stderr,
         )
         return 1
