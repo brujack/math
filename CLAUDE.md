@@ -522,8 +522,8 @@ Forty workflow files (`git ls-files .github/workflows/ | wc -l`). Project workfl
 and `make test` runs `test-hooks` then `test-python`. Added 2026-08-07 (#104). Before that nothing executed
 `tests/*.py` at all: `scripts.yml` ran bats and pyright, so `tests/test_time_tests.py` was type-checked but
 its 8 tests had never once run. `scripts.yml` now calls `make test-python` alongside the bats step. Note this
-is repo-level only — each sub-project keeps its own `make test`. The suite is **93 tests** as of
-2026-09-05 (`python3 -m unittest discover -s tests -p 'test_*.py'`): `test_time_tests.py`, `test_test_metrics.py`, `test_triage_log.py`,
+is repo-level only — each sub-project keeps its own `make test`. The suite is **112 tests** as of
+2026-10-19 (`python3 -m unittest discover -s tests -p 'test_*.py'`): `test_time_tests.py`, `test_test_metrics.py`, `test_triage_log.py`,
 `test_renovate_automerge_policy.py` (added in #123 — it asserts `renovate.json`'s auto-merge policy is
 exhaustive over the ten-member `updateType` enum; see the Renovate auto-merge policy section above),
 `test_release_workflows.py` (added by the atomic-release-publication change — it parses every
@@ -590,16 +590,15 @@ Omitting this causes `ModuleNotFoundError: No module named 'defusedxml'` in CI. 
 
 ### Renovate auto-merge policy
 
-`renovate.json`'s `packageRules` must **begin** with the canonical pair from ai-config's
+`renovate.json`'s `packageRules` must **begin** with the five canonical rules from ai-config's
 `renovate-presets/default.json` — `renovate_preset_sync.py:87` tests prefix equality
 element-by-element and reports DRIFT (exit 1) when it does not hold. Anything appended
-after that prefix is a _deviation_ (exit 0) and is the designed extension point. Renovate
-itself is indifferent to the order, because the three rules match disjoint `updateType`s
-so "later overrides earlier" never fires between them — only preset-sync cares.
-
-Expect `renovate_preset_sync` to report DRIFT anyway, for a reason that is not this repo's:
-canonical's element 0 carries no `addLabels` while all nine repos do, so the prefix compare
-fails fleet-wide. Backlogged in ai-config; do not chase it here.
+after that prefix is a _deviation_ (exit 0) and is the designed extension point. Rules 0-2
+match disjoint `updateType`s, so "later overrides earlier" never fires between them. Rules
+3-4 hold Python interpreter updates (`automerge: false`); the depName/packageName negations
+on rules 0 and 2 are what keep `automerge-ok` off them, and `python_hold_gaps` in
+`tests/test_renovate_automerge_policy.py` pins that (ai-config spec
+`2026-10-19-fleet-python-version-hold-design.md`).
 
 **Four of the schema's ten `updateType`s are held by omission** — `lockFileMaintenance`,
 `rollback`, `bump`, `replacement`. That is safe but silent: `packageRules` are additive

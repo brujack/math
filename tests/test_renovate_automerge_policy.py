@@ -13,6 +13,7 @@ an eleventh type added upstream -- see test_update_types_matches_documented_coun
 the tripwire that at least makes the count explicit.
 """
 
+import copy
 import json
 import pathlib
 import unittest
@@ -77,6 +78,78 @@ def rules_missing_label(config, label=_AUTOMERGE_LABEL):
     ]
 
 
+_PY_DEP_NAMES = ["python", "library/python", "docker.io/library/python"]
+_PY_PACKAGE_NAME = "actions/python-versions"
+_NEGATED_DEP_NAMES = [f"!{name}" for name in _PY_DEP_NAMES]
+_NEGATED_PACKAGE_NAMES = [f"!{_PY_PACKAGE_NAME}"]
+_NEGATED_MANAGERS = ["!terraform", "!gomod"]
+
+
+def _carries_guard_label(scope):
+    return _AUTOMERGE_LABEL in scope.get("labels", []) + scope.get("addLabels", [])
+
+
+def _scope_gaps(config):
+    """Gaps from automerge or the guard label set outside packageRules."""
+    gaps = []
+    if config.get("automerge") is True:
+        gaps.append("scope root: automerge is true")
+    scopes = {"root": config}
+    scopes.update({k: v for k, v in config.items() if isinstance(v, dict)})
+    for name, scope in scopes.items():
+        if _carries_guard_label(scope):
+            gaps.append(f"scope {name}: carries {_AUTOMERGE_LABEL}")
+    return gaps
+
+
+def _negation_gaps(rules):
+    """Gaps in the negations of every rule that automerges or carries the label."""
+    gaps = []
+    for index, rule in enumerate(rules):
+        if rule.get("automerge") is not True and not _carries_guard_label(rule):
+            continue
+        for field, required in (
+            ("matchDepNames", _NEGATED_DEP_NAMES),
+            ("matchPackageNames", _NEGATED_PACKAGE_NAMES),
+            ("matchManagers", _NEGATED_MANAGERS),
+        ):
+            for entry in required:
+                if entry not in rule.get(field, []):
+                    gaps.append(f"rule {index}: {field} lacks {entry}")
+    return gaps
+
+
+def _is_exact_hold(rule, field, expected):
+    return (
+        rule.get(field) == expected
+        and rule.get("automerge") is False
+        and not any(k.startswith("match") and k != field for k in rule)
+    )
+
+
+def python_hold_gaps(config):
+    """Return one message per detected way the Python-interpreter hold is incomplete.
+
+    Checks, structurally and without running Renovate: every packageRule that
+    automerges or carries the guard label (labels/addLabels) excludes the Python
+    interpreter by depName and packageName and excludes the terraform/gomod managers;
+    the two hold rules exist exactly (same entries, automerge false, no other match*
+    key); the root does not turn on automerge; and neither the root nor a top-level
+    manager block adds the guard label. A manager block's own ``automerge: true`` is
+    not checked: the hold rules override it. It cannot see presets pulled in by ``extends``
+    or any behaviour Renovate adds at run time.
+    """
+    rules = config.get("packageRules", [])
+    gaps = _scope_gaps(config) + _negation_gaps(rules)
+    for field, expected in (
+        ("matchDepNames", _PY_DEP_NAMES),
+        ("matchPackageNames", [_PY_PACKAGE_NAME]),
+    ):
+        if not any(_is_exact_hold(rule, field, expected) for rule in rules):
+            gaps.append(f"missing hold rule: {field} == {expected} automerge false")
+    return gaps
+
+
 class TestUpdateTypeEnum(unittest.TestCase):
     def test_update_types_matches_documented_count(self):
         # A bare tripwire: the schema enum had 10 members when this was written.
@@ -122,6 +195,153 @@ class TestRenovateConfigPolicy(unittest.TestCase):
         self.assertGreaterEqual(len(rules), 2)
         self.assertEqual(rules[0].get("matchUpdateTypes"), ["minor", "patch"])
         self.assertEqual(rules[1].get("matchUpdateTypes"), ["major"])
+
+
+def _automerge_ok_rule_indexes(config):
+    return [
+        i
+        for i, rule in enumerate(config["packageRules"])
+        if _AUTOMERGE_LABEL in rule.get("addLabels", [])
+    ]
+
+
+class TestPythonHold(unittest.TestCase):
+    def setUp(self):
+        self.config = load_config()
+
+    def test_real_config_has_no_gaps(self):
+        self.assertEqual(python_hold_gaps(self.config), [])
+
+    def test_there_are_two_automerge_ok_rules(self):
+        self.assertEqual(len(_automerge_ok_rule_indexes(self.config)), 2)
+
+    def test_removing_any_required_entry_is_detected(self):
+        required = (
+            [("matchDepNames", e) for e in _NEGATED_DEP_NAMES]
+            + [("matchPackageNames", e) for e in _NEGATED_PACKAGE_NAMES]
+            + [("matchManagers", e) for e in _NEGATED_MANAGERS]
+        )
+        for index in _automerge_ok_rule_indexes(self.config):
+            for field, entry in required:
+                with self.subTest(rule=index, field=field, entry=entry):
+                    mutated = copy.deepcopy(self.config)
+                    mutated["packageRules"][index][field].remove(entry)
+                    self.assertNotEqual(python_hold_gaps(mutated), [])
+
+    def test_removing_either_hold_rule_is_detected(self):
+        for field in ("matchDepNames", "matchPackageNames"):
+            with self.subTest(field=field):
+                mutated = copy.deepcopy(self.config)
+                mutated["packageRules"] = [
+                    r
+                    for r in mutated["packageRules"]
+                    if not (field in r and r.get("automerge") is False)
+                ]
+                self.assertNotEqual(python_hold_gaps(mutated), [])
+
+    def _rule_gaps(self, config):
+        # Gaps about a packageRule's own negations, as opposed to missing hold rules.
+        return [g for g in python_hold_gaps(config) if g.startswith("rule ")]
+
+    def test_label_only_rule_is_checked(self):
+        config = {"packageRules": [{"addLabels": [_AUTOMERGE_LABEL]}]}
+        self.assertNotEqual(self._rule_gaps(config), [])
+
+    def test_labels_only_rule_is_checked(self):
+        config = {"packageRules": [{"labels": [_AUTOMERGE_LABEL]}]}
+        self.assertNotEqual(self._rule_gaps(config), [])
+
+    def test_automerge_only_rule_is_checked(self):
+        config = {"packageRules": [{"automerge": True}]}
+        self.assertNotEqual(self._rule_gaps(config), [])
+
+    def test_non_automerging_unlabelled_rule_is_not_checked(self):
+        config = {"packageRules": [{"matchUpdateTypes": ["major"], "automerge": False}]}
+        self.assertEqual(self._rule_gaps(config), [])
+
+    def test_hold_rule_without_automerge_false_is_detected(self):
+        for field in ("matchDepNames", "matchPackageNames"):
+            with self.subTest(field=field):
+                mutated = copy.deepcopy(self.config)
+                for rule in mutated["packageRules"]:
+                    if field in rule and rule.get("automerge") is False:
+                        del rule["automerge"]
+                gaps = python_hold_gaps(mutated)
+                self.assertTrue(
+                    any(g.startswith(f"missing hold rule: {field}") for g in gaps),
+                    gaps,
+                )
+
+    def test_hold_rule_with_partial_dep_names_is_detected(self):
+        for name in _PY_DEP_NAMES:
+            with self.subTest(removed=name):
+                mutated = copy.deepcopy(self.config)
+                for rule in mutated["packageRules"]:
+                    if rule.get("automerge") is False and "matchDepNames" in rule:
+                        rule["matchDepNames"].remove(name)
+                gaps = python_hold_gaps(mutated)
+                self.assertTrue(
+                    any(g.startswith("missing hold rule: matchDepNames") for g in gaps),
+                    gaps,
+                )
+
+    def _scope_gaps(self, config):
+        # Gaps about config outside packageRules, on top of the real config.
+        return [g for g in python_hold_gaps(config) if g.startswith("scope ")]
+
+    def test_root_labels_with_guard_label_is_detected(self):
+        for key in ("labels", "addLabels"):
+            with self.subTest(key=key):
+                mutated = copy.deepcopy(self.config)
+                mutated[key] = [_AUTOMERGE_LABEL]
+                self.assertNotEqual(self._scope_gaps(mutated), [])
+
+    def test_manager_block_with_guard_label_is_detected(self):
+        for key in ("labels", "addLabels"):
+            with self.subTest(key=key):
+                mutated = copy.deepcopy(self.config)
+                mutated["pep621"] = {key: [_AUTOMERGE_LABEL]}
+                self.assertNotEqual(self._scope_gaps(mutated), [])
+
+    def test_root_automerge_true_is_detected(self):
+        mutated = copy.deepcopy(self.config)
+        mutated["automerge"] = True
+        self.assertNotEqual(self._scope_gaps(mutated), [])
+
+    def test_unrelated_root_labels_and_blocks_are_not_flagged(self):
+        mutated = copy.deepcopy(self.config)
+        mutated["pep621"] = {"addLabels": ["other"]}
+        self.assertEqual(self._scope_gaps(mutated), [])
+
+    def _assert_missing_hold(self, mutated, field):
+        gaps = python_hold_gaps(mutated)
+        self.assertTrue(
+            any(g.startswith(f"missing hold rule: {field}") for g in gaps), gaps
+        )
+
+    def test_hold_rule_narrowed_by_another_matcher_is_detected(self):
+        for field in ("matchDepNames", "matchPackageNames"):
+            with self.subTest(field=field):
+                mutated = copy.deepcopy(self.config)
+                for rule in mutated["packageRules"]:
+                    if field in rule and rule.get("automerge") is False:
+                        rule["matchManagers"] = ["cargo"]
+                self._assert_missing_hold(mutated, field)
+
+    def test_hold_rule_with_extra_entry_is_detected(self):
+        for field, extra in (
+            ("matchDepNames", "numpy"),
+            ("matchPackageNames", "other/pkg"),
+        ):
+            with self.subTest(field=field):
+                mutated = copy.deepcopy(self.config)
+                for rule in mutated["packageRules"]:
+                    if field in rule and rule.get("automerge") is False:
+                        rule[field].append(extra)
+                self._assert_missing_hold(mutated, field)
+
+    def test_empty_config_reports_both_missing_hold_rules(self):
+        self.assertEqual(len(python_hold_gaps({})), 2)
 
 
 class TestHelperBoundaries(unittest.TestCase):
