@@ -126,8 +126,57 @@ jobs:
             printf "::warning::bash-coverage floor (%d%%) is still the bootstrap placeholder; measured %d%% -- raise FLOOR in auto-merge.yml\n" "${FLOOR}" "${PCT}"
           fi
 
+  claude-md-budget:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      # A PR that changes CLAUDE.md while it is over the byte ceiling fails; one
+      # that leaves it untouched only warns, so an over-ceiling master does not
+      # block unrelated PRs.
+      - name: CLAUDE.md byte ceiling
+        shell: bash
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # GitHub runs `shell: bash` as `bash -eo pipefail`; both commands
+          # below exit non-zero by design, so errexit is off and every exit
+          # status is read explicitly.
+          set +e
+          git diff --quiet "${BASE}" HEAD -- CLAUDE.md
+          diff_rc=$?
+          if [ "${diff_rc}" -gt 1 ]; then
+            echo "::error::git diff against base ${BASE} failed (exit ${diff_rc})"
+            exit 1
+          fi
+          if [ "${diff_rc}" -eq 1 ]; then
+            echo "PR changes CLAUDE.md"
+          else
+            echo "PR does not change CLAUDE.md"
+          fi
+          output=$(python3 scripts/claude_md_budget.py HEAD 2>&1)
+          budget_rc=$?
+          printf '%s\n' "${output}"
+          if [ "${budget_rc}" -eq 0 ]; then
+            exit 0
+          fi
+          if [ "${budget_rc}" -eq 1 ] && [ "${diff_rc}" -eq 1 ]; then
+            echo "::error::CLAUDE.md is over the byte ceiling and this PR changes it"
+            exit 1
+          fi
+          if [ "${budget_rc}" -eq 1 ]; then
+            echo "::warning::CLAUDE.md is over the byte ceiling but this PR leaves it unchanged: ${output}"
+            exit 0
+          fi
+          echo "::error::claude_md_budget.py failed (exit ${budget_rc})"
+          exit 1
+
   auto-merge:
-    needs: [secret-scan, bash-coverage]
+    needs: [secret-scan, bash-coverage, claude-md-budget]
     runs-on: ubuntu-latest
     permissions:
       contents: write
