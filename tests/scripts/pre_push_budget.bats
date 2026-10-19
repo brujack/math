@@ -203,3 +203,23 @@ run_hook() {
     [[ "${output}" == *"refusing ${two}"* ]]
     [[ "${output}" != *"refusing ${one}"* ]]
 }
+
+@test "checker runs with stdin from /dev/null so it cannot consume later ref lines" {
+    "${REAL_GIT}" -C "${FIX}" checkout -q -b one
+    printf 'medium\n' > "${FIX}/CLAUDE.md"
+    # Ref one ships a checker that drains stdin, as a careless checker could.
+    printf 'import sys\nsys.stdin.read()\nsys.exit(0)\n' > "${FIX}/scripts/claude_md_budget.py"
+    commit_all "one: within ceiling, stdin-draining checker"
+    one="$(head_sha)"
+    "${REAL_GIT}" -C "${FIX}" checkout -q master
+    "${REAL_GIT}" -C "${FIX}" checkout -q -b two
+    big_claude_md 30001
+    commit_all "two: over ceiling, real checker"
+    two="$(head_sha)"
+    "${REAL_GIT}" -C "${FIX}" checkout -q master
+    # If ref one's checker inherits the hook's stdin it swallows ref two's line,
+    # and the over-ceiling push is never examined.
+    run_hook "$(printf 'refs/heads/one %s refs/heads/one %s\nrefs/heads/two %s refs/heads/two %s' "${one}" "${ZEROS}" "${two}" "${ZEROS}")"
+    [ "$status" -eq 1 ]
+    [[ "${output}" == *"refusing ${two}"* ]]
+}
