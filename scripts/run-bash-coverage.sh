@@ -82,7 +82,7 @@ TRACE_FIFO="${OUTPUT_DIR}/bash_trace.fifo"
 #
 # The predicate deliberately includes the 19 install_deps.sh scripts even
 # though NOTHING under tests/ executes any of them — see the FORBIDDEN note
-# in the port's task spec and CLAUDE.md's Bash Coverage section for why:
+# in the port's task spec and ai-config/docs/knowledge/math-ci.md § Bash coverage predicate for why:
 # excluding an untested majority to raise the percentage is precisely the
 # flattering-denominator defect this tooling exists to catch, not a
 # legitimate scoping decision. A file is excluded only when it is

@@ -7,7 +7,7 @@ Two independent assertions, each with a distinct failure mode:
 2. Coverage — an equality between pyright's own reported filesAnalyzed and an
    independently-derived count of tracked-plus-untracked .py files under the three
    include roots. This is deliberately an equality, not `>=` or a Python glob
-   reimplementation of pyright's include/exclude semantics — see CLAUDE.md and the
+   reimplementation of pyright's include/exclude semantics — see ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright and the
    design notes for why those alternatives were tried and refuted.
 """
 

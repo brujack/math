@@ -93,7 +93,7 @@ load '../helpers/common'
 # Companion to the shell-lint assertion above. ruff.toml at the repo root
 # already reaches every .py in the repo by ancestor discovery -- the config was
 # never the gap, the invocation was. scripts/ and tests/ sat outside every
-# gated scope and were linted by nothing, which math's own CLAUDE.md recorded
+# gated scope and were linted by nothing, which ai-config/docs/knowledge/math-quick-reference.md § Ruff config recorded
 # as a known gap. `ruff check .` from the root needs no derived file list and
 # so has no denominator to drift.
 @test "root make lint reaches ruff" {
