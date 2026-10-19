@@ -100,6 +100,10 @@ teardown() {
         <<< "refs/heads/feat abc123 refs/heads/feat ${ZEROS}"
     [ "$status" -eq 0 ]
     grep -q "merge-base" "${MOCK_CALLS_FILE}"
+    # The sub-project selection must diff the merge-base..local range. Matching
+    # only "merge-base" passes even when the range is built from something else,
+    # because the CLAUDE.md budget check also calls merge-base.
+    grep -qxF "git diff --name-only ${MOCK_GIT_MERGE_BASE}..abc123" "${MOCK_CALLS_FILE}"
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi test" "${MOCK_CALLS_FILE}"
 }
 

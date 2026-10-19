@@ -31,3 +31,4 @@ Repo-specific decisions for the `math` repository. Cross-cutting decisions (CI t
 | [0025](0025-attest-mutation-run-progress-with-a-breadcrumb.md)            | Attest mutation-run progress with a breadcrumb, not a step conclusion | 2026-09-01 | Accepted               |
 | [0026](0026-sign-before-publishing-releases.md)                            | Sign before publishing releases, via a composite action         | 2026-09-04 | Accepted               |
 | [0027](0027-root-scope-python-dependency-and-type-check.md)                 | Declare and type-check root-scope Python                        | 2026-09-05 | Accepted               |
+| [0028](0028-claude-md-size-ceiling.md)                                     | CLAUDE.md has a hard size ceiling, one line per rule            | 2026-10-19 | Accepted               |

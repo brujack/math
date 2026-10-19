@@ -2,83 +2,37 @@
 
 This file provides guidance to Claude when working with code in this repository.
 
+One line per rule; detail behind pointers to `ai-config/docs/knowledge/math-*.md`. `CLAUDE.md` is capped at 30,000 bytes by `scripts/claude_md_budget.py` (ADR-0028).
+
+A trailing pointer on a rule means: before acting on that rule's subject, read the named heading for the procedure, history and measurements.
+
 ## Repository Overview
 
 High-performance mathematical computation tools.
 
-| Project                                | Language      | Description                                                            | CLAUDE.md                                                                      |
-| -------------------------------------- | ------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| [`pi/`](pi/)                           | Python + Rust | Calculate π to N decimal places (Chudnovsky algorithm)                 | [`pi/CLAUDE.md`](pi/CLAUDE.md)                                                 |
-| [`prime/`](prime/)                     | Rust          | Find all primes up to 10^N (segmented sieve)                           | [`prime/CLAUDE.md`](prime/CLAUDE.md)                                           |
-| [`fib/`](fib/)                         | Python + Rust | Generate all Fibonacci numbers with up to 10^X digits                  | [`fib/CLAUDE.md`](fib/CLAUDE.md)                                               |
-| [`sq/`](sq/)                           | Python + Rust | Find all perfect squares with up to 10^N digits (N=1 max)              | [`sq/CLAUDE.md`](sq/CLAUDE.md)                                                 |
-| [`twin-primes/`](twin-primes/)         | Rust          | Find all twin prime pairs up to 10^N                                   | [`twin-primes/twin-primes-rs/CLAUDE.md`](twin-primes/twin-primes-rs/CLAUDE.md) |
-| [`e/`](e/)                             | Python + Rust | Calculate e to N decimal places (Taylor series)                        | [`e/CLAUDE.md`](e/CLAUDE.md)                                                   |
-| [`factorial/`](factorial/)             | Python + Rust | Compute N! to arbitrary precision (prime swing)                        | [`factorial/CLAUDE.md`](factorial/CLAUDE.md)                                   |
-| [`perfect-numbers/`](perfect-numbers/) | Python + Rust | Find all perfect numbers up to 10^N (Lucas-Lehmer + sigma)             | [`perfect-numbers/CLAUDE.md`](perfect-numbers/CLAUDE.md)                       |
-| [`collatz/`](collatz/)                 | Python + Rust | Find Collatz chain record-setters up to 10^N (vector memoization)      | [`collatz/CLAUDE.md`](collatz/CLAUDE.md)                                       |
-| [`goldbach/`](goldbach/)               | Rust          | Find all Goldbach pairs for even n up to 10^N (bitset sieve)           | [`goldbach/CLAUDE.md`](goldbach/CLAUDE.md)                                     |
-| [`amicable/`](amicable/)               | Python + Rust | Find all amicable pairs (a,b) with b ≤ 10^N (proper-divisor sum sieve) | [`amicable/CLAUDE.md`](amicable/CLAUDE.md)                                     |
+Each sub-project has its own `CLAUDE.md`, the source of truth for its implementation detail (`twin-primes`' is `twin-primes/twin-primes-rs/CLAUDE.md`); keep this file and those in sync. → ai-config/docs/knowledge/math-overview.md § Sub-project table
+Sub-projects (dir: language): `pi/` Python+Rust, `prime/` Rust, `fib/` Python+Rust, `sq/` Python+Rust, `twin-primes/` Rust, `e/` Python+Rust, `factorial/` Python+Rust, `perfect-numbers/` Python+Rust, `collatz/` Python+Rust, `goldbach/` Rust, `amicable/` Python+Rust. → ai-config/docs/knowledge/math-overview.md § Sub-project table
+Rust crates live at `<project>/<project>-rs/` (all 11 projects, e.g. `pi/pi-rs`, `twin-primes/twin-primes-rs`); the 8 Python sub-projects sit at `<project>/` (pi, fib, sq, e, factorial, perfect-numbers, collatz, amicable).
 
 ## Architectural Decision Records
 
-Significant architectural decisions are recorded in [`docs/adr/`](docs/adr/README.md). When making a significant choice (algorithm, library, CI structure), write an ADR before or alongside the implementation.
+Write an ADR in `docs/adr/` (index `docs/adr/README.md`) before or alongside any significant choice (algorithm, library, CI structure). → ai-config/docs/knowledge/math-overview.md § Architectural Decision Records
 
 ## 10-80-10 Execution Cycle
 
-Sessions in this repo follow the 10-80-10 execution cycle defined in `ai-config` ADR-0009 (and the ADR-0010 wave-dispatch extension):
-
-- **Phase 1 (10%) — Architect.** `brainstorming` → `writing-plans` (emit per-task YAML `yaml-task` blocks with `role`/`model`/`tdd`/`acceptance`/`max_retries`/`files_touched`/`depends_on`/`parallel_group`). Opus role.
-- **Phase 2 (80%) — Execute.** `subagent-driven-development` runs iterate-until-green per task; FORBIDDEN list prevents gate cheating; wave-dispatch when `parallel_group` is declared. Sonnet/Haiku per task as declared in the plan.
-- **Phase 3 (10%) — Review.** `finishing-a-development-branch` chains `pr-review` → `security-review` → `bug-scan` → `docs` → `learnings` → finish. Opus role.
-
-Validate a plan before dispatch:
-
-```bash
-make validate-plan PLAN=docs/superpowers/plans/<file>.md
-```
-
-The validator (`~/.claude/scripts/validate-plan.py`, shared from ai-config) enforces required fields, valid role/model/tdd values, haiku scope guard, and disjoint `files_touched` within each `parallel_group`.
+Follow the 10-80-10 cycle of `ai-config` ADR-0009 (ADR-0010 wave dispatch): Phase 1 Architect (`brainstorming` → `writing-plans`, Opus), Phase 2 Execute (`subagent-driven-development`, Sonnet/Haiku per plan), Phase 3 Review (`finishing-a-development-branch`, Opus); plans use `yaml-task` blocks (`role`, `model`, `tdd`, `acceptance`, `max_retries`, `files_touched`, `depends_on`, `parallel_group`). → ai-config/docs/knowledge/math-overview.md § 10-80-10 cycle
+Run `make validate-plan PLAN=docs/superpowers/plans/<file>.md` before dispatching a plan (validator `~/.claude/scripts/validate-plan.py`, shared from ai-config). → ai-config/docs/knowledge/math-overview.md § 10-80-10 cycle
 
 ## Knowledge Directory
 
-Reference material lives in `docs/knowledge/`. These documents capture algorithm reference sheets, numerical library notes, and curated research findings — things too detailed for CLAUDE.md but useful to look up. See `docs/knowledge/README.md` for what belongs there and what doesn't.
-
-When web research (web-research skill) or context-mode fetches produce findings worth preserving, save them to `docs/knowledge/<topic>.md`.
+Reference material lives in `ai-config/docs/knowledge/math-<topic>.md` (ADR-0020); save web-research findings there, not in CLAUDE.md. → ai-config/docs/knowledge/math-overview.md § Knowledge directory
 
 ## Dependency Installation
 
-Each project has its own installer:
+Each sub-project has its own installer: `<project>/install_deps.sh` for Python, `<project>/<project>-rs/install_deps.sh` for Rust (19 total; `goldbach`, `prime` and `twin-primes` have only the nested Rust one). → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
+Rust installers add the toolchain, `cargo-tarpaulin` (not for `sq-rs`) and GMP (+ MPFR for pi/e/factorial) where needed; Python installers add `ruff`, `coverage`, `pytest`, `pytest-cov` (plus GMP + MPFR, `mpmath`, `gmpy2` for pi/e/factorial). → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
 
-| Script                                               | Installs                                                                  |
-| ---------------------------------------------------- | ------------------------------------------------------------------------- |
-| `pi/install_deps.sh`                                 | GMP + MPFR, `mpmath`, `gmpy2`, `ruff`, `coverage`, `pytest`, `pytest-cov` |
-| `pi/pi-rs/install_deps.sh`                           | GMP + MPFR, Rust toolchain, `cargo-tarpaulin`                             |
-| `prime/prime-rs/install_deps.sh`                     | Rust toolchain, `cargo-tarpaulin`                                         |
-| `fib/install_deps.sh`                                | `ruff`, `coverage`, `pytest`, `pytest-cov`                                |
-| `fib/fib-rs/install_deps.sh`                         | GMP, Rust toolchain, `cargo-tarpaulin`                                    |
-| `sq/install_deps.sh`                                 | `ruff`, `coverage`, `pytest`, `pytest-cov`                                |
-| `sq/sq-rs/install_deps.sh`                           | Rust toolchain                                                            |
-| `twin-primes/twin-primes-rs/install_deps.sh`         | Rust toolchain, `cargo-tarpaulin`                                         |
-| `e/install_deps.sh`                                  | GMP + MPFR, `mpmath`, `gmpy2`, `ruff`, `coverage`, `pytest`, `pytest-cov` |
-| `e/e-rs/install_deps.sh`                             | GMP + MPFR, Rust toolchain, `cargo-tarpaulin`                             |
-| `factorial/install_deps.sh`                          | GMP + MPFR, `gmpy2`, `mpmath`, `ruff`, `coverage`, `pytest`, `pytest-cov` |
-| `factorial/factorial-rs/install_deps.sh`             | GMP + MPFR, Rust toolchain, `cargo-tarpaulin`                             |
-| `perfect-numbers/install_deps.sh`                    | `ruff`, `coverage`, `pytest`, `pytest-cov`                                |
-| `perfect-numbers/perfect-numbers-rs/install_deps.sh` | GMP, Rust toolchain, `cargo-tarpaulin`                                    |
-| `collatz/install_deps.sh`                            | `ruff`, `coverage`, `pytest`, `pytest-cov`                                |
-| `collatz/collatz-rs/install_deps.sh`                 | Rust toolchain, `cargo-tarpaulin`                                         |
-| `goldbach/goldbach-rs/install_deps.sh`               | Rust toolchain, `cargo-tarpaulin`                                         |
-| `amicable/install_deps.sh`                           | `ruff`, `coverage`, `pytest`, `pytest-cov`                                |
-| `amicable/amicable-rs/install_deps.sh`               | Rust toolchain, `cargo-tarpaulin`                                         |
-
-**Root-scope Python has no `install_deps.sh` of its own, deliberately.** The 19
-installers above each exist for a directory that has its own Makefile; the root
-diverges, so `requirements-dev.txt` (`defusedxml==0.7.1`, `pyyaml==6.0.3` — the
-third-party modules `tests/`, `scripts/`, and `.claude/scripts/` actually import,
-not a tool list) is consumed by `make install-deps` instead. `tests/scripts/install_deps.bats`
-derives its sub-project population from `git ls-files '*/Makefile' '*/*/Makefile'`,
-which cannot see a zero-slash root `Makefile` even if one existed to check against.
+Root-scope Python has no `install_deps.sh` by design: `requirements-dev.txt` (`defusedxml==0.7.1`, `pyyaml==6.0.3`) is consumed by `make install-deps`. → ai-config/docs/knowledge/math-dependency-installation.md § Root-scope Python
 
 ## Quick Reference
 
@@ -89,273 +43,55 @@ make install-hooks   # installs pre-commit and pre-push hooks
 make install-deps    # installs root-scope Python's third-party imports
 ```
 
-`install-deps` refuses on a PEP 668 externally-managed interpreter (measured: the
-Linux 7950X is Python 3.12.3 with the `EXTERNALLY-MANAGED` marker present) — the
-refusal message names the remedy (`python3 -m venv .venv && . .venv/bin/activate`).
+`make install-deps` refuses on a PEP 668 externally-managed interpreter; the remedy is `python3 -m venv .venv && . .venv/bin/activate`. → ai-config/docs/knowledge/math-quick-reference.md § Setup
 
-### Python (`pi/`)
+### Python (`<project>/`)
+
+Run from `<project>/`; `<name>` is the module and test file stem: pi, fib, sq, e, factorial, `perfect_numbers` (dir `perfect-numbers`), collatz, amicable (so `make run` runs `python3 <name>.py`, `make test` runs `pytest test_<name>.py -v`).
 
 ```bash
-cd pi
-make run       # python3 pi.py
+cd <project>
+make run       # python3 <name>.py
 make lint      # ruff check .
-make test      # lint, then pytest test_pi.py -v
+make test      # lint, then pytest test_<name>.py -v
 make coverage  # pytest --cov, fails under 90%
 ```
 
-**Ruff config.** A single `ruff.toml` at the repo root reaches all 8 Python subprojects
-via ancestor discovery — do not create per-subproject configs. It is the fleet-wide shared
-`select` list (ai-config ADR-0058) plus one math-local addition, `C901`, retained because
-this repo already enforced complexity. `ruff==0.16.4` is pinned at all 17 install sites
-(8 `*-py.yml` workflows + `scripts.yml` + 8 `install_deps.sh`).
+### Rust (`<project>/<project>-rs/`)
 
-The 0.16.1 -> 0.16.4 bump was measured, not assumed. Two pinned venvs run over this
-repo's exact gated scope -- `ruff check .` and `ruff format --check .` in each of the 8
-sub-projects, plus the root `ruff check .` and the `git ls-files`-derived format check --
-produced **byte-identical** output. With a positive control, since two agreeing clean runs
-could equally mean neither executed: removing each `# noqa: C901` makes both versions
-report `too complex (21 > 10)` at `e/e.py:332` and `pi/pi.py:444`. Identical _score_, not
-just identical verdict -- a changed complexity analysis would have moved the number, and
-that is the one thing those two suppressions depend on.
-
-`make lint` at the repo root now runs `ruff check .` plus a `ruff format --check` scoped to
-the tracked `.py` set, alongside `lint-hooks`. That closed the gap this paragraph used to
-record: `scripts/` and `tests/` sat outside every gated scope, and a bare `ruff check .`
-from the root was red at 7 findings nothing would ever have caught.
-
-Two details are load-bearing. **`check` takes `.` and `format` does not** — ruff's formatter
-rewrites Python code blocks inside markdown, so `ruff format --check .` reports 18 `docs/`
-files whose ADR and plan snippets are deliberately as-written; the format scope is derived
-from `git ls-files '*.py'` instead, which covers the tracked set with nothing to maintain.
-And **`lint-python` guards a missing ruff and exits 0**, which is correct locally (`test`
-depends on it and the pre-push hook runs `test`, so a hard failure would lock a machine out
-of committing the change that installs ruff) but makes the gate decorative in CI — hence
-`scripts.yml` installs `ruff==0.16.4` and `tests/scripts/makefile.bats` asserts that it
-does. The companion gap — `pi/install_deps.sh` installing no ruff while
-`pi/Makefile` runs it — was closed in #110, along with all 8 installers omitting the
-`pytest`/`pytest-cov` their Makefiles invoke. `tests/scripts/install_deps.bats` now derives
-the installer/Makefile comparison from `git ls-files`, so a sub-project added later is
-covered without anyone remembering to extend a list.
-
-The two `# noqa: C901` directives in `e/e.py` and `pi/pi.py` are load-bearing: both
-functions measure complexity 21 against a ceiling of 10, and `maintainability-review`
-invokes `ruff check --select C901` on the CLI — which overrides any config — so removing
-a suppression without changing the code reads to its ratchet as a 0 → 21 regression.
-
-### Rust (`pi/pi-rs/`)
+All 11 projects (pi, prime, fib, sq, twin-primes, e, factorial, perfect-numbers, collatz, goldbach, amicable); the release build target is named after the project (`make pi`, `make twin-primes`, `make perfect-numbers`, ...). → ai-config/docs/knowledge/math-quick-reference.md § Sub-project command blocks
 
 ```bash
-cd pi/pi-rs
-make pi        # cargo build --release
-make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
-make test      # lint, then cargo test
+cd <project>/<project>-rs
+make <project>  # cargo build --release
+make lint       # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
+make test       # lint, then cargo test
 ```
 
-### Rust (`prime/prime-rs/`)
-
-```bash
-cd prime/prime-rs
-make prime     # cargo build --release
-make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
-make test      # lint, then cargo test
-```
-
-### Python (`fib/`)
-
-```bash
-cd fib
-make run       # python3 fib.py
-make lint      # ruff check .
-make test      # lint, then pytest test_fib.py -v
-make coverage  # pytest --cov, fails under 90%
-```
-
-### Rust (`fib/fib-rs/`)
-
-```bash
-cd fib/fib-rs
-make fib       # cargo build --release
-make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
-make test      # lint, then cargo test
-```
-
-### Python (`sq/`)
-
-```bash
-cd sq
-make run       # python3 sq.py
-make lint      # ruff check .
-make test      # lint, then pytest test_sq.py -v
-make coverage  # pytest --cov, fails under 90%
-```
-
-### Rust (`sq/sq-rs/`)
-
-```bash
-cd sq/sq-rs
-make sq        # cargo build --release
-make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
-make test      # lint, then cargo test
-```
-
-### Rust (`twin-primes/twin-primes-rs/`)
-
-```bash
-cd twin-primes/twin-primes-rs
-make twin-primes  # cargo build --release
-make lint         # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
-make test         # lint, then cargo test
-```
-
-### Python (`e/`)
-
-```bash
-cd e
-make run       # python3 e.py
-make lint      # ruff check .
-make test      # lint, then pytest test_e.py -v
-make coverage  # pytest --cov, fails under 90%
-```
-
-### Rust (`e/e-rs/`)
-
-```bash
-cd e/e-rs
-make e         # cargo build --release
-make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
-make test      # lint, then cargo test
-```
-
-### Python (`factorial/`)
-
-```bash
-cd factorial
-make run       # python3 factorial.py
-make lint      # ruff check .
-make test      # lint, then pytest test_factorial.py -v
-make coverage  # pytest --cov, fails under 90%
-```
-
-### Rust (`factorial/factorial-rs/`)
-
-```bash
-cd factorial/factorial-rs
-make factorial # cargo build --release
-make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
-make test      # lint, then cargo test
-```
-
-### Python (`perfect-numbers/`)
-
-```bash
-cd perfect-numbers
-make run       # python3 perfect_numbers.py
-make lint      # ruff check .
-make test      # lint, then pytest test_perfect_numbers.py -v
-make coverage  # pytest --cov, fails under 90%
-```
-
-### Rust (`perfect-numbers/perfect-numbers-rs/`)
-
-```bash
-cd perfect-numbers/perfect-numbers-rs
-make perfect-numbers  # cargo build --release
-make lint             # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
-make test             # lint, then cargo test
-```
-
-### Python (`collatz/`)
-
-```bash
-cd collatz
-make run       # python3 collatz.py
-make lint      # ruff check .
-make test      # lint, then pytest test_collatz.py -v
-make coverage  # pytest --cov, fails under 90%
-```
-
-### Rust (`collatz/collatz-rs/`)
-
-```bash
-cd collatz/collatz-rs
-make collatz   # cargo build --release
-make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
-make test      # lint, then cargo test
-```
-
-### Rust (`goldbach/goldbach-rs/`)
-
-```bash
-cd goldbach/goldbach-rs
-make goldbach  # cargo build --release
-make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
-make test      # lint, then cargo test
-```
-
-### Python (`amicable/`)
-
-```bash
-cd amicable
-make run       # python3 amicable.py
-make lint      # ruff check .
-make test      # lint, then pytest test_amicable.py -v
-make coverage  # pytest --cov, fails under 90%
-```
-
-### Rust (`amicable/amicable-rs/`)
-
-```bash
-cd amicable/amicable-rs
-make amicable  # cargo build --release
-make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
-make test      # lint, then cargo test
-```
+A single `ruff.toml` at the repo root serves all 8 Python sub-projects via ancestor discovery; keep one root `ruff.toml` only and never create per-subproject configs. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
+`ruff==0.16.4` is pinned at all 17 install sites (8 `*-py.yml` workflows, `scripts.yml`, 8 `install_deps.sh`); bump them together. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
+Root `make lint` runs `ruff check .` plus `ruff format --check` scoped to `git ls-files '*.py'` (never `ruff format --check .`, which rewrites markdown code blocks) alongside `lint-hooks`. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
+`lint-python` exits 0 when ruff is missing (so a machine can still commit the fix); `scripts.yml` installs ruff so CI enforces it, and `tests/scripts/makefile.bats` asserts that. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
+The two `# noqa: C901` directives in `e/e.py` and `pi/pi.py` are load-bearing: `maintainability-review` runs `ruff check --select C901` on the CLI, which overrides config, so removing one without refactoring reads as a 0 → 21 regression. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 
 ### Rust lint/test wrapper (`scripts/rust-check.sh`)
 
-All Rust crate `make lint` and `make test` targets call `scripts/rust-check.sh` to enforce consistent cargo behavior in local checkouts and worktrees.
-
-- `CARGO_HOME` defaults to `<repo>/.cache/cargo-home` when unset, so checks do not rely on global cargo cache write access.
-- `RUST_CHECK_OFFLINE=1` enables `--offline` for local resilience when dependencies are already cached.
-- Failures are classified as either environment/setup problems (cache/index/network permissions) or code failures (lint/test defects).
+All Rust crate `make lint` and `make test` go through `scripts/rust-check.sh`; `CARGO_HOME` defaults to `<repo>/.cache/cargo-home` when unset and `RUST_CHECK_OFFLINE=1` adds `--offline`. → ai-config/docs/knowledge/math-quick-reference.md § Rust lint/test wrapper
+Treat `.cache/` as transient local state: remove it (`rm -rf .cache`) before final status checks and commits. → ai-config/docs/knowledge/math-quick-reference.md § Rust lint/test wrapper
 
 ## Language Standards
 
 Neither file below is loaded at session start. Read it before the work it governs:
 
-- **Read `~/.claude/standards/python.md` before writing or changing any `.py` file, or any
-  Python tooling config** (`ruff.toml`, `pyrightconfig.json`, `install_deps.sh`,
-  `requirements-dev.txt`, a `*-py.yml` workflow, mutmut/cosmic-ray setup).
-- **Read `~/.claude/standards/rust.md` before writing or changing any `.rs` file,
-  `Cargo.toml`, `.cargo/mutants.toml`, `rustfmt.toml`, `scripts/rust-check.sh`, or a
-  `*-rs.yml` workflow.**
+- **Read `~/.claude/standards/python.md` before writing or changing any `.py` file or Python tooling config** (`ruff.toml`, `pyrightconfig.json`, `install_deps.sh`, `requirements-dev.txt`, a `*-py.yml` workflow, mutmut/cosmic-ray setup).
+- **Read `~/.claude/standards/rust.md` before writing or changing any `.rs` file, `Cargo.toml`, `.cargo/mutants.toml`, `rustfmt.toml`, `scripts/rust-check.sh` or a `*-rs.yml` workflow.** The trigger includes source on purpose. → ai-config/docs/knowledge/math-language-standards.md § Language standards triggers
 
-The trigger is source as well as config on purpose. Most of what these files carry for this
-repo is about ordinary code: the `ProcessPoolExecutor` spawn threshold, Hypothesis
-`deadline=None`, the gmpy2 pyright suppressions, `concat!()` for indented strings, the
-tarpaulin probe patterns. A config-only trigger would skip them in exactly the sessions that
-need them.
 
 ### API-quality lints (all 11 Rust crates)
 
-Every `*-rs/Cargo.toml` enables two Rust API Guidelines items a compiler can check:
+Every `*-rs/Cargo.toml` enables `missing_debug_implementations = "warn"` (`[lints.rust]`) and `wrong_self_convention = "warn"` (`[lints.clippy]`); clippy runs `-D warnings`, so a `pub struct` without `#[derive(Debug)]` fails `make lint`. → ai-config/docs/knowledge/math-language-standards.md § API-quality lints in the Rust crates
+Do not enable `missing_docs` in these crates (no cross-crate consumers). → ai-config/docs/knowledge/math-language-standards.md § API-quality lints in the Rust crates
 
-```toml
-[lints.rust]
-missing_debug_implementations = "warn"   # C-DEBUG
-
-[lints.clippy]
-wrong_self_convention = "warn"           # C-CONV
-```
-
-`scripts/rust-check.sh` runs clippy with `-D warnings`, so both are blocking, not
-advisory — a new `pub struct` without `#[derive(Debug)]` fails `make lint`.
-
-`missing_docs` (`C-DOCS`) is deliberately **not** enabled here. It is a guideline about
-API consumed across a crate boundary, and these crates have none: all 11 `lib.rs` files
-were created in one commit so Criterion benches could call the logic, 3 of 344 commits
-have ever touched one, and none is published. It ships in `etch-cli` instead, where a
-real cross-crate consumer exists.
 
 ## Testing Policy
 
@@ -373,255 +109,123 @@ Where to add tests:
 - Rust tests: add to the `#[cfg(test)] mod tests` block in `src/main.rs`, run with `make test`
 - Coverage tools: `make coverage` (Python), `cargo tarpaulin` (Rust)
 
+Coverage floor: 90% for Python and Rust per sub-project, never lowered.
+
 ### Type checking (Python — pyright)
 
 Every Python sub-project has a `pyrightconfig.json` and a `Run pyright` step in its CI workflow.
 
-| Mode       | Sub-projects                                                                                              |
-| ---------- | --------------------------------------------------------------------------------------------------------- |
-| `standard` | amicable, collatz, fib, sq, factorial, perfect-numbers                                                    |
-| `basic`    | pi, e (gmpy2 has no type stubs; `reportAttributeAccessIssue` and `reportOptionalMemberAccess` suppressed) |
+Modes: `standard` for amicable, collatz, fib, sq, factorial, perfect-numbers; `basic` for pi and e (gmpy2 has no type stubs; `reportAttributeAccessIssue` and `reportOptionalMemberAccess` suppressed). → ai-config/docs/knowledge/math-testing-policy.md § Pyright modes
 
-**Root-scope Python (`tests/`, `scripts/`, `.claude/scripts/`) is gated by a root
-`pyrightconfig.json`, not a `scripts/`-only one.** `standard` mode, `include`
-`["scripts", "tests", ".claude/scripts"]`, denominator **10 of 10** tracked
-root-scope `.py` files (measured: `git ls-files 'tests/*.py' 'scripts/*.py'
-'.claude/scripts/*.py' | wc -l` → 10, `pyright --outputjson` → `filesAnalyzed: 10`).
-Before this config existed, the denominator was **2 of 8** — `scripts.yml` ran
-`working-directory: scripts` against a config whose `include` named only
-`time_tests.py` and `test_metrics.py`, so the other 6 tracked root-scope files
-(including `tests/test_release_workflows.py`) were never type-checked at all.
 
-`exclude` is pyright's default list **minus `**/.*`**, and the omission is
-load-bearing: **exclude beats include**, so naming `.claude/scripts` in `include`
-is not enough on its own — pyright's default exclude list contains `**/.*`, which
-drops the whole directory because it starts with a dot. Measured: 9 files analysed
-with the default exclude restored, 10 without it.
+Root-scope Python (`tests/`, `scripts/`, `.claude/scripts/`) is gated by a root `pyrightconfig.json` (`standard` mode, `include` `["scripts", "tests", ".claude/scripts"]`) over every tracked root-scope `.py` file (count: `git ls-files 'tests/*.py' 'scripts/*.py' '.claude/scripts/*.py' | wc -l`). → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
+Its `exclude` is pyright's default list minus `**/.*`, and the omission is load-bearing: exclude beats include, and `**/.*` would drop `.claude/scripts`. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
+`pyright==1.1.411` is pinned only at the `scripts.yml` install site; the other 8 `*-py.yml` workflows install it unpinned (backlog row). → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
+`tests/test_root_pyright_scope.py` runs pyright under `make test-python`, which pre-push invokes on pushes touching `scripts/`, `tests/`, `.claude/scripts/` or `pyrightconfig.json`; sub-project pyright stays CI-only. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
+pyright walks up the tree for its config like `ruff.toml`: deleting a sub-project's `pyrightconfig.json` falls through to the root config instead of removing type checking. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
+Run pyright manually with `cd <sub-project> && pyright`; for root scope run `pyright` from the repo root.
 
-`pyright==1.1.411` is pinned only at the `scripts.yml` install site; the other 8
-`*-py.yml` workflows still install pyright unpinned (backlog row, deliberate — see
-`docs/superpowers/README.md`).
-
-**Pyright is not CI-only for root scope.** `tests/test_root_pyright_scope.py`
-shells out to it and runs under `make test-python`, which the pre-push hook
-invokes on any push touching `scripts/`, `tests/`, `.claude/scripts/`, or
-`pyrightconfig.json`. Measured cost: three runs of `pyright --outputjson` at the
-repo root, `real 0.80s`, `0.81s`, `0.81s` — not the macOS-spawn-overhead concern
-this line used to cite for sub-project pyright, which still runs CI-only.
-
-**pyright walks up the tree for its config, exactly like `ruff.toml`.** `cd
-scripts && pyright` loads `<root>/pyrightconfig.json` and analyses all 10
-root-scope files; a sub-project's own gate is unaffected only because its own
-`pyrightconfig.json` is found first, before the walk-up reaches root — measured
-`cd amicable && pyright` → 2 files, loading `amicable/pyrightconfig.json`. This
-means deleting a sub-project's `pyrightconfig.json` later does not remove type
-checking there; it falls through to the root config instead.
-
-To run pyright manually for a sub-project: `cd <sub-project> && pyright`. For root
-scope: `pyright` from the repo root.
 
 When adding a new Python sub-project, add `pyrightconfig.json` (copy from any `standard`-mode sub-project) and a `Run pyright` step to the CI workflow. Start with `standard` mode; fall back to `basic` only if the dependency has no stubs.
 
 ### Mutation testing (Rust)
 
-For a mathematical library, **correctness is the primary quality metric** — coverage % is necessary but not sufficient. Mutation testing measures whether tests actually catch behavior changes by making small code mutations (flipping operators, changing constants) and verifying the test suite catches them.
+Rust mutation testing uses `cargo-mutants` (`cargo install cargo-mutants --locked`); run `make mutants` in a crate directory; correctness over coverage %, a kill rate above 80% is good for math code. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
+Mutation CI is `.github/workflows/mutation-testing.yml` (monthly `cron: "0 4 1 * *"` plus `workflow_dispatch`), calling `make -C <crate> mutants` so local and CI share one definition. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
 
-- **Tool:** `cargo-mutants` (install: `cargo install cargo-mutants --locked`)
-- **Per-crate:** `make mutants` in any Rust crate directory
-- **CI:** `.github/workflows/mutation-testing.yml` runs monthly (`cron: "0 4 1 * *"`) and on-demand via `workflow_dispatch`
-- **Interpretation:** A "surviving mutant" means a code change went undetected by tests — strengthen the test to kill it. 100% kill rate is the goal but rarely achievable; >80% is good for math code.
-- **Per-mutant timeout:** `--timeout-multiplier 5 --minimum-test-timeout 30`, set in each crate's `Makefile` `mutants` target — NOT in the workflow, which calls `make -C <crate> mutants` so local and CI share one definition. They previously disagreed (Makefiles 120, workflow 30) with nothing reconciling them.
-  **Do not put a fixed `--timeout` back.** `cargo mutants --help` describes `-t, --timeout` as the maximum run time for **all cargo commands**, which includes the unmutated baseline — so a fixed value caps the baseline too. `--timeout 30` is why `pi-rs` and `e-rs` evaluated zero mutants for a month (#95): their baseline test phases are 54s and longer, so cargo-mutants aborted with `*** result: Timeout` before testing anything, and the classifier correctly reported `caught+missed==0`. The multiplier derives each crate's budget from its own measured baseline (pi-rs auto-sets to 273s); the explicit 30s floor is load-bearing rather than redundant, because the multiplier alone drops a fast crate to cargo-mutants' 20s default — tighter than the value being replaced. `tests/scripts/makefile.bats` pins both halves across all 11 crates.
-- **Memory cap:** `ulimit -v 8388608` (8 GiB) in the same recipe. `cargo mutants --timeout` is wall-clock only with no memory bound, so an allocation-unbounded mutant exhausts the 16 GB runner well inside the 30s budget and kills the runner agent along with the job. This is why all six `mutation-testing.yml` runs between 2026-06-01 and 2026-08-01 failed with exit 143 (SIGTERM). An earlier note here blamed the 360-minute job timeout combined with infinite-loop mutations and reduced `--timeout` from 120 to 30 in response; **that diagnosis was wrong** — the 2026-08-01 run died 119 seconds in, and the change did not help. See ADR-0024.
-- **`MUTANTS_UNCAPPED=1`** runs without the cap. Required on macOS, which cannot enforce `ulimit -v` at all (`cannot modify limit: Invalid argument`) — a local `make mutants` fails closed with an explicit message rather than silently running uncapped and eating system memory. Also the way to reproduce the pre-fix OOM deliberately.
-- **Green/red:** a leg is red only when it evaluated nothing (`caught + missed == 0`, which covers all-unviable, all-timeout, and zero-mutant), when the baseline tests fail, or when the runner dies. Survivors (exit 2) and timeouts (exit 3) are green and reported to the job summary — both are the expected steady state, and gating on them guarantees a red run every month. `scripts/mutation-classify.sh` implements this; `tests/scripts/mutation_classify.bats` covers every rule.
-- **Notification:** a red run files or updates a labelled `mutation-failure` issue (`mutation-failure-python` for the Python workflow, set per-workflow via `ISSUE_LABEL`); a green run closes it. The notify job is separate from the mutants job with `needs: [mutants], if: always()`, because SIGTERM skips `if: always()` _steps_ inside the job it kills — which is why six months of runs uploaded zero artifacts. The issue body's cause comes from `scripts/mutation-notify.sh`, keyed on a `marker/job-began` breadcrumb the mutants job writes after checkout and before its tool install: the artifact attests what actually happened, where a step conclusion only supports an inference about it. Each attribution arm emits a stable `Cause: <slug>` token. Nothing reads the Actions API, so the notify job's permissions stay `issues: write` only.
+Never put a fixed `--timeout` back (#95): keep `--timeout-multiplier 5 --minimum-test-timeout 30` in each crate's `Makefile` `mutants` target, not the workflow, because a fixed value caps the unmutated baseline and evaluated zero mutants for a month; `tests/scripts/makefile.bats` pins both halves across all 11 crates. → ai-config/docs/knowledge/math-testing-policy.md § Mutation timeout
 
-When adding a new Rust crate, include `mutants` in its `Makefile` `.PHONY` list and target. Periodically run mutation testing per crate; investigate any surviving mutants in `lib/`-style code (logic, not main glue).
+Keep `ulimit -v 8388608` (8 GiB) in the same `mutants` recipe; macOS cannot enforce it, so set `MUTANTS_UNCAPPED=1` deliberately there (the recipe fails closed otherwise). → ai-config/docs/knowledge/math-testing-policy.md § Mutation memory cap
 
-**Equivalent mutations** — mathematical algorithms frequently produce mutations that are semantically equivalent: the code changes but all valid inputs produce the same output. No test can kill an equivalent mutant because there is no observable difference to detect. Exclude them via `.cargo/mutants.toml` in the crate directory:
+A mutation leg is red only when `caught + missed == 0`, the baseline fails or the runner dies; survivors (exit 2) and timeouts (exit 3) are green (`scripts/mutation-classify.sh`, `tests/scripts/mutation_classify.bats`). → ai-config/docs/knowledge/math-testing-policy.md § Mutation green/red
 
-```toml
-# .cargo/mutants.toml
-# Format: regex matched against "src/lib.rs:<line>:<col>: <description>"
-exclude_re = [
-    # while p*p <= n: p*p→p+p loops to n/2 vs √n, but sieve output is identical
-    "src/lib\\.rs:13:13: replace \\* with \\+",
-]
-```
+The notify job stays separate (`needs: [mutants], if: always()`) with `issues: write` only, labelled `mutation-failure` (`mutation-failure-python` via `ISSUE_LABEL` for the Python workflow); `scripts/mutation-notify.sh` derives the cause from the `marker/job-began` breadcrumb. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
+Add `mutants` to a new Rust crate's `Makefile` `.PHONY` list and target; investigate surviving mutants in logic code, not main glue. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
 
-**Important:** `// mutants::skip` inline comments are **not** recognized by cargo-mutants ≥27.x — only `#[mutants::skip]` attributes on items are supported. Use `.cargo/mutants.toml` `exclude_re` patterns instead.
 
-**Caveat:** `exclude_re` patterns include line numbers. If surrounding code shifts the line, the pattern stops matching and the equivalent mutant reappears as "surviving." Update the file and its comments when nearby code changes. See `factorial/factorial-rs/.cargo/mutants.toml` for a worked example with three excluded equivalences (two sieve `p*p→p+p` variants and one `exp>0→exp>=0` in `compute_swing_chunk`).
+Exclude equivalent mutants via the crate's `.cargo/mutants.toml` `exclude_re` regexes matched against `src/lib.rs:<line>:<col>: <description>`; `// mutants::skip` is not recognized (cargo-mutants ≥27.x), only `#[mutants::skip]` on items. → ai-config/docs/knowledge/math-testing-policy.md § Equivalent mutations
+`exclude_re` patterns embed line numbers; update them when surrounding code shifts (worked example `factorial/factorial-rs/.cargo/mutants.toml`). → ai-config/docs/knowledge/math-testing-policy.md § Equivalent mutations
 
-**Algebraic-identity dead-code equivalents** — when a function body contains a comparison that is always true for all valid inputs due to mathematical identity, any mutation to that comparison is an equivalent dead-code mutation. Example: `verify_perfect(p)` checks `sigma_result == 2*n`; Euler's theorem proves this is always true for any p yielding a Mersenne prime, so `==` → `!=` or intermediate arithmetic mutations are unreachable. Exclude them in `.cargo/mutants.toml`. Diagnosis: write a test that exercises the function with several known-good inputs — if the mutant still passes, it's equivalent, not a gap.
 
-**Prompt-guard output-filename assertion kills match-guard mutations** — in interactive-prompt tests that supply N via `io::Cursor::new("2\n")`, a `→ true` mutation on the prompt validation loop (e.g., converting `n >= 1 && n <= 8` to `true`) makes all N values valid and `run()` returns `Ok` regardless of input. The test still passes. Kill this mutation by asserting on the concrete output artifact after `run()`:
+A mutation on a comparison that algebraic identity makes always true (e.g. `verify_perfect`) is a dead-code equivalent; exclude it in `.cargo/mutants.toml`. → ai-config/docs/knowledge/math-testing-policy.md § Algebraic-identity equivalents
 
-```rust
-assert!(dir.path().join("goldbach_1e2.txt").exists());
-```
 
-With this assertion, the filename encodes the actual N value — a mutant that accepts any N would write the correct file for the supplied N=2 anyway, so the precise guard needed is on the output file. Add this assertion to every prompt test that could be affected by a guard `→ true` mutation.
+In prompt tests supplying N via `io::Cursor`, assert the concrete output artifact (e.g. `assert!(dir.path().join("goldbach_1e2.txt").exists());`) to kill guard `→ true` mutations. → ai-config/docs/knowledge/math-testing-policy.md § Prompt-guard assertions
+
 
 ## CI
 
-Forty workflow files (`git ls-files .github/workflows/ | wc -l`). Project workflows run on PRs to `master` only — the pre-push hook gates branch pushes locally. Build jobs depend on their test job — a build will not run if tests fail. `bash-coverage` is a new job (auto-merge.yml) — see Bash Coverage below.
+Project workflows run on PRs to `master` only; the pre-push hook gates branch pushes locally; a build job depends on its test job (`needs: [test]`). → ai-config/docs/knowledge/math-ci.md § Workflow table
+Workflows are `<project>-py.yml` (job `test`) and `<project>-rs.yml` (`test` → build + artifact), `release-<project>-rs.yml` (manual dispatch), plus `auto-merge.yml`, `mutation-pr.yml`, `mutation-testing.yml`, `mutation-testing-python.yml`, `scripts.yml` (list with `git ls-files .github/workflows/`). → ai-config/docs/knowledge/math-ci.md § Workflow table
+`auto-merge.yml` runs secret-scan, bash-coverage and claude-md-budget (gated), then ci-gate (polls required checks, merges on pass), then snyk-scan (advisory, not gated); `scripts.yml` runs `bats --recursive tests/`. → ai-config/docs/knowledge/math-ci.md § Workflow table
 
-| Workflow                | File                                            | Jobs                                                                                                                    |
-| ----------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| pi.py                   | `.github/workflows/pi-py.yml`                   | test                                                                                                                    |
-| pi-rs                   | `.github/workflows/pi-rs.yml`                   | test → build + artifact                                                                                                 |
-| prime-rs                | `.github/workflows/prime-rs.yml`                | test → build + artifact                                                                                                 |
-| fib.py                  | `.github/workflows/fib-py.yml`                  | test                                                                                                                    |
-| fib-rs                  | `.github/workflows/fib-rs.yml`                  | test → build + artifact                                                                                                 |
-| sq.py                   | `.github/workflows/sq-py.yml`                   | test                                                                                                                    |
-| sq-rs                   | `.github/workflows/sq-rs.yml`                   | test → build + artifact                                                                                                 |
-| twin-primes-rs          | `.github/workflows/twin-primes-rs.yml`          | test → build + artifact                                                                                                 |
-| release-pi-rs           | `.github/workflows/release-pi-rs.yml`           | release (manual dispatch)                                                                                               |
-| release-prime-rs        | `.github/workflows/release-prime-rs.yml`        | release (manual dispatch)                                                                                               |
-| release-fib-rs          | `.github/workflows/release-fib-rs.yml`          | release (manual dispatch)                                                                                               |
-| release-sq-rs           | `.github/workflows/release-sq-rs.yml`           | release (manual dispatch)                                                                                               |
-| release-twin-primes-rs  | `.github/workflows/release-twin-primes-rs.yml`  | release (manual dispatch)                                                                                               |
-| e.py                    | `.github/workflows/e-py.yml`                    | test                                                                                                                    |
-| e-rs                    | `.github/workflows/e-rs.yml`                    | test → build + artifact                                                                                                 |
-| release-e-rs            | `.github/workflows/release-e-rs.yml`            | release (manual dispatch)                                                                                               |
-| factorial.py            | `.github/workflows/factorial-py.yml`            | test                                                                                                                    |
-| factorial-rs            | `.github/workflows/factorial-rs.yml`            | test → build + artifact                                                                                                 |
-| release-factorial-rs    | `.github/workflows/release-factorial-rs.yml`    | release (manual dispatch)                                                                                               |
-| collatz.py              | `.github/workflows/collatz-py.yml`              | test                                                                                                                    |
-| collatz-rs              | `.github/workflows/collatz-rs.yml`              | test → build + artifact                                                                                                 |
-| goldbach-rs             | `.github/workflows/goldbach-rs.yml`             | test → build + artifact                                                                                                 |
-| amicable.py             | `.github/workflows/amicable-py.yml`             | test                                                                                                                    |
-| amicable-rs             | `.github/workflows/amicable-rs.yml`             | test → build + artifact                                                                                                 |
-| auto-merge              | `.github/workflows/auto-merge.yml`              | secret-scan + bash-coverage (gated) → ci-gate (polls required checks, merges on pass) → snyk-scan (advisory, not gated) |
-| mutation-pr             | `.github/workflows/mutation-pr.yml`             | cosmic-ray on changed Python sub-projects (advisory; survivors warn, not block)                                         |
-| mutation-testing        | `.github/workflows/mutation-testing.yml`        | cargo mutants on all Rust crates (monthly + workflow_dispatch)                                                          |
-| mutation-testing-python | `.github/workflows/mutation-testing-python.yml` | cosmic-ray on all Python sub-projects (monthly + workflow_dispatch)                                                     |
-| scripts                 | `.github/workflows/scripts.yml`                 | test (bats --recursive tests/)                                                                                          |
 
-**Atomic release publication — three invariants, each with its measurement.** Every `release-*-rs.yml` workflow builds, signs, and publishes a binary in one job; each row below is a decision, not a habit, and the measurement is what makes it one rather than the other.
+Every `release-*-rs.yml` builds with `cargo auditable build --release` (a plain build makes the SBOM list 1 package instead of 13). → ai-config/docs/knowledge/math-ci.md § Atomic release publication
+Sign in the release job via the composite action `.github/actions/sbom-sign`; never reintroduce a separate signing job, and keep the `Create and push tag` step after the sbom-sign step (a failure after the tag leaves an unshippable version: `fatal: tag already exists`). → ai-config/docs/knowledge/math-ci.md § Atomic release publication
+Every `softprops/action-gh-release` call sets `fail_on_unmatched_files: true`; `tests/test_release_workflows.py` pins all three invariants via `yaml.safe_load`. → ai-config/docs/knowledge/math-ci.md § Atomic release publication
+Release workflows use `workflow_dispatch` with a `version` input (no `v`) and create tag `{subproject}-v{version}` themselves.
+Release and CI jobs run Node.js 24 with `actions/checkout@v7`; Rust builds `needs: [test]` and use `actions/upload-artifact@v7` (7 days); badges use `?event=pull_request`.
 
-- **The SBOM is only meaningful under `cargo-auditable`.** Measured 2026-09-04: `syft` over a stripped Rust binary reports **1** package — the binary itself — on both Mach-O arm64 and ELF x86-64, against a 133-crate lockfile. With `cargo auditable build --release` it reports **13**, with real dependency names. A release built without it publishes an SBOM that `grype` scans to no effect. (13 vs 133 is correct, not a second gap: cargo-auditable records what is _linked_, `Cargo.lock` also lists dev-dependencies and unbuilt optional crates.)
-- **Signing happens before publication, in the release job.** `release-sign.yml` was a reusable workflow, so signing ran as its own job and had to `gh release download` the binary — which forced the release to exist first, leaving a window where a published release carried no SBOM. `.github/actions/sbom-sign` is a composite action running in the release job, where the built binary is already on disk. Do not reintroduce a separate signing job. The `Create and push tag` step must stay _after_ the sbom-sign step: a signing failure before the tag is pushed leaves the repo unchanged, whereas after it leaves an unshippable version that a re-run fails on with `fatal: tag already exists`.
-- **`fail_on_unmatched_files: true` is required** on every `softprops/action-gh-release` call. The input defaults to false (verified in the action's own `action.yml` at the pinned SHA), so without it a `files:` entry matching nothing publishes the release anyway with only a console warning.
 
-`tests/test_release_workflows.py` pins all three across every `release-*-rs.yml`, parsed with `yaml.safe_load` rather than matched as raw text — see that module's docstring for why a substring check fails in both directions.
+Pre-commit: `scripts/pre-commit` (installed by `make install-hooks`) runs `make lint` on staged sub-projects and `ggshield secret scan pre-commit` (skipped if absent); install ggshield locally. → ai-config/docs/knowledge/math-ci.md § Pre-commit hook
 
-**Pre-commit hook** — `scripts/pre-commit` is committed to the repo and installed as a symlink via `make install-hooks`. It runs `make lint` on staged sub-projects and `ggshield secret scan pre-commit` (skipped if not installed). CI gitleaks is a backstop — install and activate ggshield locally so secrets are caught before they leave the machine.
 
-**Pre-push hook** — `scripts/pre-push` is committed to the repo and installed as a symlink via `make install-hooks`. It detects which sub-projects have **source file** (`.py`, `.rs`) changes in the push range and runs `make test` for each. It separately runs the **root** `make test` target — `lint test-hooks test-python`, where `lint` is `lint-hooks` (shellcheck) plus `lint-python` (ruff check + format) — whenever the push touches `scripts/`, `tests/`, or the root `Makefile`. Skips branch deletions. Permanent — conserves GitHub Actions minutes by catching failures locally.
+Pre-push: `scripts/pre-push` (installed by `make install-hooks`) runs `make test` per sub-project with `.py`/`.rs` source changes, and the root `make test` (`lint test-hooks test-python`) when the push touches `scripts/`, `tests/` or the root `Makefile`, and refuses a pushed commit that changes `CLAUDE.md` past the 30000-byte ceiling; it skips branch deletions and is permanent. → ai-config/docs/knowledge/math-ci.md § Pre-push hook
+math's hooks bypass root `test:`, so fix the hooks (not the root target) when lint or test coverage on push is wrong. → ai-config/docs/knowledge/math-ci.md § Pre-push hook
 
-**ProcessPoolExecutor resource_tracker gotcha (macOS):** Python's `spawn` multiprocessing context starts a `resource_tracker` daemon that can deadlock with git's push pipe. `< /dev/null` on `make test` prevents the stdin deadlock for a single test run. However, running many sequential test suites (e.g. a cross-cutting Makefile change touching all 7 Python CLIs at once) causes resource_tracker daemons to accumulate — later suites fail to acquire semaphores and hang indefinitely. Fix: scope the test trigger to `.py`/`.rs` source changes only. Makefile, workflow, and doc changes never affect test outcomes and must not trigger the pre-push test suite.
 
-**Worktree compatibility requirement:** `scripts/pre-push` must resolve the repository root with `git rev-parse --show-toplevel` first, with `git rev-parse --git-common-dir` parent only as a fallback. Using `git-common-dir` directly in worktrees can run tests against the shared checkout (`master`) instead of the active feature worktree.
+Trigger pre-push tests on `.py`/`.rs` source changes only; Makefile, workflow and doc changes must not run the suites (macOS `resource_tracker` daemons accumulate and hang), and run `make test < /dev/null`. → ai-config/docs/knowledge/math-ci.md § resource_tracker gotcha
+
+
+`scripts/pre-push` resolves the repo root with `git rev-parse --show-toplevel` first, `--git-common-dir` parent only as fallback, or worktrees test the shared checkout instead of the feature worktree. → ai-config/docs/knowledge/math-ci.md § Worktree compatibility
+
 
 **Shell script testing** — BATS (`bats --recursive tests/`) is the standard for all shell script tests in this repo. Run with `make test-hooks`. Requires system-installed bats-core: `brew install bats-core` (macOS) or `sudo apt-get install -y bats` (Linux).
 
-**Repo-level Python tests** — `make test-python` runs `python3 -m unittest discover -s tests -p 'test_*.py'`,
-and `make test` runs `test-hooks` then `test-python`. Added 2026-08-07 (#104). Before that nothing executed
-`tests/*.py` at all: `scripts.yml` ran bats and pyright, so `tests/test_time_tests.py` was type-checked but
-its 8 tests had never once run. `scripts.yml` now calls `make test-python` alongside the bats step. Note this
-is repo-level only — each sub-project keeps its own `make test`. The suite is **112 tests** as of
-2026-10-19 (`python3 -m unittest discover -s tests -p 'test_*.py'`): `test_time_tests.py`, `test_test_metrics.py`, `test_triage_log.py`,
-`test_renovate_automerge_policy.py` (added in #123 — it asserts `renovate.json`'s auto-merge policy is
-exhaustive over the ten-member `updateType` enum; see the Renovate auto-merge policy section above),
-`test_release_workflows.py` (added by the atomic-release-publication change — it parses every
-`release-*-rs.yml` with `yaml.safe_load` and asserts on the parsed structure, not raw text, that each
-workflow builds with `cargo auditable build --release`, signs via `.github/actions/sbom-sign` before the
-release tag is created, and carries `fail_on_unmatched_files: true` on its `softprops/action-gh-release`
-step — so a regression to a bare build, a re-appearing separate sign job, or a missing SBOM/checksum asset
-fails a test instead of shipping a release with no SBOM), and `test_root_pyright_scope.py` +
-`test_root_python_deps.py` (the two root-scope Python gates added in this repo's
-`2026-09-05-root-python-gate-holes` plan — see the Type checking and Dependency
-Installation sections above).
+`make test-python` runs `python3 -m unittest discover -s tests -p 'test_*.py'` and `make test` runs `test-hooks` then `test-python`; `scripts.yml` calls both. → ai-config/docs/knowledge/math-ci.md § Repo-level Python tests
 
-**`.claude/scripts/triage_log.py`** — vendored per-repo because of its resolver, not its availability. It
-does ship via the `~/.claude/scripts/` symlink like every other script there; what fails is that its output
-dir is `Path(__file__).resolve().parent.parent / "triage-log"` and `.resolve()` follows the symlink, so
-invoking it through the home path writes this repo's triage log into ai-config. The vendored copy exists to
-put the log in the right repo. Sibling scripts need no vendoring — `cost_log.py`/`cost_summary.py` resolve
-`.claude/cost-log/` relative to the cwd and `dod_log.py` is home-anchored, so both are correct to invoke as
-`~/.claude/scripts/<name>`. Retiring this one means fixing the resolver (ai-config spec
-`2026-07-29-telemetry-home-anchoring-design.md`, still Status: Spec)
-because `bug-fix-cycle` emits its telemetry through it. Paired suite at `tests/test_triage_log.py`; the JSONL
-it writes is gitignored.
 
-- `tests/helpers/common.bash` — shared REPO_ROOT export and `load_mocks()` (prepends `tests/mocks/` to PATH)
-- `tests/mocks/` — PATH-injected mock executables: `make` (logs calls, exits `$MOCK_MAKE_EXIT`), `git` (dispatches by subcommand, outputs from per-subcommand env vars), `ggshield` (logs calls, exits `$MOCK_GGSHIELD_EXIT`), `gh` (sequential JSON responses via `MOCK_GH_CHECK_RUNS_N`, exits `$MOCK_GH_EXIT`, or `$MOCK_GH_EXIT_<SUBCOMMAND>_<VERB>` to fail a single call — e.g. `MOCK_GH_EXIT_ISSUE_CLOSE`), `syft` and `cosign` (each logs its call and exits `$MOCK_SYFT_EXIT`/`$MOCK_COSIGN_EXIT`, but also honours the output flag it was actually given — `--file` for `syft`, `--bundle` for `cosign` — writing a placeholder file there, so the sbom-sign suite can assert on the file it produced rather than only on whether the mock was invoked)
-- `tests/mocks/*` are linted: `SHELL_SOURCES` includes them via `$(wildcard tests/mocks/*)`.
-  They are extensionless, so the `git ls-files '*.sh' '*.bash'` half of that variable
-  cannot see them — the same pathspec trap `shell.md` documents. Verified by seeding a
-  defect and watching `make lint-hooks` fail, not by reading the variable.
-- `tests/scripts/` — BATS test files; one per script tested (`rust_check.bats`, `pre_commit.bats`, `pre_push.bats`, `ci_gate.bats`, `makefile.bats`, `bash_coverage.bats`, `mutation_notify.bats`)
+`.claude/scripts/triage_log.py` is vendored per-repo because its `.resolve()` follows the `~/.claude/scripts/` symlink and would write this repo's triage log into ai-config; invoke the vendored copy, not the home path. → ai-config/docs/knowledge/math-ci.md § triage_log.py
+
+
+Test helpers: `tests/helpers/common.bash` (REPO_ROOT, `load_mocks()`), PATH-injected mocks in `tests/mocks/` (`make`, `git`, `ggshield`, `gh`, `syft`, `cosign`), BATS files in `tests/scripts/` (one per script tested). → ai-config/docs/knowledge/math-ci.md § Test helpers and mocks
+`tests/mocks/*` are extensionless and linted via `$(wildcard tests/mocks/*)` in `SHELL_SOURCES`; verify a lint change by seeding a defect and watching `make lint-hooks` fail. → ai-config/docs/knowledge/math-ci.md § Test helpers and mocks
+
 
 ### Bash Coverage
 
-Ported from `dotfiles/scripts/run-bash-coverage.sh` @ `67417bc` (re-synced 2026-08-10, math#108) — a PS4 xtrace tracer that runs the whole bats suite under `BASH_ENV=scripts/bash-tracer.sh` and reports per-file and overall line coverage. Per-repo copy is deliberate; there is no cross-repo sharing mechanism today, and the copy carries the six rounds of defect-correction (plus two more found porting it into ai-config) baked in — see the header comment in `scripts/run-bash-coverage.sh` for math's specific divergences from the dotfiles source.
+`scripts/run-bash-coverage.sh` is a per-repo copy of dotfiles' (`67417bc`, re-synced math#108); re-sync from dotfiles master when upstream changes (one PR per copy per change); its header lists math's divergences. → ai-config/docs/knowledge/math-ci.md § Bash coverage re-sync
 
-**Re-sync from dotfiles master, and expect to do it again.** The original port landed at `c27cc4e`; three further upstream fixes (#202/#203/#204) put this copy a full PR behind within a day, and closing that took its own PR. ADR-0061 decision 5 predicted this drift and it is now measured — budget one PR per copy per upstream change. Code drift across the three copies was zero; what went stale was a header's divergence enumeration, which is prose nothing tests.
 
-- **Run:** `make bash-coverage` (guarded on a missing `bats` binary; not wired into `make test` or `make lint` — it re-runs the whole bats suite under the tracer, which takes minutes)
-- **Inspect without a full run:** `bash scripts/run-bash-coverage.sh --list-sources` (the instrumented set), `--count-coverable <file>`, `--file-coverage <file> <trace>`
-- **CI:** `.github/workflows/auto-merge.yml`'s `bash-coverage` job, gated in `auto-merge`'s `needs:` — see the floor note below
-- **Test:** `tests/scripts/bash_coverage.bats` — regression coverage for the `INCLUDE_FILES` predicate (every element derived independently in the test, never hardcoded against the script's own output)
+`make bash-coverage` runs the PS4 tracer over the bats suite (skipped if `bats` is missing; not in `make test` or `make lint`); inspect with `bash scripts/run-bash-coverage.sh --list-sources`, `--count-coverable <file>`, `--file-coverage <file> <trace>`; predicate tests in `tests/scripts/bash_coverage.bats`. → ai-config/docs/knowledge/math-ci.md § Bash Coverage
 
-**Predicate — instrumented set is 28 files, tracked shell is 30.** The instrumented set is `git ls-files 'scripts/*.sh' '*/install_deps.sh' '*/*/install_deps.sh' scripts/pre-push scripts/pre-commit scripts/commit-msg`, less `scripts/bash-tracer.sh` (structurally uncoverable — `set -x` is its own last command, so nothing before it can be traced and nothing follows it). That is 6 `scripts/*.sh` files (`ci-gate.sh`, `mutation-classify.sh`, `mutation-notify.sh`, `rust-check.sh`, `run-bash-coverage.sh`, `sbom-sign.sh`; `bash-tracer.sh` matches the glob too but is filtered after derivation) + 19 `install_deps.sh` scripts across both directory-nesting depths + 3 extensionless hooks = **28 instrumented files**. Tracked shell overall is `git ls-files '*.sh' '*.bash'` (27, after this port added `run-bash-coverage.sh` and `bash-tracer.sh`, and `mutation-notify.sh` then `sbom-sign.sh` joined it) + the 3 hooks = 30; the instrumented set excludes only `tests/helpers/common.bash` (test code) and `bash-tracer.sh` (uncoverable) from that total. `run-bash-coverage.sh` is itself instrumented — it is not self-referentially traced when it runs the suite (`BASH_ENV` is only exported around the `bats` invocation), but every direct `bash scripts/run-bash-coverage.sh ...` subprocess call inside `tests/scripts/bash_coverage.bats` inherits `BASH_ENV` from the tracer's own bats run and gets traced that way.
 
-**The 19 `install_deps.sh` scripts are ~73% of math's instrumented set (19 of 26), and no bats suite executes any of them.** They are in the predicate anyway, and this is the load-bearing judgement of the whole port: a script no suite invokes is **untested**, not uncoverable. Excluding it would raise the reported percentage by deleting the untested majority from the denominator — precisely the flattering-denominator defect this tooling exists to eliminate (see `tdd.md`'s Coverage Denominators section). Expect a low headline percentage as a result — that is the honest number, not a bug in the port. (The count is 19, not 16 — an earlier estimate for this port undercounted the nested `<name>-rs/install_deps.sh` depth for `goldbach`, `prime`, and `twin-primes`, which have no top-level `install_deps.sh` at all, only the nested one. `git ls-files '*/install_deps.sh' '*/*/install_deps.sh' | wc -l` is the derivation; the Makefile's `SHELL_SOURCES` comment independently records the same 19.)
+The instrumented set is derived from `git ls-files 'scripts/*.sh' '*/install_deps.sh' '*/*/install_deps.sh' scripts/pre-push scripts/pre-commit scripts/commit-msg` minus `scripts/bash-tracer.sh`; keep the 19 `install_deps.sh` in the denominator (untested, not uncoverable). → ai-config/docs/knowledge/math-ci.md § Bash coverage predicate
 
-**Floor: 24%, set from CI's own measurement.** `auto-merge.yml`'s `bash-coverage` job gates at `FLOOR=24`, defined once in that job's step and referenced by the gate, the reminder condition and the reminder message, so raising it is a one-line change. CI measured **33% (375/1132)** on `ubuntu-latest` — identical to the local macOS run including both heuristic disagreements — and the floor sits one point below, matching dotfiles, ai-config and terraform_ansible. Publish the CI figure, not a local one: dotfiles measured an 11-covered-line platform delta between macOS (92%) and `ubuntu-latest` (91%) on the identical commit, and this repo's agreement is a property of its simple instrumented set, not something to assume elsewhere.
 
-**Read the gate for what it is.** 19 of the 26 instrumented files are per-subproject `install_deps.sh` that no bats suite invokes, so roughly three-quarters of the denominator can never move. They are in the denominator deliberately — a script no suite runs is **untested**, not uncoverable, and excluding them would raise the figure by deleting the untested majority, which is the flattering-denominator defect this tooling exists to prevent. (`scripts/bash-tracer.sh` _is_ excluded, because no test **could** reach it: `set -x` is its own last command.) The floor is therefore a regression ratchet over the reachable quarter, not a quality bar for the repo's shell.
+The `bash-coverage` job in `auto-merge.yml` gates at `FLOOR=24`, defined once in that step and set from CI's own measurement on `ubuntu-latest`, never a local run. → ai-config/docs/knowledge/math-ci.md § Bash coverage floor
+The floor is a regression ratchet over the reachable quarter of the denominator, not a quality bar for the repo's shell. → ai-config/docs/knowledge/math-ci.md § Bash coverage floor
 
-**Reachability: measured, not estimated.** The 25% figure is itself the direct measurement — a full local `make bash-coverage` run over the real predicate, dominated by the 19 `install_deps.sh` scripts sitting at 0%. An earlier spec-era estimate of 14% predated the predicate correction and is superseded.
 
-**Auto-merge gate:** `scripts/ci-gate.sh <PR>` is called by the `auto-merge` job before merging. It polls `gh pr checks` until all checks are terminal, then verifies no check outside the advisory list (`snyk-scan`) and self-checks (`secret-scan`, `auto-merge`) has failed. Docs-only PRs trigger no project workflows and merge immediately. The gate is tested via `tests/scripts/ci_gate.bats` using the `tests/mocks/gh` mock (runs fully offline).
+`scripts/ci-gate.sh <PR>` polls `gh pr checks` and fails on any non-advisory failure (`snyk-scan` is advisory; `secret-scan` and `auto-merge` are self-checks); tested via `tests/scripts/ci_gate.bats` with `tests/mocks/gh`. → ai-config/docs/knowledge/math-ci.md § Auto-merge gate
 
-**`test_metrics.py` in Rust workflows needs explicit `pip install defusedxml`** — `factorial-rs.yml` is the only Rust workflow that calls `scripts/test_metrics.py`. Unlike Python workflows (which have a full `pip install` step), Rust workflows have no Python dependency install step. `test_metrics.py` imports `defusedxml` (added in #69 for XXE safety), which is not pre-installed on GitHub-hosted Ubuntu runners. Any Rust workflow that calls `test_metrics.py` must add this step immediately before the `Generate test metrics` step:
 
-```yaml
-- name: Install Python dependencies
-  if: always()
-  run: pip install defusedxml
-```
+A Rust workflow calling `scripts/test_metrics.py` (today `factorial-rs.yml`) needs `pip install defusedxml` (a step named `Install Python dependencies`, `if: always()`) immediately before `Generate test metrics`, or CI fails with `ModuleNotFoundError`. → ai-config/docs/knowledge/math-ci.md § test_metrics.py in Rust workflows
 
-Omitting this causes `ModuleNotFoundError: No module named 'defusedxml'` in CI. The symptom is subtle — the PR may touch unrelated files in `factorial/factorial-rs/` (e.g. bench deps) and unexpectedly trigger this workflow.
 
 ### Renovate auto-merge policy
 
-`renovate.json`'s `packageRules` must **begin** with the five canonical rules from ai-config's
-`renovate-presets/default.json` — `renovate_preset_sync.py:87` tests prefix equality
-element-by-element and reports DRIFT (exit 1) when it does not hold. Anything appended
-after that prefix is a _deviation_ (exit 0) and is the designed extension point. Rules 0-2
-match disjoint `updateType`s, so "later overrides earlier" never fires between them. Rules
-3-4 hold Python interpreter updates (`automerge: false`); the depName/packageName negations
-on rules 0 and 2 are what keep `automerge-ok` off them, and `python_hold_gaps` in
-`tests/test_renovate_automerge_policy.py` pins that (ai-config spec
-`2026-10-19-fleet-python-version-hold-design.md`).
+`renovate.json`'s `packageRules` must begin with the five canonical rules of ai-config `renovate-presets/default.json` (`renovate_preset_sync.py` tests prefix equality and reports DRIFT; appended rules are deviations); rules 3-4 hold Python interpreter updates. → ai-config/docs/knowledge/math-ci.md § Renovate auto-merge policy
+Each of the ten `updateType`s must be auto-merged or declared in `_DELIBERATELY_HELD` in `tests/test_renovate_automerge_policy.py`; do not name held types in `renovate.json`. → ai-config/docs/knowledge/math-ci.md § Renovate auto-merge policy
 
-**Four of the schema's ten `updateType`s are held by omission** — `lockFileMaintenance`,
-`rollback`, `bump`, `replacement`. That is safe but silent: `packageRules` are additive
-overrides merged onto base config, and base `automerge` is `false`, so an unmatched type is
-held with no `addLabels` and `auto-merge.yml`'s guard (which holds any bot PR without `automerge-ok`, ai-config ADR-0085) leaves it for triage. Naming
-them in `renovate.json` would buy documentation and no mechanism, so the declaration lives
-in `tests/test_renovate_automerge_policy.py` instead, where `_DELIBERATELY_HELD` maps each
-held type to its reason and a type that is neither auto-merged nor declared fails the suite.
-`_UPDATE_TYPES` is transcribed from the schema `renovate.json`'s own `$schema` names; it is
-hand-maintained and cannot catch an eleventh type added upstream.
 
-**Paths-filtered workflows** — each project workflow fires only when files in its directory change. The root `Makefile` is covered by `scripts.yml`. Release workflows and `auto-merge.yml` trigger unconditionally. When a new project is added, create its workflow with a `paths:` block — the gate automatically requires it for relevant PRs.
+Project workflows are paths-filtered (root `Makefile` covered by `scripts.yml`); release workflows and `auto-merge.yml` trigger unconditionally. → ai-config/docs/knowledge/math-ci.md § Paths-filtered workflows
+
 
 **snyk-scan** runs `snyk code test` (SAST) against the Python and Rust source. It is advisory — not in `needs` for `auto-merge`. Requires `SNYK_TOKEN` in repository secrets.
 
-**When adding a new project**, create a dedicated workflow file `.github/workflows/<project>.yml` following the same pattern:
+A new project gets `.github/workflows/<project>.yml` triggered only by `pull_request: branches: [master]` (no `push:`) with a `paths:` block, a `test` job and a `build` job (`needs: [test]`) uploading an artifact, plus a README badge `badge.svg?event=pull_request` at the top and in the CI column. → ai-config/docs/knowledge/math-ci.md § Adding a new project workflow
 
-- Trigger: `pull_request: branches: [master]` only — no `push:` trigger (pre-push hook handles branch pushes locally)
-- One `test` job running the project's test suite
-- One `build` job with `needs: [test]` that builds the release binary and uploads it as an artifact
-- A badge for the new workflow added to the top of `README.md` and to the CI column of the project table — use `badge.svg?event=pull_request` so the badge reflects the last PR run (workflows trigger on `pull_request` only so master-based filters always show no status)
-
-This gives a per-project badge in the README and keeps each project's CI self-contained.
 
 ## Branch Workflow
 
@@ -638,39 +242,25 @@ gh pr create --title "..." --body "..."
 
 The pre-push hook runs `make test` for changed sub-projects locally before the push reaches GitHub. GitHub Actions CI runs on PRs only. The `auto-merge` workflow enables GitHub auto-merge when the PR is opened; it merges automatically once all required checks pass.
 
+Auto-merge lands a PR as soon as its required checks pass, so run Phase 3 (`finishing-a-development-branch`) before marking it ready for review; open your own changes as a draft PR.
+
 ### Multiprocessing fallback behavior
 
-For Python high-precision calculators (`pi`, `e`, `factorial`), `ProcessPoolExecutor` can fail in restricted environments (for example semaphore sysconf permission errors). Runtime behavior must be:
+Python high-precision calculators (`pi`, `e`, `factorial`) must fall back to serial when `ProcessPoolExecutor` fails, print an explicit message that serial mode is active, and tell the user to fix multiprocessing semaphore support. → ai-config/docs/knowledge/math-branch-workflow.md § Multiprocessing fallback
 
-1. Fall back to serial execution/conversion instead of hard-failing.
-2. Print an explicit user-facing message that serial mode is active.
-3. Tell the user to install/fix required runtime support (including multiprocessing semaphore support) to restore parallel mode.
 
 ## Keeping CLAUDE.md Up To Date
 
 **When making any change to this repository, update the relevant CLAUDE.md file(s) before finishing.** These files are the primary reference for future sessions — stale documentation is worse than none.
 
-What to update and when:
+Per-change update map (new function, Makefile target, dependency, test class, project, behaviour change, rule change) and the new-project checklist (workflow, badge, CI table, loops in `scripts/pre-commit` and `scripts/pre-push`). → ai-config/docs/knowledge/math-claude-md-maintenance.md § Update map
+Sub-project `CLAUDE.md` files are the source of truth for implementation detail; this file is the entry point and quick reference. → ai-config/docs/knowledge/math-claude-md-maintenance.md § Update map
 
-| Change                                 | Files to update                                                                                                                                                                                                                   |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| New or renamed function / constant     | Project `CLAUDE.md` → Code Layout section                                                                                                                                                                                         |
-| New or removed Makefile target         | Project `CLAUDE.md` + `README.md` → Makefile targets table; root `Makefile` targets → top-level `CLAUDE.md` Quick Reference + `README.md`                                                                                         |
-| New dependency or install step         | `pi/install_deps.sh` + project `CLAUDE.md` + `README.md`                                                                                                                                                                          |
-| New test class or change in coverage % | Project `CLAUDE.md` + `README.md` → Testing section                                                                                                                                                                               |
-| New project added to the repo          | Top-level `CLAUDE.md` → Repository Overview table                                                                                                                                                                                 |
-| Behaviour or algorithm change          | Project `CLAUDE.md` → Important Behavior / Implementation Details                                                                                                                                                                 |
-| New project added                      | Create `.github/workflows/<project>.yml` (test → build + artifact); add badge to `README.md` top and CI column; update `CLAUDE.md` CI table; add new sub-project dirs to the loops in `scripts/pre-commit` and `scripts/pre-push` |
-| Editing rule or policy change          | All affected `CLAUDE.md` → Editing Guidance section                                                                                                                                                                               |
-
-The sub-project files (`pi/CLAUDE.md`, `prime/CLAUDE.md`, `fib/CLAUDE.md`, `sq/CLAUDE.md`, `e/CLAUDE.md`, `factorial/CLAUDE.md`, and each Rust subtree's `CLAUDE.md` under `pi/pi-rs/`, `prime/prime-rs/`, `fib/fib-rs/`, `sq/sq-rs/`, `e/e-rs/`, `factorial/factorial-rs/`) are the source of truth for implementation detail. This top-level file is the entry point and quick reference — keep them in sync.
 
 ## Notes
 
-- **PR learnings (2026-04-29, rust-offline-wrapper):**
-  - For Rust crates, route `make lint`/`make test` through `scripts/rust-check.sh` to keep cargo behavior deterministic across root checkouts and worktrees.
-  - Verify wrapper behavior at two levels: unit tests (`python3 scripts/test_rust_check.py`) plus a full online+offline crate matrix before merge.
-  - The wrapper creates a repo-local `.cache/cargo-home` when `CARGO_HOME` is unset. Treat `.cache/` as transient local state and remove it (`rm -rf .cache`) before final status checks and commits.
+Verify rust-check wrapper changes with unit tests (`python3 scripts/test_rust_check.py`) plus a full online+offline crate matrix before merge. → ai-config/docs/knowledge/math-quick-reference.md § rust-offline-wrapper learnings
+
 
 - Generated output files (`pi_*_digits.txt`, `primes_1e*.txt`, `twin-primes_1e*.txt`, `e_*_digits.txt`, `factorial_*.txt`) are large artifacts — do not commit them.
 - See each project's `CLAUDE.md` for detailed implementation guidance, code layout, and editing rules.
