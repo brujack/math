@@ -207,7 +207,7 @@ teardown() {
 
 @test ".github/workflows/auto-merge.yml change reaches the root test target" {
     # tests/test_automerge_bot_hold.py runs the hold step extracted from this
-    # workflow, so a hold-step edit must run the root suite (ADR-0085).
+    # workflow, so a hold-step edit must run the root suite (ai-config ADR-0085).
     export MOCK_GIT_DIFF_NAMES=".github/workflows/auto-merge.yml"
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
