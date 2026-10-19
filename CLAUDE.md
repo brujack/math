@@ -604,7 +604,7 @@ fails fleet-wide. Backlogged in ai-config; do not chase it here.
 **Four of the schema's ten `updateType`s are held by omission** — `lockFileMaintenance`,
 `rollback`, `bump`, `replacement`. That is safe but silent: `packageRules` are additive
 overrides merged onto base config, and base `automerge` is `false`, so an unmatched type is
-held with no `addLabels` and `auto-merge.yml`'s label guard leaves it for triage. Naming
+held with no `addLabels` and `auto-merge.yml`'s guard (which holds any bot PR without `automerge-ok`, ADR-0085) leaves it for triage. Naming
 them in `renovate.json` would buy documentation and no mechanism, so the declaration lives
 in `tests/test_renovate_automerge_policy.py` instead, where `_DELIBERATELY_HELD` maps each
 held type to its reason and a type that is neither auto-merged nor declared fails the suite.
