@@ -31,6 +31,18 @@ def _git(repo: Path, *args: str) -> None:
     )
 
 
+def _git_out(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        env=_env(),
+        check=True,
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+    ).stdout.strip()
+
+
 class BudgetTest(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -81,7 +93,8 @@ class BudgetTest(unittest.TestCase):
         self.commit(b"a")
         result = self.run_script("no-such-rev")
         self.assertEqual(result.returncode, 2)
-        self.assertTrue(result.stderr.strip())
+        # The resolve-specific message, not just any exit-2 path.
+        self.assertIn("Not a valid object name no-such-rev", result.stderr)
 
     def test_counts_bytes_not_characters(self) -> None:
         text = "é" * 15_001  # 15,001 characters, 30,002 bytes
@@ -92,11 +105,15 @@ class BudgetTest(unittest.TestCase):
 
     def test_no_argument_exits_2(self) -> None:
         self.commit(b"a")
-        self.assertEqual(self.run_script().returncode, 2)
+        result = self.run_script()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("usage: claude_md_budget.py <rev>", result.stderr)
 
     def test_extra_argument_exits_2(self) -> None:
         self.commit(b"a")
-        self.assertEqual(self.run_script("HEAD", "extra").returncode, 2)
+        result = self.run_script("HEAD", "extra")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("usage: claude_md_budget.py <rev>", result.stderr)
 
     def test_subdirectory_run_sees_root_claude_md(self) -> None:
         self.commit(b"a" * (CEILING + 1))
@@ -111,7 +128,41 @@ class BudgetTest(unittest.TestCase):
         self.assertEqual(self.run_script("HEAD", cwd=sub).returncode, 0)
 
     def test_unreadable_claude_md_blob_exits_2(self) -> None:
-        # ls-tree lists the dangling gitlink; git show of it then fails.
+        # ls-tree lists the entry without reading the blob; git show then fails.
+        self.commit(b"unreadable blob")
+        blob = _git_out(self.repo, "rev-parse", "HEAD:CLAUDE.md")
+        (self.repo / ".git" / "objects" / blob[:2] / blob[2:]).unlink()
+        result = self.run_script("HEAD")
+        self.assertEqual(result.returncode, 2)
+        self.assertNotIn("must be a regular file", result.stderr)
+        self.assertTrue(result.stderr.strip())
+
+    def commit_symlink(self, target_content: bytes) -> None:
+        (self.repo / "real.md").write_bytes(target_content)
+        (self.repo / "CLAUDE.md").symlink_to("real.md")
+        _git(self.repo, "add", "real.md", "CLAUDE.md")
+        _git(self.repo, "commit", "-q", "-m", "symlink")
+
+    def assert_not_regular(self, mode: str) -> None:
+        result = self.run_script("HEAD")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(
+            f"CLAUDE.md at HEAD must be a regular file (git mode {mode}), "
+            "not a symlink or submodule.",
+            result.stderr,
+        )
+        self.assertIn(ADR_PATH, result.stderr)
+        self.assertIn("ai-config/docs/knowledge/math-", result.stderr)
+
+    def test_symlink_to_big_file_refused(self) -> None:
+        self.commit_symlink(b"a" * (CEILING + 5000))
+        self.assert_not_regular("120000")
+
+    def test_symlink_to_small_file_refused(self) -> None:
+        self.commit_symlink(b"a")
+        self.assert_not_regular("120000")
+
+    def test_gitlink_refused(self) -> None:
         self.commit(None)
         _git(
             self.repo,
@@ -121,7 +172,20 @@ class BudgetTest(unittest.TestCase):
             "160000,1111111111111111111111111111111111111111,CLAUDE.md",
         )
         _git(self.repo, "commit", "-q", "-m", "gitlink")
-        self.assertEqual(self.run_script("HEAD").returncode, 2)
+        self.assert_not_regular("160000")
+
+    def test_executable_regular_file_sized_normally(self) -> None:
+        (self.repo / "CLAUDE.md").write_bytes(b"a" * CEILING)
+        (self.repo / "CLAUDE.md").chmod(0o755)
+        _git(self.repo, "add", "CLAUDE.md")
+        _git(self.repo, "commit", "-q", "-m", "exec")
+        self.assertEqual(self.run_script("HEAD").returncode, 0)
+        (self.repo / "CLAUDE.md").write_bytes(b"a" * (CEILING + 1))
+        _git(self.repo, "add", "CLAUDE.md")
+        _git(self.repo, "commit", "-q", "-m", "exec big")
+        result = self.run_script("HEAD")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("30001", result.stderr)
 
 
 if __name__ == "__main__":

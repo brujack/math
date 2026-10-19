@@ -4,7 +4,8 @@
 Usage: claude_md_budget.py <rev>
 
 Exit 0: CLAUDE.md absent at <rev>, or at most CEILING bytes.
-Exit 1: CLAUDE.md larger than CEILING bytes.
+Exit 1: CLAUDE.md larger than CEILING bytes, or not a regular file (symlink,
+        submodule).
 Exit 2: usage error or a git failure (unknown revision, unreadable object).
 
 Size is measured in bytes, not characters. There is deliberately no flag,
@@ -18,6 +19,12 @@ import sys
 # Set by ADR-0028; raising it needs an amendment to that ADR.
 CEILING = 30_000
 ADR_PATH = "docs/adr/0028-claude-md-size-ceiling.md"
+
+_REGULAR_MODES = ("100644", "100755")
+_REMEDY = (
+    "move detail behind a pointer to ai-config/docs/knowledge/math-*.md, "
+    f"or amend {ADR_PATH}"
+)
 
 _GIT_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
 
@@ -46,8 +53,20 @@ def main(argv: list[str]) -> int:
     if listing.returncode != 0:
         sys.stderr.write(listing.stderr.decode("utf-8", errors="replace"))
         return 2
-    if not listing.stdout.strip():
+    entry = listing.stdout.decode("utf-8", errors="replace").strip()
+    if not entry:
         return 0
+
+    # "<mode> <type> <sha>\tCLAUDE.md". `git show rev:CLAUDE.md` on a symlink
+    # returns the link target path, so only a regular file may be sized.
+    mode = entry.split(maxsplit=1)[0]
+    if mode not in _REGULAR_MODES:
+        print(
+            f"CLAUDE.md at {rev} must be a regular file (git mode {mode}), "
+            f"not a symlink or submodule. {_REMEDY}",
+            file=sys.stderr,
+        )
+        return 1
 
     shown = _git("show", f"{rev}:CLAUDE.md")
     if shown.returncode != 0:
@@ -57,9 +76,7 @@ def main(argv: list[str]) -> int:
     size = len(shown.stdout)
     if size > CEILING:
         print(
-            f"CLAUDE.md is {size} bytes, ceiling {CEILING}: move detail behind a "
-            "pointer to ai-config/docs/knowledge/math-*.md, "
-            f"or amend {ADR_PATH}",
+            f"CLAUDE.md is {size} bytes, ceiling {CEILING}: {_REMEDY}",
             file=sys.stderr,
         )
         return 1
