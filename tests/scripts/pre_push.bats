@@ -279,7 +279,7 @@ teardown() {
         else
             dead="${dead}${alt} "
         fi
-    done < <(printf '%s' "${alts}" | tr '|' '\n')
+    done < <(printf '%s\n' "${alts}" | tr '|' '\n')
 
     if [ -n "${dead}" ]; then
         printf 'trigger alternatives matching no tracked path: %s\n' "${dead}" >&2
