@@ -6,7 +6,8 @@
     "schedule is 'at any time'. This was a local override when it landed; ai-config#201 made it the canonical value in renovate-presets/default.json, so it is now fleet-consistent rather than a deviation and is not to be reverted.",
     "dtolnay/rust-toolchain was hand-pinned to 4360b525 (branch `stable`, 37 occurrences across 26 workflow files) rather than left for Renovate, because at the time Renovate had produced no PR in this repo ever. A branch ref moves with no upstream release at all, so it was not worth leaving pinned to a mechanism that was not running. The trailing `# stable` comment is Renovate's own format, so it adopts and keeps updating the digest rather than fighting the hand-pin.",
     "packageRules must BEGIN with the canonical rules from ai-config's renovate-presets/default.json -- renovate_preset_sync.py:87 tests prefix equality element-by-element and reports DRIFT (exit 1) when it does not hold, while anything appended after the canonical prefix is a deviation (exit 0) and is the designed extension point. Rules 0-2 match disjoint updateTypes, so 'later overrides earlier' never fires between them. Rules 3-4 are Python-interpreter holds (automerge false), disjoint from rules 0 and 2 by construction (those negate the same depNames and packageName) and overlapping only rule 1 on majors; they are defence in depth, since the negations on rules 0 and 2 are what keep the automerge-ok label off Python.",
-    "Four of the schema's ten updateTypes -- lockFileMaintenance, rollback, bump, replacement -- match no rule below and are therefore held. That is deliberate, not an omission: packageRules are additive overrides merged onto base config, and base automerge is false, so an unmatched type is held with no addLabels and the auto-merge label guard leaves it for triage. Naming them here would buy documentation and no mechanism, so the declaration lives in tests/test_renovate_automerge_policy.py where it is asserted instead."
+    "Four of the schema's ten updateTypes -- lockFileMaintenance, rollback, bump, replacement -- match no rule below and are therefore held. That is deliberate, not an omission: packageRules are additive overrides merged onto base config, and base automerge is false, so an unmatched type is held with no addLabels and the auto-merge label guard leaves it for triage. Naming them here would buy documentation and no mechanism, so the declaration lives in tests/test_renovate_automerge_policy.py where it is asserted instead.",
+    "lockFileMaintenance is enabled with an explicit schedule of at any time: lock-only PRs are held, because no packageRule matches lockFileMaintenance so they never get the automerge-ok label the merge job requires, and the schedule is explicit because Renovate's default lockFileMaintenance schedule is a Monday window, not the repo schedule."
   ],
   "extends": [
     "config:recommended"
@@ -91,6 +92,12 @@
   "schedule": [
     "at any time"
   ],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "at any time"
+    ]
+  },
   "labels": [
     "renovate"
   ]
