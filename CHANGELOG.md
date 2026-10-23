@@ -3,55 +3,19 @@
 
 ## Bug Fixes
 
-- scale the mutant timeout, stop capping the baseline (#127)
+- hold every bot PR on is_bot, not the Renovate login (#143)
 
-- per-workflow issue labels and per-call mock isolation (#128)
+- print CLAUDE.md size on a passing budget check (#147)
+
+
+
+## CI
+
+- enable held lockfile maintenance (#148)
 
 
 
 ## Documentation
-
-- coverage is 33% (375/1132), not the 30% recorded
-
-- add the DONE banners the index rows already claimed
-
-- spec the mutation-notify lookup, serialisation, and mock bundle
-
-- revise the notify spec on all three lens dispositions
-
-- reduce the notify spec to its two measured defects
-
-- asymmetric labels delete the migration step
-
-- V7 grepped a literal the script never contains
-
-- plan the notify mock-isolation and label change
-
-- the equivalent guards are decorative by position, not construction
-
-- align the Risks bullet with the pre-create flip
-
-- record the label pre-create as done
-
-- mark the notify mock/label plan done
-
-- record that tests/mocks/* is now linted
-
-- spec the SBOM false PASS and the dead master ruleset
-
-- correct the required-check population in the SBOM/ruleset spec
-
-- record Step 8 multi-lens review on the SBOM/ruleset spec
-
-- address Step 8 round 1 findings on the SBOM/ruleset spec
-
-- record Step 8 round 2 on the SBOM/ruleset spec
-
-- address Step 8 round 2 findings on the SBOM/ruleset spec
-
-- stop restating counts across sections in the SBOM/ruleset spec
-
-- point Scope at Section 2 instead of counting its gh api calls
 
 - record Step 8 round 3 and the shared upstream cause
 
@@ -99,6 +63,20 @@
 
 - fix double-tilde standards includes in CLAUDE.md
 
+- point audit citations at the real knowledge file
+
+- load python.md and rust.md on demand, not at session start (#142)
+
+- CLAUDE.md budget, one line per rule and a byte ceiling
+
+- CLAUDE.md budget revision 2 after review
+
+- CLAUDE.md budget plan; record spec approval
+
+- mark CLAUDE.md budget done
+
+- record lockFileMaintenance automerge test gap (#151)
+
 
 
 ## Features
@@ -106,5 +84,15 @@
 - sign releases before publishing them (#130)
 
 - declare and type-check root-scope Python (#131)
+
+- hold Python interpreter updates out of automerge (#145)
+
+- one line per rule, cap CLAUDE.md at 30,000 bytes (#146)
+
+
+
+## Testing
+
+- pin multi-label automerge-ok matching in bot-hold test (#144)
 
 
