@@ -659,6 +659,29 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                         "inputs.* instead of steps.version.outputs.version",
                     )
 
+    def test_only_the_crate_tag_is_pushed(self):
+        # git commit is banned above, but a push needs no commit: pushing HEAD to the
+        # default branch, or a gh api contents write, would still move it. The only
+        # write a release makes to the repo is its own tag. Job-level
+        # continue-on-error is covered repo-wide by test_workflow_continue_on_error.
+        for path in self.workflows:
+            with self.subTest(workflow=path.name):
+                name = binary_name_from_filename(path)
+                pushes = []
+                for step in release_steps(load_workflow(path)):
+                    run_text = (step.get("run") or "") if isinstance(step, dict) else ""
+                    self.assertNotIn("gh api", run_text, path.name)
+                    pushes += [
+                        line.strip()
+                        for line in run_text.splitlines()
+                        if "git push" in line
+                    ]
+                self.assertEqual(
+                    pushes,
+                    [f'git push origin "{name}-v${{VERSION}}"'],
+                    f"{path.name} may push only its {name}-v<version> tag",
+                )
+
 
 def run_validate_step(step, version, tmp):
     """Run a 'Validate version' step's run text from the repo root as Actions would."""
