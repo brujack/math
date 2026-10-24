@@ -89,8 +89,20 @@ jobs:
           LATEST_TAG: ${{ steps.latest.outputs.tag }}
           SCAN_JSON: ${{ steps.scan.outputs.json }}
         run: |
-          jq -c '.matches[] | select(.vulnerability.severity == "Critical" or .vulnerability.severity == "High")' \
-            "${SCAN_JSON}" | while read -r finding; do
+          # Read the findings before looping: `jq ... | while` has no pipefail, so a
+          # missing or unreadable scan output would loop zero times and pass.
+          if [[ ! -s "${SCAN_JSON}" ]]; then
+            echo "::error::grype scan output '${SCAN_JSON}' is missing or empty"
+            echo "- \`${LATEST_TAG}\`: scan output missing, not scanned" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          FINDINGS=$(jq -c '.matches[] | select(.vulnerability.severity == "Critical" or .vulnerability.severity == "High")' \
+            "${SCAN_JSON}")
+          TOTAL=$(jq '.matches | length' "${SCAN_JSON}")
+          SERIOUS=$(printf '%s' "${FINDINGS}" | grep -c . || true)
+          echo "- \`${LATEST_TAG}\`: scanned, ${TOTAL} matches, ${SERIOUS} Critical/High" >> "$GITHUB_STEP_SUMMARY"
+          [[ -z "${FINDINGS}" ]] && exit 0
+          while read -r finding; do
             CVE_ID=$(echo "${finding}" | jq -r '.vulnerability.id')
             SEVERITY=$(echo "${finding}" | jq -r '.vulnerability.severity')
             PACKAGE_NAME=$(echo "${finding}" | jq -r '.artifact.name')
@@ -117,4 +129,4 @@ jobs:
 
             Non-blocking. Human judgment call on whether this warrants a patch release
             (reachability, exploitability, whether ${LATEST_TAG} is still actively downloaded)."
-          done
+          done <<< "${FINDINGS}"
