@@ -295,3 +295,73 @@ teardown() {
     [ "${matched}" -eq "${total}" ]
     [ "${total}" -ge 4 ]
 }
+
+# The sub-project loop matches only `.py` and `.rs`, and the root trigger has no
+# sub-project prefix, so a push touching only an `install_deps.sh` used to lint
+# nothing: 19 of 26 tracked `.sh` files never reached shellcheck on the push
+# path. Such a push now runs the root `lint-hooks` target, which shellchecks
+# every tracked shell file and spawns no Python suite.
+@test "python install_deps.sh-only change runs root lint-hooks and nothing else" {
+    export MOCK_GIT_DIFF_NAMES="amicable/install_deps.sh"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -qxF "make -C ${BATS_TEST_TMPDIR}/fake-worktree lint-hooks" "${MOCK_CALLS_FILE}"
+    [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 1 ]
+}
+
+@test "rust install_deps.sh-only change runs root lint-hooks, not the crate suite" {
+    export MOCK_GIT_DIFF_NAMES="pi/pi-rs/install_deps.sh"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -qxF "make -C ${BATS_TEST_TMPDIR}/fake-worktree lint-hooks" "${MOCK_CALLS_FILE}"
+    assert_no_match "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi/pi-rs test"
+}
+
+@test "lint-hooks failure on a shell-only push exits non-zero" {
+    export MOCK_GIT_DIFF_NAMES="amicable/install_deps.sh"
+    export MOCK_MAKE_EXIT=1
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -ne 0 ]
+    grep -qxF "make -C ${BATS_TEST_TMPDIR}/fake-worktree lint-hooks" "${MOCK_CALLS_FILE}"
+}
+
+@test "scripts/*.sh change runs root test once and no separate lint-hooks" {
+    # Root `make test` already runs `lint`, which runs `lint-hooks`.
+    export MOCK_GIT_DIFF_NAMES="scripts/rust-check.sh"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -qxF "make -C ${BATS_TEST_TMPDIR}/fake-worktree test" "${MOCK_CALLS_FILE}"
+    assert_no_match "lint-hooks"
+}
+
+@test "install_deps.sh plus a python source change runs lint-hooks and the suite" {
+    export MOCK_GIT_DIFF_NAMES=$'pi/install_deps.sh\npi/pi.py'
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -qxF "make -C ${BATS_TEST_TMPDIR}/fake-worktree lint-hooks" "${MOCK_CALLS_FILE}"
+    grep -qxF "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi test" "${MOCK_CALLS_FILE}"
+    [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 2 ]
+}
+
+@test "shell lint still runs when the >6 sub-project bail-out fires" {
+    export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\nsq/sq.py\ne/e.py\nfactorial/factorial.py\ncollatz/collatz.py\namicable/amicable.py\namicable/install_deps.sh'
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"skipping local tests"* ]]
+    grep -qxF "make -C ${BATS_TEST_TMPDIR}/fake-worktree lint-hooks" "${MOCK_CALLS_FILE}"
+    [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 1 ]
+}
+
+@test "a non-.sh file in a sub-project does not trigger lint-hooks" {
+    export MOCK_GIT_DIFF_NAMES=$'amicable/README.md\namicable/install_deps.sh.bak'
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    assert_no_match "^make"
+}
