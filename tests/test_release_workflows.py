@@ -590,6 +590,17 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                     f"{name}-v${{{{ inputs.version }}}}",
                     f"{path.name} --tag must name {name}-v<version>",
                 )
+                # Unanchored, "e-v.*" also matches prime-v* and amicable-v*, so e's
+                # notes would start from the newest of all three crates' tags.
+                pattern_index = require_index(
+                    args.index("--tag-pattern") if "--tag-pattern" in args else None,
+                    f"{path.name} release notes must pass --tag-pattern",
+                )
+                self.assertEqual(
+                    args[pattern_index + 1],
+                    f"^{name}-v.*",
+                    f"{path.name} --tag-pattern must be anchored: ^{name}-v.*",
+                )
 
 
 class TestNoRepoWideReleaseSignReferences(unittest.TestCase):

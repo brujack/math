@@ -52,7 +52,7 @@ pins both, plus `body_path` reading the release-notes step's output and the
 `--unreleased --tag` arguments.
 
 A crate's full history is reproducible on demand with
-`git cliff --include-path "<crate>/**" --tag-pattern "<crate>-v.*"`, or by reading its
+`git cliff --include-path "<crate>/**" --tag-pattern "^<crate>-v.*"`, or by reading its
 releases in order.
 
 ## Consequences

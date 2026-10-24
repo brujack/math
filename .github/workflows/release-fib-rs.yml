@@ -54,7 +54,7 @@ jobs:
         uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff  # v4
         with:
           config: cliff.toml
-          args: --unreleased --tag "fib-v${{ inputs.version }}" --strip all --include-path "fib/**" --tag-pattern "fib-v.*"
+          args: --unreleased --tag "fib-v${{ inputs.version }}" --strip all --include-path "fib/**" --tag-pattern "^fib-v.*"
         env:
           OUTPUT: /tmp/release-notes.md
           GITHUB_REPO: ${{ github.repository }}
