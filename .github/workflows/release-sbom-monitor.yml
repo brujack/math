@@ -39,11 +39,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_PATTERN: ${{ inputs.release_tag_pattern }}
         run: |
-          LATEST_TAG=$(gh release list --limit 50 --json tagName \
-            --jq ".[] | select(.tagName | startswith(\"${TAG_PATTERN}\")) | .tagName" \
-            | head -1)
+          # Capture before head: piping gh straight into head would hide its exit
+          # status (no pipefail here), turning an API failure into "no release".
+          TAGS=$(gh release list --limit 1000 --json tagName \
+            --jq ".[] | select(.tagName | startswith(\"${TAG_PATTERN}\")) | .tagName")
+          LATEST_TAG=$(printf '%s\n' "${TAGS}" | head -1)
           if [[ -z "${LATEST_TAG}" ]]; then
-            echo "No matching release found for pattern ${TAG_PATTERN} — skipping"
+            # A crate with no release yet is legitimate, but must not read as a scan.
+            echo "::warning::No release matches ${TAG_PATTERN}; nothing scanned"
+            echo "- \`${TAG_PATTERN}\`: no matching release, not scanned" >> "$GITHUB_STEP_SUMMARY"
             echo "found=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -58,13 +62,15 @@ jobs:
           LATEST_TAG: ${{ steps.latest.outputs.tag }}
           BINARY_NAME: ${{ inputs.binary_name }}
         run: |
-          if gh release download "${LATEST_TAG}" \
-              --pattern "${BINARY_NAME}.sbom.spdx.json" 2>/dev/null; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No SBOM asset found for ${LATEST_TAG} (or download failed) — skipping scan for this binary"
-            echo "present=false" >> "$GITHUB_OUTPUT"
+          # Every release ships an SBOM (ADR-0026), so a missing one is a broken
+          # release or a failed download, and either must turn the job red.
+          if ! gh release download "${LATEST_TAG}" \
+              --pattern "${BINARY_NAME}.sbom.spdx.json"; then
+            echo "::error::${LATEST_TAG} has no ${BINARY_NAME}.sbom.spdx.json asset, or the download failed"
+            echo "- \`${LATEST_TAG}\`: SBOM missing or download failed, not scanned" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
+          echo "present=true" >> "$GITHUB_OUTPUT"
 
       - name: Scan SBOM
         if: steps.latest.outputs.found == 'true' && steps.sbom.outputs.present == 'true'

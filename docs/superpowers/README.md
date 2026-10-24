@@ -62,7 +62,6 @@ Add a new row to the group that matches its priority.
 
 | Feature | Notes |
 | ------- | ----- |
-| SBOM monitoring skips silently when a release or its SBOM is missing | **Live since 2026-10-24.** The first per-crate releases (`<crate>-v0.1.0` for all 11 crates) gave every job a matching tag, and dispatched run 40136241091 scanned 11 of 11: grype reported 0 matches across 12 to 23 packages per crate. The earlier finding (11 patterns against the lone `v0.1.0` tag, 0 scans, every job green) is retired. What remains is the mechanism that hid it: `release-sbom-monitor.yml` still exits 0 with only an `echo` on two paths (no release matching `<crate>-v`, and a release with no `.sbom.spdx.json` asset), so a deleted release or a release without an SBOM would again turn a job green without a scan. Open decision: make each skip visible (`::warning` plus a job-summary line), or fail the job on a missing SBOM. |
 
 ### P2 — latent bugs, supply chain and test gaps guarding real risk
 
