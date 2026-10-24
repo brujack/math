@@ -80,27 +80,54 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
+# Superseded-run tests: two check suites (one per workflow run) of the same
+# workflow (id 7) carry the same check name; only the newer run counts.
+
 @test "superseded cancelled run of a required check does not fail the gate → exit 0" {
-    export MOCK_GH_CHECK_RUNS_1='{"id":100,"name":"bash-coverage","status":"completed","conclusion":"cancelled"}
-{"id":200,"name":"bash-coverage","status":"completed","conclusion":"success"}'
+    export MOCK_GH_WORKFLOW_RUNS='{"suite":1,"wf":7}
+{"suite":2,"wf":7}'
+    export MOCK_GH_CHECK_RUNS_1='{"id":100,"suite":1,"name":"bash-coverage","status":"completed","conclusion":"cancelled"}
+{"id":200,"suite":2,"name":"bash-coverage","status":"completed","conclusion":"success"}'
     run "${REPO_ROOT}/scripts/ci-gate.sh" 42
     [ "$status" -eq 0 ]
 }
 
 @test "newer failed run overrides an older success of the same check → exit 1" {
-    export MOCK_GH_CHECK_RUNS_1='{"id":200,"name":"bash-coverage","status":"completed","conclusion":"failure"}
-{"id":100,"name":"bash-coverage","status":"completed","conclusion":"success"}'
+    export MOCK_GH_WORKFLOW_RUNS='{"suite":1,"wf":7}
+{"suite":2,"wf":7}'
+    export MOCK_GH_CHECK_RUNS_1='{"id":200,"suite":2,"name":"bash-coverage","status":"completed","conclusion":"failure"}
+{"id":100,"suite":1,"name":"bash-coverage","status":"completed","conclusion":"success"}'
     run "${REPO_ROOT}/scripts/ci-gate.sh" 42
     [ "$status" -eq 1 ]
     [[ "$output" == *"bash-coverage"* ]]
 }
 
 @test "newer in-progress run keeps polling despite an older completed run → exit 0 on completion" {
-    export MOCK_GH_CHECK_RUNS_1='{"id":100,"name":"bash-coverage","status":"completed","conclusion":"cancelled"}
-{"id":200,"name":"bash-coverage","status":"in_progress","conclusion":""}'
-    export MOCK_GH_CHECK_RUNS_2='{"id":100,"name":"bash-coverage","status":"completed","conclusion":"cancelled"}
-{"id":200,"name":"bash-coverage","status":"completed","conclusion":"success"}'
+    export MOCK_GH_WORKFLOW_RUNS='{"suite":1,"wf":7}
+{"suite":2,"wf":7}'
+    export MOCK_GH_CHECK_RUNS_1='{"id":100,"suite":1,"name":"bash-coverage","status":"completed","conclusion":"cancelled"}
+{"id":200,"suite":2,"name":"bash-coverage","status":"in_progress","conclusion":""}'
+    export MOCK_GH_CHECK_RUNS_2='{"id":100,"suite":1,"name":"bash-coverage","status":"completed","conclusion":"cancelled"}
+{"id":200,"suite":2,"name":"bash-coverage","status":"completed","conclusion":"success"}'
     run "${REPO_ROOT}/scripts/ci-gate.sh" 42
     [ "$status" -eq 0 ]
     [ "$(cat "${MOCK_GH_COUNTER_FILE}")" -eq 2 ]
+}
+
+@test "same check name in two different workflows is not collapsed → exit 1 on the older failure" {
+    export MOCK_GH_WORKFLOW_RUNS='{"suite":1,"wf":7}
+{"suite":2,"wf":8}'
+    export MOCK_GH_CHECK_RUNS_1='{"id":100,"suite":1,"name":"test","status":"completed","conclusion":"failure"}
+{"id":200,"suite":2,"name":"test","status":"completed","conclusion":"success"}'
+    run "${REPO_ROOT}/scripts/ci-gate.sh" 42
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"test"* ]]
+}
+
+@test "check suites with no workflow run (non-Actions apps) are not collapsed → exit 1" {
+    export MOCK_GH_WORKFLOW_RUNS=''
+    export MOCK_GH_CHECK_RUNS_1='{"id":100,"suite":1,"name":"GitGuardian Security Checks","status":"completed","conclusion":"failure"}
+{"id":200,"suite":2,"name":"GitGuardian Security Checks","status":"completed","conclusion":"success"}'
+    run "${REPO_ROOT}/scripts/ci-gate.sh" 42
+    [ "$status" -eq 1 ]
 }

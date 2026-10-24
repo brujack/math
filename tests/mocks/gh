@@ -20,6 +20,8 @@ if [[ "$*" == *"check-runs"* ]]; then
     _var="MOCK_GH_CHECK_RUNS_${_count}"
     _fallback="MOCK_GH_CHECK_RUNS"
     printf '%s\n' "${!_var:-${!_fallback:-}}"
+elif [[ "$*" == *"actions/runs"* ]]; then
+    printf '%s\n' "${MOCK_GH_WORKFLOW_RUNS:-}"
 elif [[ "$*" == *"pulls"* ]]; then
     printf '%s\n' "${MOCK_GH_PR_SHA:-abc123def456}"
 elif [[ "$1" == "issue" ]]; then
