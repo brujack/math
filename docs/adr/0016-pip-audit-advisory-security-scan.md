@@ -1,7 +1,7 @@
 # ADR 0016: pip-audit advisory security scan in CI
 
 - **Date:** 2026-05-22
-- **Status:** Accepted
+- **Status:** Accepted; amended 2026-10-24 (advisory through a wrapper, not `continue-on-error`)
 
 ## Context
 
@@ -31,6 +31,27 @@ Both must be updated when adding a new dependency. Updating only `install_deps.s
 - `pip-audit` installed locally via `install_deps.sh` for developer use
 - `pip-audit` in every CI workflow's pip install step
 - Future decision: elevate to blocking if a CVE is found in a directly-used, actively-patched package
+
+## Amendment 2026-10-24: advisory without continue-on-error
+
+`continue-on-error: true` made every outcome of the step green, so a crash, an audit
+of nothing and a run that found CVEs were indistinguishable, and "surfaces findings in
+CI job logs" held only for someone who opened the log. pip-audit 2.10.1 also exits 0
+for a dependency it cannot resolve, reporting it only as `skip_reason` in its JSON.
+
+Each `Run pip-audit` step now runs `scripts/pip_audit_advisory.py`, which calls
+`pip-audit -f json` and stays non-blocking for findings while failing when no audit
+happened:
+
+- each vulnerability and each skipped dependency becomes a `::warning` annotation,
+  plus one `packages audited, vulnerabilities, skipped` line in the step summary;
+  exit 0
+- pip-audit missing, no readable JSON report, zero packages audited, or a non-zero
+  exit with no vulnerabilities reported: `::error`, exit 1
+
+`tests/test_pip_audit_advisory.py` pins this against the JSON shapes measured from
+pip-audit 2.10.1, and `tests/test_workflow_continue_on_error.py` keeps
+`continue-on-error` to an allow-list with recorded reasons.
 
 ## Related
 

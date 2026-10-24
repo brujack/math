@@ -222,6 +222,8 @@ Each of the ten `updateType`s must be auto-merged or declared in `_DELIBERATELY_
 Project workflows are paths-filtered (root `Makefile` covered by `scripts.yml`); release workflows and `auto-merge.yml` trigger unconditionally. → ai-config/docs/knowledge/math-ci.md § Paths-filtered workflows
 
 
+`continue-on-error` is allowed only on the allow-list in `tests/test_workflow_continue_on_error.py`, each entry with its reason; pip-audit stays advisory (ADR-0016) through `scripts/pip_audit_advisory.py`, which warns on findings and fails when no audit ran.
+
 **snyk-scan** runs `snyk code test` (SAST) against the Python and Rust source. It is advisory — not in `needs` for `auto-merge`. Requires `SNYK_TOKEN` in repository secrets.
 
 A new project gets `.github/workflows/<project>.yml` triggered only by `pull_request: branches: [master]` (no `push:`) with a `paths:` block, a `test` job and a `build` job (`needs: [test]`) uploading an artifact, plus a README badge `badge.svg?event=pull_request` at the top and in the CI column. → ai-config/docs/knowledge/math-ci.md § Adding a new project workflow

@@ -36,8 +36,7 @@ jobs:
         run: make test
 
       - name: Run pip-audit
-        run: pip-audit
-        continue-on-error: true
+        run: python3 "${GITHUB_WORKSPACE}/scripts/pip_audit_advisory.py"
 
       - name: Run pyright
         run: pyright
@@ -75,4 +74,3 @@ jobs:
 
       - name: Benchmark (timeout gate)
         run: make benchmark
-        continue-on-error: true
