@@ -32,10 +32,15 @@ break on prose that mentions one.
 """
 
 import glob
+import os
 import pathlib
 import re
+import shlex
+import subprocess
+import tempfile
 import unittest
 
+import tomllib
 import yaml
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -516,6 +521,191 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                     "-- a signing failure must not leave a pushed tag with no "
                     "release",
                 )
+
+    def test_no_step_continues_on_error(self):
+        # continue-on-error turned a GH006-rejected CHANGELOG push green on all 11
+        # first releases (2026-10-24); a release step either works or fails the job.
+        for path in self.workflows:
+            with self.subTest(workflow=path.name):
+                for index, step in enumerate(release_steps(load_workflow(path))):
+                    self.assertFalse(
+                        isinstance(step, dict) and step.get("continue-on-error"),
+                        f"{path.name} step {index} ({step.get('name')!r}) sets "
+                        "continue-on-error",
+                    )
+
+    def test_no_step_commits_to_a_branch(self):
+        # master is protected and the workflow token cannot satisfy its required
+        # checks, so any commit-and-push from a release job is rejected (ADR-0029).
+        for path in self.workflows:
+            with self.subTest(workflow=path.name):
+                for index, step in enumerate(release_steps(load_workflow(path))):
+                    run_text = (step.get("run") or "") if isinstance(step, dict) else ""
+                    self.assertNotIn(
+                        "git commit",
+                        run_text,
+                        f"{path.name} step {index} ({step.get('name')!r}) runs "
+                        "'git commit'",
+                    )
+
+    def test_release_notes_still_feed_the_release_body(self):
+        for path in self.workflows:
+            with self.subTest(workflow=path.name):
+                steps = release_steps(load_workflow(path))
+                notes_index = require_index(
+                    find_step_index_by_name(steps, "Generate release notes"),
+                    f"{path.name} missing 'Generate release notes' step",
+                )
+                release_index = require_index(
+                    find_step_index_by_uses_prefix(
+                        steps, "softprops/action-gh-release"
+                    ),
+                    f"{path.name} missing softprops/action-gh-release step",
+                )
+                notes_output = steps[notes_index].get("env", {}).get("OUTPUT")
+                self.assertEqual(
+                    steps[release_index].get("with", {}).get("body_path"),
+                    notes_output,
+                    f"{path.name} release body_path must be the release-notes output",
+                )
+                self.assertLess(notes_index, release_index)
+
+    def test_release_notes_cover_the_commits_this_release_tags(self):
+        # The notes step runs before "Create and push tag", so git-cliff --latest
+        # describes the previous release from the second release on; --unreleased
+        # with --tag names the commits since that tag as the version being cut.
+        for path in self.workflows:
+            with self.subTest(workflow=path.name):
+                name = binary_name_from_filename(path)
+                steps = release_steps(load_workflow(path))
+                notes_index = require_index(
+                    find_step_index_by_name(steps, "Generate release notes"),
+                    f"{path.name} missing 'Generate release notes' step",
+                )
+                args = shlex.split(steps[notes_index].get("with", {}).get("args", ""))
+                self.assertNotIn("--latest", args, path.name)
+                self.assertIn("--unreleased", args, path.name)
+                tag_index = require_index(
+                    args.index("--tag") if "--tag" in args else None,
+                    f"{path.name} release notes must pass --tag",
+                )
+                self.assertEqual(
+                    args[tag_index + 1],
+                    f"{name}-v${{{{ steps.version.outputs.version }}}}",
+                    f"{path.name} --tag must name {name}-v<version>",
+                )
+                # Unanchored, "e-v.*" also matches prime-v* and amicable-v*, so e's
+                # notes would start from the newest of all three crates' tags.
+                pattern_index = require_index(
+                    args.index("--tag-pattern") if "--tag-pattern" in args else None,
+                    f"{path.name} release notes must pass --tag-pattern",
+                )
+                self.assertEqual(
+                    args[pattern_index + 1],
+                    f"^{name}-v.*",
+                    f"{path.name} --tag-pattern must be anchored: ^{name}-v.*",
+                )
+
+    def test_validates_version_before_any_other_step(self):
+        # The raw input reaches git-cliff's args, the tag and the release name; it
+        # must be checked against Cargo.toml before anything installs or builds.
+        for path in self.workflows:
+            with self.subTest(workflow=path.name):
+                steps = release_steps(load_workflow(path))
+                index = require_index(
+                    find_step_index_by_name(steps, "Validate version"),
+                    f"{path.name} missing 'Validate version' step",
+                )
+                self.assertEqual(
+                    index, 1, f"{path.name} must validate right after checkout"
+                )
+                step = steps[index]
+                self.assertEqual(step.get("id"), "version", path.name)
+                self.assertEqual(
+                    step.get("env", {}).get("VERSION"), "${{ inputs.version }}"
+                )
+                release_dir, _ = sha256_checksum_target(steps)
+                crate_dir = release_dir.removesuffix("/target/release")
+                self.assertIn(
+                    f'scripts/check-release-version.sh {crate_dir} "${{VERSION}}"',
+                    step.get("run") or "",
+                    f"{path.name} must check against {crate_dir}/Cargo.toml",
+                )
+                self.assertIn('>> "$GITHUB_OUTPUT"', step.get("run") or "")
+
+    def test_only_the_validation_step_reads_the_raw_input(self):
+        for path in self.workflows:
+            with self.subTest(workflow=path.name):
+                workflow = load_workflow(path)
+                outside_steps = {
+                    k: v for k, v in workflow.items() if k not in ("on", True, "jobs")
+                }
+                job = {
+                    k: v for k, v in workflow["jobs"]["release"].items() if k != "steps"
+                }
+                self.assertNotIn(
+                    "inputs.", yaml.safe_dump([outside_steps, job]), path.name
+                )
+                for index, step in enumerate(release_steps(workflow)):
+                    if (
+                        isinstance(step, dict)
+                        and step.get("name") == "Validate version"
+                    ):
+                        continue
+                    self.assertNotIn(
+                        "inputs.",
+                        yaml.safe_dump(step),
+                        f"{path.name} step {index} ({step.get('name')!r}) reads "
+                        "inputs.* instead of steps.version.outputs.version",
+                    )
+
+
+def run_validate_step(step, version, tmp):
+    """Run a 'Validate version' step's run text from the repo root as Actions would."""
+    output = pathlib.Path(tmp) / "output"
+    output.touch()
+    proc = subprocess.run(
+        ["bash", "-e", "-c", step["run"]],
+        cwd=REPO_ROOT,
+        env={**os.environ, "VERSION": version, "GITHUB_OUTPUT": str(output)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return proc.returncode, output.read_text()
+
+
+class TestValidateVersionStepRuns(unittest.TestCase):
+    """Execute each workflow's real validation step, not just its text."""
+
+    def test_matching_version_is_exported_and_a_mismatch_stops_the_job(self):
+        for path in discover_release_workflows():
+            with self.subTest(workflow=path.name):
+                steps = release_steps(load_workflow(path))
+                step = steps[
+                    require_index(
+                        find_step_index_by_name(steps, "Validate version"),
+                        f"{path.name} missing 'Validate version' step",
+                    )
+                ]
+                release_dir, _ = sha256_checksum_target(steps)
+                manifest = (
+                    REPO_ROOT
+                    / release_dir.removesuffix("/target/release")
+                    / "Cargo.toml"
+                )
+                with manifest.open("rb") as f:
+                    cargo_version = tomllib.load(f)["package"]["version"]
+                with tempfile.TemporaryDirectory() as tmp:
+                    rc, output = run_validate_step(step, cargo_version, tmp)
+                    self.assertEqual(rc, 0, path.name)
+                    self.assertEqual(output, f"version={cargo_version}\n")
+                with tempfile.TemporaryDirectory() as tmp:
+                    rc, output = run_validate_step(step, "99.0.0", tmp)
+                    self.assertNotEqual(rc, 0, path.name)
+                    self.assertEqual(
+                        output, "", f"{path.name} exported an unchecked version"
+                    )
 
 
 class TestNoRepoWideReleaseSignReferences(unittest.TestCase):

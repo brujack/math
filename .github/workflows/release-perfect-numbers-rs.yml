@@ -24,6 +24,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate version
+        id: version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          checked=$(scripts/check-release-version.sh perfect-numbers/perfect-numbers-rs "${VERSION}")
+          echo "version=${checked}" >> "$GITHUB_OUTPUT"
+
       - name: Install GMP and MPFR
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
 
@@ -50,35 +58,14 @@ jobs:
         run: cargo auditable build --release
         working-directory: perfect-numbers/perfect-numbers-rs
 
-      - name: Generate CHANGELOG
+      - name: Generate release notes
         uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff  # v4
         with:
           config: cliff.toml
-          args: --verbose --include-path "perfect-numbers/**" --tag-pattern "perfect-numbers-v.*"
-        env:
-          OUTPUT: perfect-numbers/perfect-numbers-rs/CHANGELOG.md
-          GITHUB_REPO: ${{ github.repository }}
-
-      - name: Generate release notes (latest only)
-        uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff  # v4
-        with:
-          config: cliff.toml
-          args: --latest --strip all --include-path "perfect-numbers/**" --tag-pattern "perfect-numbers-v.*"
+          args: --unreleased --tag "perfect-numbers-v${{ steps.version.outputs.version }}" --strip all --include-path "perfect-numbers/**" --tag-pattern "^perfect-numbers-v.*"
         env:
           OUTPUT: /tmp/release-notes.md
           GITHUB_REPO: ${{ github.repository }}
-
-      - name: Commit CHANGELOG
-        continue-on-error: true
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add perfect-numbers/perfect-numbers-rs/CHANGELOG.md
-          git diff --staged --quiet && exit 0
-          git commit -m "chore(changelog): update perfect-numbers for v${VERSION}"
-          git push
 
       - name: Generate SHA256 checksum
         run: |
@@ -92,7 +79,7 @@ jobs:
 
       - name: Create and push tag
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -102,8 +89,8 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
-          tag_name: "perfect-numbers-v${{ inputs.version }}"
-          name: "perfect-numbers v${{ inputs.version }}"
+          tag_name: "perfect-numbers-v${{ steps.version.outputs.version }}"
+          name: "perfect-numbers v${{ steps.version.outputs.version }}"
           body_path: /tmp/release-notes.md
           files: |
             perfect-numbers/perfect-numbers-rs/target/release/perfect-numbers

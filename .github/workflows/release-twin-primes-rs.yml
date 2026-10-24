@@ -24,6 +24,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate version
+        id: version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          checked=$(scripts/check-release-version.sh twin-primes/twin-primes-rs "${VERSION}")
+          echo "version=${checked}" >> "$GITHUB_OUTPUT"
+
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec  # stable
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
@@ -47,35 +55,14 @@ jobs:
         run: cargo auditable build --release
         working-directory: twin-primes/twin-primes-rs
 
-      - name: Generate CHANGELOG
+      - name: Generate release notes
         uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff  # v4
         with:
           config: cliff.toml
-          args: --verbose --include-path "twin-primes/**" --tag-pattern "twin-primes-v.*"
-        env:
-          OUTPUT: twin-primes/twin-primes-rs/CHANGELOG.md
-          GITHUB_REPO: ${{ github.repository }}
-
-      - name: Generate release notes (latest only)
-        uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff  # v4
-        with:
-          config: cliff.toml
-          args: --latest --strip all --include-path "twin-primes/**" --tag-pattern "twin-primes-v.*"
+          args: --unreleased --tag "twin-primes-v${{ steps.version.outputs.version }}" --strip all --include-path "twin-primes/**" --tag-pattern "^twin-primes-v.*"
         env:
           OUTPUT: /tmp/release-notes.md
           GITHUB_REPO: ${{ github.repository }}
-
-      - name: Commit CHANGELOG
-        continue-on-error: true
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add twin-primes/twin-primes-rs/CHANGELOG.md
-          git diff --staged --quiet && exit 0
-          git commit -m "chore(changelog): update twin-primes for v${VERSION}"
-          git push
 
       - name: Generate SHA256 checksum
         run: |
@@ -89,7 +76,7 @@ jobs:
 
       - name: Create and push tag
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -99,8 +86,8 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
-          tag_name: "twin-primes-v${{ inputs.version }}"
-          name: "twin-primes v${{ inputs.version }}"
+          tag_name: "twin-primes-v${{ steps.version.outputs.version }}"
+          name: "twin-primes v${{ steps.version.outputs.version }}"
           body_path: /tmp/release-notes.md
           files: |
             twin-primes/twin-primes-rs/target/release/twin-primes
