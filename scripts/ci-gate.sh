@@ -35,12 +35,15 @@ ci_gate() {
         # only the latest run per (workflow, check name) so a stale "cancelled" cannot
         # fail the gate. Job names repeat across workflows (every *-py.yml and *-rs.yml
         # has a "test" job), so the name alone is not a key; a suite with no workflow
-        # run (a non-Actions app) keys on its own suite id and is never collapsed.
+        # run (a non-Actions app) keys on its own suite id, and a run with no suite on
+        # its own run id, so neither is ever collapsed. A newer "skipped" never
+        # supersedes an older non-skipped run, since skipped counts as a pass below.
         workflow_runs=$(gh api --paginate "repos/${repo}/actions/runs?head_sha=${sha}&per_page=100" \
             --jq '.workflow_runs[] | {suite: .check_suite_id, wf: .workflow_id}') || return 1
         check_runs=$(printf '%s' "${check_runs}" | jq -c -s \
             --argjson wf "$(printf '%s' "${workflow_runs}" | jq -s 'map({key: (.suite | tostring), value: .wf}) | from_entries')" \
-            'group_by([($wf[.suite | tostring] // "suite:\(.suite)" | tostring), .name]) | map(max_by(.id)) | .[]') || return 1
+            'group_by([($wf[.suite | tostring] // (if .suite == null then "id:\(.id)" else "suite:\(.suite)" end) | tostring), .name])
+             | map(([.[] | select(.conclusion != "skipped")] | max_by(.id)) // max_by(.id)) | .[]') || return 1
         non_terminal=$(printf '%s' "${check_runs}" | jq -r --argjson excl "${excluded_json}" \
             'select([.name] | inside($excl) | not) | select(.status != "completed") | .name')
         if [[ -z "${non_terminal}" ]]; then

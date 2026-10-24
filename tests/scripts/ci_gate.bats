@@ -131,3 +131,29 @@ setup() {
     run "${REPO_ROOT}/scripts/ci-gate.sh" 42
     [ "$status" -eq 1 ]
 }
+
+@test "newer skipped run does not hide an older failure of the same check → exit 1" {
+    export MOCK_GH_WORKFLOW_RUNS='{"suite":1,"wf":7}
+{"suite":2,"wf":7}'
+    export MOCK_GH_CHECK_RUNS_1='{"id":100,"suite":1,"name":"bash-coverage","status":"completed","conclusion":"failure"}
+{"id":200,"suite":2,"name":"bash-coverage","status":"completed","conclusion":"skipped"}'
+    run "${REPO_ROOT}/scripts/ci-gate.sh" 42
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"bash-coverage"* ]]
+}
+
+@test "check runs with no suite id are not collapsed → exit 1 on the older failure" {
+    export MOCK_GH_WORKFLOW_RUNS=''
+    export MOCK_GH_CHECK_RUNS_1='{"id":100,"suite":null,"name":"bash-coverage","status":"completed","conclusion":"failure"}
+{"id":200,"suite":null,"name":"bash-coverage","status":"completed","conclusion":"success"}'
+    run "${REPO_ROOT}/scripts/ci-gate.sh" 42
+    [ "$status" -eq 1 ]
+}
+
+@test "workflow-runs lookup failure fails closed → exit 1" {
+    export MOCK_GH_EXIT_ACTIONS_RUNS=1
+    export MOCK_GH_CHECK_RUNS_1='{"id":100,"suite":1,"name":"bash-coverage","status":"completed","conclusion":"success"}'
+    run "${REPO_ROOT}/scripts/ci-gate.sh" 42
+    [ "$status" -eq 1 ]
+    grep -q 'actions/runs' "${MOCK_CALLS_FILE}"
+}

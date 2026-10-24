@@ -11,6 +11,11 @@ _rc="${!_key:-${MOCK_GH_EXIT:-0}}"
 if [[ "${_rc}" -ne 0 ]]; then
     exit "${_rc}"
 fi
+# Both paginated ci-gate calls share MOCK_GH_EXIT_API_PAGINATE, so the
+# workflow-runs lookup gets its own URL-keyed failure switch.
+if [[ "$*" == *"actions/runs"* && "${MOCK_GH_EXIT_ACTIONS_RUNS:-0}" -ne 0 ]]; then
+    exit "${MOCK_GH_EXIT_ACTIONS_RUNS}"
+fi
 
 if [[ "$*" == *"check-runs"* ]]; then
     _counter_file="${MOCK_GH_COUNTER_FILE:-/tmp/gh_counter}"
