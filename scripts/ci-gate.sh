@@ -29,7 +29,11 @@ ci_gate() {
     for (( poll=0; poll<max_polls; poll++ )); do
         # REST check-runs API: status=in_progress/queued/completed, conclusion=success/failure/skipped/...
         check_runs=$(gh api --paginate "repos/${repo}/commits/${sha}/check-runs" \
-            --jq '.check_runs[] | {name: .name, status: .status, conclusion: (.conclusion // "")}') || return 1
+            --jq '.check_runs[] | {id: .id, name: .name, status: .status, conclusion: (.conclusion // "")}') || return 1
+        # The API returns every run on the SHA, including runs a newer workflow run
+        # superseded (draft PR marked ready cancels the first auto-merge run); keep
+        # only the latest run per check name so a stale "cancelled" cannot fail the gate.
+        check_runs=$(printf '%s' "${check_runs}" | jq -c -s 'group_by(.name) | map(max_by(.id)) | .[]') || return 1
         non_terminal=$(printf '%s' "${check_runs}" | jq -r --argjson excl "${excluded_json}" \
             'select([.name] | inside($excl) | not) | select(.status != "completed") | .name')
         if [[ -z "${non_terminal}" ]]; then

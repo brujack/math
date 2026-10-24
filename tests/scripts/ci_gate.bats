@@ -79,3 +79,28 @@ setup() {
     run "${REPO_ROOT}/scripts/ci-gate.sh" 42
     [ "$status" -eq 0 ]
 }
+
+@test "superseded cancelled run of a required check does not fail the gate → exit 0" {
+    export MOCK_GH_CHECK_RUNS_1='{"id":100,"name":"bash-coverage","status":"completed","conclusion":"cancelled"}
+{"id":200,"name":"bash-coverage","status":"completed","conclusion":"success"}'
+    run "${REPO_ROOT}/scripts/ci-gate.sh" 42
+    [ "$status" -eq 0 ]
+}
+
+@test "newer failed run overrides an older success of the same check → exit 1" {
+    export MOCK_GH_CHECK_RUNS_1='{"id":200,"name":"bash-coverage","status":"completed","conclusion":"failure"}
+{"id":100,"name":"bash-coverage","status":"completed","conclusion":"success"}'
+    run "${REPO_ROOT}/scripts/ci-gate.sh" 42
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"bash-coverage"* ]]
+}
+
+@test "newer in-progress run keeps polling despite an older completed run → exit 0 on completion" {
+    export MOCK_GH_CHECK_RUNS_1='{"id":100,"name":"bash-coverage","status":"completed","conclusion":"cancelled"}
+{"id":200,"name":"bash-coverage","status":"in_progress","conclusion":""}'
+    export MOCK_GH_CHECK_RUNS_2='{"id":100,"name":"bash-coverage","status":"completed","conclusion":"cancelled"}
+{"id":200,"name":"bash-coverage","status":"completed","conclusion":"success"}'
+    run "${REPO_ROOT}/scripts/ci-gate.sh" 42
+    [ "$status" -eq 0 ]
+    [ "$(cat "${MOCK_GH_COUNTER_FILE}")" -eq 2 ]
+}
