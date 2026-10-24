@@ -517,7 +517,6 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                     "release",
                 )
 
-
     def test_no_step_continues_on_error(self):
         # continue-on-error turned a GH006-rejected CHANGELOG push green on all 11
         # first releases (2026-10-24); a release step either works or fails the job.
@@ -549,11 +548,15 @@ class TestReleaseWorkflowContract(unittest.TestCase):
             with self.subTest(workflow=path.name):
                 steps = release_steps(load_workflow(path))
                 notes_index = require_index(
-                    find_step_index_by_name(steps, "Generate release notes (latest only)"),
+                    find_step_index_by_name(
+                        steps, "Generate release notes (latest only)"
+                    ),
                     f"{path.name} missing 'Generate release notes (latest only)' step",
                 )
                 release_index = require_index(
-                    find_step_index_by_uses_prefix(steps, "softprops/action-gh-release"),
+                    find_step_index_by_uses_prefix(
+                        steps, "softprops/action-gh-release"
+                    ),
                     f"{path.name} missing softprops/action-gh-release step",
                 )
                 notes_output = steps[notes_index].get("env", {}).get("OUTPUT")
@@ -563,6 +566,7 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                     f"{path.name} release body_path must be the release-notes output",
                 )
                 self.assertLess(notes_index, release_index)
+
 
 class TestNoRepoWideReleaseSignReferences(unittest.TestCase):
     def test_no_workflow_references_release_sign(self):
