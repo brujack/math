@@ -1,7 +1,7 @@
 # ADR 0010: Release workflow alignment with etch-cli strategy
 
 - **Date:** 2026-05-23
-- **Status:** Accepted
+- **Status:** Accepted; the committed per-crate `CHANGELOG.md` is superseded by ADR-0029
 
 ## Context
 

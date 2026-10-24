@@ -13,7 +13,7 @@ Repo-specific decisions for the `math` repository. Cross-cutting decisions (CI t
 | [0007](0007-prime-swing-factorial.md)                                     | Prime swing algorithm for factorial                             | 2026-04-24 | Accepted               |
 | [0008](0008-recursive-squaring-over-level-product-for-factorial.md)       | Recursive squaring over iterative level-product for factorial   | 2026-04-24 | Accepted               |
 | [0009](0009-criterion-benchmarks-for-performance-regression-detection.md) | Criterion benchmarks for performance regression detection       | 2026-05-23 | Accepted               |
-| [0010](0010-release-workflow-alignment-with-etch-cli-strategy.md)         | Release workflow alignment with etch-cli strategy               | 2026-05-23 | Accepted               |
+| [0010](0010-release-workflow-alignment-with-etch-cli-strategy.md)         | Release workflow alignment with etch-cli strategy               | 2026-05-23 | Partly superseded by 0029 |
 | [0011](0011-cargo-nextest-rust-test-runner.md)                            | cargo-nextest as Rust test runner                               | 2026-05-18 | Accepted               |
 | [0012](0012-python-mutation-testing-mutmut.md)                            | Python mutation testing with mutmut                             | 2026-05-18 | Superseded by ADR-0022 |
 | [0013](0013-hypothesis-proptest-property-based-tests.md)                  | Hypothesis and proptest for property-based testing              | 2026-05-18 | Accepted               |
@@ -32,3 +32,4 @@ Repo-specific decisions for the `math` repository. Cross-cutting decisions (CI t
 | [0026](0026-sign-before-publishing-releases.md)                            | Sign before publishing releases, via a composite action         | 2026-09-04 | Accepted               |
 | [0027](0027-root-scope-python-dependency-and-type-check.md)                 | Declare and type-check root-scope Python                        | 2026-09-05 | Accepted               |
 | [0028](0028-claude-md-size-ceiling.md)                                     | CLAUDE.md has a hard size ceiling, one line per rule            | 2026-10-19 | Accepted               |
+| [0029](0029-release-notes-live-in-the-release-not-a-committed-changelog.md) | Release notes live in the release, not a committed CHANGELOG | 2026-10-24 | Accepted               |

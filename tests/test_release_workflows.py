@@ -518,6 +518,52 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                 )
 
 
+    def test_no_step_continues_on_error(self):
+        # continue-on-error turned a GH006-rejected CHANGELOG push green on all 11
+        # first releases (2026-10-24); a release step either works or fails the job.
+        for path in self.workflows:
+            with self.subTest(workflow=path.name):
+                for index, step in enumerate(release_steps(load_workflow(path))):
+                    self.assertFalse(
+                        isinstance(step, dict) and step.get("continue-on-error"),
+                        f"{path.name} step {index} ({step.get('name')!r}) sets "
+                        "continue-on-error",
+                    )
+
+    def test_no_step_commits_to_a_branch(self):
+        # master is protected and the workflow token cannot satisfy its required
+        # checks, so any commit-and-push from a release job is rejected (ADR-0029).
+        for path in self.workflows:
+            with self.subTest(workflow=path.name):
+                for index, step in enumerate(release_steps(load_workflow(path))):
+                    run_text = (step.get("run") or "") if isinstance(step, dict) else ""
+                    self.assertNotIn(
+                        "git commit",
+                        run_text,
+                        f"{path.name} step {index} ({step.get('name')!r}) runs "
+                        "'git commit'",
+                    )
+
+    def test_release_notes_still_feed_the_release_body(self):
+        for path in self.workflows:
+            with self.subTest(workflow=path.name):
+                steps = release_steps(load_workflow(path))
+                notes_index = require_index(
+                    find_step_index_by_name(steps, "Generate release notes (latest only)"),
+                    f"{path.name} missing 'Generate release notes (latest only)' step",
+                )
+                release_index = require_index(
+                    find_step_index_by_uses_prefix(steps, "softprops/action-gh-release"),
+                    f"{path.name} missing softprops/action-gh-release step",
+                )
+                notes_output = steps[notes_index].get("env", {}).get("OUTPUT")
+                self.assertEqual(
+                    steps[release_index].get("with", {}).get("body_path"),
+                    notes_output,
+                    f"{path.name} release body_path must be the release-notes output",
+                )
+                self.assertLess(notes_index, release_index)
+
 class TestNoRepoWideReleaseSignReferences(unittest.TestCase):
     def test_no_workflow_references_release_sign(self):
         offenders = []
