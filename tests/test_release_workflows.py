@@ -34,6 +34,7 @@ break on prose that mentions one.
 import glob
 import pathlib
 import re
+import shlex
 import unittest
 
 import yaml
@@ -548,10 +549,8 @@ class TestReleaseWorkflowContract(unittest.TestCase):
             with self.subTest(workflow=path.name):
                 steps = release_steps(load_workflow(path))
                 notes_index = require_index(
-                    find_step_index_by_name(
-                        steps, "Generate release notes (latest only)"
-                    ),
-                    f"{path.name} missing 'Generate release notes (latest only)' step",
+                    find_step_index_by_name(steps, "Generate release notes"),
+                    f"{path.name} missing 'Generate release notes' step",
                 )
                 release_index = require_index(
                     find_step_index_by_uses_prefix(
@@ -566,6 +565,31 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                     f"{path.name} release body_path must be the release-notes output",
                 )
                 self.assertLess(notes_index, release_index)
+
+    def test_release_notes_cover_the_commits_this_release_tags(self):
+        # The notes step runs before "Create and push tag", so git-cliff --latest
+        # describes the previous release from the second release on; --unreleased
+        # with --tag names the commits since that tag as the version being cut.
+        for path in self.workflows:
+            with self.subTest(workflow=path.name):
+                name = binary_name_from_filename(path)
+                steps = release_steps(load_workflow(path))
+                notes_index = require_index(
+                    find_step_index_by_name(steps, "Generate release notes"),
+                    f"{path.name} missing 'Generate release notes' step",
+                )
+                args = shlex.split(steps[notes_index].get("with", {}).get("args", ""))
+                self.assertNotIn("--latest", args, path.name)
+                self.assertIn("--unreleased", args, path.name)
+                tag_index = require_index(
+                    args.index("--tag") if "--tag" in args else None,
+                    f"{path.name} release notes must pass --tag",
+                )
+                self.assertEqual(
+                    args[tag_index + 1],
+                    f"{name}-v${{{{ inputs.version }}}}",
+                    f"{path.name} --tag must name {name}-v<version>",
+                )
 
 
 class TestNoRepoWideReleaseSignReferences(unittest.TestCase):

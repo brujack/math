@@ -47,11 +47,11 @@ jobs:
         run: cargo auditable build --release
         working-directory: amicable/amicable-rs
 
-      - name: Generate release notes (latest only)
+      - name: Generate release notes
         uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff  # v4
         with:
           config: cliff.toml
-          args: --latest --strip all --include-path "amicable/**" --tag-pattern "amicable-v.*"
+          args: --unreleased --tag "amicable-v${{ inputs.version }}" --strip all --include-path "amicable/**" --tag-pattern "amicable-v.*"
         env:
           OUTPUT: /tmp/release-notes.md
           GITHUB_REPO: ${{ github.repository }}
