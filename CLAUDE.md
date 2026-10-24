@@ -163,7 +163,7 @@ Workflows are `<project>-py.yml` (job `test`) and `<project>-rs.yml` (`test` →
 Every `release-*-rs.yml` builds with `cargo auditable build --release` (a plain build makes the SBOM list 1 package instead of 13). → ai-config/docs/knowledge/math-ci.md § Atomic release publication
 Sign in the release job via the composite action `.github/actions/sbom-sign`; never reintroduce a separate signing job, and keep the `Create and push tag` step after the sbom-sign step (a failure after the tag leaves an unshippable version: `fatal: tag already exists`). → ai-config/docs/knowledge/math-ci.md § Atomic release publication
 Every `softprops/action-gh-release` call sets `fail_on_unmatched_files: true`; `tests/test_release_workflows.py` pins all three invariants via `yaml.safe_load`. → ai-config/docs/knowledge/math-ci.md § Atomic release publication
-Release workflows use `workflow_dispatch` with a `version` input (no `v`) and create tag `{subproject}-v{version}` themselves.
+Release workflows use `workflow_dispatch` with a `version` input (no `v`) and create tag `{subproject}-v{version}` themselves. A `Validate version` step right after checkout runs `scripts/check-release-version.sh <crate-dir> "${VERSION}"` (plain `MAJOR.MINOR.PATCH`, equal to `Cargo.toml`); every later step reads `steps.version.outputs.version`, never `inputs.version` (`tests/test_release_workflows.py` pins both).
 Release and CI jobs run Node.js 24 with `actions/checkout@v7`; Rust builds `needs: [test]` and use `actions/upload-artifact@v7` (7 days); badges use `?event=pull_request`.
 
 

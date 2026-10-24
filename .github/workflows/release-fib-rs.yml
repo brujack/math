@@ -24,6 +24,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate version
+        id: version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          checked=$(scripts/check-release-version.sh fib/fib-rs "${VERSION}")
+          echo "version=${checked}" >> "$GITHUB_OUTPUT"
+
       - name: Install GMP
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev
 
@@ -54,7 +62,7 @@ jobs:
         uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff  # v4
         with:
           config: cliff.toml
-          args: --unreleased --tag "fib-v${{ inputs.version }}" --strip all --include-path "fib/**" --tag-pattern "^fib-v.*"
+          args: --unreleased --tag "fib-v${{ steps.version.outputs.version }}" --strip all --include-path "fib/**" --tag-pattern "^fib-v.*"
         env:
           OUTPUT: /tmp/release-notes.md
           GITHUB_REPO: ${{ github.repository }}
@@ -71,7 +79,7 @@ jobs:
 
       - name: Create and push tag
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -81,8 +89,8 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
-          tag_name: "fib-v${{ inputs.version }}"
-          name: "fib v${{ inputs.version }}"
+          tag_name: "fib-v${{ steps.version.outputs.version }}"
+          name: "fib v${{ steps.version.outputs.version }}"
           body_path: /tmp/release-notes.md
           files: |
             fib/fib-rs/target/release/fib
