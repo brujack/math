@@ -343,6 +343,39 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                     f"{path.name} must install cargo-auditable BEFORE building",
                 )
 
+    # The cargo subcommands `make test` needs beyond the toolchain, read from
+    # scripts/rust-check.sh: `lint` runs `cargo machete`, `test` runs `cargo nextest`.
+    # INVALIDATING CONDITION: rust-check.sh gaining another installed subcommand
+    # leaves this list incomplete while the test stays green.
+    MAKE_TEST_TOOLS = ("cargo-nextest", "cargo-machete")
+
+    def test_installs_make_test_tools_before_run_tests(self):
+        for path in self.workflows:
+            for tool in self.MAKE_TEST_TOOLS:
+                with self.subTest(workflow=path.name, tool=tool):
+                    steps = release_steps(load_workflow(path))
+                    install_index = require_index(
+                        find_step_index_by_name(steps, f"Install {tool}"),
+                        f"{path.name} missing 'Install {tool}' step: `make test` "
+                        "fails with 'no such command' before anything is tagged",
+                    )
+                    tests_index = require_index(
+                        find_step_index_by_name(steps, "Run tests"),
+                        f"{path.name} missing 'Run tests' step",
+                    )
+                    install_run = (steps[install_index].get("run") or "").strip()
+                    self.assertTrue(
+                        install_run.startswith(f"cargo install {tool}"),
+                        f"{path.name} must install {tool}: got {install_run!r}",
+                    )
+                    self.assertIn("--locked", install_run)
+                    self.assertRegex(install_run, r"--version \d+\.\d+\.\d+")
+                    self.assertLess(
+                        install_index,
+                        tests_index,
+                        f"{path.name} must install {tool} BEFORE 'Run tests'",
+                    )
+
     def test_references_sbom_sign_composite_action(self):
         for path in self.workflows:
             with self.subTest(workflow=path.name):
