@@ -207,7 +207,7 @@ The `bash-coverage` job in `auto-merge.yml` gates at `FLOOR=24`, defined once in
 The floor is a regression ratchet over the reachable quarter of the denominator, not a quality bar for the repo's shell. → ai-config/docs/knowledge/math-ci.md § Bash coverage floor
 
 
-`scripts/ci-gate.sh <PR>` polls `gh pr checks` and fails on any non-advisory failure (`snyk-scan` is advisory; `secret-scan` and `auto-merge` are self-checks); tested via `tests/scripts/ci_gate.bats` with `tests/mocks/gh`. → ai-config/docs/knowledge/math-ci.md § Auto-merge gate
+`scripts/ci-gate.sh <PR>` polls the check-runs API (latest run per workflow and check name, so a superseded cancelled run is ignored) and fails on any non-advisory failure (`snyk-scan` is advisory; `secret-scan` and `auto-merge` are self-checks); tested via `tests/scripts/ci_gate.bats` with `tests/mocks/gh`. → ai-config/docs/knowledge/math-ci.md § Auto-merge gate
 
 
 A Rust workflow calling `scripts/test_metrics.py` (today `factorial-rs.yml`) needs `pip install defusedxml` (a step named `Install Python dependencies`, `if: always()`) immediately before `Generate test metrics`, or CI fails with `ModuleNotFoundError`. → ai-config/docs/knowledge/math-ci.md § test_metrics.py in Rust workflows
