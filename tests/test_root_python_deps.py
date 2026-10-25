@@ -65,15 +65,17 @@ def _clean_git_env() -> dict[str, str]:
 
 
 def _git_ls_files(*pathspecs: str) -> list[str]:
+    # -z and core.quotePath=false: git otherwise quotes non-ASCII names
+    # ("tests/caf\\303\\251.py"), which then match no file on disk.
     result = subprocess.run(
-        ["git", "ls-files", *pathspecs],
+        ["git", "-c", "core.quotePath=false", "ls-files", "-z", *pathspecs],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         check=True,
         env=_clean_git_env(),
     )
-    return [line for line in result.stdout.splitlines() if line]
+    return [name for name in result.stdout.split("\0") if name]
 
 
 def _first_party_roots() -> set[str]:
@@ -141,15 +143,23 @@ def _classify_repo() -> dict[str, dict[str, str]]:
     first_party = _first_party_roots()
     stdlib = sys.stdlib_module_names
     classification: dict[str, dict[str, str]] = {}
-    # Paths come from walking the tree and are only filtered by git's list, so no
-    # path is built from subprocess output (Snyk Code flags that as traversal).
+    # Paths come from walking the tree, not from subprocess output (Snyk Code flags
+    # that as traversal), but git stays the source of truth for the population.
+    # A git pathspec's `*` also matches `/`, so the glob recurses to match, and any
+    # tracked file the walk misses is fatal, never skipped: a skip would silently
+    # narrow this supply-chain check.
     tracked = set(_git_ls_files(*POPULATION_PATHSPECS))
-    for path in sorted(
-        p for spec in POPULATION_PATHSPECS for p in REPO_ROOT.glob(spec)
-    ):
-        rel = path.relative_to(REPO_ROOT).as_posix()
-        if rel not in tracked:
-            continue
+    walked = {
+        p.relative_to(REPO_ROOT).as_posix(): p
+        for spec in POPULATION_PATHSPECS
+        for p in REPO_ROOT.glob(spec.replace("/*.py", "/**/*.py"))
+        if p.is_file()
+    }
+    missing = sorted(tracked - walked.keys())
+    if missing:
+        raise AssertionError(f"tracked files the tree walk did not find: {missing}")
+    for rel in sorted(tracked):
+        path = walked[rel]
         per_file: dict[str, str] = {}
         for name in sorted(_top_level_imports(path)):
             if name in first_party:

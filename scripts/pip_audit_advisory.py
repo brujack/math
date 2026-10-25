@@ -129,6 +129,9 @@ def run(args):
     print(line)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
+        # The Actions runner sets GITHUB_STEP_SUMMARY; appending to the file it
+        # names is the documented step-summary mechanism, not user input.
+        # deepcode ignore PT: runner-provided path, see comment above
         with open(summary, "a", encoding="utf-8") as f:
             f.write(f"- {line}\n")
     return 0
