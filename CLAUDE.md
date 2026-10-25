@@ -233,7 +233,7 @@ A new project gets `.github/workflows/<project>.yml` triggered only by `pull_req
 
 ## Branch Workflow
 
-**Never commit directly to `master`.** All changes — features, fixes, docs — go through a feature branch and PR.
+**Never commit code directly to `master`.** Features and fixes go through a feature branch and PR; docs-only changes (specs, plans, Backlog rows, ADRs, knowledge text) may go straight to `master` (operator, 2026-10-25).
 
 **Worktree directory:** Use `.worktrees/` (project-local, listed in `.gitignore`) for all git worktrees in this repo.
 
