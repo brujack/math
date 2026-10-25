@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Calculate π to a user-specified number of decimal places.
+"""Calculate π to a user-specified number of decimal places.
 
 Uses the Chudnovsky algorithm with gmpy2/GMP (if available) for a 5-50x
 speedup over the mpmath fallback.  File writing uses parallel I/O workers
@@ -11,6 +10,9 @@ Install fast backend (recommended):
 or manually:
     brew install gmp mpfr && pip install gmpy2   # macOS
     sudo apt install libgmp-dev libmpfr-dev && pip install gmpy2  # Debian/Ubuntu
+
+Run with no arguments at a terminal for interactive prompts, or supply SIZE:
+    python3 pi.py [SIZE] [--show] [--yes] [--smoke]
 """
 
 import argparse
@@ -501,6 +503,9 @@ def save_pi_to_file(pi_value, digits, filename):  # noqa: C901 — multi-backend
         pi_value: gmpy2.mpfr (with ._pi_Q / ._pi_T) or mpmath.mpf
         digits (int): number of decimal places
         filename (str): output filename
+
+    Returns:
+        str: the digit string written to the file (printed by ``--show``).
     """
     using_gmpy2 = _HAS_GMPY2 and isinstance(pi_value, _gmpy2.mpfr)
     backend_label = "gmpy2/MPFR" if using_gmpy2 else "mpmath"

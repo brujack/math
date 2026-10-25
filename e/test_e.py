@@ -991,7 +991,7 @@ class TestGetTargetDigitsInteractive(unittest.TestCase):
 
 
 class TestMain(unittest.TestCase):
-    """Cover main() — small-digit display/save branches, large-digit auto-save,
+    """Cover main() — always-save, --show, large-run refusal and --yes,
     and the error handlers (ValueError, KeyboardInterrupt, generic Exception)."""
 
     def setUp(self):

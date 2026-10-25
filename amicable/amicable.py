@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""
-Find all amicable pairs (a, b) with a < b and b <= 10^N.
+"""Find all amicable pairs (a, b) with a < b and b <= 10^N.
 
 Uses a proper-divisor sum sieve: s[n] = sum of proper divisors of n.
 Built in O(N log N) by iterating each divisor d and accumulating into multiples.
 
-Run without arguments at a terminal for an interactive prompt, or supply N:
-    python3 amicable.py [N] [--show] [--yes] [--smoke]
+Run with no arguments at a terminal for interactive prompts, or supply SIZE:
+    python3 amicable.py [SIZE] [--show] [--yes] [--smoke]
 """
 
 import argparse

@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Generate all perfect squares with at most 10^N decimal digits."""
+"""Generate all perfect squares with at most 10^N decimal digits.
+
+Run with no arguments at a terminal for interactive prompts, or supply SIZE:
+    python3 sq.py [SIZE] [--show] [--yes] [--smoke]
+"""
 
 import argparse
 import io

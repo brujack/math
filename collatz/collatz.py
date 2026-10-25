@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""
-Find Collatz chain record-setters up to 10^N.
+"""Find Collatz chain record-setters up to 10^N.
 
 Vector memoization: cache[n] = chain_length(n) + 1 (0 = not computed).
 Seed: cache[1] = 1. For each n, walk until a cached value, back-fill.
 
-Run without arguments for an interactive prompt, or supply N directly:
-    python3 collatz.py [N] [--show] [--smoke]
+Run with no arguments at a terminal for interactive prompts, or supply SIZE:
+    python3 collatz.py [SIZE] [--show] [--yes] [--smoke]
 """
 
 import argparse

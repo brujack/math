@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""
-Generate all Fibonacci numbers with at most 10^X decimal digits.
+"""Generate all Fibonacci numbers with at most 10^X decimal digits.
 
 Uses Python built-in arbitrary-precision integers — no external libraries needed.
 
-Run without arguments for an interactive prompt, or supply X directly:
-    python3 fib.py [X]
+Run with no arguments at a terminal for interactive prompts, or supply SIZE:
+    python3 fib.py [SIZE] [--show] [--yes] [--smoke]
 """
 
 import argparse

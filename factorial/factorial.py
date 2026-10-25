@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Compute N! (N factorial) to arbitrary precision using the prime swing algorithm.
+"""Compute N! (N factorial) to arbitrary precision using the prime swing algorithm.
 
 Algorithm: n! = swing(n) × (floor(n/2)!)²  (Luschny prime swing)
   swing(m) = ∏ p^e_p  where e_p = Σ_{j≥1} (floor(m/p^j) mod 2)
@@ -10,6 +9,9 @@ Falls back to mpmath.factorial if gmpy2 is not installed.
 
 Install fast backend (recommended):
     bash install_deps.sh
+
+Run with no arguments at a terminal for interactive prompts, or supply SIZE:
+    python3 factorial.py [SIZE] [--show] [--yes] [--smoke]
 """
 
 import argparse

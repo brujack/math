@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""
-Find all perfect numbers up to 10^N.
+"""Find all perfect numbers up to 10^N.
 
 A perfect number equals the sum of its proper divisors. All known even perfect
 numbers have the form 2^(p-1) * (2^p - 1) where 2^p - 1 is a Mersenne prime.
 
 Uses the Lucas-Lehmer primality test and the multiplicative sigma formula.
 
-Run without arguments for an interactive prompt, or supply N directly:
-    python3 perfect_numbers.py [N] [--show] [--yes] [--smoke]
+Run with no arguments at a terminal for interactive prompts, or supply SIZE:
+    python3 perfect_numbers.py [SIZE] [--show] [--yes] [--smoke]
 """
 
 import argparse

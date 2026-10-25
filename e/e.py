@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Calculate e (Euler's number) to a user-specified number of decimal places.
+"""Calculate e (Euler's number) to a user-specified number of decimal places.
 
 Uses the Taylor series e = sum(1/n! for n=0..N) computed via binary splitting
 with gmpy2/GMP (if available) for fast arbitrary-precision arithmetic.
@@ -11,6 +10,9 @@ Install fast backend (recommended):
 or manually:
     brew install gmp mpfr && pip install gmpy2   # macOS
     sudo apt install libgmp-dev libmpfr-dev && pip install gmpy2  # Debian/Ubuntu
+
+Run with no arguments at a terminal for interactive prompts, or supply SIZE:
+    python3 e.py [SIZE] [--show] [--yes] [--smoke]
 """
 
 import argparse
