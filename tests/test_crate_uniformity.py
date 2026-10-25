@@ -113,7 +113,14 @@ class TestRepoCratesMatchTemplates(unittest.TestCase):
         self.assertEqual(len(rcf.CRATES), 11)
         self.assertEqual(
             set(rcf.KINDS),
-            {"Makefile", "rustfmt.toml", "release.yml", "ci.yml", "nextest.toml"},
+            {
+                "Makefile",
+                "rustfmt.toml",
+                "release.yml",
+                "ci.yml",
+                "nextest.toml",
+                "install_deps.sh",
+            },
         )
 
     def test_scripts_workflow_runs_on_every_rendered_file(self):
