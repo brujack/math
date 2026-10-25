@@ -116,13 +116,16 @@ class TestGetExponent(unittest.TestCase):
 
     def test_interactive_eof_exits_1_with_contract_message(self):
         err = io.StringIO()
+        out = io.StringIO()
         with (
             unittest.mock.patch("builtins.input", side_effect=EOFError),
             unittest.mock.patch("sys.stderr", err),
+            redirect_stdout(out),
             self.assertRaises(SystemExit) as cm,
         ):
             get_exponent(self._ns(None))
         self.assertEqual(cm.exception.code, 1)
+        self.assertEqual(out.getvalue(), "\n")
         self.assertEqual(
             err.getvalue().strip(),
             "Error: no input; pass SIZE as an argument (e.g. python3 collatz.py 5).",
@@ -225,6 +228,17 @@ class TestMain(unittest.TestCase):
             main(["1"])
         with open("collatz_1e1.txt") as f:
             self.assertEqual(len(f.read().splitlines()), 6)
+
+    def test_refusal_happens_before_any_file_write(self):
+        with (
+            unittest.mock.patch.object(collatz, "LARGE_RUN_THRESHOLD", 2),
+            unittest.mock.patch("sys.stderr", io.StringIO()),
+            redirect_stdout(io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            main(["2"])
+        self.assertEqual(cm.exception.code, 1)
+        self.assertEqual(os.listdir("."), [])
 
     def test_smoke_runs_at_smoke_size(self):
         with redirect_stdout(io.StringIO()):

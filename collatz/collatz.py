@@ -123,6 +123,7 @@ def get_exponent(args: argparse.Namespace) -> int:
         except ValueError:
             print("Please enter a positive integer.")
         except EOFError:
+            print()
             print(
                 "Error: no input; pass SIZE as an argument "
                 f"(e.g. python3 collatz.py {SMOKE_SIZE}).",
