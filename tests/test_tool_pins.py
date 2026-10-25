@@ -32,7 +32,12 @@ def cargo_installs():
             if "--version" in tokens:
                 index = tokens.index("--version")
                 version = tokens[index + 1] if index + 1 < len(tokens) else ""
-            yield path.relative_to(REPO_ROOT).as_posix(), crate, version, "--locked" in tokens
+            yield (
+                path.relative_to(REPO_ROOT).as_posix(),
+                crate,
+                version,
+                "--locked" in tokens,
+            )
 
 
 def pyright_installs():
