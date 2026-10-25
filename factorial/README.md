@@ -30,10 +30,14 @@ Prime swing identity: `n! = swing(n) × (⌊n/2⌋!)²` (Luschny).
 ```bash
 cd factorial
 bash install_deps.sh   # install GMP, gmpy2, ruff, coverage (one time)
-make run               # interactive prompt
-python3 factorial.py 1000  # compute 1000!
+make run               # interactive prompts (terminal only)
+python3 factorial.py 1000  # compute 1000!, written to file
+python3 factorial.py 1000 --show  # also print the result
+python3 factorial.py --smoke      # quick check at n=1000
 make test              # run unit tests
 ```
+
+The Python program never reads stdin when n is given and always writes the result to its output file; with no arguments and stdin not a terminal it exits 2 with usage. Results over 4,300 digits are supported. `--yes` is accepted and ignored.
 
 ### Rust
 

@@ -9,6 +9,8 @@ on:
       - "perfect-numbers/install_deps.sh"
       - "perfect-numbers/Makefile"
       - "perfect-numbers/pyrightconfig.json"
+      - "scripts/cli_contract.py"
+      - "typings/**"
       - ".github/workflows/perfect-numbers-py.yml"
 
 env:

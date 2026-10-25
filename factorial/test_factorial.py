@@ -18,6 +18,8 @@ from hypothesis import strategies as st
 
 from factorial import (
     _HAS_GMPY2,
+    LARGE_RUN_THRESHOLD,
+    SMOKE_SIZE,
     _compute_swing,
     _compute_swing_chunk,
     _gmpy2,
@@ -27,6 +29,7 @@ from factorial import (
     calculate_factorial,
     get_target_n,
     parse_args,
+    refuse_large_run,
 )
 
 # Known exact factorial values for testing.
@@ -232,39 +235,168 @@ class TestCalculateFactorial(unittest.TestCase):
 
 class TestParseArgs(unittest.TestCase):
     def test_no_args_n_is_none(self):
-        args = parse_args([])
-        self.assertIsNone(args.n)
+        with patch("sys.stdin.isatty", return_value=True):
+            args = parse_args([])
+        self.assertIsNone(args.size)
 
     def test_positional_arg(self):
         args = parse_args(["100"])
-        self.assertEqual(args.n, 100)
+        self.assertEqual(args.size, 100)
 
     def test_help_exits(self):
         with self.assertRaises(SystemExit):
             parse_args(["--help"])
 
+    def test_flags_default_false(self):
+        args = parse_args(["5"])
+        self.assertFalse(args.show)
+        self.assertFalse(args.yes)
+        self.assertFalse(args.smoke)
+
+    def test_smoke_sets_size_and_clears_show(self):
+        args = parse_args(["--smoke", "--show"])
+        self.assertEqual(args.size, SMOKE_SIZE)
+        self.assertFalse(args.show)
+
+    def test_smoke_with_size_is_usage_error(self):
+        with patch("sys.stderr", io.StringIO()):
+            with self.assertRaises(SystemExit) as cm:
+                parse_args(["--smoke", "5"])
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_bare_non_tty_is_usage_error(self):
+        with patch("sys.stdin.isatty", return_value=False):
+            with patch("sys.stderr", io.StringIO()):
+                with self.assertRaises(SystemExit) as cm:
+                    parse_args([])
+        self.assertEqual(cm.exception.code, 2)
+
+
+class TestCliContractConstants(unittest.TestCase):
+    def test_smoke_size(self):
+        self.assertEqual(SMOKE_SIZE, 1000)
+
+    def test_no_large_run_threshold(self):
+        self.assertIsNone(LARGE_RUN_THRESHOLD)
+
+
+class TestRefuseLargeRun(unittest.TestCase):
+    def test_no_threshold_never_refuses(self):
+        refuse_large_run(10**9, False)
+
+    def test_threshold_refuses_without_yes(self):
+        with patch("factorial.LARGE_RUN_THRESHOLD", 10):
+            with patch("sys.stderr", io.StringIO()) as err:
+                with self.assertRaises(SystemExit) as cm:
+                    refuse_large_run(10, False)
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("--yes", err.getvalue())
+
+    def test_threshold_one_below_passes(self):
+        with patch("factorial.LARGE_RUN_THRESHOLD", 10):
+            refuse_large_run(9, False)
+
+    def test_threshold_with_yes_passes(self):
+        with patch("factorial.LARGE_RUN_THRESHOLD", 10):
+            refuse_large_run(10, True)
+
+    def test_refusal_happens_before_any_file_write(self):
+        from factorial import main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                with patch("factorial.LARGE_RUN_THRESHOLD", 5):
+                    with patch("sys.stderr", io.StringIO()):
+                        with self.assertRaises(SystemExit) as cm:
+                            main(["5"])
+                self.assertEqual(os.listdir(tmp), [])
+            finally:
+                os.chdir(cwd)
+        self.assertEqual(cm.exception.code, 1)
+
+
+class TestInteractiveEof(unittest.TestCase):
+    def test_eof_exits_1_with_message(self):
+        args = argparse.Namespace(size=None)
+        with patch("builtins.input", side_effect=EOFError):
+            with patch("sys.stderr", io.StringIO()) as err:
+                with self.assertRaises(SystemExit) as cm:
+                    get_target_n(args)
+        self.assertEqual(cm.exception.code, 1)
+        self.assertEqual(
+            err.getvalue(),
+            "Error: no input; pass SIZE as an argument "
+            "(e.g. python3 factorial.py 1000).\n",
+        )
+
+    def test_eof_ends_the_prompt_line_on_stdout(self):
+        args = argparse.Namespace(size=None)
+        with patch("builtins.input", side_effect=EOFError):
+            with patch("sys.stderr", io.StringIO()):
+                with redirect_stdout(io.StringIO()) as out:
+                    with self.assertRaises(SystemExit):
+                        get_target_n(args)
+        self.assertEqual(out.getvalue(), "\n")
+
+
+class TestShowFlag(unittest.TestCase):
+    def _run(self, argv):
+        from factorial import main
+
+        buf = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                with redirect_stdout(buf):
+                    main(argv)
+                with open("factorial_5.txt") as f:
+                    written = f.read()
+            finally:
+                os.chdir(cwd)
+        return buf.getvalue().splitlines(), written
+
+    def test_show_prints_digits_line(self):
+        lines, written = self._run(["5", "--show"])
+        self.assertEqual(written, "120")
+        self.assertIn("120", lines)
+
+    def test_show_line_precedes_summary_lines(self):
+        lines, _ = self._run(["5", "--show"])
+        digits_at = lines.index("120")
+        for i, line in enumerate(lines):
+            if "Computed in" in line or "digits written" in line:
+                self.assertLess(digits_at, i)
+
+    def test_without_show_digits_not_printed(self):
+        lines, written = self._run(["5"])
+        self.assertEqual(written, "120")
+        self.assertNotIn("120", lines)
+
 
 class TestGetTargetN(unittest.TestCase):
     def test_from_args(self):
-        args = argparse.Namespace(n=42)
+        args = argparse.Namespace(size=42)
         self.assertEqual(get_target_n(args), 42)
 
     def test_zero_from_args(self):
-        args = argparse.Namespace(n=0)
+        args = argparse.Namespace(size=0)
         self.assertEqual(get_target_n(args), 0)
 
     def test_negative_raises(self):
-        args = argparse.Namespace(n=-1)
+        args = argparse.Namespace(size=-1)
         with self.assertRaises(ValueError):
             get_target_n(args)
 
     def test_interactive_valid(self):
-        args = argparse.Namespace(n=None)
+        args = argparse.Namespace(size=None)
         with patch("builtins.input", return_value="7"):
             self.assertEqual(get_target_n(args), 7)
 
     def test_interactive_non_integer_then_valid(self):
-        args = argparse.Namespace(n=None)
+        args = argparse.Namespace(size=None)
         with patch("builtins.input", side_effect=["abc", "5"]):
             with patch("builtins.print"):
                 self.assertEqual(get_target_n(args), 5)
@@ -288,7 +420,7 @@ class TestOutputFile(unittest.TestCase):
             os.chdir(tmpdir)
             try:
                 with patch("builtins.print"):
-                    filename = _write_factorial_file(6, 3)
+                    filename, _ = _write_factorial_file(6, 3)
                 self.assertEqual(filename, "factorial_3.txt")
             finally:
                 os.chdir(original_dir)
@@ -472,3 +604,35 @@ class TestEntryPointGuard(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("Computing 5!", proc.stdout)
+
+
+class TestMainErrors(unittest.TestCase):
+    def test_negative_size_exits_1_on_stderr(self):
+        from factorial import main
+
+        with patch("sys.stderr", io.StringIO()) as err:
+            with redirect_stdout(io.StringIO()):
+                with self.assertRaises(SystemExit) as cm:
+                    main(["--", "-5"])
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("non-negative", err.getvalue())
+
+    def test_large_result_exceeds_default_str_cap(self):
+        from factorial import main
+
+        before = sys.get_int_max_str_digits()
+        try:
+            sys.set_int_max_str_digits(4300)
+            with tempfile.TemporaryDirectory() as tmp:
+                cwd = os.getcwd()
+                os.chdir(tmp)
+                try:
+                    with redirect_stdout(io.StringIO()):
+                        main(["2000"])
+                    with open("factorial_2000.txt") as f:
+                        digits = f.read()
+                finally:
+                    os.chdir(cwd)
+        finally:
+            sys.set_int_max_str_digits(before)
+        self.assertGreater(len(digits), 4300)

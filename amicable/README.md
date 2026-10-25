@@ -10,9 +10,13 @@ The smallest pair is (220, 284): s(220)=284, s(284)=220.
 ## Usage
 
 ```bash
-python3 amicable.py        # interactive prompt
-python3 amicable.py 4      # all pairs up to 10^4
+python3 amicable.py           # interactive prompts (terminal only)
+python3 amicable.py 4         # all pairs up to 10^4, written to file
+python3 amicable.py 4 --show  # also print each pair
+python3 amicable.py --smoke   # quick check at N=5
 ```
+
+With SIZE given the program never reads stdin; with no arguments and stdin not a terminal it exits 2 with usage. `--yes` is accepted and ignored.
 
 Output: one `a b` pair per line, ascending by a. Saved to `amicable_1eN.txt`.
 

@@ -9,6 +9,7 @@ lint:
 
 test: lint
 	pytest test_factorial.py -v
+	python3 ../scripts/cli_contract.py factorial.py
 
 coverage:
 	pytest --cov=factorial --cov-report=term-missing --cov-fail-under=90 test_factorial.py

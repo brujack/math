@@ -9,6 +9,8 @@ on:
       - "fib/install_deps.sh"
       - "fib/Makefile"
       - "fib/pyrightconfig.json"
+      - "scripts/cli_contract.py"
+      - "typings/**"
       - ".github/workflows/fib-py.yml"
 
 env:

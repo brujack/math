@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Calculate e (Euler's number) to a user-specified number of decimal places.
+"""Calculate e (Euler's number) to a user-specified number of decimal places.
 
 Uses the Taylor series e = sum(1/n! for n=0..N) computed via binary splitting
 with gmpy2/GMP (if available) for fast arbitrary-precision arithmetic.
@@ -11,6 +10,9 @@ Install fast backend (recommended):
 or manually:
     brew install gmp mpfr && pip install gmpy2   # macOS
     sudo apt install libgmp-dev libmpfr-dev && pip install gmpy2  # Debian/Ubuntu
+
+Run with no arguments at a terminal for interactive prompts, or supply SIZE:
+    python3 e.py [SIZE] [--show] [--yes] [--smoke]
 """
 
 import argparse
@@ -43,6 +45,9 @@ except ImportError:
 _CPU_COUNT = os.cpu_count() or 1
 _IO_WORKERS = max(2, min(8, _CPU_COUNT))
 _PWRITE_CHUNK = 4 * 1024 * 1024  # 4 MiB per I/O worker chunk
+
+SMOKE_SIZE = 10000
+LARGE_RUN_THRESHOLD: int | None = 1_000_001
 
 # Cached (P_int, Q_int) from the most recent gmpy2 computation.
 # Plain Python ints — always picklable for the subprocess worker.
@@ -349,6 +354,9 @@ def save_e_to_file(e_value, digits, filename):  # noqa: C901 — multi-backend p
         e_value: gmpy2.mpfr or mpmath.mpf
         digits (int): number of decimal places
         filename (str): output filename
+
+    Returns:
+        str: the decimal digit string exactly as written to the file.
     """
     using_gmpy2 = _HAS_GMPY2 and isinstance(e_value, _gmpy2.mpfr)
     backend_label = "gmpy2/MPFR" if using_gmpy2 else "mpmath"
@@ -528,6 +536,7 @@ def save_e_to_file(e_value, digits, filename):  # noqa: C901 — multi-backend p
     write_time = time.time() - write_start
     print(f"File write completed in {write_time:.2f} seconds")
     print(f"Total file operation time: {(conversion_time + write_time):.2f} seconds")
+    return e_str
 
 
 # ---------------------------------------------------------------------------
@@ -535,54 +544,89 @@ def save_e_to_file(e_value, digits, filename):  # noqa: C901 — multi-backend p
 # ---------------------------------------------------------------------------
 
 
-def parse_args(argv=None):
-    """Parse command-line arguments."""
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Calculate e (Euler's number) to a specified number of decimal places.",
-        epilog=(
-            "Run without arguments to use the interactive prompts, or provide "
-            "the number of digits directly."
-        ),
+        epilog="Run with no arguments at a terminal for interactive prompts.",
     )
     parser.add_argument(
-        "digits",
+        "size",
         nargs="?",
         type=int,
+        metavar="DIGITS",
         help="number of decimal places to calculate",
     )
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--show", action="store_true", help="also print each result line to stdout"
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="confirm a large run (ignored when this program has none)",
+    )
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help=f"quick check at SMOKE_SIZE ({SMOKE_SIZE})",
+    )
+    args = parser.parse_args(argv)
+    if args.smoke:
+        if args.size is not None:
+            parser.error("--smoke takes no SIZE")
+        args.size, args.show = SMOKE_SIZE, False
+    elif args.size is None and not sys.stdin.isatty():
+        parser.error("SIZE is required when stdin is not a terminal")
+    return args
+
+
+def refuse_large_run(size: int, yes: bool) -> None:
+    """Exit 1 naming --yes when size needs confirmation and --yes is absent."""
+    if LARGE_RUN_THRESHOLD is not None and size >= LARGE_RUN_THRESHOLD and not yes:
+        print(f"Error: {size} is a large run; pass --yes to proceed.", file=sys.stderr)
+        sys.exit(1)
 
 
 def get_target_digits(args):
     """Get the requested digit count from CLI args or interactive input."""
-    if args.digits is not None:
-        if args.digits < 1:
+    if args.size is not None:
+        if args.size < 1:
             raise ValueError("Please enter a positive number of decimal places.")
-        if args.digits > 1000000:
-            print("Warning: Very large numbers may take a long time to calculate.")
-        return args.digits
+        refuse_large_run(args.size, args.yes)
+        return args.size
 
     while True:
         try:
             user_input = input(
                 "Enter the number of decimal places to calculate e (1-1000000): "
             )
+        except EOFError:
+            print()
+            print(
+                f"Error: no input; pass SIZE as an argument (e.g. python3 e.py {SMOKE_SIZE}).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        try:
             target_digits = int(user_input)
-            if target_digits < 1:
-                print("Please enter a positive number.")
-                continue
-            if target_digits > 1000000:
-                print("Warning: Very large numbers may take a long time to calculate.")
+        except ValueError:
+            print("Please enter a valid integer.")
+            continue
+        if target_digits < 1:
+            print("Please enter a positive number.")
+            continue
+        if LARGE_RUN_THRESHOLD is not None and target_digits >= LARGE_RUN_THRESHOLD:
+            print("Warning: Very large numbers may take a long time to calculate.")
+            try:
                 confirm = (
                     input(f"Continue with {target_digits} digits? (y/n): ")
                     .lower()
                     .strip()
                 )
-                if confirm not in ["y", "yes"]:
-                    continue
-            return target_digits
-        except ValueError:
-            print("Please enter a valid integer.")
+            except EOFError:
+                sys.exit(0)
+            if confirm not in ["y", "yes"]:
+                continue
+        return target_digits
 
 
 # ---------------------------------------------------------------------------
@@ -635,10 +679,10 @@ def calculate_e(digits=1000):
 # ---------------------------------------------------------------------------
 
 
-def main():
+def main(argv: list[str] | None = None) -> None:
     """Main function to execute e calculation."""
     try:
-        args = parse_args()
+        args = parse_args(argv)
 
         print("High-Precision e Calculator")
         print("=" * 40)
@@ -654,27 +698,12 @@ def main():
                 f"\nSkipping preview for {target_digits:,} digits (too large for quick preview)"
             )
 
-        if target_digits > 10000:
-            filename = f"e_{target_digits}_digits.txt"
-            print(
-                f"\nFor {target_digits:,} digits, saving to file for better performance..."
-            )
-            save_e_to_file(e_result, target_digits, filename)
-            print(f"\nFull precision e saved to {filename}")
-        else:
-            print(
-                f"\nWould you like to display all {target_digits:,} digits? (y/n): ",
-                end="",
-            )
-            response = input().lower().strip()
-            if response in ["y", "yes"]:
-                e_str = _e_to_str(e_result, target_digits)
-                print(f"\ne = {e_str}")
-                print(f"\nTotal digits: {target_digits:,}")
-            else:
-                filename = f"e_{target_digits}_digits.txt"
-                save_e_to_file(e_result, target_digits, filename)
-                print(f"\nFull precision e saved to {filename}")
+        filename = f"e_{target_digits}_digits.txt"
+        print(f"\nSaving {target_digits:,} digits to {filename}...")
+        e_str = save_e_to_file(e_result, target_digits, filename)
+        if args.show:
+            print(e_str)
+        print(f"\nFull precision e saved to {filename}")
 
     except KeyboardInterrupt:
         print("\n\nCalculation interrupted by user.")
@@ -682,7 +711,7 @@ def main():
     except ValueError as error:
         print(f"\nError: {error}")
         sys.exit(1)
-    except (RuntimeError, OSError, ArithmeticError, EOFError, MemoryError) as ex:
+    except (RuntimeError, OSError, ArithmeticError, MemoryError) as ex:
         print(f"\nError occurred during calculation: {ex}")
         sys.exit(1)
 

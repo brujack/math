@@ -16,7 +16,7 @@ import sys
 import tempfile
 import unittest
 import unittest.mock
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 
 # Ensure the pi module is importable from this directory.
 sys.path.insert(0, os.path.dirname(__file__))
@@ -30,6 +30,8 @@ from pi import (
     _CHU_B,
     _CHU_C3_OVER_24,
     _HAS_GMPY2,
+    LARGE_RUN_THRESHOLD,
+    SMOKE_SIZE,
     _convert_gmpy2_worker,
     _convert_mpmath_worker,
     _gmpy2_mpfr_to_str,
@@ -39,10 +41,16 @@ from pi import (
     _tree_combine,
     calculate_pi_high_precision,
     get_target_digits,
+    main,
     parse_args,
+    refuse_large_run,
     save_pi_to_file,
     show_pi_preview,
 )
+
+# Non-optional view of the threshold for arithmetic (pi always has one).
+assert LARGE_RUN_THRESHOLD is not None
+_LARGE: int = LARGE_RUN_THRESHOLD
 
 # Known decimal expansion of π — used for accuracy assertions.
 PI_REF = "3.14159265358979323846264338327950288419716939937510"
@@ -665,8 +673,9 @@ class TestGetTargetDigits(unittest.TestCase):
     """get_target_digits with CLI args (non-interactive paths only)."""
 
     class _Args:
-        def __init__(self, digits):
-            self.digits = digits
+        def __init__(self, size, yes=False):
+            self.size = size
+            self.yes = yes
 
     def test_returns_digits_from_args(self):
         self.assertEqual(get_target_digits(self._Args(50)), 50)
@@ -679,16 +688,41 @@ class TestGetTargetDigits(unittest.TestCase):
         with self.assertRaises(ValueError):
             get_target_digits(self._Args(-1))
 
-    def test_large_digits_prints_warning_and_returns(self):
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            result = get_target_digits(self._Args(2_000_000))
-        self.assertEqual(result, 2_000_000)
-        self.assertIn("Warning", buf.getvalue())
-
     def test_minimum_valid_value(self):
-        # digits=1 is the smallest positive value; no warning, returns 1.
         self.assertEqual(get_target_digits(self._Args(1)), 1)
+
+    def test_just_below_threshold_needs_no_yes(self):
+        self.assertEqual(get_target_digits(self._Args(999_999)), 999_999)
+        self.assertEqual(get_target_digits(self._Args(1_000_000)), 1_000_000)
+
+    def test_threshold_refused_without_yes(self):
+        err = io.StringIO()
+        with redirect_stderr(err), self.assertRaises(SystemExit) as cm:
+            get_target_digits(self._Args(_LARGE))
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("--yes", err.getvalue())
+
+    def test_threshold_accepted_with_yes(self):
+        self.assertEqual(
+            get_target_digits(self._Args(_LARGE, yes=True)),
+            _LARGE,
+        )
+
+
+class TestCliContractConstants(unittest.TestCase):
+    def test_smoke_size(self):
+        self.assertEqual(SMOKE_SIZE, 10000)
+
+    def test_large_run_threshold(self):
+        self.assertEqual(LARGE_RUN_THRESHOLD, 1_000_001)
+
+
+class TestRefuseLargeRun(unittest.TestCase):
+    def test_boundaries(self):
+        refuse_large_run(_LARGE - 1, False)
+        refuse_large_run(_LARGE, True)
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            refuse_large_run(_LARGE, False)
 
 
 # ---------------------------------------------------------------------------
@@ -699,20 +733,43 @@ class TestGetTargetDigits(unittest.TestCase):
 class TestParseArgs(unittest.TestCase):
     """parse_args correctly handles CLI arguments."""
 
-    def test_no_args_gives_none(self):
-        with unittest.mock.patch("sys.argv", ["pi.py"]):
-            args = parse_args()
-        self.assertIsNone(args.digits)
+    def test_no_args_on_tty_gives_none(self):
+        with unittest.mock.patch("sys.stdin.isatty", return_value=True):
+            args = parse_args([])
+        self.assertIsNone(args.size)
+        self.assertFalse(args.show)
+        self.assertFalse(args.yes)
 
-    def test_positional_digit_arg(self):
-        with unittest.mock.patch("sys.argv", ["pi.py", "100"]):
-            args = parse_args()
-        self.assertEqual(args.digits, 100)
+    def test_no_args_without_tty_exits_2(self):
+        with (
+            unittest.mock.patch("sys.stdin.isatty", return_value=False),
+            redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            parse_args([])
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_positional_size(self):
+        self.assertEqual(parse_args(["100"]).size, 100)
+
+    def test_flags(self):
+        args = parse_args(["5", "--show", "--yes"])
+        self.assertTrue(args.show)
+        self.assertTrue(args.yes)
+
+    def test_smoke_sets_size_and_clears_show(self):
+        args = parse_args(["--smoke", "--show"])
+        self.assertEqual(args.size, SMOKE_SIZE)
+        self.assertFalse(args.show)
+
+    def test_smoke_with_size_exits_2(self):
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as cm:
+            parse_args(["--smoke", "5"])
+        self.assertEqual(cm.exception.code, 2)
 
     def test_invalid_arg_exits(self):
-        with unittest.mock.patch("sys.argv", ["pi.py", "abc"]):
-            with self.assertRaises(SystemExit):
-                parse_args()
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            parse_args(["abc"])
 
 
 @unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
@@ -755,7 +812,7 @@ class TestGetTargetDigitsInteractive(unittest.TestCase):
     def _ns(self, digits):
         import argparse
 
-        return argparse.Namespace(digits=digits)
+        return argparse.Namespace(size=digits, yes=False)
 
     def test_interactive_valid(self):
         from pi import get_target_digits
@@ -807,6 +864,59 @@ class TestGetTargetDigitsInteractive(unittest.TestCase):
             redirect_stdout(io.StringIO()),
         ):
             self.assertEqual(get_target_digits(self._ns(None)), 1_500_000)
+
+    def test_interactive_boundary_below_threshold_no_confirm(self):
+        from pi import get_target_digits
+
+        with (
+            unittest.mock.patch("builtins.input", side_effect=["1000000"]),
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(get_target_digits(self._ns(None)), 1_000_000)
+
+    def test_interactive_threshold_asks_confirmation(self):
+        from pi import get_target_digits
+
+        prompts = []
+
+        def fake_input(prompt=""):
+            prompts.append(prompt)
+            return "1000001" if len(prompts) == 1 else "y"
+
+        with (
+            unittest.mock.patch("builtins.input", side_effect=fake_input),
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(get_target_digits(self._ns(None)), _LARGE)
+        self.assertIn("(y/n)", prompts[1])
+
+    def test_eof_at_confirmation_exits_0(self):
+        from pi import get_target_digits
+
+        with (
+            unittest.mock.patch("builtins.input", side_effect=["2000000", EOFError]),
+            redirect_stdout(io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            get_target_digits(self._ns(None))
+        self.assertEqual(cm.exception.code, 0)
+
+    def test_eof_at_number_prompt_exits_1_with_message(self):
+        from pi import get_target_digits
+
+        err = io.StringIO()
+        with (
+            unittest.mock.patch("builtins.input", side_effect=EOFError),
+            redirect_stdout(io.StringIO()),
+            redirect_stderr(err),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            get_target_digits(self._ns(None))
+        self.assertEqual(cm.exception.code, 1)
+        self.assertEqual(
+            err.getvalue(),
+            f"Error: no input; pass SIZE as an argument (e.g. python3 pi.py {SMOKE_SIZE}).\n",
+        )
 
 
 class TestSavePiEstimateAndProgress(unittest.TestCase):
@@ -1027,8 +1137,6 @@ class TestFileWritePermissionError(unittest.TestCase):
 
         buf = io.StringIO()
         with (
-            unittest.mock.patch("sys.argv", ["pi.py", "10"]),
-            unittest.mock.patch("builtins.input", return_value="n"),
             unittest.mock.patch(
                 "pi.os.open",
                 side_effect=PermissionError(
@@ -1038,7 +1146,7 @@ class TestFileWritePermissionError(unittest.TestCase):
             redirect_stdout(buf),
         ):
             with self.assertRaises(SystemExit) as cm:
-                main()
+                main(["10"])
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("Error", buf.getvalue())
 
@@ -1057,36 +1165,125 @@ class TestMain(unittest.TestCase):
             os.unlink(os.path.join(self._tmp, f))
         os.rmdir(self._tmp)
 
-    def _run(self, argv, inputs):
-        from pi import main
-
-        with (
-            unittest.mock.patch("sys.argv", argv),
-            unittest.mock.patch("builtins.input", side_effect=inputs),
-            redirect_stdout(io.StringIO()) as buf,
-        ):
-            main()
+    def _run(self, argv):
+        with redirect_stdout(io.StringIO()) as buf:
+            main(argv)
         return buf.getvalue()
 
-    def test_small_digits_display_branch(self):
-        out = self._run(["pi.py", "10"], ["y"])
-        self.assertIn("3.14159", out)
-        self.assertIn("Total digits", out)
-
-    def test_small_digits_save_branch(self):
-        out = self._run(["pi.py", "10"], ["n"])
+    def test_always_writes_file_and_prints_no_prompt(self):
+        with unittest.mock.patch(
+            "builtins.input", side_effect=AssertionError("input() called")
+        ):
+            out = self._run(["10"])
         self.assertIn("3.14159", out)
         self.assertTrue(os.path.exists("pi_10_digits.txt"))
+        self.assertNotIn("(y/n)", out)
+        self.assertNotIn("?", out)
+
+    def test_show_prints_file_digit_string_on_own_line(self):
+        out = self._run(["10", "--show"])
+        with open("pi_10_digits.txt", encoding="utf-8") as fh:
+            longest = next(ln for ln in fh.read().splitlines() if ln.startswith("3."))
+        self.assertIn(longest, out.splitlines())
+
+    def test_without_show_digit_line_not_echoed(self):
+        out = self._run(["10"])
+        with open("pi_10_digits.txt", encoding="utf-8") as fh:
+            longest = next(ln for ln in fh.read().splitlines() if ln.startswith("3."))
+        self.assertNotIn(longest, out.splitlines())
+
+    def test_rerun_overwrites_file(self):
+        with open("pi_10_digits.txt", "w", encoding="utf-8") as fh:
+            fh.write("JUNK" * 100)
+        self._run(["10"])
+        with open("pi_10_digits.txt", encoding="utf-8") as fh:
+            content = fh.read()
+        self.assertNotIn("JUNK", content)
+        self.assertIn("3.1415926535", content)
+
+    def test_show_prints_string_returned_by_save_not_a_reconversion(self):
+        with (
+            unittest.mock.patch("pi.calculate_pi_high_precision", return_value="PI"),
+            unittest.mock.patch("pi.save_pi_to_file", return_value="SENTINEL"),
+            unittest.mock.patch("pi.show_pi_preview"),
+            unittest.mock.patch("pi._pi_to_str", side_effect=AssertionError("again")),
+            redirect_stdout(io.StringIO()) as buf,
+        ):
+            main(["10", "--show"])
+        lines = buf.getvalue().splitlines()
+        self.assertIn("SENTINEL", lines)
+        saved = next(i for i, ln in enumerate(lines) if "saved to" in ln)
+        self.assertLess(lines.index("SENTINEL"), saved)
+
+    def test_save_pi_to_file_returns_digit_string(self):
+        pi_value = _quiet_pi(10)
+        with redirect_stdout(io.StringIO()):
+            result = save_pi_to_file(pi_value, 10, "pi_10_digits.txt")
+        self.assertEqual(result, "3.1415926535")
+
+    def test_refusal_happens_before_any_file_write(self):
+        with (
+            unittest.mock.patch("pi.os.open") as opened,
+            redirect_stdout(io.StringIO()),
+            redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit),
+        ):
+            main([str(_LARGE)])
+        opened.assert_not_called()
+        self.assertEqual(os.listdir("."), [])
+
+    def test_large_run_with_yes_proceeds(self):
+        with (
+            unittest.mock.patch(
+                "pi.calculate_pi_high_precision", return_value="PI"
+            ) as calc,
+            unittest.mock.patch("pi.save_pi_to_file") as save,
+            unittest.mock.patch("pi.show_pi_preview"),
+            redirect_stdout(io.StringIO()),
+        ):
+            main([str(_LARGE), "--yes"])
+        calc.assert_called_once_with(_LARGE)
+        save.assert_called_once()
+        self.assertEqual(save.call_args.args[2], f"pi_{_LARGE}_digits.txt")
+
+    def test_large_run_without_yes_refused(self):
+        with (
+            unittest.mock.patch("pi.calculate_pi_high_precision") as calc,
+            unittest.mock.patch("pi.save_pi_to_file") as save,
+            redirect_stdout(io.StringIO()),
+            redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            main([str(_LARGE)])
+        self.assertEqual(cm.exception.code, 1)
+        calc.assert_not_called()
+        save.assert_not_called()
+        self.assertEqual(os.listdir("."), [])
+
+    def test_just_below_threshold_proceeds_without_yes(self):
+        with (
+            unittest.mock.patch(
+                "pi.calculate_pi_high_precision", return_value="PI"
+            ) as calc,
+            unittest.mock.patch("pi.save_pi_to_file"),
+            unittest.mock.patch("pi.show_pi_preview"),
+            redirect_stdout(io.StringIO()),
+        ):
+            main([str(_LARGE - 1)])
+        calc.assert_called_once_with(_LARGE - 1)
+
+    def test_smoke_writes_smoke_size_file(self):
+        self._run(["--smoke"])
+        self.assertTrue(os.path.exists(f"pi_{SMOKE_SIZE}_digits.txt"))
 
     def test_value_error_path(self):
         from pi import main
 
         with (
-            unittest.mock.patch("sys.argv", ["pi.py", "0"]),
             redirect_stdout(io.StringIO()) as buf,
         ):
             with self.assertRaises(SystemExit) as cm:
-                main()
+                main(["0"])
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("Error:", buf.getvalue())
 
@@ -1094,14 +1291,13 @@ class TestMain(unittest.TestCase):
         from pi import main
 
         with (
-            unittest.mock.patch("sys.argv", ["pi.py", "10"]),
             unittest.mock.patch(
                 "pi.calculate_pi_high_precision", side_effect=KeyboardInterrupt
             ),
             redirect_stdout(io.StringIO()) as buf,
         ):
             with self.assertRaises(SystemExit) as cm:
-                main()
+                main(["10"])
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("interrupted", buf.getvalue())
 
@@ -1109,14 +1305,13 @@ class TestMain(unittest.TestCase):
         from pi import main
 
         with (
-            unittest.mock.patch("sys.argv", ["pi.py", "10"]),
             unittest.mock.patch(
                 "pi.calculate_pi_high_precision", side_effect=RuntimeError("boom")
             ),
             redirect_stdout(io.StringIO()) as buf,
         ):
             with self.assertRaises(SystemExit) as cm:
-                main()
+                main(["10"])
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("Error occurred", buf.getvalue())
 
@@ -1128,8 +1323,8 @@ class TestEntryPointGuard(unittest.TestCase):
         import subprocess
 
         proc = subprocess.run(
-            [sys.executable, pi_module.__file__, "5"],
-            input="n\n",
+            [sys.executable, pi_module.__file__, "5", "--show"],
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             timeout=30,
@@ -1139,11 +1334,11 @@ class TestEntryPointGuard(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("3.14159", proc.stdout)
 
-    def test_eof_on_stdin_prints_clean_message_not_traceback(self):
+    def test_eof_on_stdin_without_size_exits_2_not_traceback(self):
         import subprocess
 
         proc = subprocess.run(
-            [sys.executable, pi_module.__file__, "5"],
+            [sys.executable, pi_module.__file__],
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
@@ -1151,8 +1346,7 @@ class TestEntryPointGuard(unittest.TestCase):
             cwd=tempfile.gettempdir(),
             check=False,
         )
-        self.assertEqual(proc.returncode, 1, proc.stderr)
-        self.assertIn("Error occurred during calculation", proc.stdout)
+        self.assertEqual(proc.returncode, 2, proc.stderr)
         self.assertNotIn("Traceback", proc.stderr)
 
 

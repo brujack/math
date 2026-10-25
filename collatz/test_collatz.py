@@ -10,7 +10,16 @@ from contextlib import redirect_stdout
 from hypothesis import given
 from hypothesis import strategies as st
 
-from collatz import collatz_length, collatz_next, generate_records, get_exponent, main
+import collatz
+from collatz import (
+    collatz_length,
+    collatz_next,
+    generate_records,
+    get_exponent,
+    main,
+    parse_args,
+    refuse_large_run,
+)
 
 
 class TestCollatzNext(unittest.TestCase):
@@ -78,7 +87,7 @@ class TestGenerateRecords(unittest.TestCase):
 
 class TestGetExponent(unittest.TestCase):
     def _ns(self, exponent):
-        return argparse.Namespace(exponent=exponent)
+        return argparse.Namespace(size=exponent)
 
     def test_valid_minimum(self):
         self.assertEqual(get_exponent(self._ns(1)), 1)
@@ -105,6 +114,38 @@ class TestGetExponent(unittest.TestCase):
         with unittest.mock.patch("builtins.input", return_value="5"):
             self.assertEqual(get_exponent(self._ns(None)), 5)
 
+    def test_interactive_eof_exits_1_with_contract_message(self):
+        err = io.StringIO()
+        out = io.StringIO()
+        with (
+            unittest.mock.patch("builtins.input", side_effect=EOFError),
+            unittest.mock.patch("sys.stderr", err),
+            redirect_stdout(out),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            get_exponent(self._ns(None))
+        self.assertEqual(cm.exception.code, 1)
+        self.assertEqual(out.getvalue(), "\n")
+        self.assertEqual(
+            err.getvalue().strip(),
+            "Error: no input; pass SIZE as an argument (e.g. python3 collatz.py 5).",
+        )
+
+    def test_interactive_warns_above_7(self):
+        out = io.StringIO()
+        with (
+            unittest.mock.patch("builtins.input", return_value="8"),
+            redirect_stdout(out),
+        ):
+            self.assertEqual(get_exponent(self._ns(None)), 8)
+        self.assertIn("Warning: N=8", out.getvalue())
+
+    def test_arg_above_7_warns_on_stderr(self):
+        err = io.StringIO()
+        with unittest.mock.patch("sys.stderr", err):
+            self.assertEqual(get_exponent(self._ns(8)), 8)
+        self.assertIn("Warning: N=8", err.getvalue())
+
     def test_interactive_invalid_then_valid(self):
         with (
             unittest.mock.patch("builtins.input", side_effect=["0", "abc", "3"]),
@@ -127,20 +168,18 @@ class TestMain(unittest.TestCase):
 
     def test_n1_creates_file(self):
         with (
-            unittest.mock.patch("sys.argv", ["collatz.py", "1"]),
             redirect_stdout(io.StringIO()),
         ):
-            main()
+            main(["1"])
         with open("collatz_1e1.txt") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines, ["1 0", "2 1", "3 7", "6 8", "7 16", "9 19"])
 
     def test_n3_file_contains_27(self):
         with (
-            unittest.mock.patch("sys.argv", ["collatz.py", "3"]),
             redirect_stdout(io.StringIO()),
         ):
-            main()
+            main(["3"])
         with open("collatz_1e3.txt") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], "1 0")
@@ -148,27 +187,141 @@ class TestMain(unittest.TestCase):
 
     def test_keyboard_interrupt_exits_1(self):
         with (
-            unittest.mock.patch("sys.argv", ["collatz.py", "1"]),
             unittest.mock.patch(
                 "collatz.generate_records", side_effect=KeyboardInterrupt
             ),
             redirect_stdout(io.StringIO()),
         ):
             with self.assertRaises(SystemExit) as cm:
-                main()
+                main(["1"])
         self.assertEqual(cm.exception.code, 1)
 
     def test_permission_error_exits_1(self):
         with (
-            unittest.mock.patch("sys.argv", ["collatz.py", "1"]),
             unittest.mock.patch(
                 "builtins.open", side_effect=PermissionError("Permission denied")
             ),
             redirect_stdout(io.StringIO()),
         ):
             with self.assertRaises(SystemExit) as cm:
-                main()
+                main(["1"])
         self.assertEqual(cm.exception.code, 1)
+
+    def test_without_show_does_not_echo_records(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            main(["1"])
+        self.assertNotIn("9 19", out.getvalue().splitlines())
+        self.assertIn("Saved 6 records to collatz_1e1.txt", out.getvalue())
+
+    def test_show_echoes_each_record_verbatim(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            main(["1", "--show"])
+        lines = out.getvalue().splitlines()
+        for rec in ["1 0", "2 1", "3 7", "6 8", "7 16", "9 19"]:
+            self.assertIn(rec, lines)
+
+    def test_rerun_overwrites_file(self):
+        with redirect_stdout(io.StringIO()):
+            main(["1"])
+            main(["1"])
+        with open("collatz_1e1.txt") as f:
+            self.assertEqual(len(f.read().splitlines()), 6)
+
+    def test_refusal_happens_before_any_file_write(self):
+        with (
+            unittest.mock.patch.object(collatz, "LARGE_RUN_THRESHOLD", 2),
+            unittest.mock.patch("sys.stderr", io.StringIO()),
+            redirect_stdout(io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            main(["2"])
+        self.assertEqual(cm.exception.code, 1)
+        self.assertEqual(os.listdir("."), [])
+
+    def test_smoke_runs_at_smoke_size(self):
+        with redirect_stdout(io.StringIO()):
+            main(["--smoke"])
+        self.assertTrue(os.path.exists(f"collatz_1e{collatz.SMOKE_SIZE}.txt"))
+
+    def test_out_of_range_size_exits_1_without_file(self):
+        with (
+            unittest.mock.patch("sys.stderr", io.StringIO()),
+            redirect_stdout(io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            main(["0"])
+        self.assertEqual(cm.exception.code, 1)
+        self.assertEqual(os.listdir("."), [])
+
+
+class TestParseArgs(unittest.TestCase):
+    def test_size_parsed(self):
+        args = parse_args(["4"])
+        self.assertEqual(args.size, 4)
+        self.assertFalse(args.show)
+        self.assertFalse(args.yes)
+
+    def test_show_flag(self):
+        self.assertTrue(parse_args(["4", "--show"]).show)
+
+    def test_smoke_sets_size_and_clears_show(self):
+        args = parse_args(["--smoke", "--show"])
+        self.assertEqual(args.size, collatz.SMOKE_SIZE)
+        self.assertFalse(args.show)
+
+    def test_smoke_with_size_exits_2(self):
+        with (
+            unittest.mock.patch("sys.stderr", io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            parse_args(["--smoke", "3"])
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_bare_non_tty_exits_2(self):
+        with (
+            unittest.mock.patch("sys.stdin.isatty", return_value=False),
+            unittest.mock.patch("sys.stderr", io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            parse_args([])
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_bare_tty_allowed(self):
+        with unittest.mock.patch("sys.stdin.isatty", return_value=True):
+            self.assertIsNone(parse_args([]).size)
+
+
+class TestCliContractConstants(unittest.TestCase):
+    def test_smoke_size(self):
+        self.assertEqual(collatz.SMOKE_SIZE, 5)
+
+    def test_large_run_threshold(self):
+        self.assertIsNone(collatz.LARGE_RUN_THRESHOLD)
+
+
+class TestRefuseLargeRun(unittest.TestCase):
+    def test_no_threshold_never_refuses(self):
+        refuse_large_run(12, False)
+
+    def test_threshold_refuses_without_yes(self):
+        with (
+            unittest.mock.patch.object(collatz, "LARGE_RUN_THRESHOLD", 8),
+            unittest.mock.patch("sys.stderr", io.StringIO()) as err,
+            self.assertRaises(SystemExit) as cm,
+        ):
+            refuse_large_run(8, False)
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("--yes", err.getvalue())
+
+    def test_threshold_one_below_allowed(self):
+        with unittest.mock.patch.object(collatz, "LARGE_RUN_THRESHOLD", 8):
+            refuse_large_run(7, False)
+
+    def test_threshold_with_yes_allowed(self):
+        with unittest.mock.patch.object(collatz, "LARGE_RUN_THRESHOLD", 8):
+            refuse_large_run(8, True)
 
 
 class TestCollatzProperties(unittest.TestCase):
@@ -203,7 +356,7 @@ class TestEntryPointGuard(unittest.TestCase):
 
         module_path = pathlib.Path(__file__).parent / "collatz.py"
         proc = subprocess.run(
-            [sys.executable, str(module_path), "4"],
+            [sys.executable, str(module_path), "4", "--show"],
             capture_output=True,
             text=True,
             timeout=30,

@@ -53,10 +53,13 @@ Supported platforms: macOS (Homebrew), Debian/Ubuntu (apt), RHEL/Fedora (dnf).
 python3 pi.py [digits]
 ```
 
-Run without arguments for interactive prompts, or pass the digit count directly:
+Run without arguments at a terminal for interactive prompts, or pass the digit count directly:
 
 ```bash
-python3 pi.py 1000000
+python3 pi.py 1000000          # written to pi_1000000_digits.txt
+python3 pi.py 1000 --show      # also print the digits
+python3 pi.py 5000000 --yes    # above 1,000,000 digits needs --yes (else exit 1)
+python3 pi.py --smoke          # quick check at 10,000 digits
 ```
 
 ### Flags
@@ -64,12 +67,15 @@ python3 pi.py 1000000
 | Flag           | Description                                                  |
 | -------------- | ------------------------------------------------------------ |
 | `digits`       | Number of decimal places to calculate (positional, optional) |
+| `--show`       | Also print the result to stdout                              |
+| `--yes`        | Confirm a run above 1,000,000 digits                         |
+| `--smoke`      | Quick check at 10,000 digits                                 |
 | `-h`, `--help` | Show help and exit                                           |
 
 ### Behavior
 
-- Digits ≤ 10,000: offers to print to terminal or save to file.
-- Digits > 10,000: saves automatically to `pi_<digits>_digits.txt`.
+- With digits given, stdin is never read; with no arguments and stdin not a terminal it exits 2 with usage.
+- The result is always saved to `pi_<digits>_digits.txt`; `--show` also prints it.
 - Falls back to `mpmath` if `gmpy2` is not installed (slower).
 
 ### Tests

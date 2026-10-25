@@ -9,6 +9,7 @@ lint:
 
 test: lint
 	pytest test_perfect_numbers.py -v
+	python3 ../scripts/cli_contract.py perfect_numbers.py
 
 coverage:
 	pytest --cov=perfect_numbers --cov-report=term-missing --cov-fail-under=90 test_perfect_numbers.py

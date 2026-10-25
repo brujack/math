@@ -9,13 +9,14 @@ lint:
 
 test: lint
 	pytest test_amicable.py -v
+	python3 ../scripts/cli_contract.py amicable.py
 
 coverage:
 	pytest --cov=amicable --cov-report=term-missing --cov-fail-under=90 test_amicable.py
 
 
 benchmark:
-	timeout 60 python3 amicable.py 5
+	timeout 30 python3 amicable.py 5
 mutants:
 	@command -v cosmic-ray >/dev/null || { printf "cosmic-ray not installed: pip install cosmic-ray\n" >&2; exit 1; }
 	rm -f cosmic-ray-session.sqlite

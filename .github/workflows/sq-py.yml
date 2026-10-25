@@ -9,6 +9,8 @@ on:
       - "sq/install_deps.sh"
       - "sq/Makefile"
       - "sq/pyrightconfig.json"
+      - "scripts/cli_contract.py"
+      - "typings/**"
       - ".github/workflows/sq-py.yml"
 
 env:

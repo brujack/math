@@ -4,16 +4,20 @@ import os
 import tempfile
 import unittest
 import unittest.mock
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 
 from hypothesis import given
 from hypothesis import strategies as st
 from perfect_numbers import (
+    LARGE_RUN_THRESHOLD,
+    SMOKE_SIZE,
     generate_perfect_numbers,
     get_exponent,
     is_prime,
     lucas_lehmer,
     main,
+    parse_args,
+    refuse_large_run,
     verify_perfect,
 )
 
@@ -133,7 +137,7 @@ class TestGeneratePerfectNumbers(unittest.TestCase):
 
 class TestGetExponent(unittest.TestCase):
     def _ns(self, exponent):
-        return argparse.Namespace(exponent=exponent)
+        return argparse.Namespace(size=exponent)
 
     def test_valid_minimum(self):
         self.assertEqual(get_exponent(self._ns(1)), 1)
@@ -210,6 +214,143 @@ class TestGetExponent(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             get_exponent(self._ns(-1))
         self.assertEqual(cm.exception.code, 1)
+
+
+class TestCliContractConstants(unittest.TestCase):
+    def test_smoke_size(self):
+        self.assertEqual(SMOKE_SIZE, 6)
+
+    def test_no_large_run_threshold(self):
+        self.assertIsNone(LARGE_RUN_THRESHOLD)
+
+
+class TestParseArgs(unittest.TestCase):
+    def test_size_positional(self):
+        args = parse_args(["7"])
+        self.assertEqual(args.size, 7)
+        self.assertFalse(args.show)
+        self.assertFalse(args.yes)
+
+    def test_show_flag(self):
+        self.assertTrue(parse_args(["3", "--show"]).show)
+
+    def test_smoke_sets_size_and_clears_show(self):
+        args = parse_args(["--smoke"])
+        self.assertEqual(args.size, SMOKE_SIZE)
+        self.assertFalse(args.show)
+
+    def test_smoke_with_size_is_usage_error(self):
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as cm:
+            parse_args(["--smoke", "3"])
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_bare_non_tty_is_usage_error(self):
+        with (
+            unittest.mock.patch("sys.stdin", io.StringIO("")),
+            redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            parse_args([])
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_bare_tty_allows_interactive(self):
+        tty = unittest.mock.Mock()
+        tty.isatty.return_value = True
+        with unittest.mock.patch("sys.stdin", tty):
+            self.assertIsNone(parse_args([]).size)
+
+
+class TestRefuseLargeRun(unittest.TestCase):
+    def test_no_threshold_never_refuses(self):
+        refuse_large_run(54, False)
+
+    def test_threshold_refuses_without_yes(self):
+        with (
+            unittest.mock.patch("perfect_numbers.LARGE_RUN_THRESHOLD", 10),
+            redirect_stderr(io.StringIO()) as err,
+            self.assertRaises(SystemExit) as cm,
+        ):
+            refuse_large_run(10, False)
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("--yes", err.getvalue())
+
+    def test_threshold_one_below_allowed(self):
+        with unittest.mock.patch("perfect_numbers.LARGE_RUN_THRESHOLD", 10):
+            refuse_large_run(9, False)
+
+    def test_threshold_with_yes_allowed(self):
+        with unittest.mock.patch("perfect_numbers.LARGE_RUN_THRESHOLD", 10):
+            refuse_large_run(10, True)
+
+
+class TestInteractiveEof(unittest.TestCase):
+    def test_eof_exits_1_with_message(self):
+        with (
+            unittest.mock.patch("builtins.input", side_effect=EOFError),
+            redirect_stderr(io.StringIO()) as err,
+            self.assertRaises(SystemExit) as cm,
+        ):
+            get_exponent(argparse.Namespace(size=None))
+        self.assertEqual(cm.exception.code, 1)
+        self.assertEqual(
+            err.getvalue(),
+            "Error: no input; pass SIZE as an argument "
+            f"(e.g. python3 perfect_numbers.py {SMOKE_SIZE}).\n",
+        )
+
+
+class TestShow(unittest.TestCase):
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.mkdtemp()
+        os.chdir(self._tmp)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        for f in os.listdir(self._tmp):
+            os.unlink(os.path.join(self._tmp, f))
+        os.rmdir(self._tmp)
+
+    def _run(self, argv):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            main(argv)
+        return buf.getvalue().splitlines()
+
+    def test_show_prints_each_perfect_number(self):
+        lines = self._run(["4", "--show"])
+        for pn in ("6", "28", "496", "8128"):
+            self.assertIn(pn, lines)
+
+    def test_show_lines_precede_summary(self):
+        lines = self._run(["4", "--show"])
+        found = next(i for i, ln in enumerate(lines) if ln.startswith("Found "))
+        saved = next(i for i, ln in enumerate(lines) if ln.startswith("Saved to"))
+        for pn in ("6", "28", "496", "8128"):
+            self.assertLess(lines.index(pn), found)
+        self.assertLess(found, saved)
+
+    def test_refusal_happens_before_any_file_write(self):
+        with (
+            unittest.mock.patch("perfect_numbers.LARGE_RUN_THRESHOLD", 3),
+            redirect_stderr(io.StringIO()),
+            redirect_stdout(io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            main(["3"])
+        self.assertEqual(cm.exception.code, 1)
+        self.assertEqual(os.listdir(self._tmp), [])
+
+    def test_without_show_no_line_is_a_file_line(self):
+        lines = self._run(["4"])
+        for pn in ("6", "28", "496", "8128"):
+            self.assertNotIn(pn, lines)
+        with open("perfect-numbers_1e4.txt") as f:
+            self.assertEqual(f.read().splitlines(), ["6", "28", "496", "8128"])
+
+    def test_smoke_writes_file_for_smoke_size(self):
+        self._run(["--smoke"])
+        self.assertTrue(os.path.exists(f"perfect-numbers_1e{SMOKE_SIZE}.txt"))
 
 
 class TestMain(unittest.TestCase):

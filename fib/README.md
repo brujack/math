@@ -16,10 +16,15 @@ Two implementations:
 ```bash
 cd fib
 bash install_deps.sh   # install ruff + coverage (one time)
-make run               # interactive prompt
+make run               # interactive prompts (terminal only)
 python3 fib.py 3       # generate Fibonacci numbers with up to 1,000 digits
+python3 fib.py 3 --show  # also print them
+python3 fib.py 4 --yes   # X >= 4 needs --yes (else exit 1)
+python3 fib.py --smoke   # quick check at X=3
 make test              # run unit tests
 ```
+
+The Python program never reads stdin when X is given and always writes to `fib_1eX.txt`; with no arguments and stdin not a terminal it exits 2 with usage.
 
 ### Rust
 
@@ -48,7 +53,7 @@ fib [X]
 | 4   | 10,000     | ~47,847      | ~240 MB (warns)    |
 | 5   | 100,000    | ~478,468     | ~24 GB (warns)     |
 
-Output: one Fibonacci number per line. Small results (X ≤ 2) are buffered and offered for display or file save. Larger results stream directly to `fib_1eX.txt`.
+Output: one Fibonacci number per line. The Python program writes to `fib_1eX.txt`; `--show` also prints the numbers.
 
 ## Output Files
 

@@ -33,3 +33,4 @@ Repo-specific decisions for the `math` repository. Cross-cutting decisions (CI t
 | [0027](0027-root-scope-python-dependency-and-type-check.md)                 | Declare and type-check root-scope Python                        | 2026-09-05 | Accepted               |
 | [0028](0028-claude-md-size-ceiling.md)                                     | CLAUDE.md has a hard size ceiling, one line per rule            | 2026-10-19 | Accepted               |
 | [0029](0029-release-notes-live-in-the-release-not-a-committed-changelog.md) | Release notes live in the release, not a committed CHANGELOG | 2026-10-24 | Accepted               |
+| [0030](0030-one-cli-contract-for-the-python-programs.md) | One CLI contract for the Python programs, checked by a shared harness | 2026-10-25 | Accepted               |

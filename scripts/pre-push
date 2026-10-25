@@ -19,6 +19,10 @@ RUN_HOOK_TESTS=0
 # an installer reached no shellcheck at all. Any pushed `.sh` path runs the root
 # lint-hooks target, which lints every tracked shell file and spawns no Python.
 RUN_SHELL_LINT=0
+# Set when the shared CLI harness itself changed. The harness checks all 8
+# Python CLIs, so it runs alone over them (no pytest) regardless of which
+# sub-project suites the push selects, and regardless of the >6 bail-out.
+RUN_CLI_CONTRACT=0
 # SHAs refused by the CLAUDE.md byte-ceiling check; acted on after the ref loop
 # so every pushed ref is examined and the refusal precedes all early exits.
 budget_refusals=()
@@ -130,6 +134,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     if git diff --name-only "${range}" | grep -qE '\.sh$'; then
         RUN_SHELL_LINT=1
     fi
+
+    # --no-renames: a rename lists only the new path by default, which would hide
+    # the old harness path being moved away.
+    if git diff --no-renames --name-only "${range}" | grep -qE '^scripts/cli_contract\.py$'; then
+        RUN_CLI_CONTRACT=1
+    fi
 done
 
 if [[ "${#budget_refusals[@]}" -gt 0 ]]; then
@@ -148,6 +158,21 @@ elif [[ "${RUN_SHELL_LINT}" -eq 1 ]]; then
     # Root `make test` runs `lint`, which already includes lint-hooks.
     printf "lint: shell scripts (shellcheck)\n"
     make -C "${REPO_ROOT}" lint-hooks < /dev/null || exit 1
+fi
+
+# Like the hook tests above, this precedes both early exits: the harness is the
+# one check that must run when only scripts/cli_contract.py changed (empty
+# DIRS_TO_TEST) and when the change is wide enough to trip the >6 bail-out.
+# Each project is (directory, program file); the harness runs from the project
+# directory because it resolves the program relative to the working directory.
+if [[ "${RUN_CLI_CONTRACT}" -eq 1 ]]; then
+    for _entry in amicable:amicable collatz:collatz e:e factorial:factorial fib:fib perfect-numbers:perfect_numbers pi:pi sq:sq; do
+        _dir="${_entry%%:*}"
+        _module="${_entry##*:}"
+        printf "cli-contract: %s\n" "${_dir}"
+        (cd "${REPO_ROOT}/${_dir}" && python3 ../scripts/cli_contract.py "${_module}.py") < /dev/null \
+            || { printf "pre-push: CLI contract harness failed for %s\n" "${_dir}" >&2; exit 1; }
+    done
 fi
 
 if [[ "${#DIRS_TO_TEST[@]}" -eq 0 ]]; then

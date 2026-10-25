@@ -9,6 +9,7 @@ lint:
 
 test: lint
 	pytest test_collatz.py -v
+	python3 ../scripts/cli_contract.py collatz.py
 
 coverage:
 	pytest --cov=collatz --cov-report=term-missing --cov-fail-under=90 test_collatz.py

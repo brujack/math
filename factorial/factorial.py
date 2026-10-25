@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Compute N! (N factorial) to arbitrary precision using the prime swing algorithm.
+"""Compute N! (N factorial) to arbitrary precision using the prime swing algorithm.
 
 Algorithm: n! = swing(n) × (floor(n/2)!)²  (Luschny prime swing)
   swing(m) = ∏ p^e_p  where e_p = Σ_{j≥1} (floor(m/p^j) mod 2)
@@ -10,6 +9,9 @@ Falls back to mpmath.factorial if gmpy2 is not installed.
 
 Install fast backend (recommended):
     bash install_deps.sh
+
+Run with no arguments at a terminal for interactive prompts, or supply SIZE:
+    python3 factorial.py [SIZE] [--show] [--yes] [--smoke]
 """
 
 import argparse
@@ -26,6 +28,9 @@ try:
 except ImportError:
     _gmpy2 = None
     _HAS_GMPY2 = False
+
+SMOKE_SIZE = 1000
+LARGE_RUN_THRESHOLD: int | None = None
 
 _CPU_COUNT = os.cpu_count() or 1
 # spawn overhead on macOS is ~100-200ms per worker; only parallel when worth it
@@ -142,17 +147,24 @@ def _compute_swing(m: int, primes: list[int]) -> int:
     return int(_tree_combine_int(partial_results))
 
 
-def _write_factorial_file(result: object, n: int) -> str:
-    """Write factorial result to factorial_<n>.txt. Returns filename."""
+def _write_factorial_file(
+    result: object, n: int, show: bool = False
+) -> tuple[str, str]:
+    """Write factorial result to factorial_<n>.txt. Returns (filename, digits).
+
+    With show, the digits are printed before the summary line.
+    """
     filename = f"factorial_{n}.txt"
     digits_str = str(int(result))  # type: ignore[arg-type]
+    if show:
+        print(digits_str)
     start = time.time()
     with open(filename, "w") as f:
         f.write(digits_str)
     elapsed = time.time() - start
     digit_count = len(digits_str)
     print(f"{digit_count:,} digits written to {filename} in {elapsed:.2f}s")
-    return filename
+    return filename, digits_str
 
 
 def _factorial_rec(n: int, primes: list[int]) -> int:
@@ -179,24 +191,64 @@ def calculate_factorial(n: int) -> int:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Parse CLI arguments. Returns namespace with optional positional 'n'."""
     parser = argparse.ArgumentParser(
-        description="Compute N! to arbitrary precision using the prime swing algorithm."
+        description="Compute N! to arbitrary precision using the prime swing algorithm.",
+        epilog="Run with no arguments at a terminal for interactive prompts.",
     )
     parser.add_argument(
-        "n", nargs="?", type=int, help="Integer to compute factorial of"
+        "size",
+        nargs="?",
+        type=int,
+        metavar="n",
+        help="Integer to compute factorial of",
     )
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--show", action="store_true", help="also print each result line to stdout"
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="confirm a large run (ignored when this program has none)",
+    )
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help=f"quick check at SMOKE_SIZE ({SMOKE_SIZE})",
+    )
+    args = parser.parse_args(argv)
+    if args.smoke:
+        if args.size is not None:
+            parser.error("--smoke takes no SIZE")
+        args.size, args.show = SMOKE_SIZE, False
+    elif args.size is None and not sys.stdin.isatty():
+        parser.error("SIZE is required when stdin is not a terminal")
+    return args
+
+
+def refuse_large_run(size: int, yes: bool) -> None:
+    """Exit 1 naming --yes when size needs confirmation and --yes is absent."""
+    if LARGE_RUN_THRESHOLD is not None and size >= LARGE_RUN_THRESHOLD and not yes:
+        print(f"Error: {size} is a large run; pass --yes to proceed.", file=sys.stderr)
+        sys.exit(1)
 
 
 def get_target_n(args: argparse.Namespace) -> int:
     """Return n from args or interactive prompt. Validates positive integer (0 allowed)."""
-    if args.n is not None:
-        if args.n < 0:
-            raise ValueError(f"n must be a non-negative integer, got {args.n}")
-        return args.n
+    if args.size is not None:
+        if args.size < 0:
+            raise ValueError(f"n must be a non-negative integer, got {args.size}")
+        return args.size
     while True:
-        raw = input("Enter N to compute N! : ").strip()
+        try:
+            raw = input("Enter N to compute N! : ").strip()
+        except EOFError:
+            print()
+            print(
+                "Error: no input; pass SIZE as an argument "
+                f"(e.g. python3 factorial.py {SMOKE_SIZE}).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         try:
             n = int(raw)
         except ValueError:
@@ -208,17 +260,23 @@ def get_target_n(args: argparse.Namespace) -> int:
         return n
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     """Entry point: parse args, compute factorial, write to file."""
-    args = parse_args()
+    args = parse_args(argv)
+    # N! routinely exceeds the default 4,300-digit int-to-str limit.
+    sys.set_int_max_str_digits(0)
     try:
         n = get_target_n(args)
+        refuse_large_run(n, args.yes)
         print(f"Computing {n:,}! ...")
         start = time.time()
         result = calculate_factorial(n)
         elapsed = time.time() - start
+        _write_factorial_file(result, n, show=args.show)
         print(f"Computed in {elapsed:.2f}s")
-        _write_factorial_file(result, n)
+    except ValueError as err:
+        print(f"Error: {err}", file=sys.stderr)
+        sys.exit(1)
     except KeyboardInterrupt:
         print("\nComputation interrupted.")
         sys.exit(1)

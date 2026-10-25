@@ -9,6 +9,8 @@ on:
       - "collatz/install_deps.sh"
       - "collatz/Makefile"
       - "collatz/pyrightconfig.json"
+      - "scripts/cli_contract.py"
+      - "typings/**"
       - ".github/workflows/collatz-py.yml"
 
 env:

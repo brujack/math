@@ -31,8 +31,10 @@ make coverage  # run tests and print coverage report
 Or directly:
 
 ```bash
-python3 perfect_numbers.py        # interactive prompt
+python3 perfect_numbers.py        # interactive prompt (terminal only; bare non-TTY run exits 2)
 python3 perfect_numbers.py 8      # find perfect numbers up to 10^8
+python3 perfect_numbers.py 8 --show   # also print each perfect number
+python3 perfect_numbers.py --smoke    # quick check at SMOKE_SIZE (6)
 ```
 
 ## Code Layout
@@ -41,9 +43,11 @@ python3 perfect_numbers.py 8      # find perfect numbers up to 10^8
 - `lucas_lehmer(p)` — Lucas-Lehmer test: s₀=4; sᵢ=sᵢ₋₁²−2 mod Mₚ; Mₚ prime iff s\_{p-2}=0
 - `verify_perfect(p)` — confirms σ(n) = (2^p−1)×2^p = 2n using multiplicative formula
 - `generate_perfect_numbers(limit)` — generator yielding (p, n) pairs for all perfect n ≤ limit
-- `parse_args()` — argparse with optional positional N
-- `get_exponent(args)` — validates N in [1, 54]; interactive prompt if no CLI arg
-- `main()` — entry point: prints each p tested, saves to `perfect-numbers_1eN.txt`
+- `SMOKE_SIZE = 6`, `LARGE_RUN_THRESHOLD = None` — CLI contract constants (`scripts/cli_contract.py`, run by `make test`)
+- `parse_args(argv)` — argparse: optional positional N, `--show`, `--yes` (no-op here), `--smoke`
+- `refuse_large_run(size, yes)` — exits 1 naming `--yes` past the threshold (none for this program)
+- `get_exponent(args)` — validates `args.size` in [1, 54]; interactive prompt if none; EOF at the prompt exits 1
+- `main(argv)` — entry point: prints each p tested, saves to `perfect-numbers_1eN.txt`; `--show` prints each perfect number after the summary
 
 ## Important Behavior
 
@@ -63,7 +67,7 @@ make coverage  # pytest --cov, fails under 90%
 
 ### Test coverage (≥90% target)
 
-45 tests total, 38 subtests.
+63 tests total, 38 subtests.
 
 | Class                          | Tests | Notes                                                                                        |
 | ------------------------------ | ----- | -------------------------------------------------------------------------------------------- |
@@ -72,6 +76,11 @@ make coverage  # pytest --cov, fails under 90%
 | `TestVerifyPerfect`            | 2     | known exponents p=2..19; algebraic sigma==2n check                                           |
 | `TestGeneratePerfectNumbers`   | 8     | empty, N=1, N=4, N=8, N=54 (all 10), ascending order, exact boundary at 6 and 28             |
 | `TestGetExponent`              | 15    | valid min/max/mid, exit on 0/55/negative (with exit-code assertions), interactive boundaries |
+| `TestCliContractConstants`     | 2     | SMOKE_SIZE = 6, LARGE_RUN_THRESHOLD is None                                                  |
+| `TestParseArgs`                | 6     | size, --show, --smoke, --smoke with SIZE (exit 2), bare non-TTY (exit 2), bare TTY           |
+| `TestRefuseLargeRun`           | 4     | no threshold, at/below threshold, --yes                                                      |
+| `TestInteractiveEof`           | 1     | EOF at prompt exits 1 with message                                                           |
+| `TestShow`                     | 5     | --show prints numbers before summary, absent without it, refusal before write, smoke                                     |
 | `TestMain`                     | 4     | N=1 file, N=4 file, KeyboardInterrupt exits 1, PermissionError exits 1                       |
 | `TestPerfectNumbersProperties` | 3     | property tests: positive, below limit, even-composites not prime                             |
 | `TestEntryPointGuard`          | 1     | module runs via subprocess                                                                   |
