@@ -43,11 +43,6 @@ def find_amicable_pairs(limit: int):
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """
-    Parse command-line arguments.
-
-    Returns an argparse.Namespace with size (int or None), show, yes and smoke.
-    """
     parser = argparse.ArgumentParser(
         description="Find all amicable pairs with b <= 10^N",
         epilog="Run with no arguments at a terminal for interactive prompts.",
@@ -99,6 +94,7 @@ def get_exponent(args: argparse.Namespace) -> int:
         try:
             n = int(input("Enter exponent N (limit = 10^N, max 7): "))
         except EOFError:
+            print()
             print(
                 "Error: no input; pass SIZE as an argument "
                 f"(e.g. python3 amicable.py {SMOKE_SIZE}).",

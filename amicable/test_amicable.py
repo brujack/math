@@ -187,14 +187,16 @@ class TestGetExponent(unittest.TestCase):
             args = parse_args([])
         with (
             unittest.mock.patch("builtins.input", side_effect=EOFError),
+            unittest.mock.patch("sys.stdout", new_callable=io.StringIO) as out,
             unittest.mock.patch("sys.stderr", new_callable=io.StringIO) as err,
             self.assertRaises(SystemExit) as ctx,
         ):
             get_exponent(args)
         self.assertEqual(ctx.exception.code, 1)
-        self.assertIn(
-            "no input; pass SIZE as an argument (e.g. python3 amicable.py 5)",
+        self.assertEqual(out.getvalue(), "\n")
+        self.assertEqual(
             err.getvalue(),
+            "Error: no input; pass SIZE as an argument (e.g. python3 amicable.py 5).\n",
         )
 
     def test_interactive_non_integer_exits_1(self):
@@ -242,6 +244,24 @@ class TestMain(unittest.TestCase):
         out, content = self._run_in_tmp(["3", "--show"])
         self.assertEqual(content, "220 284\n")
         self.assertIn("220 284", out.splitlines())
+
+    def test_n4_writes_every_pair(self):
+        _, content = self._run_in_tmp(["4"])
+        self.assertEqual(
+            content,
+            "220 284\n1184 1210\n2620 2924\n5020 5564\n6232 6368\n",
+        )
+
+    def test_show_lines_precede_summary(self):
+        out, _ = self._run_in_tmp(["3", "--show"])
+        self.assertEqual(
+            out.splitlines(),
+            [
+                "220 284",
+                "Found 1 amicable pairs up to 10^3",
+                "Saved to amicable_1e3.txt",
+            ],
+        )
 
     def test_n1_empty_output(self):
         out, content = self._run_in_tmp(["1"])
