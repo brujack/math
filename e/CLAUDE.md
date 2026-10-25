@@ -113,7 +113,8 @@ Main functions:
 
 Module-level constants / state:
 
-- `_HAS_GMPY2`: `True` if gmpy2 imported successfully at startup.
+- `_gmpy2`: the gmpy2 module, or `None` when the import failed. Code checks `_gmpy2 is not None` (pyright does not carry a caller's check into a callee); gmpy2-only functions call `_require_gmpy2()`, which raises `RuntimeError` when it is `None`. Tests simulate absence by patching `_gmpy2` to `None`.
+- `_HAS_GMPY2`: `True` if gmpy2 imported successfully at startup; used only by tests for `skipUnless`, never by `e.py` logic.
 - `_gmpy2_PQ_cache`: `(P_int, Q_int)` from the most recent gmpy2 calculation; used to pass picklable data to the subprocess worker.
 - `_CPU_COUNT`: result of `os.cpu_count()`.
 - `_IO_WORKERS`: number of I/O worker threads (scales with cores, capped at 8).
@@ -210,8 +211,13 @@ gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 | `TestEntryPointGuard`                | 1     | Module runs via subprocess (`if __name__ == "__main__"` block)          |
 | `TestProcessPoolPermissionError`     | 1     | PermissionError triggers serial fallback in `save_e_to_file`            |
 | `TestProcessPoolSemaphoreExhaustion` | 2     | OSError and errno.ENOSPC trigger serial fallback in `save_e_to_file`    |
-| `TestMissingGmpy2`                   | 1     | mpmath path used when `_HAS_GMPY2` is False                             |
+| `TestMissingGmpy2`                   | 1     | mpmath path used when `_gmpy2` is patched to None                       |
+| `TestRequireGmpy2`                   | 3     | `_require_gmpy2` raises without gmpy2, returns the module with it       |
 | `TestFileWritePermissionError`       | 1     | `main()` exits 1 on `PermissionError` when creating output file         |
+
+#### Type checking
+
+`pyrightconfig.json` runs pyright at `standard` with `stubPath` `../typings`: gmpy2 ships no stubs, so the vendored `typings/gmpy2/__init__.pyi` (no `Any`, guarded by `tests/test_gmpy2_stub.py`) types the names e and pi use. Add a name to the stub before using a new gmpy2 attribute. Run `cd e && pyright`.
 
 #### Adding new tests
 
