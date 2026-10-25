@@ -29,4 +29,4 @@ mutants-clean:
 	rm -f cosmic-ray-session.sqlite mutants-report.txt
 
 clean: mutants-clean
-	rm -rf __pycache__ .coverage
+	rm -rf __pycache__ .coverage factorial_*.txt

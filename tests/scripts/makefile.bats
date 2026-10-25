@@ -510,3 +510,21 @@ STUB
           | grep -vE '^$' | grep -vE '^-' | grep -vE '==[[:space:]]*[0-9]' || true)"
     [ -z "${bad}" ]
 }
+
+# Every Python program writes its output as <dir>_*.txt (perfect-numbers uses
+# the directory name, not the module), so the rendered clean target removes
+# that glob and nothing else.
+@test "Python make clean removes the program's output files and keeps others" {
+    local p d
+    for p in amicable collatz e factorial fib perfect-numbers pi sq; do
+        d="${BATS_TEST_TMPDIR}/${p}"
+        mkdir -p "${d}"
+        cp "${REPO_ROOT}/${p}/Makefile" "${d}/Makefile"
+        touch "${d}/${p}_1e3.txt" "${d}/${p}_1000_digits.txt" "${d}/notes.txt"
+        run make -C "${d}" clean --no-print-directory
+        [ "${status}" -eq 0 ]
+        [ ! -e "${d}/${p}_1e3.txt" ]
+        [ ! -e "${d}/${p}_1000_digits.txt" ]
+        [ -e "${d}/notes.txt" ]
+    done
+}
