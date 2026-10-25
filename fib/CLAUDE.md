@@ -34,6 +34,7 @@ python3 fib.py 3      # generate Fibonacci numbers with up to 1,000 digits
 - `generate_fibonacci(max_digits)` — generator that yields every Fibonacci number with at most `max_digits` decimal digits. Uses `b < 10^max_digits` stopping criterion; limit precomputed once before the loop.
 - `parse_args()` — parses CLI via `argparse`; returns `Namespace` with optional `exponent` int.
 - `get_exponent(args)` — returns validated exponent from args, or prompts interactively. Valid range: 1–5. Calls `sys.exit(1)` for out-of-range CLI args.
+- `ask_yes(prompt)` — y/n prompt; returns `True` only for `y`/`yes` (any case, trimmed). End of input (stdin closed, as in CI) prints a newline and reads as no.
 - `main()` — top-level entry: parses args, validates, warns for X ≥ 4, buffers or streams output.
 
 ## Important Behavior
@@ -41,6 +42,7 @@ python3 fib.py 3      # generate Fibonacci numbers with up to 1,000 digits
 - **Small output (X ≤ 2):** result buffered in a `StringIO`, user prompted to display or save to `fib_1eX.txt`.
 - **Large output (X ≥ 3):** streamed directly to `fib_1eX.txt` with 8 MB write buffer.
 - **Large-N warning:** X ≥ 4 prints a warning and requires `y/yes` confirmation.
+- **Closed stdin:** every y/n prompt reads end of input as no (X ≥ 4 then aborts, X ≤ 2 saves to file); the interactive X prompt exits 1 with a message to pass X as an argument.
 - **Int-string cap:** `main()` calls `sys.set_int_max_str_digits(0)`; without it Python 3.11+ raises `ValueError` on any value over 4,300 digits, so every X ≥ 4 run crashed.
 - **Stopping criterion:** `b < 10^max_digits` (precomputed once). Equivalent to `len(str(b)) <= max_digits` but avoids per-iteration string conversion.
 
@@ -61,7 +63,7 @@ make coverage  # pytest --cov, fails under 90%
 
 ### Test coverage
 
-99% line coverage (`fib.py`), 40 tests.
+99% line coverage (`fib.py`), 49 tests.
 
 | Class                          | Tests                                                                                                           |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
@@ -72,6 +74,8 @@ make coverage  # pytest --cov, fails under 90%
 | `TestMain`                     | 9 — display + save branches, buffered (X=2), streaming (X=3), X≥4 warning aborts on "n"/blank; X=4 past the 4,300-digit `str(int)` cap; count assertions |
 | `TestFibonacciProperties`      | 3 — property tests: all positive, recurrence holds, strictly increasing after first two                         |
 | `TestEntryPoint`               | 1 — module runs via subprocess (exercises `if __name__ == "__main__"`)                                          |
+| `TestClosedStdin`              | 4 — subprocess with stdin closed: display prompt saves, X≥4 aborts, X prompt exits 1; EOF after a bad answer |
+| `TestAskYes`                   | 5 — EOF reads as no, yes forms, other answers are no, Ctrl-C propagates, EOF newline on stdout at the X prompt |
 | `TestFileWritePermissionError` | 1 — `main()` exits 1 on `PermissionError` when writing output file                                              |
 | `TestKeyboardInterrupt`        | 1 — `main()` exits 1 on KeyboardInterrupt during generation                                                     |
 

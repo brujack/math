@@ -57,8 +57,25 @@ def get_exponent(args: argparse.Namespace) -> int:
             if 1 <= x <= 5:
                 return x
             print("X must be between 1 and 5.")
+        except EOFError:
+            print()  # end the prompt line, as ask_yes does
+            print(
+                "Error: no input; pass X as an argument (e.g. python3 fib.py 3).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         except ValueError:
             print("Please enter a positive integer.")
+
+
+def ask_yes(prompt: str) -> bool:
+    """Ask a y/n question; end of input (stdin closed, as in CI) reads as no."""
+    try:
+        answer = input(prompt)
+    except EOFError:
+        print()
+        return False
+    return answer.strip().lower() in ("y", "yes")
 
 
 def main() -> None:
@@ -79,8 +96,7 @@ def main() -> None:
                 f"— this may take a long time"
             )
             print("         and produce a very large output file.")
-            answer = input("Continue? (y/n): ").strip().lower()
-            if answer not in ("y", "yes"):
+            if not ask_yes("Continue? (y/n): "):
                 return
 
         print(
@@ -97,12 +113,7 @@ def main() -> None:
                 count += 1
 
             print(f"\nFound {count:,} Fibonacci numbers with up to 10^{x} digits")
-            answer = (
-                input(f"Display all {count:,} Fibonacci numbers? (y/n): ")
-                .strip()
-                .lower()
-            )
-            if answer in ("y", "yes"):
+            if ask_yes(f"Display all {count:,} Fibonacci numbers? (y/n): "):
                 print(buf.getvalue(), end="")
             else:
                 filename = f"fib_1e{x}.txt"

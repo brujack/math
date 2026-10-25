@@ -7,7 +7,7 @@ import os
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 from hypothesis import given
@@ -322,6 +322,91 @@ class TestSquaresProperties(unittest.TestCase):
         seq = [n for n, _ in generate_squares(max_digits)]
         for i in range(1, len(seq)):
             self.assertGreater(seq[i], seq[i - 1])
+
+
+class TestClosedStdin(unittest.TestCase):
+    """Run non-interactively (stdin closed, as in CI) the CLI must not traceback."""
+
+    def _run(self, *args):
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = subprocess.run(
+                [sys.executable, sq_module.__file__, *args],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=tmp,
+                check=False,
+            )
+            files = sorted(os.listdir(tmp))
+        return proc, files
+
+    def test_display_prompt_eof_reads_as_no(self):
+        proc, files = self._run("1")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertEqual(files, ["sq_1e1.txt"])
+        self.assertNotIn("1 | 1\n4 | 2", proc.stdout)
+
+    def test_exponent_prompt_eof_exits_1_with_a_remedy(self):
+        proc, files = self._run()
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertIn("pass N as an argument", proc.stderr)
+        self.assertEqual(files, [])
+
+    def test_exponent_prompt_eof_after_a_bad_answer_still_exits(self):
+        with (
+            patch("builtins.input", side_effect=["abc", EOFError]),
+            redirect_stdout(io.StringIO()),
+            redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            get_exponent(argparse.Namespace(exponent=None))
+        self.assertEqual(ctx.exception.code, 1)
+
+
+class TestAskYes(unittest.TestCase):
+    def _ask(self, side_effect):
+        with (
+            patch("builtins.input", side_effect=side_effect),
+            redirect_stdout(io.StringIO()) as out,
+        ):
+            return sq_module.ask_yes("Q? "), out.getvalue()
+
+    def test_eof_reads_as_no_and_ends_the_prompt_line(self):
+        self.assertEqual(self._ask(EOFError), (False, "\n"))
+
+    def test_yes_answers(self):
+        for answer in ("y", "Y", " yes ", "YES"):
+            with self.subTest(answer=answer):
+                self.assertTrue(self._ask([answer])[0])
+
+    def test_keyboard_interrupt_still_propagates(self):
+        # main() turns Ctrl-C into exit 1; ask_yes must not swallow it as "no".
+        with (
+            patch("builtins.input", side_effect=KeyboardInterrupt),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            sq_module.ask_yes("Q? ")
+
+    def test_eof_at_exponent_prompt_ends_the_prompt_line_on_stdout(self):
+        with (
+            patch("builtins.input", side_effect=EOFError),
+            redirect_stdout(io.StringIO()) as out,
+            redirect_stderr(io.StringIO()) as err,
+            self.assertRaises(SystemExit),
+        ):
+            sq_module.get_exponent(argparse.Namespace(exponent=None))
+        self.assertEqual(out.getvalue(), "\n")
+        self.assertTrue(err.getvalue().startswith("Error: no input"))
+
+    def test_other_answers_are_no(self):
+        for answer in ("", "n", "no", "yep", "y es"):
+            with self.subTest(answer=answer):
+                self.assertFalse(self._ask([answer])[0])
 
 
 if __name__ == "__main__":

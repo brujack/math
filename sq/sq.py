@@ -50,8 +50,25 @@ def get_exponent(args: argparse.Namespace) -> int:
             if x == 1:
                 return x
             print("N must be 1.")
+        except EOFError:
+            print()  # end the prompt line, as ask_yes does
+            print(
+                "Error: no input; pass N as an argument (e.g. python3 sq.py 1).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         except ValueError:
             print("Please enter a positive integer.")
+
+
+def ask_yes(prompt: str) -> bool:
+    """Ask a y/n question; end of input (stdin closed, as in CI) reads as no."""
+    try:
+        answer = input(prompt)
+    except EOFError:
+        print()
+        return False
+    return answer.strip().lower() in ("y", "yes")
 
 
 def main() -> None:
@@ -76,12 +93,7 @@ def main() -> None:
 
         print(f"\nFound {count:,} perfect squares with up to 10^{x} digits")
         print(f"Saved to {filename}")
-        answer = (
-            input(f"Also display all {count:,} perfect squares? (y/n): ")
-            .strip()
-            .lower()
-        )
-        if answer in ("y", "yes"):
+        if ask_yes(f"Also display all {count:,} perfect squares? (y/n): "):
             print(buf.getvalue(), end="")
     except KeyboardInterrupt:
         print("\nGeneration interrupted.")
