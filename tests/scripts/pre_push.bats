@@ -365,3 +365,71 @@ teardown() {
     [ "$status" -eq 0 ]
     assert_no_match "^make"
 }
+
+# --- CLI contract harness (spec R16) ---------------------------------------
+# The harness runs real CLIs, so these cases put a recording python3 stub first
+# on PATH; MOCK_PYTHON_EXIT makes one invocation fail. The stub is created in
+# the per-test tmpdir, so nothing real is executed and nothing outside it is
+# touched.
+HARNESS_PROJECTS="amicable collatz e factorial fib perfect-numbers pi sq"
+
+setup_harness_stub() {
+    local d
+    mkdir -p "${BATS_TEST_TMPDIR}/stub-bin"
+    for d in ${HARNESS_PROJECTS}; do
+        mkdir -p "${MOCK_GIT_SHOW_TOPLEVEL}/${d}"
+    done
+    cat > "${BATS_TEST_TMPDIR}/stub-bin/python3" <<'STUB'
+#!/usr/bin/env bash
+printf "python3 cwd=%s args=%s\n" "$(basename "${PWD}")" "$*" >> "${MOCK_CALLS_FILE}"
+if [[ -n "${MOCK_PYTHON_FAIL_DIR:-}" && "$(basename "${PWD}")" = "${MOCK_PYTHON_FAIL_DIR}" ]]; then
+    exit 1
+fi
+exit 0
+STUB
+    chmod +x "${BATS_TEST_TMPDIR}/stub-bin/python3"
+    export PATH="${BATS_TEST_TMPDIR}/stub-bin:${PATH}"
+}
+
+@test "harness-only push runs the harness over all 8 CLIs and no project suite" {
+    setup_harness_stub
+    export MOCK_GIT_DIFF_NAMES="scripts/cli_contract.py"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [ "$(grep -c '^python3 ' "${MOCK_CALLS_FILE}")" -eq 8 ]
+    grep -qxF "python3 cwd=amicable args=../scripts/cli_contract.py amicable.py" "${MOCK_CALLS_FILE}"
+    grep -qxF "python3 cwd=perfect-numbers args=../scripts/cli_contract.py perfect_numbers.py" "${MOCK_CALLS_FILE}"
+    grep -qxF "python3 cwd=pi args=../scripts/cli_contract.py pi.py" "${MOCK_CALLS_FILE}"
+    assert_no_match "^make -C .*/\(pi\|e\|fib\) test"
+}
+
+@test "harness still runs when the >6 sub-project bail-out fires" {
+    setup_harness_stub
+    export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\nsq/sq.py\ne/e.py\nfactorial/factorial.py\ncollatz/collatz.py\namicable/amicable.py\nscripts/cli_contract.py'
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"skipping local tests"* ]]
+    [ "$(grep -c '^python3 ' "${MOCK_CALLS_FILE}")" -eq 8 ]
+}
+
+@test "a push not touching the harness runs no harness" {
+    setup_harness_stub
+    export MOCK_GIT_DIFF_NAMES="pi/pi.py"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    assert_no_match "^python3 "
+}
+
+@test "a failing harness run fails the push and names the project" {
+    setup_harness_stub
+    export MOCK_GIT_DIFF_NAMES="scripts/cli_contract.py"
+    export MOCK_PYTHON_FAIL_DIR="fib"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"fib"* ]]
+    assert_no_match "cwd=perfect-numbers"
+}

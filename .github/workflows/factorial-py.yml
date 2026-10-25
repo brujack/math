@@ -9,6 +9,8 @@ on:
       - "factorial/install_deps.sh"
       - "factorial/Makefile"
       - "factorial/pyrightconfig.json"
+      - "scripts/cli_contract.py"
+      - "typings/**"
       - ".github/workflows/factorial-py.yml"
 
 env:

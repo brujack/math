@@ -9,6 +9,8 @@ on:
       - "e/install_deps.sh"
       - "e/Makefile"
       - "e/pyrightconfig.json"
+      - "scripts/cli_contract.py"
+      - "typings/**"
       - ".github/workflows/e-py.yml"
 
 env:

@@ -8,6 +8,8 @@ on:
       - "amicable/install_deps.sh"
       - "amicable/Makefile"
       - "amicable/pyrightconfig.json"
+      - "scripts/cli_contract.py"
+      - "typings/**"
       - ".github/workflows/amicable-py.yml"
 
 env:

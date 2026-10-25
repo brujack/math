@@ -9,6 +9,8 @@ on:
       - "pi/install_deps.sh"
       - "pi/Makefile"
       - "pi/pyrightconfig.json"
+      - "scripts/cli_contract.py"
+      - "typings/**"
       - ".github/workflows/pi-py.yml"
 
 env:
