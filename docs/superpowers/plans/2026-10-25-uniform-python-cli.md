@@ -1,5 +1,7 @@
 # Uniform Python CLI and Project Files Implementation Plan
 
+> **Status: DONE** — math#171 (P1), math#172 (P2), math#173 (P3); V3 passed on a clean clone of master at 6df7f7c (all 8 `make test` green).
+
 spec: docs/superpowers/specs/2026-10-25-uniform-project-cli-and-python-files-design.md
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
