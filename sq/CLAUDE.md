@@ -10,7 +10,7 @@ Current structure:
 
 - `sq.py` — interactive generator script (Python stdlib only, no external deps)
 - `sq-rs/` — Rust implementation (no big-integer library needed)
-- `install_deps.sh` — installs ruff and coverage
+- `install_deps.sh` — rendered from `scripts/crate_templates/python/install_deps.sh`: GMP + MPFR (Homebrew, apt or dnf/yum) and every pinned Python package
 - `test_sq.py` — unit tests
 
 ## Running the Script
@@ -82,6 +82,14 @@ make coverage  # pytest --cov, fails under 90%
 | `TestRefuseLargeRun`           | 3 — no threshold never refuses; refuses at boundary; allows one below and with `--yes`                                                  |
 | `TestFileWritePermissionError` | 1 — `main()` exits 1 on `PermissionError` when writing output file                                                                     |
 | `TestKeyboardInterrupt`        | 1 — `main()` exits 1 on KeyboardInterrupt during generation                                                                            |
+
+## Equivalent mutants
+
+`cosmic-ray.toml` is rendered from a template and carries no prose; these mutants cannot be killed by any valid input:
+
+- `max_digits = 10**x` in `main()`: `get_exponent` accepts only `x == 1`, so `10*x` and `10//x` give 10. (`10/x` gives 10.0, which `main()` prints as `10.0`, so it is killable by asserting that line.)
+- `__name__ == "__main__"` guard: `<=` and `is` behave identically (`"sq" > "__main__"` lexicographically, so `<=` is False on import; CPython interns the literal).
+- `print("=" * 40)` in `main()`: the banner width is cosmetic.
 
 ## Keeping This File Up To Date
 

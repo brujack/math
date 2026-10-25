@@ -128,6 +128,10 @@ def main():
     p.add_argument("--artifact-name", default="test-metrics")
     args = p.parse_args()
 
+    # Run as `python3 <repo>/scripts/time_tests.py` from the project directory,
+    # where sys.path[0] is scripts/, not the working directory that holds the
+    # test module; without this every run records one _FailedTest.
+    sys.path.insert(0, os.getcwd())
     loader = unittest.TestLoader()
     suite = loader.loadTestsFromName(args.module)
 

@@ -31,10 +31,22 @@ ALLOWED = {
     ("mutation-testing-python.yml", "notify", "dl"): (
         "same as mutation-testing.yml: notify reports a missing artifact itself"
     ),
-    ("factorial-py.yml", "test", "Generate test metrics"): (
-        "informational timing metrics with if: always(); they gate nothing"
-    ),
 }
+
+# Rendered from one template, so every Python workflow carries the same step.
+for _project in (
+    "amicable",
+    "collatz",
+    "e",
+    "factorial",
+    "fib",
+    "perfect-numbers",
+    "pi",
+    "sq",
+):
+    ALLOWED[(f"{_project}-py.yml", "test", "Generate test metrics")] = (
+        "informational timing metrics with if: always(); they gate nothing"
+    )
 
 
 # Two lines: the wrapper writes pip-audit-summary.md, then shell appends it, so the
@@ -217,22 +229,16 @@ class TestPipAuditAuditsAProjectInterpreter(unittest.TestCase):
         )
 
 
-class TestBenchmarkGatesCanFail(unittest.TestCase):
-    def test_benchmark_steps_exist_and_are_not_masked(self):
-        found = [
-            (name, step)
+class TestNoBenchmarkStepInPythonWorkflows(unittest.TestCase):
+    def test_no_benchmark_timeout_gate_step_remains(self):
+        # The step was removed in favour of the CLI contract's --smoke run; a
+        # return would be a second, unmasked-or-masked benchmark path.
+        names = [
+            name
             for name, _, step in workflow_steps()
             if step.get("name") == "Benchmark (timeout gate)"
         ]
-        self.assertEqual(
-            len(found),
-            8,
-            f"{[n for n, _ in found]}"
-            "; when adding a Python sub-project, update this count with its workflow",
-        )
-        for name, step in found:
-            with self.subTest(workflow=name):
-                self.assertFalse(step.get("continue-on-error"))
+        self.assertEqual(names, [])
 
 
 if __name__ == "__main__":

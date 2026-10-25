@@ -14,9 +14,6 @@ test: lint
 coverage:
 	pytest --cov=factorial --cov-report=term-missing --cov-fail-under=90 test_factorial.py
 
-
-benchmark:
-	timeout 30 python3 factorial.py 1000
 mutants:
 	@command -v cosmic-ray >/dev/null || { printf "cosmic-ray not installed: pip install cosmic-ray\n" >&2; exit 1; }
 	rm -f cosmic-ray-session.sqlite
@@ -32,4 +29,4 @@ mutants-clean:
 	rm -f cosmic-ray-session.sqlite mutants-report.txt
 
 clean: mutants-clean
-	rm -rf __pycache__ .coverage
+	rm -rf __pycache__ .coverage factorial_*.txt

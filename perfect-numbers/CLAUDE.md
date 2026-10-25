@@ -16,7 +16,7 @@ Current structure:
 
 - `perfect_numbers.py` — interactive CLI (Python, built-in integers, no external deps)
 - `perfect-numbers-rs/` — Rust implementation using rug/GMP for big-integer arithmetic
-- `install_deps.sh` — installs ruff and coverage
+- `install_deps.sh` — rendered from `scripts/crate_templates/python/install_deps.sh`: GMP + MPFR (Homebrew, apt or dnf/yum) and every pinned Python package
 - `test_perfect_numbers.py` — unit tests
 
 ## Running the Script
@@ -84,6 +84,17 @@ make coverage  # pytest --cov, fails under 90%
 | `TestMain`                     | 4     | N=1 file, N=4 file, KeyboardInterrupt exits 1, PermissionError exits 1                       |
 | `TestPerfectNumbersProperties` | 3     | property tests: positive, below limit, even-composites not prime                             |
 | `TestEntryPointGuard`          | 1     | module runs via subprocess                                                                   |
+
+## Equivalent mutants
+
+`cosmic-ray.toml` is rendered from a template and carries no prose; these mutants cannot be killed by any valid input:
+
+- `lucas_lehmer`: `s == 0` to `s <= 0` (`s` is a residue mod `mp`, never negative); `p == 2` to `p <= 2` (callers never pass `p < 2`, `is_prime` rejects them).
+- `verify_perfect`: `sigma == 2 * n` to `<=` or `>=` still returns True, because Euler's identity gives `sigma == 2n` for every Mersenne exponent; a mutation that makes `mp` 0 gives `0 == 0`. (`<`, `>` and `!=` return False and are killable.)
+- `is_prime`: `n == 2` to `n <= 2` (`n < 2` returned earlier); `n % 2 == 0` and `n % i == 0` to `<= 0` (remainders are non-negative); `i += 2` to `i += 1` (`n` is odd here, so even `i` never divides it); `i * i <= n` to `i + i <= n` (extra iterations only).
+- `generate_perfect_numbers`: `limit < 6` to `limit < 5` (`limit == 5` enters the loop, and `p = 2` gives 6 > 5, so it yields nothing, as before).
+- `__name__ == "__main__"` guard: `<=` and `is` behave identically.
+- `print("=" * 40)` in `main()`: the banner width is cosmetic.
 
 ## Keeping This File Up To Date
 

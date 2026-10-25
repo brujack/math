@@ -10,7 +10,7 @@ Current structure:
 
 - `pi.py`: interactive calculator script (Python, gmpy2/GMP + mpmath fallback)
 - `pi-rs/`: Rust implementation — Chudnovsky + Rayon + rug/GMP/MPFR (best for >50M digits)
-- `install_deps.sh`: installs GMP, MPFR, and gmpy2 on macOS and Linux
+- `install_deps.sh`: rendered from `scripts/crate_templates/python/install_deps.sh`: GMP + MPFR (Homebrew, apt or dnf/yum) and every pinned Python package
 - `pi_1000000_digits.txt`: sample/generated output file
 - `pi_10000000_digits.txt`: sample/generated output file
 - `WARP.md`: similar repository guidance for Warp
@@ -80,7 +80,7 @@ Integer::from(&r.q * &l.t) + Integer::from(&l.p * &r.t)
 Each implementation has its own installer:
 
 ```bash
-bash pi/install_deps.sh        # pi.py — GMP + MPFR, mpmath, gmpy2, coverage
+bash pi/install_deps.sh        # pi.py — GMP + MPFR and the pinned Python packages
 bash pi/pi-rs/install_deps.sh  # pi-rs — GMP + MPFR, Rust toolchain, cargo-tarpaulin
 ```
 
@@ -187,7 +187,7 @@ Module-level constants / state:
 
 - New or renamed function / constant → update Code Layout
 - Makefile target added or removed → update the Makefile bullet list here and in `README.md`
-- Dependency added → update Environment section and `install_deps.sh`
+- Dependency added → update Environment section and `scripts/crate_templates/python/install_deps.sh`, then `python3 scripts/render_crate_files.py --write`
 - Test class added or coverage % changes → update the Testing coverage table here and in `README.md`
 - Behaviour or algorithm change → update Important Behavior
 

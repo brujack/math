@@ -14,9 +14,6 @@ test: lint
 coverage:
 	pytest --cov=fib --cov-report=term-missing --cov-fail-under=90 test_fib.py
 
-
-benchmark:
-	timeout 30 python3 fib.py 3
 mutants:
 	@command -v cosmic-ray >/dev/null || { printf "cosmic-ray not installed: pip install cosmic-ray\n" >&2; exit 1; }
 	rm -f cosmic-ray-session.sqlite
@@ -32,4 +29,4 @@ mutants-clean:
 	rm -f cosmic-ray-session.sqlite mutants-report.txt
 
 clean: mutants-clean
-	rm -rf __pycache__ .coverage
+	rm -rf __pycache__ .coverage fib_*.txt

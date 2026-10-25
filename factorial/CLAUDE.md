@@ -11,7 +11,7 @@ Algorithm: `n! = swing(n) × (⌊n/2⌋!)²` (Luschny prime swing identity), whe
 Current structure:
 
 - `factorial.py`: interactive calculator script (Python, gmpy2/GMP fast path + plain int fallback)
-- `install_deps.sh`: installs GMP, gmpy2, ruff, and coverage on macOS and Linux
+- `install_deps.sh`: rendered from `scripts/crate_templates/python/install_deps.sh`: GMP + MPFR (Homebrew, apt or dnf/yum) and every pinned Python package
 - `test_factorial.py`: unit tests
 
 ## Algorithm
@@ -109,7 +109,7 @@ Entry point:
 
 - New or renamed function / constant -> update Code Layout
 - Makefile target added or removed -> update the Makefile bullet list here and in `README.md`
-- Dependency added -> update Environment section and `install_deps.sh`
+- Dependency added -> update Environment section and `scripts/crate_templates/python/install_deps.sh`, then `python3 scripts/render_crate_files.py --write`
 - Test class added or coverage % changes -> update the Testing coverage table
 - Behaviour or algorithm change -> update Important Behavior
 

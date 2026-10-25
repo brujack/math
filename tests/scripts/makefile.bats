@@ -510,3 +510,29 @@ STUB
           | grep -vE '^$' | grep -vE '^-' | grep -vE '==[[:space:]]*[0-9]' || true)"
     [ -z "${bad}" ]
 }
+
+# Every Python program writes its output as <dir>_*.txt (perfect-numbers uses
+# the directory name, not the module), so the rendered clean target removes
+# that glob and nothing else.
+@test "Python make clean removes the program's output files and keeps others" {
+    local p d f projects=()
+    # Derive the Python sub-projects: dirs tracking <dir>/<dir with - as _>.py and a Makefile.
+    while IFS= read -r f; do
+        p="${f%%/*}"
+        [[ "${f}" == "${p}/${p//-/_}.py" ]] || continue
+        env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git -C "${REPO_ROOT}" ls-files --error-unmatch "${p}/Makefile" > /dev/null 2>&1 || continue
+        projects+=("${p}")
+    done < <(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git -C "${REPO_ROOT}" ls-files '*/*.py')
+    [ "${#projects[@]}" -eq 8 ]
+    for p in "${projects[@]}"; do
+        d="${BATS_TEST_TMPDIR}/${p}"
+        mkdir -p "${d}"
+        cp "${REPO_ROOT}/${p}/Makefile" "${d}/Makefile"
+        touch "${d}/${p}_1e3.txt" "${d}/${p}_1000_digits.txt" "${d}/notes.txt"
+        run make -C "${d}" clean --no-print-directory
+        [ "${status}" -eq 0 ]
+        [ ! -e "${d}/${p}_1e3.txt" ]
+        [ ! -e "${d}/${p}_1000_digits.txt" ]
+        [ -e "${d}/notes.txt" ]
+    done
+}

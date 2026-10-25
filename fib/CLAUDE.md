@@ -10,7 +10,7 @@ Current structure:
 
 - `fib.py` — interactive generator script (Python built-in integers, no external deps)
 - `fib-rs/` — Rust implementation using rug/GMP for large digit counts
-- `install_deps.sh` — installs ruff and coverage
+- `install_deps.sh` — rendered from `scripts/crate_templates/python/install_deps.sh`: GMP + MPFR (Homebrew, apt or dnf/yum) and every pinned Python package
 - `test_fib.py` — unit tests
 
 ## Running the Script
@@ -87,6 +87,14 @@ make coverage  # pytest --cov, fails under 90%
 | `TestAskYes`                   | 5 — EOF reads as no, yes forms, other answers are no, Ctrl-C propagates, EOF newline on stdout at the X prompt |
 | `TestFileWritePermissionError` | 1 — `main()` exits 1 on `PermissionError` when writing output file                                              |
 | `TestKeyboardInterrupt`        | 1 — `main()` exits 1 on KeyboardInterrupt during generation                                                     |
+
+## Equivalent mutants
+
+`cosmic-ray.toml` is rendered from a template and carries no prose; these mutants cannot be killed by any valid input:
+
+- `open(filename, "w", buffering=8 * 1024 * 1024)` in the streaming branch: arithmetic or constant changes to the buffer size alter write-flush granularity only, never the bytes written.
+- `__name__ == "__main__"` guard: `<=` and `is` behave identically (`"fib" <= "__main__"` is False on import; CPython interns the literal).
+- `print("=" * 40)` in `main()`: the width of a decorative banner has no effect on the numbers, file or count.
 
 ## Keeping This File Up To Date
 
