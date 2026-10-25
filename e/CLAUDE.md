@@ -10,7 +10,7 @@ Current structure:
 
 - `e.py`: interactive calculator script (Python, gmpy2/GMP + mpmath fallback)
 - `e-rs/`: Rust implementation -- Taylor series + Rayon + rug/GMP/MPFR
-- `install_deps.sh`: installs GMP, MPFR, gmpy2, mpmath, ruff, and coverage on macOS and Linux
+- `install_deps.sh`: rendered from `scripts/crate_templates/python/install_deps.sh`: GMP + MPFR (Homebrew, apt or dnf/yum) and every pinned Python package
 - `test_e.py`: unit tests
 
 ## Rust Implementation (`e-rs/`)
@@ -30,7 +30,7 @@ See `e-rs/CLAUDE.md` for detailed Rust guidance.
 Each implementation has its own installer:
 
 ```bash
-bash e/install_deps.sh        # e.py -- GMP + MPFR, mpmath, gmpy2, ruff, coverage
+bash e/install_deps.sh        # e.py -- GMP + MPFR and the pinned Python packages
 bash e/e-rs/install_deps.sh   # e-rs -- GMP + MPFR, Rust toolchain, cargo-tarpaulin
 ```
 
@@ -136,7 +136,7 @@ Module-level constants / state:
 
 - New or renamed function / constant -> update Code Layout
 - Makefile target added or removed -> update the Makefile bullet list here and in `README.md`
-- Dependency added -> update Environment section and `install_deps.sh`
+- Dependency added -> update Environment section and `scripts/crate_templates/python/install_deps.sh`, then `python3 scripts/render_crate_files.py --write`
 - Test class added or coverage % changes -> update the Testing coverage table here and in `README.md`
 - Behaviour or algorithm change -> update Important Behavior
 

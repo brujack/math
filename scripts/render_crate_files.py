@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render every per-crate file from one template, so all 11 crates stay identical.
+"""Render every per-crate and per-Python-project file from one template each.
 
 Usage: render_crate_files.py (--check | --write) [--root DIR] [--kind NAME ...]
 
@@ -7,10 +7,11 @@ Each template in scripts/crate_templates/ is the single source for one file kind
 @CRATE@ is replaced with the project's directory name and nothing else varies,
 except that templates under python/ may also use @MODULE@ (the directory name with
 "-" replaced by "_", the Python module and test file stem).
-Operator rule (2026-10-24): all 11 crates are treated the same, all of the time,
-so a per-crate difference is a template change applied to every crate.
+Operator rule (2026-10-24): all 11 crates and all 8 Python projects are treated the
+same, all of the time, so a per-project difference is a template change applied to
+every project.
 
---check  exit 1 and list every crate file that differs from its rendered text
+--check  exit 1 and list every rendered file that differs from its template
 --write  rewrite the files that differ; print each one written
 """
 

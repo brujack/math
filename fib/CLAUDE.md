@@ -10,7 +10,7 @@ Current structure:
 
 - `fib.py` — interactive generator script (Python built-in integers, no external deps)
 - `fib-rs/` — Rust implementation using rug/GMP for large digit counts
-- `install_deps.sh` — installs ruff and coverage
+- `install_deps.sh` — rendered from `scripts/crate_templates/python/install_deps.sh`: GMP + MPFR (Homebrew, apt or dnf/yum) and every pinned Python package
 - `test_fib.py` — unit tests
 
 ## Running the Script
