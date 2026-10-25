@@ -6,12 +6,15 @@ Vector memoization: cache[n] = chain_length(n) + 1 (0 = not computed).
 Seed: cache[1] = 1. For each n, walk until a cached value, back-fill.
 
 Run without arguments for an interactive prompt, or supply N directly:
-    python3 collatz.py [N]
+    python3 collatz.py [N] [--show] [--smoke]
 """
 
 import argparse
 import array
 import sys
+
+SMOKE_SIZE = 5
+LARGE_RUN_THRESHOLD: int | None = None
 
 
 def collatz_next(n: int) -> int:
@@ -53,24 +56,50 @@ def generate_records(limit: int):
             yield n, length
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Find Collatz chain record-setters up to 10^N",
-        epilog="Run without arguments for an interactive prompt.",
+        epilog="Run with no arguments at a terminal for interactive prompts.",
     )
     parser.add_argument(
-        "exponent",
-        type=int,
+        "size",
         nargs="?",
+        type=int,
+        metavar="N",
         help="N: scans 1..10^N for chain-length records (1-12)",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--show", action="store_true", help="also print each result line to stdout"
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="confirm a large run (ignored when this program has none)",
+    )
+    parser.add_argument(
+        "--smoke", action="store_true", help=f"quick check at SMOKE_SIZE ({SMOKE_SIZE})"
+    )
+    args = parser.parse_args(argv)
+    if args.smoke:
+        if args.size is not None:
+            parser.error("--smoke takes no SIZE")
+        args.size, args.show = SMOKE_SIZE, False
+    elif args.size is None and not sys.stdin.isatty():
+        parser.error("SIZE is required when stdin is not a terminal")
+    return args
+
+
+def refuse_large_run(size: int, yes: bool) -> None:
+    """Exit 1 naming --yes when size needs confirmation and --yes is absent."""
+    if LARGE_RUN_THRESHOLD is not None and size >= LARGE_RUN_THRESHOLD and not yes:
+        print(f"Error: {size} is a large run; pass --yes to proceed.", file=sys.stderr)
+        sys.exit(1)
 
 
 def get_exponent(args: argparse.Namespace) -> int:
     """Return validated N from CLI args, or prompt interactively."""
-    if args.exponent is not None:
-        n = args.exponent
+    if args.size is not None:
+        n = args.size
         if n < 1 or n > 12:
             print("Error: N must be between 1 and 12.", file=sys.stderr)
             sys.exit(1)
@@ -93,11 +122,19 @@ def get_exponent(args: argparse.Namespace) -> int:
             print("N must be between 1 and 12.")
         except ValueError:
             print("Please enter a positive integer.")
+        except EOFError:
+            print(
+                "Error: no input; pass SIZE as an argument "
+                f"(e.g. python3 collatz.py {SMOKE_SIZE}).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
 
-def main() -> None:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
     n = get_exponent(args)
+    refuse_large_run(n, args.yes)
     limit = 10**n
 
     print("Collatz Record Finder (Python)")
@@ -106,15 +143,15 @@ def main() -> None:
     print()
 
     try:
-        records = []
-        for num, length in generate_records(limit):
-            print(f"{num} {length}")
-            records.append((num, length))
+        records = list(generate_records(limit))
 
         filename = f"collatz_1e{n}.txt"
         with open(filename, "w") as f:
             for num, length in records:
                 f.write(f"{num} {length}\n")
+        if args.show:
+            for num, length in records:
+                print(f"{num} {length}")
         print(f"\nSaved {len(records)} records to {filename}")
 
     except KeyboardInterrupt:
