@@ -1,9 +1,11 @@
 # One CLI contract and uniform project files for the 8 Python sub-projects
 
-**Status:** Draft, revision 2, 2026-10-25. Design sections approved in conversation by the
+**Status:** Draft, revision 3, 2026-10-25. Design sections approved in conversation by the
 operator; revision 2 applies the operator's dispositions on the round-1 Multi-Lens Review
 (below): Rust CLIs deferred, per-project contract test with an open pipe, a vendored gmpy2
-stub, and five smaller corrections.
+stub, and five smaller corrections. Revision 3 applies the round-2 dispositions: shared inputs
+trigger the project workflows, a declared `LARGE_RUN_THRESHOLD`, "proceeds with `--yes`" checked
+by mocked pytests, and the benchmark recipe and its CI steps deleted.
 
 ## Problem
 
@@ -58,9 +60,11 @@ python3 <module>.py                         # interactive only when stdin is a T
   is stated in `--help`.
 - With any argument a program never reads stdin. Results always go to the output file; `--show`
   also prints them to stdout, replacing every "Display all?" prompt.
-- Large-run thresholds stay as they are (pi and e: more than 1,000,000 digits; fib: X >= 4; the
-  other 5 have none). Above the threshold without `--yes`, the program exits 1 and names
-  `--yes`; with `--yes` it proceeds. A program with no threshold accepts `--yes` and ignores it.
+- Large-run thresholds stay as they are, declared as a module-level `LARGE_RUN_THRESHOLD`: the
+  smallest size that needs `--yes` (pi and e `1_000_001` digits, fib `4`), or `None` for the
+  other 5. At or above it without `--yes`, the program exits 1 and names `--yes`, before doing
+  any work; with `--yes` it proceeds. A program whose threshold is `None` accepts `--yes` and
+  ignores it.
   For pi and e this is a behaviour change: a size above 1,000,000 with no `--yes` used to warn
   and continue (accepted by the operator).
 - `--smoke` runs at a module-level `SMOKE_SIZE`, today's benchmark size for each program. It
@@ -72,26 +76,34 @@ python3 <module>.py                         # interactive only when stdin is a T
   or a refused large run, 2 usage error.
 - Output file names are unchanged.
 
-Every Python project's Makefile then has the identical recipe
-`smoke:` -> `timeout 60 python3 @MODULE@.py --smoke`, replacing `benchmark:` (the name `bench`
-stays the Rust Criterion target).
+The `benchmark:` recipe and the 8 "Benchmark (timeout gate)" CI steps are deleted, with
+`TestBenchmarkGatesCanFail` in `tests/test_workflow_continue_on_error.py`: the harness's `--smoke`
+case (Design 2) runs inside every `make test` with the same 60 s timeout and also checks the
+output file, so a second run in CI could change no decision.
 
 ### 2. Contract test, run by each project
 
-- One shared harness, `scripts/cli_contract.py <module.py>`, runs a program as a subprocess
-  against one matrix and exits non-zero naming every failing case. Each run uses a fresh temp
+- One shared harness, `scripts/cli_contract.py <module.py>`, reads the program's `SMOKE_SIZE`
+  and `LARGE_RUN_THRESHOLD` by importing the module, runs the program as a subprocess against
+  one matrix, and exits non-zero naming every failing case. Each run uses a fresh temp
   working directory, and stdin is an open pipe that is never written to, with a 60 s timeout:
   a program that reads stdin blocks and fails on the timeout instead of reading end of input
   as no.
 - Cases: `SIZE` (the program's `SMOKE_SIZE`) writes a non-empty output file, prints nothing
   that looks like a prompt (`?`, `(y/n)`), and exits 0; `SIZE --show` prints at least one
   result line from the output file to stdout; `--smoke` behaves like `SIZE` at `SMOKE_SIZE`;
-  for pi, e and fib, a size above the threshold without `--yes` exits 1 naming `--yes`, and
-  with `--yes` proceeds (exit 0 and a non-empty file); `y` written to stdin with `SIZE` still
-  shows nothing; no arguments with stdin not a TTY exits 2.
+  when `LARGE_RUN_THRESHOLD` is set, `LARGE_RUN_THRESHOLD` without `--yes` exits 1 naming
+  `--yes` within 5 s and writes no output file; when it is `None`, `SIZE --yes` exits 0 like
+  `SIZE`; `y` written to stdin with `SIZE` still shows nothing; no arguments with stdin not a
+  TTY exits 2. "Proceeds with `--yes`" is not run by the harness, because fib's smallest
+  refused size takes about 15.5 s and writes 239 MB: pi, e and fib each test it in pytest with
+  the computation mocked.
 - Each project's `make test` runs pytest and then the harness against its own program, so the
   PR that changes `pi/pi.py` runs pi's contract in `pi-py.yml` (paths `pi/*.py`) with pi's
-  dependencies installed, and pre-push runs it on any `.py` change in that project.
+  dependencies installed, and pre-push runs it on any `.py` change in that project. The shared
+  inputs `scripts/cli_contract.py` and `typings/**` are in every `py.yml`'s `paths:`, and
+  pre-push treats a change to either as touching all 8 projects, so a PR that changes only the
+  harness or the stub still runs every real program against it.
   `tests/test_cli_contract_harness.py` unit-tests the harness itself against stub programs
   (one that prompts, one that writes nothing, one that ignores `--yes`, one that conforms).
 
@@ -107,12 +119,13 @@ stays the Rust Criterion target).
   triggers on every rendered path.
 - **Libraries:** all 8 install the same set (GMP and MPFR system libraries; gmpy2 and mpmath),
   following the operator's Rust choice (math#168). Every pip-installed package in the Python
-  workflows and installers carries one exact version repo-wide, chosen as the newest release at
-  least two weeks old; `tests/test_tool_pins.py` is extended to require it.
+  workflows and installers carries one exact version repo-wide, chosen as the newest stable
+  (non-pre-release) version at least two weeks old; `tests/test_tool_pins.py` is extended to require it.
 - **pyright `standard` for all 8.** A repo-root `typings/gmpy2/__init__.pyi` types exactly the
-  names the code and tests use (`mpfr`, `mpz`, `get_context`, `sqrt`, `version`, `mp_version`,
-  `mpfr_version`) without `Any`, and e and pi narrow their optional import with
-  `_gmpy2 is not None` rather than a separate flag. Every `pyrightconfig.json` points
+  names, classes and methods the code and tests use (including `mpfr.digits`, the context's
+  `precision`, and the arithmetic operators on `mpz` and `mpfr`) without `Any`, and e and pi
+  narrow their optional import with `_gmpy2 is not None` in each function that uses it (pyright
+  does not carry a caller's check into a callee). Every `pyrightconfig.json` points
   `stubPath` at `../typings`. A test fails if the stub contains `Any`.
 - **Test metrics** for all 8 Python workflows, extending factorial's pilot (as math#169 did for
   Rust).
@@ -123,8 +136,8 @@ stays the Rust Criterion target).
 - **P1** CLI contract for the 8 Python CLIs, the shared harness and its tests, each project's
   `make test` running it.
 - **P2** the gmpy2 stub and pyright `standard` for e and pi.
-- **P3** Python templates, pinned libraries, test metrics and the `smoke` recipe (depends on P1
-  and P2).
+- **P3** Python templates, pinned libraries and test metrics, with the benchmark recipe and its
+  CI steps deleted (depends on P1 and P2).
 
 Deferred to a Backlog row (operator, round 1): the same contract for the 11 Rust binaries.
 Measured `read_line` counts on master: pi 12, e 12, fib 14, sq 13, prime 12, factorial 10,
@@ -141,22 +154,23 @@ sub-project.
 
 - **R1.** `[P1]` Each of the 8 Python CLIs accepts `SIZE`, `--show`, `--yes` and `--smoke`, and with any argument never reads stdin.
 - **R2.** `[P1]` A Python CLI given `SIZE` writes its output file, prints the results to stdout only with `--show`, and exits 0.
-- **R3.** `[P1]` pi and e given more than 1,000,000 digits, and fib given X >= 4, exit 1 naming `--yes` when `--yes` is absent, and proceed when it is present.
+- **R3.** `[P1]` Each Python CLI defines a module-level `LARGE_RUN_THRESHOLD` (pi and e `1_000_001`, fib `4`, the other 5 `None`); at or above it without `--yes` the CLI exits 1 naming `--yes` before any computation, and with `--yes` it proceeds, the latter shown by a pytest with the computation mocked in pi, e and fib.
 - **R4.** `[P1]` Each Python CLI defines a module-level `SMOKE_SIZE` equal to its benchmark size on master `f7658ed` (amicable 5, collatz 5, e 10000, factorial 1000, fib 3, perfect-numbers 6, pi 10000, sq 1), and `--smoke` runs at that size.
 - **R5.** `[P1]` A Python CLI run with no arguments and stdin not a TTY exits 2 with usage.
-- **R6.** `[P1]` `scripts/cli_contract.py` runs the Design 2 matrix with stdin an open, never-written pipe and a 60 s timeout, and exits non-zero naming each failing case.
-- **R7.** `[P1]` `tests/test_cli_contract_harness.py` shows the harness failing a stub that prompts, one that writes no output, and one that ignores `--yes`, and passing a conforming stub.
+- **R6.** `[P1]` `scripts/cli_contract.py` reads `SMOKE_SIZE` and `LARGE_RUN_THRESHOLD` from the module, runs the Design 2 matrix with stdin an open, never-written pipe and a 60 s timeout (5 s for the refusal case), and exits non-zero naming each failing case.
+- **R7.** `[P1]` `tests/test_cli_contract_harness.py` shows the harness failing a stub that prompts, one that writes no output, one that does not refuse at its threshold, and one that rejects `--yes` when its threshold is `None`, and passing a conforming stub.
 - **R8.** `[P1]` Each Python project's `make test` runs the harness against its own program after pytest.
-- **R9.** `[P2]` A repo-root `typings/gmpy2/__init__.pyi` contains no `Any`, every Python `pyrightconfig.json` sets `stubPath` to `../typings`, and e and pi pass pyright `standard` with 0 errors and no `reportAttributeAccessIssue` or `reportOptionalMemberAccess` override.
+- **R9.** `[P2]` A repo-root `typings/gmpy2/__init__.pyi` contains no `Any`, every Python `pyrightconfig.json` sets `stubPath` to `../typings`, and e and pi, including `test_e.py` and `test_pi.py`, pass pyright `standard` with 0 errors and no `reportAttributeAccessIssue` or `reportOptionalMemberAccess` override.
 - **R10.** `[P3]` `<p>/Makefile`, `<p>/install_deps.sh`, `.github/workflows/<p>-py.yml`, `<p>/pyrightconfig.json` and `<p>/cosmic-ray.toml` for the 8 projects are rendered from `scripts/crate_templates/python/` with only `@CRATE@` and `@MODULE@` substituted, and `tests/test_crate_uniformity.py` fails on any drift.
-- **R11.** `[P3]` Every Python Makefile has `smoke:` running `timeout 60 python3 @MODULE@.py --smoke` and no `benchmark:` target.
-- **R12.** `[P3]` All 8 Python installers and workflows install GMP, MPFR, gmpy2 and mpmath, and every pip-installed package in them carries an exact `==` version, one version per package repo-wide, enforced by `tests/test_tool_pins.py`.
+- **R11.** `[P3]` No Python Makefile has a `benchmark:` target, no `*-py.yml` has a "Benchmark (timeout gate)" step, and `TestBenchmarkGatesCanFail` is removed.
+- **R12.** `[P3]` All 8 Python installers and workflows install GMP, MPFR, gmpy2 and mpmath, and every pip-installed package in them carries an exact `==` version of a stable release, one version per package repo-wide, enforced by `tests/test_tool_pins.py`.
 - **R13.** `[P3]` All 8 Python workflows publish `test-metrics-<p>-py`.
 - **R14.** `[P3]` Every `cosmic-ray.toml` sets `timeout = 60`.
 - **R15.** `[P3]` `.github/workflows/scripts.yml` triggers on every path the renderer writes.
+- **R16.** `[P1]` Every `*-py.yml` `paths:` includes `scripts/cli_contract.py` and `typings/**`, and `scripts/pre-push` runs all 8 Python projects' `make test` when a push touches either.
 - **V1.** Each PR's CI is green with every affected project's workflow run; the PR body lists them.
 - **V2.** Every Python sub-project's coverage stays at or above 90% on CI after each PR.
-- **V3.** After P3, `make smoke` and `make test` pass for all 8 Python projects in a clean copy of master on `claude`.
+- **V3.** After P3, `make test` passes for all 8 Python projects in a clean copy of master on `claude`.
 - **N1.** No output file is renamed.
 - **N2.** No program changes what `SIZE` means.
 - **N3.** No pyright suppression is added to any `pyrightconfig.json`, and no `# type: ignore` or `# pyright: ignore` is added to any source file.
@@ -187,6 +201,32 @@ Disposition: Addressed — operator: "Per-project, open-pipe" and "Accept all fi
 Finding: With stdin closed, the math#161 EOF rule lets a still-prompting CLI pass the SIZE case; detection needs an open, never-written pipe with a timeout or a no-prompt-text assertion. Placement leaves the contract unenforced on the PRs that change it. pyright standard on master copies: e 41 errors, pi 78; helpers only move the access; a 7-name hand-written stub plus `_gmpy2 is not None` narrowing would work. cosmic-ray honours `# pragma: no mutate` only through a `cr-filter-pragma` step this repo does not run, and no `cosmic-ray.toml` has exclusions; the real difference is `timeout` (60 vs 30).
 Assumption: A hand-written gmpy2 stub without `Any`, plus narrowing, gets e and pi to 0 pyright standard errors.
 Disposition: Addressed — operator: "Per-project, open-pipe", "Vendored stub" and "Accept all five". Revision 2 uses an open pipe plus a no-prompt-text assertion, a vendored stub with a no-`Any` test, and `timeout = 60` instead of pragmas.
+
+#### Adversarial Spec Review (comparison/judge designs only)
+
+N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+### Round 2
+
+Reviewed at commit: `18510fc` (revision 2). All three lenses re-run on the whole body.
+
+#### Goal-Fit
+
+Finding: Revision 2 created shared inputs (`scripts/cli_contract.py`, `typings/gmpy2/__init__.pyi`) that no project workflow triggers on (`pi-py.yml` paths are `pi/*.py`, `pi/install_deps.sh`, `pi/Makefile`, `pi/pyrightconfig.json` and the workflow), so a harness- or stub-only PR goes green with no real program checked; pre-push has the same gap. Second: the `smoke` recipe and the 8 "Benchmark (timeout gate)" CI steps add nothing once the harness runs `--smoke` inside `make test`; delete rather than rename. A no-`Any` stub with `stubPath: "../typings"` left pi 1 and e 2 attribute errors (all `mpfr.digits`, missing from the probe stub) plus the Optional errors the narrowing removes.
+Assumption: fib's "proceeds with `--yes`" case finishes inside 60 s on CI's runner.
+Disposition: Addressed — operator: "Add to triggers", "pytest, mocked, all 3", "Accept all, scoped re-review". Revision 3 adds R16, deletes the benchmark recipe and steps (R11), widens the stub wording (R9).
+
+#### Ergonomics
+
+Finding: "Proceeds with `--yes`" for fib means a full X=4 run: measured 15.75 s and a 239,321,457-byte `fib_1e4.txt` on `claude`, on every fib `make test`, pre-push and CI run (pi and e at 1,000,001 digits: 0.51 s and 0.16 s). Also: `scripts/cli_contract.py` is in no `py.yml` `paths:`.
+Assumption: fib X=4 with `--yes` finishes well inside 60 s on the 2-vCPU runner and on macOS.
+Disposition: Addressed — operator: "pytest, mocked, all 3". The harness checks only the refusal (before any work); pi, e and fib test "proceeds" in pytest with the computation mocked; the assumption no longer applies.
+
+#### Risk
+
+Finding: Same shared-input trigger gap (pre-push regex has nothing for `typings/`). Smaller: fib's `--yes` case (15.5 s, 239 MB); the pin rule picks mpmath `1.5.0a1`, an alpha (newest stable is 1.4.1); the harness has no declared way to learn thresholds, which would force a hidden per-program table; no case checks `SIZE --yes` exits 0 where there is no threshold. Premises held: pyright standard on master copies gives e 41 and pi 78 errors; `stubPath: "../typings"` is honoured; a no-`Any` stub covering the used classes and methods (`context.precision`, arithmetic, `mpfr.digits`) plus 6 per-function `_gmpy2 is not None` guards in each of e and pi reaches 0 standard errors including the tests. No R/N contradiction.
+Assumption: fib's `--yes`-proceeds case finishes inside 60 s on every machine that runs fib's `make test`.
+Disposition: Addressed — operator: "pytest, mocked, all 3" and "Accept all, scoped re-review". Revision 3 declares `LARGE_RUN_THRESHOLD` (read by the harness), adds the no-threshold `--yes` case, and requires stable pins.
 
 #### Adversarial Spec Review (comparison/judge designs only)
 
