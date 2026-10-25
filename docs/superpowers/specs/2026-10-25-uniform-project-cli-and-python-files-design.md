@@ -1,7 +1,9 @@
-# One CLI contract for all 19 programs, and uniform Python project files
+# One CLI contract and uniform project files for the 8 Python sub-projects
 
-**Status:** Draft, 2026-10-25. Design sections approved in conversation by the operator
-(scope "All 19, one spec, Python first"; contract "Yes"; files, delivery and testing "Yes").
+**Status:** Draft, revision 2, 2026-10-25. Design sections approved in conversation by the
+operator; revision 2 applies the operator's dispositions on the round-1 Multi-Lens Review
+(below): Rust CLIs deferred, per-project contract test with an open pipe, a vendored gmpy2
+stub, and five smaller corrections.
 
 ## Problem
 
@@ -24,161 +26,168 @@ replacing its own name and module name with placeholders, against fib's:
 
 Two differences are not drift but behaviour, and they block identical files:
 
-1. **The CLIs behave differently.** Each Python CLI takes one positional argument, but they prompt
-   at different points after the work: e and pi ask "Continue with N digits?" above 1,000,000
-   digits (only interactively; with an argument they warn and continue) and "Display all?";
-   fib confirms at X >= 4 even with an argument; sq asks whether to display. So three of the
-   eight benchmark recipes must pipe `printf "n\n" |` into the program, and each passes a
-   different size (amicable 5, collatz 5, e 10000, factorial 1000, fib 3, perfect-numbers 6,
-   pi 10000, sq 1). The Rust binaries prompt the same way: `pi-rs`, `e-rs`, `fib-rs` and
-   `sq-rs` call `read_line` 12-14 times each (`grep -c read_line <crate>/src/main.rs`).
+1. **The CLIs behave differently.** Each Python CLI takes one positional argument, but they
+   prompt at different points: e and pi ask "Continue with N digits?" above 1,000,000 digits
+   (only interactively; with an argument they warn and continue) and "Display all?", and their
+   bare `input()` raises `EOFError` at "Display all?" (caught, exit 1); fib confirms at X >= 4
+   even with an argument; sq asks whether to display (and already reads end of input as no). So
+   e, pi and sq's benchmark recipes pipe `printf "n\n" |`, each recipe passes a different size
+   (amicable 5, collatz 5, e 10000, factorial 1000, fib 3, perfect-numbers 6, pi 10000, sq 1),
+   and the timeouts differ (60 s for amicable and perfect-numbers, 30 s elsewhere). Measured in
+   a scratch copy, every one of those recipes finishes in 0.09-0.50 s: they are smoke runs.
 2. **Type checking differs.** e and pi run pyright `basic` with `reportAttributeAccessIssue`
-   and `reportOptionalMemberAccess` off, because gmpy2 has no type stubs; the other 6 run
-   `standard`.
+   and `reportOptionalMemberAccess` off, because gmpy2 2.3.1 ships no `.pyi` and no `py.typed`.
+   pyright 1.1.411 in `standard` mode on copies of master reports 41 errors for e and 78 for pi.
 
-Installed libraries also differ (only pi, e and factorial install gmpy2 and mpmath), and only
-factorial publishes Python test metrics.
+Also: only pi, e and factorial install gmpy2 and mpmath; only factorial publishes Python test
+metrics; and the only real per-project setting in `cosmic-ray.toml` is `timeout` (60 for e and
+pi, 30 elsewhere; `excluded-modules = []` everywhere).
 
 ## Design
 
-### 1. One CLI contract for every program
-
-Applies to all 19 programs: the 8 Python CLIs and the 11 Rust binaries.
+### 1. One CLI contract for the 8 Python CLIs
 
 ```
-<prog> SIZE [--show] [--yes]    # never prompts
-<prog> --benchmark              # never prompts; runs the program's own BENCHMARK_SIZE
-<prog>                          # interactive prompt only when stdin is a TTY, else exit 2
+python3 <module>.py SIZE [--show] [--yes]   # never reads stdin
+python3 <module>.py --smoke                 # never reads stdin; runs at SMOKE_SIZE
+python3 <module>.py                         # interactive only when stdin is a TTY, else exit 2
 ```
 
 - `SIZE` is the single positional argument. Its meaning stays per program (exponent N for
-  amicable, collatz, fib, goldbach, perfect-numbers, prime, sq and twin-primes; digit count for
-  e and pi; n for factorial) and is stated in `--help`. Keeping the meaning avoids rewriting the
-  mathematics and its tests.
-- With arguments a program never reads stdin. Results always go to the output file. `--show`
-  additionally prints them, replacing every "Display all?" prompt.
-- Each program keeps its existing large-run threshold (pi and e: more than 1,000,000 digits;
-  fib: X >= 4; Rust binaries: the same threshold as their Python twin, and for prime,
-  twin-primes and goldbach the threshold their binary uses today, or none). Above it, without
-  `--yes`, the program exits 1 and names `--yes`; with `--yes` it proceeds. A program with no
-  threshold accepts `--yes` and ignores it.
-- `--benchmark` runs at a module- or crate-level constant `BENCHMARK_SIZE`. For the 8 Python
-  programs and their Rust twins it is today's benchmark size (above); for prime, twin-primes and
-  goldbach it is chosen in the plan as the largest size that finishes in under 10 s on an
-  ubuntu-latest runner. `--benchmark` never needs `--yes` (`BENCHMARK_SIZE` is below every
-  threshold) and never shows.
-- With no arguments and stdin a TTY, the program keeps its interactive prompt; at the end of
-  input a y/n prompt reads as no and a number prompt exits 1 naming the argument to pass (the
-  math#161 behaviour). With no arguments and stdin not a TTY, it exits 2 with usage.
-- Exit codes everywhere: 0 success (including a run declined interactively), 1 invalid input,
-  I/O failure or a refused large run, 2 usage error.
-- Output file names are unchanged (`pi_*_digits.txt`, `e_*_digits.txt`, `factorial_*.txt`,
-  `<name>_1e*.txt`).
+  amicable, collatz, fib, perfect-numbers and sq; digit count for e and pi; n for factorial) and
+  is stated in `--help`.
+- With any argument a program never reads stdin. Results always go to the output file; `--show`
+  also prints them to stdout, replacing every "Display all?" prompt.
+- Large-run thresholds stay as they are (pi and e: more than 1,000,000 digits; fib: X >= 4; the
+  other 5 have none). Above the threshold without `--yes`, the program exits 1 and names
+  `--yes`; with `--yes` it proceeds. A program with no threshold accepts `--yes` and ignores it.
+  For pi and e this is a behaviour change: a size above 1,000,000 with no `--yes` used to warn
+  and continue (accepted by the operator).
+- `--smoke` runs at a module-level `SMOKE_SIZE`, today's benchmark size for each program. It
+  never needs `--yes` (every `SMOKE_SIZE` is below its threshold) and never shows.
+- No arguments and stdin a TTY: the interactive prompt as today; at end of input a y/n prompt
+  reads as no and a number prompt exits 1 naming the argument (math#161). No arguments and stdin
+  not a TTY: exit 2 with usage.
+- Exit codes: 0 success (including a run declined interactively), 1 invalid input, I/O failure
+  or a refused large run, 2 usage error.
+- Output file names are unchanged.
 
-Every project's Makefile then has the identical benchmark recipe:
-`timeout 60 python3 @MODULE@.py --benchmark` (Python) and
-`timeout 60 cargo run --release -- --benchmark` (Rust).
+Every Python project's Makefile then has the identical recipe
+`smoke:` -> `timeout 60 python3 @MODULE@.py --smoke`, replacing `benchmark:` (the name `bench`
+stays the Rust Criterion target).
 
-### 2. Per-project Python files rendered from templates
+### 2. Contract test, run by each project
 
-- Five new template kinds in `scripts/crate_templates/python/`, rendered for the 8 Python
-  projects: `Makefile` -> `<p>/Makefile`, `install_deps.sh` -> `<p>/install_deps.sh`,
-  `py.yml` -> `.github/workflows/<p>-py.yml`, `pyrightconfig.json` -> `<p>/pyrightconfig.json`,
+- One shared harness, `scripts/cli_contract.py <module.py>`, runs a program as a subprocess
+  against one matrix and exits non-zero naming every failing case. Each run uses a fresh temp
+  working directory, and stdin is an open pipe that is never written to, with a 60 s timeout:
+  a program that reads stdin blocks and fails on the timeout instead of reading end of input
+  as no.
+- Cases: `SIZE` (the program's `SMOKE_SIZE`) writes a non-empty output file, prints nothing
+  that looks like a prompt (`?`, `(y/n)`), and exits 0; `SIZE --show` prints at least one
+  result line from the output file to stdout; `--smoke` behaves like `SIZE` at `SMOKE_SIZE`;
+  for pi, e and fib, a size above the threshold without `--yes` exits 1 naming `--yes`, and
+  with `--yes` proceeds (exit 0 and a non-empty file); `y` written to stdin with `SIZE` still
+  shows nothing; no arguments with stdin not a TTY exits 2.
+- Each project's `make test` runs pytest and then the harness against its own program, so the
+  PR that changes `pi/pi.py` runs pi's contract in `pi-py.yml` (paths `pi/*.py`) with pi's
+  dependencies installed, and pre-push runs it on any `.py` change in that project.
+  `tests/test_cli_contract_harness.py` unit-tests the harness itself against stub programs
+  (one that prompts, one that writes nothing, one that ignores `--yes`, one that conforms).
+
+### 3. Per-project Python files rendered from templates
+
+- Five new template kinds in `scripts/crate_templates/python/`, rendered for the 8 projects:
+  `Makefile` -> `<p>/Makefile`, `install_deps.sh` -> `<p>/install_deps.sh`, `py.yml` ->
+  `.github/workflows/<p>-py.yml`, `pyrightconfig.json` -> `<p>/pyrightconfig.json`,
   `cosmic-ray.toml` -> `<p>/cosmic-ray.toml`.
 - `render_crate_files.py` gains a second project list (`PYTHON_PROJECTS`, the 8) and a second
-  placeholder, `@MODULE@`, derived from the directory name with `-` replaced by `_`
-  (`perfect-numbers` -> `perfect_numbers`). Any other `@NAME@` stays an error.
-  `test_crate_uniformity.py` covers the new kinds, and `scripts.yml` triggers on every rendered
-  path.
-- **Libraries:** all 8 install the same set: GMP and MPFR system libraries, and gmpy2 and mpmath
-  in Python, following the operator's Rust choice (math#168). Every pip-installed package in the
-  Python workflows and installers is pinned to one version repo-wide (ruff and pyright already
-  are; pytest, pytest-cov, coverage, hypothesis, pip-audit, cosmic-ray, gmpy2 and mpmath join
-  them), chosen as the newest release at least two weeks old, and `tests/test_tool_pins.py` is
-  extended to require it.
-- **pyright `standard` for all 8.** e and pi stop using `basic`: their gmpy2 uses go through
-  small typed helpers in the module (for example a function returning `int` or `str` around the
-  gmpy2 call), so pyright sees typed values. No suppression is added to any config.
-- **Test metrics** for all 8 Python workflows, extending factorial's `time_tests.py` pilot as
-  the Rust side did (math#169).
-- **cosmic-ray:** the per-project parts of `cosmic-ray.toml` that are mutation exclusions move
-  into the source as `# pragma: no mutate` on the lines they cover, so the config is identical.
-  Any per-project setting that cannot move is a defect to resolve in the plan, not a template
-  parameter.
+  placeholder, `@MODULE@`, derived from the directory name with `-` replaced by `_`. Any other
+  `@NAME@` stays an error. `test_crate_uniformity.py` covers the new kinds, and `scripts.yml`
+  triggers on every rendered path.
+- **Libraries:** all 8 install the same set (GMP and MPFR system libraries; gmpy2 and mpmath),
+  following the operator's Rust choice (math#168). Every pip-installed package in the Python
+  workflows and installers carries one exact version repo-wide, chosen as the newest release at
+  least two weeks old; `tests/test_tool_pins.py` is extended to require it.
+- **pyright `standard` for all 8.** A repo-root `typings/gmpy2/__init__.pyi` types exactly the
+  names the code and tests use (`mpfr`, `mpz`, `get_context`, `sqrt`, `version`, `mp_version`,
+  `mpfr_version`) without `Any`, and e and pi narrow their optional import with
+  `_gmpy2 is not None` rather than a separate flag. Every `pyrightconfig.json` points
+  `stubPath` at `../typings`. A test fails if the stub contains `Any`.
+- **Test metrics** for all 8 Python workflows, extending factorial's pilot (as math#169 did for
+  Rust).
+- **cosmic-ray:** `timeout = 60` in every project, so the file is identical after substitution.
 
-### 3. Delivery
+### 4. Delivery
 
-Two PR series, Python first. Each PR keeps master green on its own.
+- **P1** CLI contract for the 8 Python CLIs, the shared harness and its tests, each project's
+  `make test` running it.
+- **P2** the gmpy2 stub and pyright `standard` for e and pi.
+- **P3** Python templates, pinned libraries, test metrics and the `smoke` recipe (depends on P1
+  and P2).
 
-- **P1** CLI contract for the 8 Python CLIs, with the shared contract test.
-- **P2** pyright `standard` for e and pi.
-- **P3** Python templates, pinned libraries and test metrics (depends on P1 for the identical
-  benchmark line, and on P2 for the identical pyright config).
-- **R1** CLI contract for the 11 Rust binaries; the shared contract test covers them.
-- **R2** a `benchmark:` target in the Rust Makefile template running `--benchmark`.
+Deferred to a Backlog row (operator, round 1): the same contract for the 11 Rust binaries.
+Measured `read_line` counts on master: pi 12, e 12, fib 14, sq 13, prime 12, factorial 10,
+perfect-numbers 3, goldbach 1, collatz 1, twin-primes 0, amicable 0. It needs a consumer
+first, such as a contract-smoke step in the Rust CI template.
 
-### 4. Testing
+### 5. Testing
 
-- `tests/test_cli_contract.py` runs every program as a subprocess with stdin closed, against one
-  matrix: `SIZE` writes the output file, prompts nothing and exits 0; `--show` also prints the
-  result; a size above the threshold without `--yes` exits 1 naming `--yes` (programs with a
-  threshold); `--benchmark` exits 0 within its 60 s timeout and writes its output file; no
-  arguments exits 2. Each case asserts a concrete artifact (the output file exists and is
-  non-empty), not only an exit code. It covers the 8 Python programs from P1 and the 11 Rust
-  binaries from R1, built once per test run.
-- Each project keeps its own unit tests; changed functions get boundary, error-path and
-  state-transition tests per the repo's TDD rule, written RED first.
-- Coverage stays at or above 90% per sub-project.
+Each changed function gets boundary, error-path and state-transition tests, written RED first.
+The harness's own tests prove each contract case can fail. Coverage stays at or above 90% per
+sub-project.
 
 ## Requirements
 
-- **R1.** `[P1]` Each of the 8 Python CLIs accepts `SIZE`, `--show`, `--yes` and `--benchmark` and, with any argument, never reads stdin.
-- **R2.** `[P1]` A Python CLI given `SIZE` writes its output file, prints the results only with `--show`, and exits 0.
-- **R3.** `[P1]` pi and e given more than 1,000,000 digits, and fib given X >= 4, exit 1 and name `--yes` when `--yes` is absent, and proceed when it is present.
-- **R4.** `[P1]` Each Python CLI defines a module-level `BENCHMARK_SIZE` equal to its benchmark size on master `f7658ed` (amicable 5, collatz 5, e 10000, factorial 1000, fib 3, perfect-numbers 6, pi 10000, sq 1), and `--benchmark` runs at that size without prompting.
-- **R5.** `[P1]` A Python CLI run with no arguments and stdin not a TTY exits 2 with usage; with no arguments and stdin a TTY it prompts as today.
-- **R6.** `[P1]` `tests/test_cli_contract.py` runs the R1-R5 matrix as subprocesses for every Python CLI, asserting a non-empty output file for each `SIZE` and `--benchmark` case.
-- **R7.** `[P2]` `e/pyrightconfig.json` and `pi/pyrightconfig.json` use `typeCheckingMode` `standard` with no `reportAttributeAccessIssue` or `reportOptionalMemberAccess` override, and pyright reports 0 errors in both.
-- **R8.** `[P3]` `<p>/Makefile`, `<p>/install_deps.sh`, `.github/workflows/<p>-py.yml`, `<p>/pyrightconfig.json` and `<p>/cosmic-ray.toml` for the 8 Python projects are rendered from `scripts/crate_templates/python/` with only `@CRATE@` and `@MODULE@` substituted, and `tests/test_crate_uniformity.py` fails on any drift.
-- **R9.** `[P3]` Every Python project's Makefile benchmark recipe is `timeout 60 python3 @MODULE@.py --benchmark`.
-- **R10.** `[P3]` All 8 Python installers and workflows install GMP, MPFR, gmpy2 and mpmath, and every pip-installed package in them carries an exact `==` version, one version per package repo-wide, enforced by `tests/test_tool_pins.py`.
-- **R11.** `[P3]` All 8 Python workflows publish `test-metrics-<p>-py`.
-- **R12.** `[P3]` `cosmic-ray.toml` is identical across the 8 projects after substitution; per-project mutation exclusions are `# pragma: no mutate` comments in the source.
-- **R13.** `[P3]` `.github/workflows/scripts.yml` triggers on every path the renderer writes.
-- **R14.** `[R1]` Each of the 11 Rust binaries meets R1-R5 with a crate-level `BENCHMARK_SIZE`; the 8 with a Python twin use the twin's size, and prime, twin-primes and goldbach use the largest size that finishes in under 10 s on ubuntu-latest.
-- **R15.** `[R1]` `tests/test_cli_contract.py` runs the same matrix against the 11 Rust binaries.
-- **R16.** `[R2]` The Rust Makefile template has a `benchmark:` target running `timeout 60 cargo run --release -- --benchmark`.
+- **R1.** `[P1]` Each of the 8 Python CLIs accepts `SIZE`, `--show`, `--yes` and `--smoke`, and with any argument never reads stdin.
+- **R2.** `[P1]` A Python CLI given `SIZE` writes its output file, prints the results to stdout only with `--show`, and exits 0.
+- **R3.** `[P1]` pi and e given more than 1,000,000 digits, and fib given X >= 4, exit 1 naming `--yes` when `--yes` is absent, and proceed when it is present.
+- **R4.** `[P1]` Each Python CLI defines a module-level `SMOKE_SIZE` equal to its benchmark size on master `f7658ed` (amicable 5, collatz 5, e 10000, factorial 1000, fib 3, perfect-numbers 6, pi 10000, sq 1), and `--smoke` runs at that size.
+- **R5.** `[P1]` A Python CLI run with no arguments and stdin not a TTY exits 2 with usage.
+- **R6.** `[P1]` `scripts/cli_contract.py` runs the Design 2 matrix with stdin an open, never-written pipe and a 60 s timeout, and exits non-zero naming each failing case.
+- **R7.** `[P1]` `tests/test_cli_contract_harness.py` shows the harness failing a stub that prompts, one that writes no output, and one that ignores `--yes`, and passing a conforming stub.
+- **R8.** `[P1]` Each Python project's `make test` runs the harness against its own program after pytest.
+- **R9.** `[P2]` A repo-root `typings/gmpy2/__init__.pyi` contains no `Any`, every Python `pyrightconfig.json` sets `stubPath` to `../typings`, and e and pi pass pyright `standard` with 0 errors and no `reportAttributeAccessIssue` or `reportOptionalMemberAccess` override.
+- **R10.** `[P3]` `<p>/Makefile`, `<p>/install_deps.sh`, `.github/workflows/<p>-py.yml`, `<p>/pyrightconfig.json` and `<p>/cosmic-ray.toml` for the 8 projects are rendered from `scripts/crate_templates/python/` with only `@CRATE@` and `@MODULE@` substituted, and `tests/test_crate_uniformity.py` fails on any drift.
+- **R11.** `[P3]` Every Python Makefile has `smoke:` running `timeout 60 python3 @MODULE@.py --smoke` and no `benchmark:` target.
+- **R12.** `[P3]` All 8 Python installers and workflows install GMP, MPFR, gmpy2 and mpmath, and every pip-installed package in them carries an exact `==` version, one version per package repo-wide, enforced by `tests/test_tool_pins.py`.
+- **R13.** `[P3]` All 8 Python workflows publish `test-metrics-<p>-py`.
+- **R14.** `[P3]` Every `cosmic-ray.toml` sets `timeout = 60`.
+- **R15.** `[P3]` `.github/workflows/scripts.yml` triggers on every path the renderer writes.
 - **V1.** Each PR's CI is green with every affected project's workflow run; the PR body lists them.
-- **V2.** Every Python and Rust sub-project's coverage stays at or above 90% on CI after each PR.
-- **V3.** After P3 and R2, `make benchmark` passes in a clean copy of master for all 19 programs on `claude`.
+- **V2.** Every Python sub-project's coverage stays at or above 90% on CI after each PR.
+- **V3.** After P3, `make smoke` and `make test` pass for all 8 Python projects in a clean copy of master on `claude`.
 - **N1.** No output file is renamed.
 - **N2.** No program changes what `SIZE` means.
-- **N3.** No pyright suppression is added to any `pyrightconfig.json`.
+- **N3.** No pyright suppression is added to any `pyrightconfig.json`, and no `# type: ignore` or `# pyright: ignore` is added to any source file.
 - **N4.** No per-project template parameter beyond `@CRATE@` and `@MODULE@`.
 - **N5.** No coverage floor is lowered.
+- **N6.** No Rust source file changes in this spec's PRs.
 
 ## Multi-Lens Review
 
+### Round 1
+
 Reviewed at commit: `c6ef152` (spec commit, after Step 7 self-review)
 
-### Goal-Fit
+#### Goal-Fit
 
-Finding: The Rust half (series R1/R2, requirements R14-R16) does not serve the stated problem. The Rust per-crate files are already uniform (math#166-#170), the Rust CI template runs no benchmark step, and Rust benchmarking is Criterion (`benches/`, monthly `benchmarks.yml`). Reads-it test: R16's `benchmark:` target is consumed only by V3, a one-shot run; R14/R15's only consumer is the contract test R15 itself adds. The rewrite is also larger than stated: `read_line` counts are pi 12, e 12, fib 14, sq 13, prime 12, factorial 10, perfect-numbers 3, goldbach 1, collatz 1 and twin-primes and amicable 0, and every `io::Cursor` prompt test and line-numbered `exclude_re` moves with it. A simpler path is P1-P3, deferring the Rust CLIs until something consumes a uniform Rust CLI. Also: R9 raises the benchmark timeout from 30 s to 60 s for six projects (only amicable and perfect-numbers use 60 today), and the sq pipe is vestigial (sq already reads end of input as no). P2's "small typed helpers" do not reach R7: a helper written as the spec describes still reports 1 error because the attribute access moves into it; a local stub `typings/gmpy2/__init__.pyi` reaches 0.
-Assumption: The operator's rule covers runtime CLI behaviour across languages, not only per-project files. Settled by asking whether the 11 Rust binaries' prompts should be rewritten when no Rust file is blocked and nothing in CI runs `--benchmark`.
-Disposition:
+Finding: The Rust half (series R1/R2, requirements R14-R16) does not serve the stated problem. The Rust per-crate files are already uniform (math#166-#170), the Rust CI template runs no benchmark step, and Rust benchmarking is Criterion (`benches/`, monthly `benchmarks.yml`). Reads-it test: R16's `benchmark:` target is consumed only by V3, a one-shot run; R14/R15's only consumer is the contract test R15 itself adds. The rewrite is also larger than stated (read_line counts pi 12, e 12, fib 14, sq 13, prime 12, factorial 10, perfect-numbers 3, goldbach 1, collatz 1, twin-primes and amicable 0). Simpler path: P1-P3, deferring the Rust CLIs. Also: R9 raises the benchmark timeout from 30 s to 60 s for six projects, the sq pipe is vestigial, and P2's "small typed helpers" do not reach pyright standard (a helper still reports 1 error); a local stub `typings/gmpy2/__init__.pyi` reaches 0.
+Assumption: The operator's rule covers runtime CLI behaviour across languages, not only per-project files.
+Disposition: Addressed — operator: "Defer to Backlog". Revision 2 drops the Rust series (now a Backlog row with the measured counts, and N6), replaces helpers with a vendored stub, and makes the 60 s timeout uniform deliberately.
 
-### Ergonomics
+#### Ergonomics
 
-Finding: The contract test sits in `tests/`, so it runs under root `make test-python` (pre-push only for `scripts/`, `tests/` or the root Makefile) and `scripts.yml` (paths without `*/*.py` or `*/*-rs/src/**`). A change to `pi/pi.py` or `pi-rs/src/main.rs`, the code the contract governs, runs neither, while an edit to a bats mock would build 11 GMP-linked release crates on a push. `scripts.yml` also has no Rust toolchain, GMP, MPFR or gmpy2. Fix: run each program's contract row in its own project workflow and `make test`. Secondary: `make bench` (Criterion, all 11 crates) and a new `make benchmark` collide by name, and today's Python recipes run in 0.09-0.50 s, so they are smoke runs; prime, twin-primes and goldbach sized to "under 10 s" would be the only stress-sized programs, a per-project difference; and pi and e above 1,000,000 digits change from warning and continuing to exiting 1 without `--yes`. Test gaps: R1 "never reads stdin" is untested (with stdin closed a prompting program reads EOF as no and passes), the "proceeds with `--yes`" half of R3 has no case, and `--show` has no stated assertion.
-Assumption: Building 11 GMP-linked release binaries per contract run is cheap enough for its trigger; settle by timing a cold release build of all crates on `claude` and on ubuntu-latest.
-Disposition:
+Finding: The contract test in `tests/` runs on the wrong triggers (root `test-python` and `scripts.yml`, neither of which fires on `*/*.py`) and `scripts.yml` lacks the projects' dependencies. `make bench` (Criterion) and a new `make benchmark` collide by name, and the Python recipes are smoke runs (0.09-0.50 s). Stress sizes for prime, twin-primes and goldbach would be a per-project difference. pi and e above 1,000,000 digits change from warning to exiting 1. Gaps: "never reads stdin" untested, "proceeds with `--yes`" untested, `--show` unasserted.
+Assumption: Building 11 GMP-linked release binaries per contract run is cheap enough for its trigger.
+Disposition: Addressed — operator: "Per-project, open-pipe" and "Accept all five". Revision 2 runs the harness from each project's `make test`, renames `benchmark` to `smoke` (`--smoke`, `SMOKE_SIZE`), keeps sub-second sizes only, records the pi/e behaviour change as accepted, and adds the three missing cases. The build-cost assumption no longer applies (no Rust in scope).
 
-### Risk
+#### Risk
 
-Finding: Same load-bearing flaw from a different angle: with stdin closed, the math#161 EOF rule makes a still-prompting CLI write its file and exit 0, so the SIZE case passes a program that breaks R1; detection needs an open, never-written pipe with a timeout, or an assertion that no prompt text reaches stdout. Placement as above leaves Section 1 unenforced on the PRs that change it. R7: pyright 1.1.411 `standard` on copies of master gives e 41 errors (23 attribute, 18 Optional) and pi 78; helpers only move the access, errors also sit in `test_e.py` and `test_pi.py`, and `--createstub` yields a useless stub; a hand-written `typings/gmpy2/__init__.pyi` for the 7 names used (`mpfr`, `mpz`, `get_context`, `sqrt`, `version`, `mp_version`, `mpfr_version`) plus `_gmpy2 is not None` narrowing would work, and is a new file to maintain. R12: cosmic-ray honours `# pragma: no mutate` only through a separate `cr-filter-pragma` step that the Makefile and `mutation-testing-python.yml` do not run, and the premise is wrong: no `cosmic-ray.toml` has an exclusion setting (`excluded-modules = []` everywhere); the real difference is `timeout` (60 for e and pi, 30 elsewhere). No R/N contradiction found.
-Assumption: A hand-written 7-name gmpy2 stub without `Any`, plus `is not None` narrowing, gets e and pi to 0 pyright `standard` errors; settle by writing it against scratch copies and requiring 0 errors and `grep -c Any` = 0.
-Disposition:
+Finding: With stdin closed, the math#161 EOF rule lets a still-prompting CLI pass the SIZE case; detection needs an open, never-written pipe with a timeout or a no-prompt-text assertion. Placement leaves the contract unenforced on the PRs that change it. pyright standard on master copies: e 41 errors, pi 78; helpers only move the access; a 7-name hand-written stub plus `_gmpy2 is not None` narrowing would work. cosmic-ray honours `# pragma: no mutate` only through a `cr-filter-pragma` step this repo does not run, and no `cosmic-ray.toml` has exclusions; the real difference is `timeout` (60 vs 30).
+Assumption: A hand-written gmpy2 stub without `Any`, plus narrowing, gets e and pi to 0 pyright standard errors.
+Disposition: Addressed — operator: "Per-project, open-pipe", "Vendored stub" and "Accept all five". Revision 2 uses an open pipe plus a no-prompt-text assertion, a vendored stub with a no-`Any` test, and `timeout = 60` instead of pragmas.
 
-### Adversarial Spec Review (comparison/judge designs only)
+#### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
