@@ -12,6 +12,7 @@ on:
       # Rendered from scripts/crate_templates/; test_crate_uniformity checks them.
       - "*/*-rs/Makefile"
       - "*/Makefile"
+      - "*/install_deps.sh"
       - "*/*-rs/rustfmt.toml"
       - "*/*-rs/.config/nextest.toml"
       - "*/*-rs/install_deps.sh"
