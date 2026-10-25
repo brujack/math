@@ -123,6 +123,7 @@ def get_exponent(args: argparse.Namespace) -> int:
         except ValueError:
             print("Please enter a positive integer.")
         except EOFError:
+            print()
             print(
                 "Error: no input; pass SIZE as an argument "
                 f"(e.g. python3 perfect_numbers.py {SMOKE_SIZE}).",
@@ -168,6 +169,9 @@ def main(argv: list[str] | None = None) -> None:
             results.append(pn)
 
         count = len(results)
+        if args.show:
+            for pn in results:
+                print(pn)
         print()
         s = "number" if count == 1 else "numbers"
         print(f"Found {count} perfect {s} up to 10^{n}")
@@ -178,9 +182,6 @@ def main(argv: list[str] | None = None) -> None:
                 f.write(str(pn))
                 f.write("\n")
         print(f"Saved to {filename}")
-        if args.show:
-            for pn in results:
-                print(pn)
 
     except KeyboardInterrupt:
         print("\nGeneration interrupted.")

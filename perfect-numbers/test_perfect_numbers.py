@@ -292,8 +292,11 @@ class TestInteractiveEof(unittest.TestCase):
         ):
             get_exponent(argparse.Namespace(size=None))
         self.assertEqual(cm.exception.code, 1)
-        self.assertIn("no input", err.getvalue())
-        self.assertIn(str(SMOKE_SIZE), err.getvalue())
+        self.assertEqual(
+            err.getvalue(),
+            "Error: no input; pass SIZE as an argument "
+            f"(e.g. python3 perfect_numbers.py {SMOKE_SIZE}).\n",
+        )
 
 
 class TestShow(unittest.TestCase):
@@ -318,6 +321,25 @@ class TestShow(unittest.TestCase):
         lines = self._run(["4", "--show"])
         for pn in ("6", "28", "496", "8128"):
             self.assertIn(pn, lines)
+
+    def test_show_lines_precede_summary(self):
+        lines = self._run(["4", "--show"])
+        found = next(i for i, ln in enumerate(lines) if ln.startswith("Found "))
+        saved = next(i for i, ln in enumerate(lines) if ln.startswith("Saved to"))
+        for pn in ("6", "28", "496", "8128"):
+            self.assertLess(lines.index(pn), found)
+        self.assertLess(found, saved)
+
+    def test_refusal_happens_before_any_file_write(self):
+        with (
+            unittest.mock.patch("perfect_numbers.LARGE_RUN_THRESHOLD", 3),
+            redirect_stderr(io.StringIO()),
+            redirect_stdout(io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            main(["3"])
+        self.assertEqual(cm.exception.code, 1)
+        self.assertEqual(os.listdir(self._tmp), [])
 
     def test_without_show_no_line_is_a_file_line(self):
         lines = self._run(["4"])

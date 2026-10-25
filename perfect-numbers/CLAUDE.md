@@ -67,7 +67,7 @@ make coverage  # pytest --cov, fails under 90%
 
 ### Test coverage (≥90% target)
 
-61 tests total, 38 subtests.
+63 tests total, 38 subtests.
 
 | Class                          | Tests | Notes                                                                                        |
 | ------------------------------ | ----- | -------------------------------------------------------------------------------------------- |
@@ -80,7 +80,7 @@ make coverage  # pytest --cov, fails under 90%
 | `TestParseArgs`                | 6     | size, --show, --smoke, --smoke with SIZE (exit 2), bare non-TTY (exit 2), bare TTY           |
 | `TestRefuseLargeRun`           | 4     | no threshold, at/below threshold, --yes                                                      |
 | `TestInteractiveEof`           | 1     | EOF at prompt exits 1 with message                                                           |
-| `TestShow`                     | 3     | --show prints numbers, absent without it, --smoke file                                       |
+| `TestShow`                     | 5     | --show prints numbers before summary, absent without it, refusal before write, smoke                                     |
 | `TestMain`                     | 4     | N=1 file, N=4 file, KeyboardInterrupt exits 1, PermissionError exits 1                       |
 | `TestPerfectNumbersProperties` | 3     | property tests: positive, below limit, even-composites not prime                             |
 | `TestEntryPointGuard`          | 1     | module runs via subprocess                                                                   |
