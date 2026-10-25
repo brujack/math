@@ -7,10 +7,13 @@ A harness that only ever passes would be indistinguishable from no harness.
 
 import contextlib
 import io
+import os
 import pathlib
+import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 from unittest import mock
 
@@ -23,6 +26,33 @@ FIXTURES = REPO_ROOT / "tests" / "fixtures" / "cli_contract"
 
 # silent_reader can only fail by timeout; keep that fast in the suite.
 SHORT_TIMEOUT = 1
+
+
+def _process_alive(pid: int) -> bool:
+    """True while pid is a live process; a zombie awaiting reaping is dead."""
+    done = subprocess.run(
+        ["ps", "-o", "stat=", "-p", str(pid)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    state = done.stdout.strip()
+    return bool(state) and not state.startswith("Z")
+
+
+def _open_fd_count() -> int:
+    return len(os.listdir("/dev/fd"))
+
+
+def _mutant(directory: pathlib.Path, edits: list[tuple[str, str]]) -> pathlib.Path:
+    """Write conforming.py with one defect introduced, and return its path."""
+    source = (FIXTURES / "conforming.py").read_text()
+    for old, new in edits:
+        assert old in source, old
+        source = source.replace(old, new)
+    path = directory / "mutant.py"
+    path.write_text(source)
+    return path
 
 
 def _failures_naming(failures: list[str], case: int) -> list[str]:
@@ -45,8 +75,17 @@ class TestLoadConstants(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             bare = pathlib.Path(tmp) / "bare.py"
             bare.write_text("X = 1\n")
-            with self.assertRaises(ValueError):
+            with self.assertRaises(cli_contract.ContractConfigError):
                 cli_contract.load_constants(bare)
+
+    def test_import_failure_is_a_config_error_naming_the_cause(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            broken = pathlib.Path(tmp) / "broken.py"
+            broken.write_text("import cli_contract_no_such_module\n")
+            with self.assertRaises(cli_contract.ContractConfigError) as caught:
+                cli_contract.load_constants(broken)
+        self.assertIn("broken.py: importing to read", str(caught.exception))
+        self.assertIn("ModuleNotFoundError", str(caught.exception))
 
 
 class TestRunCase(unittest.TestCase):
@@ -74,10 +113,59 @@ class TestRunCase(unittest.TestCase):
         self.assertTrue(result.timed_out)
 
     def test_each_case_gets_a_fresh_directory(self):
-        first = cli_contract.run_case(FIXTURES / "conforming.py", ["2"])
-        second = cli_contract.run_case(FIXTURES / "conforming.py", ["3"])
-        self.assertEqual(first.files["out.txt"].count("\n"), 2)
-        self.assertEqual(second.files["out.txt"].count("\n"), 3)
+        with tempfile.TemporaryDirectory() as tmp:
+            writer = pathlib.Path(tmp) / "writer.py"
+            writer.write_text("import sys\nopen(sys.argv[1], 'w').write('x')\n")
+            first = cli_contract.run_case(writer, ["leftover.txt"])
+            second = cli_contract.run_case(writer, ["other.txt"])
+        self.assertIn("leftover.txt", first.files)
+        self.assertEqual(list(second.files), ["other.txt"])
+
+    def test_non_utf8_output_is_replaced_not_raised(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            noisy = pathlib.Path(tmp) / "noisy.py"
+            noisy.write_text("import sys\nsys.stdout.buffer.write(b'\\xff\\n')\n")
+            result = cli_contract.run_case(noisy, [])
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("\ufffd", result.stdout)
+
+    def test_timeout_kills_the_whole_process_group(self):
+        start = time.monotonic()
+        result = cli_contract.run_case(
+            FIXTURES / "grandchild_reader.py", [], timeout=SHORT_TIMEOUT
+        )
+        elapsed = time.monotonic() - start
+        self.assertTrue(result.timed_out)
+        self.assertLess(elapsed, SHORT_TIMEOUT + 5)
+        grandchild = int(result.files["gc.pid"])
+        for _ in range(50):
+            if not _process_alive(grandchild):
+                break
+            time.sleep(0.1)
+        self.assertFalse(_process_alive(grandchild), "grandchild survived the timeout")
+
+    def test_interrupt_kills_the_child_and_propagates(self):
+        started: list[int] = []
+        procs: list[subprocess.Popen[str]] = []
+        real_popen = subprocess.Popen
+
+        def spy(*args, **kwargs):
+            proc = real_popen(*args, **kwargs)
+            started.append(proc.pid)
+            procs.append(proc)
+            return proc
+
+        with (
+            mock.patch.object(cli_contract.subprocess, "Popen", spy),
+            mock.patch.object(real_popen, "communicate", side_effect=KeyboardInterrupt),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            cli_contract.run_case(FIXTURES / "silent_reader.py", ["2"])
+        self.assertFalse(_process_alive(started[0]), "child survived the interrupt")
+        for proc in procs:
+            for stream in (proc.stdout, proc.stderr):
+                if stream is not None:
+                    stream.close()
 
 
 class TestRunMatrixPasses(unittest.TestCase):
@@ -135,6 +223,139 @@ class TestRunMatrixCanFail(unittest.TestCase):
         self.assertIn("case 1 (SIZE)", failures[0])
 
 
+class TestRunCaseReleasesResources(unittest.TestCase):
+    def test_normal_path_leaks_no_descriptors(self):
+        before = _open_fd_count()
+        cli_contract.run_case(FIXTURES / "conforming.py", ["2"])
+        self.assertEqual(_open_fd_count(), before)
+
+    def test_timeout_path_leaks_no_descriptors(self):
+        before = _open_fd_count()
+        cli_contract.run_case(
+            FIXTURES / "silent_reader.py", ["2"], timeout=SHORT_TIMEOUT
+        )
+        self.assertEqual(_open_fd_count(), before)
+
+    def test_popen_failure_leaks_no_descriptors_or_directory(self):
+        before = _open_fd_count()
+        with tempfile.TemporaryDirectory() as scratch:
+            with (
+                mock.patch.object(tempfile, "tempdir", scratch),
+                mock.patch.object(sys, "executable", "/nonexistent/python"),
+                self.assertRaises(FileNotFoundError),
+            ):
+                cli_contract.run_case(FIXTURES / "conforming.py", ["2"])
+            self.assertEqual(os.listdir(scratch), [])
+        self.assertEqual(_open_fd_count(), before)
+
+    def test_directory_is_removed_after_a_normal_run(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            with mock.patch.object(tempfile, "tempdir", scratch):
+                cli_contract.run_case(FIXTURES / "conforming.py", ["2"])
+            self.assertEqual(os.listdir(scratch), [])
+
+
+class TestEachCheckHasAFailingMutant(unittest.TestCase):
+    """One single-defect program per check; the exact problem text is asserted."""
+
+    def _failures(self, edits: list[tuple[str, str]]) -> list[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            return cli_contract.run_matrix(_mutant(pathlib.Path(tmp), edits))
+
+    def test_question_mark_alone_is_a_prompt(self):
+        failures = self._failures(
+            [('    print(f"Wrote', '    print("Done, continue?")\n    print(f"Wrote')]
+        )
+        self.assertIn(
+            "case 1 (SIZE): stdout line looks like a prompt: 'Done, continue?'",
+            failures,
+        )
+
+    def test_y_n_marker_alone_is_a_prompt(self):
+        failures = self._failures(
+            [('    print(f"Wrote', '    print("Continue (y/n)")\n    print(f"Wrote')]
+        )
+        self.assertIn(
+            "case 1 (SIZE): stdout line looks like a prompt: 'Continue (y/n)'", failures
+        )
+
+    def test_refusal_that_writes_a_file_fails_case_5(self):
+        failures = self._failures(
+            [
+                (
+                    "        sys.exit(1)",
+                    '        open("partial.txt", "w").close()\n        sys.exit(1)',
+                )
+            ]
+        )
+        self.assertIn(
+            "case 5 (THRESHOLD without --yes): wrote files before confirmation: "
+            "['partial.txt']",
+            failures,
+        )
+
+    def test_refusal_not_naming_yes_fails_case_5(self):
+        failures = self._failures([("; pass --yes to proceed.", ".")])
+        self.assertIn(
+            "case 5 (THRESHOLD without --yes): refusal does not name --yes", failures
+        )
+
+    def test_refusal_exiting_2_fails_case_5(self):
+        failures = self._failures([("        sys.exit(1)", "        sys.exit(2)")])
+        self.assertIn("case 5 (THRESHOLD without --yes): exit 2, expected 1", failures)
+
+    def test_nonzero_exit_after_writing_fails_case_1(self):
+        failures = self._failures(
+            [('    print(f"Wrote {len(lines)} results to out.txt")', "    sys.exit(3)")]
+        )
+        self.assertIn("case 1 (SIZE): exit 3, expected 0", failures)
+
+    def test_echoing_longest_line_without_show_fails_case_1(self):
+        failures = self._failures([("if args.show:", "if True:")])
+        self.assertIn(
+            "case 1 (SIZE): stdout echoes the longest result line without --show",
+            failures,
+        )
+
+    def test_ignoring_show_fails_case_2(self):
+        failures = self._failures([("if args.show:", "if False:")])
+        self.assertIn(
+            "case 2 (SIZE --show): --show did not print the longest result line",
+            failures,
+        )
+
+    def test_exit_0_with_no_arguments_fails_case_6(self):
+        failures = self._failures(
+            [
+                (
+                    '        parser.error("SIZE is required when stdin is not a terminal")',
+                    "        args.size = SMOKE_SIZE",
+                )
+            ]
+        )
+        self.assertIn("case 6 (no arguments): exit 0, expected 2", failures)
+
+    def test_echo_only_after_y_on_stdin_fails_only_case_4(self):
+        failures = self._failures(
+            [
+                ("import sys\n", "import select\nimport sys\n"),
+                (
+                    "    if args.show:",
+                    "    if select.select([sys.stdin], [], [], 0.5)[0]:\n"
+                    '        if sys.stdin.readline().strip() == "y":\n'
+                    "            print(lines[0])\n"
+                    "    if args.show:",
+                ),
+            ]
+        )
+        self.assertEqual(
+            failures,
+            [
+                "case 4 (y on stdin): stdout echoes the longest result line without --show"
+            ],
+        )
+
+
 class TestMain(unittest.TestCase):
     def _run(self, argv: list[str]) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
@@ -160,6 +381,14 @@ class TestMain(unittest.TestCase):
 
     def test_nonexistent_path_is_a_usage_error(self):
         self.assertEqual(self._run([str(FIXTURES / "does_not_exist.py")])[0], 2)
+
+    def test_program_failing_to_import_is_a_usage_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            broken = pathlib.Path(tmp) / "broken.py"
+            broken.write_text("import cli_contract_no_such_module\n")
+            code, _, err = self._run([str(broken)])
+        self.assertEqual(code, 2)
+        self.assertIn("ModuleNotFoundError", err)
 
     def test_program_without_constants_is_a_usage_error(self):
         with tempfile.TemporaryDirectory() as tmp:

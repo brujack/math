@@ -10,7 +10,8 @@ on the timeout instead of reading end of input as "no".
 
 Exit 0: every case passes; one line goes to stdout.
 Exit 1: at least one case fails; each failure is printed, naming its case.
-Exit 2: usage error (wrong argument count, missing file, missing constants).
+Exit 2: usage error (wrong argument count, missing file, or a program whose
+        SMOKE_SIZE/LARGE_RUN_THRESHOLD cannot be read).
 """
 
 import concurrent.futures
@@ -18,6 +19,7 @@ import dataclasses
 import importlib.util
 import os
 import pathlib
+import signal
 import subprocess
 import sys
 import tempfile
@@ -27,7 +29,16 @@ from collections.abc import Callable
 CASE_TIMEOUT: float = 60
 REFUSAL_TIMEOUT: float = 5
 
+# The contract forbids a "?" anywhere on stdout, not only in a trailing prompt:
+# a stub that asks a question is indistinguishable from one that reads an answer.
 _PROMPT_MARKERS = ("?", "(y/n)")
+
+# Seconds to wait for the pipes to drain after the process group is killed.
+_DRAIN_TIMEOUT = 5
+
+
+class ContractConfigError(Exception):
+    """The program under test cannot be loaded or lacks the contract constants."""
 
 
 @dataclasses.dataclass
@@ -43,19 +54,27 @@ def load_constants(path: pathlib.Path) -> tuple[int, int | None]:
     """Import the program and return (SMOKE_SIZE, LARGE_RUN_THRESHOLD)."""
     spec = importlib.util.spec_from_file_location("cli_contract_target", path)
     if spec is None or spec.loader is None:
-        raise ValueError(f"cannot import {path}")
+        raise ContractConfigError(f"cannot import {path}")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except Exception as error:
+        raise ContractConfigError(
+            f"{path.name}: importing to read SMOKE_SIZE/LARGE_RUN_THRESHOLD "
+            f"failed: {error!r}"
+        ) from error
     smoke = getattr(module, "SMOKE_SIZE", None)
     if not isinstance(smoke, int) or isinstance(smoke, bool):
-        raise ValueError(f"{path.name}: SMOKE_SIZE must be an int")
+        raise ContractConfigError(f"{path.name}: SMOKE_SIZE must be an int")
     if not hasattr(module, "LARGE_RUN_THRESHOLD"):
-        raise ValueError(f"{path.name}: LARGE_RUN_THRESHOLD is not defined")
+        raise ContractConfigError(f"{path.name}: LARGE_RUN_THRESHOLD is not defined")
     threshold = module.LARGE_RUN_THRESHOLD
     if threshold is not None and (
         not isinstance(threshold, int) or isinstance(threshold, bool)
     ):
-        raise ValueError(f"{path.name}: LARGE_RUN_THRESHOLD must be an int or None")
+        raise ContractConfigError(
+            f"{path.name}: LARGE_RUN_THRESHOLD must be an int or None"
+        )
     return smoke, threshold
 
 
@@ -67,13 +86,25 @@ def _read_files(directory: pathlib.Path) -> dict[str, str]:
     }
 
 
+def _kill_group(proc: subprocess.Popen[str]) -> None:
+    """SIGKILL the child's whole process group (it leads its own session)."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
 def run_case(
     path: pathlib.Path,
     args: list[str],
     stdin_text: str = "",
     timeout: float | None = None,
 ) -> CaseResult:
-    """Run the program once in a fresh directory with an open stdin pipe."""
+    """Run the program once in a fresh directory with an open stdin pipe.
+
+    stdin_text must stay under the pipe buffer (4096 bytes is always safe): it
+    is written before the process starts, so a larger text would block here.
+    """
     limit = CASE_TIMEOUT if timeout is None else timeout
     read_end, write_end = os.pipe()
     try:
@@ -81,6 +112,8 @@ def run_case(
         # hand a stdin reader end of input, which is the defect being detected.
         os.write(write_end, stdin_text.encode())
         with tempfile.TemporaryDirectory() as tmp:
+            # Own session: workers the program spawns inherit its pipes, so a
+            # timeout must kill the group or the drain below waits forever.
             proc = subprocess.Popen(
                 [sys.executable, str(path.resolve()), *args],
                 stdin=read_end,
@@ -88,14 +121,21 @@ def run_case(
                 stderr=subprocess.PIPE,
                 cwd=tmp,
                 text=True,
+                errors="replace",
+                start_new_session=True,
             )
             timed_out = False
             try:
-                stdout, stderr = proc.communicate(timeout=limit)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                stdout, stderr = proc.communicate()
-                timed_out = True
+                try:
+                    stdout, stderr = proc.communicate(timeout=limit)
+                except subprocess.TimeoutExpired:
+                    _kill_group(proc)
+                    stdout, stderr = proc.communicate(timeout=_DRAIN_TIMEOUT)
+                    timed_out = True
+            except BaseException:
+                _kill_group(proc)
+                proc.wait()
+                raise
             return CaseResult(
                 returncode=None if timed_out else proc.returncode,
                 stdout=stdout or "",
@@ -241,7 +281,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         failures = run_matrix(path)
-    except ValueError as error:
+    except ContractConfigError as error:
         print(f"cli_contract: {error}", file=sys.stderr)
         return 2
     if failures:
