@@ -1,4 +1,4 @@
-.PHONY: collatz lint test bench mutants clean install
+.PHONY: collatz lint test bench clean mutants install
 
 collatz:
 	cargo build --release

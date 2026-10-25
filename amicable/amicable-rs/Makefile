@@ -1,4 +1,4 @@
-.PHONY: amicable lint test bench mutants clean install
+.PHONY: amicable lint test bench clean mutants install
 
 amicable:
 	cargo build --release
@@ -32,4 +32,3 @@ mutants:
 
 clean:
 	cargo clean
-	rm -f amicable_1e*.txt
