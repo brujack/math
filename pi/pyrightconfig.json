@@ -1,9 +1,8 @@
 {
   "include": ["pi.py", "test_pi.py"],
   "pythonVersion": "3.11",
-  "typeCheckingMode": "basic",
+  "typeCheckingMode": "standard",
+  "stubPath": "../typings",
   "reportMissingImports": true,
-  "reportMissingModuleSource": false,
-  "reportAttributeAccessIssue": "none",
-  "reportOptionalMemberAccess": "none"
+  "reportMissingModuleSource": false
 }

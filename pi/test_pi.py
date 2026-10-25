@@ -512,15 +512,15 @@ class TestMpmathFallback(unittest.TestCase):
     """When gmpy2 is unavailable, calculate_pi_high_precision uses mpmath."""
 
     def test_fallback_returns_correct_digits(self):
-        with unittest.mock.patch.object(pi_module, "_HAS_GMPY2", False):
+        with unittest.mock.patch.object(pi_module, "_gmpy2", None):
             pi_val = _quiet_pi(20)
         # mpmath.mpf — _pi_to_str dispatches to mpmath.nstr
-        with unittest.mock.patch.object(pi_module, "_HAS_GMPY2", False):
+        with unittest.mock.patch.object(pi_module, "_gmpy2", None):
             result = _pi_to_str(pi_val, 20)
         self.assertEqual(result[:22], PI_REF[:22])
 
     def test_fallback_result_is_mpmath_type(self):
-        with unittest.mock.patch.object(pi_module, "_HAS_GMPY2", False):
+        with unittest.mock.patch.object(pi_module, "_gmpy2", None):
             pi_val = _quiet_pi(10)
         # mpmath constants are a subtype of mpf; check the module rather than
         # the exact class since mpmath.pi is not a plain mpmath.mpf instance.
@@ -1108,7 +1108,6 @@ class TestMissingGmpy2(unittest.TestCase):
 
         buf = io.StringIO()
         with (
-            unittest.mock.patch.object(pi_module, "_HAS_GMPY2", False),
             unittest.mock.patch.object(pi_module, "_gmpy2", None),
             redirect_stdout(buf),
         ):
@@ -1116,6 +1115,24 @@ class TestMissingGmpy2(unittest.TestCase):
         result = _pi_to_str(pi_val, 20)
         self.assertTrue(result.startswith("3.141592653589793"), f"got: {result!r}")
         self.assertNotIn("Error", buf.getvalue())
+
+
+class TestRequireGmpy2(unittest.TestCase):
+    """_require_gmpy2 narrows the optional import and fails loudly without it."""
+
+    def test_raises_when_gmpy2_missing(self):
+        with unittest.mock.patch.object(pi_module, "_gmpy2", None):
+            with self.assertRaises(RuntimeError):
+                pi_module._require_gmpy2()
+
+    @unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
+    def test_returns_module_when_present(self):
+        self.assertIs(pi_module._require_gmpy2(), pi_module._gmpy2)
+
+    def test_gmpy2_only_function_raises_when_missing(self):
+        with unittest.mock.patch.object(pi_module, "_gmpy2", None):
+            with self.assertRaises(RuntimeError):
+                pi_module._gmpy2_str_from_QT(1, 1, 10)
 
 
 class TestFileWritePermissionError(unittest.TestCase):
