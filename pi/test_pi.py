@@ -1135,6 +1135,30 @@ class TestRequireGmpy2(unittest.TestCase):
                 pi_module._gmpy2_str_from_QT(1, 1, 10)
 
 
+class TestSavePiToFileWithoutGmpy2(unittest.TestCase):
+    """save_pi_to_file takes the mpmath path when gmpy2 is absent."""
+
+    def test_mpmath_value_saved_via_mpmath_path(self):
+        import mpmath
+
+        mpmath.mp.dps = 70
+        pi_val = mpmath.pi
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "pi_20.txt")
+            buf = io.StringIO()
+            with (
+                unittest.mock.patch.object(pi_module, "_gmpy2", None),
+                redirect_stdout(buf),
+            ):
+                pi_str = pi_module.save_pi_to_file(pi_val, 20, path)
+            with open(path) as f:
+                content = f.read()
+        self.assertIn("mpmath", buf.getvalue())
+        self.assertNotIn("gmpy2/MPFR", buf.getvalue())
+        self.assertTrue(pi_str.startswith("3.14159265358979323846"), pi_str)
+        self.assertIn(pi_str, content.splitlines())
+
+
 class TestFileWritePermissionError(unittest.TestCase):
     """main() handles PermissionError when the output file cannot be created."""
 

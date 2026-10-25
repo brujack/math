@@ -39,8 +39,11 @@ def _module_aliases(tree: ast.Module) -> set[str]:
     """Names bound to the gmpy2 module anywhere in ``tree``.
 
     Counts ``import gmpy2 [as X]``, ``from ... import gmpy2 [as X]``,
-    ``X = gmpy2`` / ``X = _gmpy2`` and ``X = _require_gmpy2()``, so a rename of
-    a local alias cannot hide attribute uses from the scan.
+    ``X = gmpy2`` / ``X = _gmpy2`` and ``X = _require_gmpy2()``. That covers
+    direct, ``import ... as`` and simple-assignment aliases and is a cheap
+    backstop only: it does not follow ``from m import name`` bindings or
+    with/default/chained/annotated/walrus/tuple bindings. Pyright at
+    ``standard`` over e/ and pi/ is the primary gate for attribute use.
     """
     aliases = set(BASE_ALIASES)
     for node in ast.walk(tree):

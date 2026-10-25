@@ -233,7 +233,7 @@ python3 -m pytest test_pi.py -v   # if pytest is installed
 
 gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 
-#### Test coverage (94% line coverage, 111 tests)
+#### Test coverage (94% line coverage, 112 tests)
 
 | Class                                | Tests | Notes                                                                   |
 | ------------------------------------ | ----- | ----------------------------------------------------------------------- |
@@ -267,11 +267,12 @@ gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 | `TestProcessPoolSemaphoreExhaustion` | 2     | OSError and errno.ENOSPC trigger serial fallback in `save_pi_to_file`   |
 | `TestMissingGmpy2`                   | 1     | mpmath path used when `_gmpy2` is patched to None                       |
 | `TestRequireGmpy2`                   | 3     | `_require_gmpy2` raises without gmpy2, returns the module with it       |
+| `TestSavePiToFileWithoutGmpy2`       | 1     | `save_pi_to_file` takes the mpmath path when `_gmpy2` is None           |
 | `TestFileWritePermissionError`       | 1     | `main()` exits 1 on `PermissionError` when creating output file         |
 
 #### Type checking
 
-`pyrightconfig.json` runs pyright at `standard` with `stubPath` `../typings`: gmpy2 ships no stubs, so the vendored `typings/gmpy2/__init__.pyi` (exact, never claiming more than gmpy2 does at runtime; no `Any`, and `object` only for `__eq__`/`__ne__` `other`, both guarded by `tests/test_gmpy2_stub.py`, including string annotations) types the names e and pi use. Add a name to the stub before using a new gmpy2 attribute. Run `cd pi && pyright`.
+`pyrightconfig.json` runs pyright at `standard` with `stubPath` `../typings`: gmpy2 ships no stubs, so the vendored `typings/gmpy2/__init__.pyi` (exact, never claiming more than gmpy2 does at runtime; no `Any`, and `object` only for `__eq__`/`__ne__` `other`, both guarded by `tests/test_gmpy2_stub.py`, including string annotations) types the names e and pi use. Add a name to the stub before using a new gmpy2 attribute. Pyright at `standard` over e/ and pi/ is the primary gate for attribute use; the stub guard's alias scan (direct, `import ... as` and simple-assignment aliases) is only a cheap backstop. Run `cd pi && pyright`.
 
 #### Adding new tests
 
