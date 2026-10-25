@@ -2,7 +2,12 @@
 
 prime:
 	cargo build --release
-	cp target/release/prime ~/Downloads/prime
+	@# Convenience copy only: a machine without ~/Downloads must still build.
+	@if [ -d "$$HOME/Downloads" ]; then \
+		cp target/release/prime "$$HOME/Downloads/prime"; \
+	else \
+		printf 'built target/release/prime (no ~/Downloads to copy it to)\n'; \
+	fi
 
 lint:
 	../../scripts/rust-check.sh lint

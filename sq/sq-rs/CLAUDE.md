@@ -18,7 +18,7 @@ Current structure:
 
 ```bash
 cd sq/sq-rs
-make sq        # cargo build --release, copies binary to ~/Downloads/sq
+make sq        # cargo build --release, copies binary to ~/Downloads/sq (when `~/Downloads` exists; otherwise it prints the path and still succeeds)
 make lint      # cargo clippy -- -D warnings
 make test      # lint, then cargo test
 make clean     # cargo clean + remove ~/Downloads/sq

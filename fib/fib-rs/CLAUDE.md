@@ -18,7 +18,7 @@ Current structure:
 
 ```bash
 cd fib/fib-rs
-make fib       # cargo build --release, copies binary to ~/Downloads/fib
+make fib       # cargo build --release, copies binary to ~/Downloads/fib (when `~/Downloads` exists; otherwise it prints the path and still succeeds)
 make lint      # cargo clippy -- -D warnings
 make test      # lint, then cargo test
 make clean     # cargo clean + remove ~/Downloads/fib

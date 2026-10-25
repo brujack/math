@@ -2,7 +2,12 @@
 
 e:
 	cargo build --release
-	cp target/release/e ~/Downloads/e
+	@# Convenience copy only: a machine without ~/Downloads must still build.
+	@if [ -d "$$HOME/Downloads" ]; then \
+		cp target/release/e "$$HOME/Downloads/e"; \
+	else \
+		printf 'built target/release/e (no ~/Downloads to copy it to)\n'; \
+	fi
 
 lint:
 	../../scripts/rust-check.sh lint

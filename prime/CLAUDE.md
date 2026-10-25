@@ -34,13 +34,13 @@ Two-phase segmented Sieve of Eratosthenes:
 
 ```bash
 cd prime-rs
-make prime       # cargo build --release, copies binary to ~/Downloads/prime
+make prime       # cargo build --release, copies binary to ~/Downloads/prime (when `~/Downloads` exists; otherwise it prints the path and still succeeds)
 ./target/release/prime [N]
 ```
 
 A `Makefile` is provided in `prime-rs/`:
 
-- `make prime` — runs `cargo build --release` and copies the binary to `~/Downloads/prime`
+- `make prime` — runs `cargo build --release` and copies the binary to `~/Downloads/prime` (when `~/Downloads` exists; otherwise it prints the path and still succeeds)
 - `make lint` — runs `cargo clippy -- -D warnings`
 - `make test` — runs lint then `cargo test`
 - `make clean` — runs `cargo clean` and removes `~/Downloads/prime`

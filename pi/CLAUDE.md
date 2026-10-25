@@ -29,13 +29,13 @@ Build (requires GMP + MPFR — run `install_deps.sh` first):
 
 ```bash
 cd pi-rs
-make pi          # builds release binary and copies it to ~/Downloads/pi
+make pi          # builds release binary and copies it to ~/Downloads/pi (when `~/Downloads` exists; otherwise it prints the path and still succeeds)
 ./target/release/pi [digits]
 ```
 
 A `Makefile` is provided in `pi-rs/`:
 
-- `make pi` — runs `cargo build --release` and copies the binary to `~/Downloads/pi`
+- `make pi` — runs `cargo build --release` and copies the binary to `~/Downloads/pi` (when `~/Downloads` exists; otherwise it prints the path and still succeeds)
 - `make lint` — runs `cargo clippy -- -D warnings`
 - `make test` — runs lint then `cargo test`
 - `make clean` — runs `cargo clean` and removes `~/Downloads/pi`

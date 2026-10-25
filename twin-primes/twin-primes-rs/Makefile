@@ -2,7 +2,12 @@
 
 twin-primes:
 	cargo build --release
-	cp target/release/twin-primes ~/Downloads/twin-primes
+	@# Convenience copy only: a machine without ~/Downloads must still build.
+	@if [ -d "$$HOME/Downloads" ]; then \
+		cp target/release/twin-primes "$$HOME/Downloads/twin-primes"; \
+	else \
+		printf 'built target/release/twin-primes (no ~/Downloads to copy it to)\n'; \
+	fi
 
 lint:
 	../../scripts/rust-check.sh lint

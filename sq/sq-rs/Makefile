@@ -2,7 +2,12 @@
 
 sq:
 	cargo build --release
-	cp target/release/sq ~/Downloads/sq
+	@# Convenience copy only: a machine without ~/Downloads must still build.
+	@if [ -d "$$HOME/Downloads" ]; then \
+		cp target/release/sq "$$HOME/Downloads/sq"; \
+	else \
+		printf 'built target/release/sq (no ~/Downloads to copy it to)\n'; \
+	fi
 
 lint:
 	../../scripts/rust-check.sh lint

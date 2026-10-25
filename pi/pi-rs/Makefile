@@ -2,7 +2,12 @@
 
 pi:
 	cargo build --release
-	cp target/release/pi ~/Downloads/pi
+	@# Convenience copy only: a machine without ~/Downloads must still build.
+	@if [ -d "$$HOME/Downloads" ]; then \
+		cp target/release/pi "$$HOME/Downloads/pi"; \
+	else \
+		printf 'built target/release/pi (no ~/Downloads to copy it to)\n'; \
+	fi
 
 lint:
 	../../scripts/rust-check.sh lint

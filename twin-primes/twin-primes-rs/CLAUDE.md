@@ -23,7 +23,7 @@ span the boundary.
 
 ```bash
 cd twin-primes/twin-primes-rs
-make twin-primes   # cargo build --release, copies to ~/Downloads/twin-primes
+make twin-primes   # cargo build --release, copies to ~/Downloads/twin-primes (when `~/Downloads` exists; otherwise it prints the path and still succeeds)
 make test          # lint + cargo test
 ```
 

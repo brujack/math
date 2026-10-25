@@ -2,7 +2,12 @@
 
 factorial:
 	cargo build --release
-	cp target/release/factorial ~/Downloads/factorial
+	@# Convenience copy only: a machine without ~/Downloads must still build.
+	@if [ -d "$$HOME/Downloads" ]; then \
+		cp target/release/factorial "$$HOME/Downloads/factorial"; \
+	else \
+		printf 'built target/release/factorial (no ~/Downloads to copy it to)\n'; \
+	fi
 
 lint:
 	../../scripts/rust-check.sh lint

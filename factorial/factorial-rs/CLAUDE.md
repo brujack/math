@@ -16,7 +16,7 @@ Build (requires GMP -- run `install_deps.sh` first):
 
 ```bash
 cd factorial-rs
-make factorial   # builds release binary and copies it to ~/Downloads/factorial
+make factorial   # builds release binary and copies it to ~/Downloads/factorial (when `~/Downloads` exists; otherwise it prints the path and still succeeds)
 ./target/release/factorial [N]
 ```
 
@@ -67,7 +67,7 @@ make factorial           # cargo build --release + copy to ~/Downloads/factorial
 
 ## Makefile Targets
 
-- `make factorial` — runs `cargo build --release` and copies the binary to `~/Downloads/factorial`
+- `make factorial` — runs `cargo build --release` and copies the binary to `~/Downloads/factorial` (when `~/Downloads` exists; otherwise it prints the path and still succeeds)
 - `make lint` — runs `cargo clippy -- -D warnings`
 - `make test` — runs lint then `cargo test`
 - `make clean` — runs `cargo clean` and removes `~/Downloads/factorial`

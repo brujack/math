@@ -2,7 +2,12 @@
 
 fib:
 	cargo build --release
-	cp target/release/fib ~/Downloads/fib
+	@# Convenience copy only: a machine without ~/Downloads must still build.
+	@if [ -d "$$HOME/Downloads" ]; then \
+		cp target/release/fib "$$HOME/Downloads/fib"; \
+	else \
+		printf 'built target/release/fib (no ~/Downloads to copy it to)\n'; \
+	fi
 
 lint:
 	../../scripts/rust-check.sh lint
