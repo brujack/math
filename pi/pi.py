@@ -319,7 +319,6 @@ LARGE_RUN_THRESHOLD: int | None = 1_000_001
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description="Calculate pi to a specified number of decimal places.",
         epilog="Run with no arguments at a terminal for interactive prompts.",
@@ -375,6 +374,7 @@ def get_target_digits(args):
                 "Enter the number of decimal places to calculate π (1-1000000): "
             )
         except EOFError:
+            print()
             print(
                 "Error: no input; pass SIZE as an argument "
                 f"(e.g. python3 pi.py {SMOKE_SIZE}).",
@@ -687,6 +687,7 @@ def save_pi_to_file(pi_value, digits, filename):  # noqa: C901 — multi-backend
     write_time = time.time() - write_start
     print(f"File write completed in {write_time:.2f} seconds")
     print(f"Total file operation time: {(conversion_time + write_time):.2f} seconds")
+    return pi_str
 
 
 # ---------------------------------------------------------------------------
@@ -714,10 +715,10 @@ def main(argv: list[str] | None = None) -> None:
             )
 
         filename = f"pi_{target_digits}_digits.txt"
-        save_pi_to_file(pi_result, target_digits, filename)
-        print(f"\nFull precision π saved to {filename}")
+        pi_str = save_pi_to_file(pi_result, target_digits, filename)
         if args.show:
-            print(_pi_to_str(pi_result, target_digits))
+            print(pi_str)
+        print(f"\nFull precision π saved to {filename}")
 
     except KeyboardInterrupt:
         print("\n\nCalculation interrupted by user.")

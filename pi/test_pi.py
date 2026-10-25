@@ -49,7 +49,8 @@ from pi import (
 )
 
 # Non-optional view of the threshold for arithmetic (pi always has one).
-_LARGE: int = LARGE_RUN_THRESHOLD or 0
+assert LARGE_RUN_THRESHOLD is not None
+_LARGE: int = LARGE_RUN_THRESHOLD
 
 # Known decimal expansion of π — used for accuracy assertions.
 PI_REF = "3.14159265358979323846264338327950288419716939937510"
@@ -912,9 +913,9 @@ class TestGetTargetDigitsInteractive(unittest.TestCase):
         ):
             get_target_digits(self._ns(None))
         self.assertEqual(cm.exception.code, 1)
-        self.assertIn(
-            f"Error: no input; pass SIZE as an argument (e.g. python3 pi.py {SMOKE_SIZE}).",
+        self.assertEqual(
             err.getvalue(),
+            f"Error: no input; pass SIZE as an argument (e.g. python3 pi.py {SMOKE_SIZE}).\n",
         )
 
 
@@ -1192,10 +1193,44 @@ class TestMain(unittest.TestCase):
         self.assertNotIn(longest, out.splitlines())
 
     def test_rerun_overwrites_file(self):
+        with open("pi_10_digits.txt", "w", encoding="utf-8") as fh:
+            fh.write("JUNK" * 100)
         self._run(["10"])
-        first = open("pi_10_digits.txt", encoding="utf-8").read()
-        self._run(["10"])
-        self.assertEqual(open("pi_10_digits.txt", encoding="utf-8").read(), first)
+        with open("pi_10_digits.txt", encoding="utf-8") as fh:
+            content = fh.read()
+        self.assertNotIn("JUNK", content)
+        self.assertIn("3.1415926535", content)
+
+    def test_show_prints_string_returned_by_save_not_a_reconversion(self):
+        with (
+            unittest.mock.patch("pi.calculate_pi_high_precision", return_value="PI"),
+            unittest.mock.patch("pi.save_pi_to_file", return_value="SENTINEL"),
+            unittest.mock.patch("pi.show_pi_preview"),
+            unittest.mock.patch("pi._pi_to_str", side_effect=AssertionError("again")),
+            redirect_stdout(io.StringIO()) as buf,
+        ):
+            main(["10", "--show"])
+        lines = buf.getvalue().splitlines()
+        self.assertIn("SENTINEL", lines)
+        saved = next(i for i, ln in enumerate(lines) if "saved to" in ln)
+        self.assertLess(lines.index("SENTINEL"), saved)
+
+    def test_save_pi_to_file_returns_digit_string(self):
+        pi_value = _quiet_pi(10)
+        with redirect_stdout(io.StringIO()):
+            result = save_pi_to_file(pi_value, 10, "pi_10_digits.txt")
+        self.assertEqual(result, "3.1415926535")
+
+    def test_refusal_happens_before_any_file_write(self):
+        with (
+            unittest.mock.patch("pi.os.open") as opened,
+            redirect_stdout(io.StringIO()),
+            redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit),
+        ):
+            main([str(_LARGE)])
+        opened.assert_not_called()
+        self.assertEqual(os.listdir("."), [])
 
     def test_large_run_with_yes_proceeds(self):
         with (

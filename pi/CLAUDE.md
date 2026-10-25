@@ -149,7 +149,7 @@ String conversion:
 CLI:
 
 - `SMOKE_SIZE` (10000), `LARGE_RUN_THRESHOLD` (1_000_001): contract constants, pinned by `TestCliContractConstants`.
-- `parse_args(argv=None)`: `argparse` namespace with optional `size` positional plus `--show`, `--yes`, `--smoke`.
+- `parse_args(argv: list[str] | None = None) -> argparse.Namespace`: `argparse` namespace with optional `size` positional plus `--show`, `--yes`, `--smoke`.
 - `refuse_large_run(size, yes)`: exits 1 naming `--yes` when `size >= LARGE_RUN_THRESHOLD` and not `yes`.
 - `get_target_digits(args)`: returns `args.size` (after `refuse_large_run`) if provided, otherwise loops on interactive stdin input; validates that the value is a positive integer.
 
@@ -157,8 +157,8 @@ Main functions:
 
 - `calculate_pi_high_precision(digits)`: tries gmpy2 Chudnovsky first, falls back to mpmath; caches `(Q_int, T_int)` in `_gmpy2_QT_cache` for the subprocess. Returns a `gmpy2.mpfr` (fast path) or `mpmath.mpf` (fallback path).
 - `show_pi_preview(pi_value, preview_digits)`: prints a short preview of the computed digits.
-- `save_pi_to_file(pi_value, digits, filename)`: two-phase save — subprocess conversion then parallel pwrite file write.
-- `main(argv=None)`: top-level entry point; calls `parse_args()`, `get_target_digits()`, `calculate_pi_high_precision()`, `show_pi_preview()`, always `save_pi_to_file()`, and with `--show` prints `_pi_to_str(...)`.
+- `save_pi_to_file(pi_value, digits, filename)`: two-phase save — subprocess conversion then parallel pwrite file write; returns the digit string it wrote.
+- `main(argv: list[str] | None = None) -> None`: top-level entry point; calls `parse_args()`, `get_target_digits()`, `calculate_pi_high_precision()`, `show_pi_preview()`, always `save_pi_to_file()`, and with `--show` prints the digit string `save_pi_to_file` returned, before the "saved to" line.
 
 Module-level constants / state:
 
@@ -232,7 +232,7 @@ python3 -m pytest test_pi.py -v   # if pytest is installed
 
 gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 
-#### Test coverage (94% line coverage, 105 tests)
+#### Test coverage (94% line coverage, 108 tests)
 
 | Class                                | Tests | Notes                                                                   |
 | ------------------------------------ | ----- | ----------------------------------------------------------------------- |
@@ -260,7 +260,7 @@ gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 | `TestGetTargetDigitsInteractive`     | 5     | Interactive prompt: valid, retries, large-N decline + accept            |
 | `TestSavePiEstimateAndProgress`      | 1     | Exercises `estimate_conversion_time` tiers via patched ProcessPool      |
 | `TestSavePiToFilePhaseAFallback`     | 1     | OSError triggers serial fallback in `save_pi_to_file`                   |
-| `TestMain`                           | 5     | Display/save branches, ValueError, KeyboardInterrupt, generic exception |
+| `TestMain`                           | 13    | Always-write, `--show` (returned string, ordering), overwrite, refusal before any write, `--yes` proceed, error handlers |
 | `TestEntryPointGuard`                | 1     | Module runs via subprocess (`if __name__ == "__main__"` block)          |
 | `TestProcessPoolPermissionError`     | 1     | PermissionError triggers serial fallback in `save_pi_to_file`           |
 | `TestProcessPoolSemaphoreExhaustion` | 2     | OSError and errno.ENOSPC trigger serial fallback in `save_pi_to_file`   |
