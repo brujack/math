@@ -883,6 +883,30 @@ class TestRequireGmpy2(unittest.TestCase):
                 e_module._gmpy2_str_from_PQ(1, 1, 10)
 
 
+class TestSaveEToFileWithoutGmpy2(unittest.TestCase):
+    """save_e_to_file takes the mpmath path when gmpy2 is absent."""
+
+    def test_mpmath_value_saved_via_mpmath_path(self):
+        import mpmath
+
+        mpmath.mp.dps = 70
+        e_val = mpmath.e
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "e_20.txt")
+            buf = io.StringIO()
+            with (
+                unittest.mock.patch.object(e_module, "_gmpy2", None),
+                redirect_stdout(buf),
+            ):
+                e_str = e_module.save_e_to_file(e_val, 20, path)
+            with open(path) as f:
+                content = f.read()
+        self.assertIn("mpmath", buf.getvalue())
+        self.assertNotIn("gmpy2/MPFR", buf.getvalue())
+        self.assertTrue(e_str.startswith("2.71828182845904523536"), e_str)
+        self.assertIn(e_str, content.splitlines())
+
+
 class TestFileWritePermissionError(unittest.TestCase):
     """main() handles PermissionError when the output file cannot be created."""
 

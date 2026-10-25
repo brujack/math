@@ -181,7 +181,7 @@ python3 -m pytest test_e.py -v   # if pytest is installed
 
 gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 
-#### Test coverage (94% line coverage, 99 tests)
+#### Test coverage (94% line coverage, 103 tests)
 
 | Class                                | Tests | Notes                                                                   |
 | ------------------------------------ | ----- | ----------------------------------------------------------------------- |
@@ -213,11 +213,12 @@ gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 | `TestProcessPoolSemaphoreExhaustion` | 2     | OSError and errno.ENOSPC trigger serial fallback in `save_e_to_file`    |
 | `TestMissingGmpy2`                   | 1     | mpmath path used when `_gmpy2` is patched to None                       |
 | `TestRequireGmpy2`                   | 3     | `_require_gmpy2` raises without gmpy2, returns the module with it       |
+| `TestSaveEToFileWithoutGmpy2`        | 1     | `save_e_to_file` takes the mpmath path when `_gmpy2` is None            |
 | `TestFileWritePermissionError`       | 1     | `main()` exits 1 on `PermissionError` when creating output file         |
 
 #### Type checking
 
-`pyrightconfig.json` runs pyright at `standard` with `stubPath` `../typings`: gmpy2 ships no stubs, so the vendored `typings/gmpy2/__init__.pyi` (no `Any`, guarded by `tests/test_gmpy2_stub.py`) types the names e and pi use. Add a name to the stub before using a new gmpy2 attribute. Run `cd e && pyright`.
+`pyrightconfig.json` runs pyright at `standard` with `stubPath` `../typings`: gmpy2 ships no stubs, so the vendored `typings/gmpy2/__init__.pyi` (exact, never claiming more than gmpy2 does at runtime; no `Any`, and `object` only for `__eq__`/`__ne__` `other`, both guarded by `tests/test_gmpy2_stub.py`, including string annotations) types the names e and pi use. Add a name to the stub before using a new gmpy2 attribute. Run `cd e && pyright`.
 
 #### Adding new tests
 

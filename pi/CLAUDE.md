@@ -233,7 +233,7 @@ python3 -m pytest test_pi.py -v   # if pytest is installed
 
 gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 
-#### Test coverage (94% line coverage, 108 tests)
+#### Test coverage (94% line coverage, 111 tests)
 
 | Class                                | Tests | Notes                                                                   |
 | ------------------------------------ | ----- | ----------------------------------------------------------------------- |
@@ -271,7 +271,7 @@ gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 
 #### Type checking
 
-`pyrightconfig.json` runs pyright at `standard` with `stubPath` `../typings`: gmpy2 ships no stubs, so the vendored `typings/gmpy2/__init__.pyi` (no `Any`, guarded by `tests/test_gmpy2_stub.py`) types the names e and pi use. Add a name to the stub before using a new gmpy2 attribute. Run `cd pi && pyright`.
+`pyrightconfig.json` runs pyright at `standard` with `stubPath` `../typings`: gmpy2 ships no stubs, so the vendored `typings/gmpy2/__init__.pyi` (exact, never claiming more than gmpy2 does at runtime; no `Any`, and `object` only for `__eq__`/`__ne__` `other`, both guarded by `tests/test_gmpy2_stub.py`, including string annotations) types the names e and pi use. Add a name to the stub before using a new gmpy2 attribute. Run `cd pi && pyright`.
 
 #### Adding new tests
 
