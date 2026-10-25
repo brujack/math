@@ -37,7 +37,7 @@ install_cargo_tarpaulin() {
     else
         echo "==> Installing cargo-tarpaulin (Rust coverage tool)..."
         echo "    This compiles from source and may take a few minutes."
-        cargo install cargo-tarpaulin
+        cargo install cargo-tarpaulin --locked --version 0.37.5
     fi
 }
 

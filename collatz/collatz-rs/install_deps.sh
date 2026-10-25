@@ -6,4 +6,4 @@ if ! command -v rustup &>/dev/null; then
     source "${HOME}/.cargo/env"
 fi
 rustup update stable
-cargo install cargo-tarpaulin --locked
+cargo install cargo-tarpaulin --locked --version 0.37.5

@@ -34,7 +34,7 @@ jobs:
 
       - name: Install tools
         run: |
-          cargo install cargo-mutants --locked
+          cargo install cargo-mutants --locked --version 27.1.0
           pip install cosmic-ray
 
       - name: Detect changed sub-projects

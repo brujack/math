@@ -30,16 +30,16 @@ jobs:
           workspaces: twin-primes/twin-primes-rs
 
       - name: Install cargo-nextest
-        run: cargo install cargo-nextest --locked
+        run: cargo install cargo-nextest --locked --version 0.9.148
 
       - name: Install cargo-machete
-        run: cargo install cargo-machete --locked
+        run: cargo install cargo-machete --locked --version 0.9.2
 
       - name: Run tests
         run: make test
 
       - name: Install cargo-tarpaulin
-        run: cargo install cargo-tarpaulin --locked
+        run: cargo install cargo-tarpaulin --locked --version 0.37.5
 
       - name: Check coverage (≥90%)
         run: cargo tarpaulin --out Json --fail-under 90
