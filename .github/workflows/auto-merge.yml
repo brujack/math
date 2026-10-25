@@ -51,10 +51,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install Snyk CLI
+        # Pinned and checksum-verified before it runs with SNYK_TOKEN (ci-002), as
+        # scripts.yml does for shellcheck. Bump both together; the sha256 is
+        # published at https://static.snyk.io/cli/v<ver>/snyk-linux.sha256 and on
+        # the snyk/cli GitHub release, which agreed for 1.1308.0.
+        env:
+          SNYK_VER: "1.1308.0"
+          SNYK_SHA256: "a916d3ec9e6c27d56cf67664459885512758a1ae94418ba430fcb92e86c32ae1"
         run: |
-          curl -sL https://static.snyk.io/cli/latest/snyk-linux -o /tmp/snyk
+          curl -fsSL -o /tmp/snyk "https://static.snyk.io/cli/v${SNYK_VER}/snyk-linux"
+          echo "${SNYK_SHA256}  /tmp/snyk" | sha256sum -c -
           chmod +x /tmp/snyk
           sudo mv /tmp/snyk /usr/local/bin/snyk
+          snyk --version | grep -qx "${SNYK_VER}"
 
       - name: Run Snyk Code scan
         env:
