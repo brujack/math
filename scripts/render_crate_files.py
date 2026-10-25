@@ -46,8 +46,8 @@ PYTHON_PROJECTS = [
 ]
 
 # Template path under scripts/crate_templates/ (python/<name>) -> per-project output
-# path. Empty until the Python templates are added; Rust KINDS never take @MODULE@.
-PYTHON_KINDS = {}
+# path. Rust KINDS never take @MODULE@.
+PYTHON_KINDS = {"python/Makefile": "{project}/Makefile"}
 
 # Template file name in scripts/crate_templates/ -> per-crate output path.
 KINDS = {

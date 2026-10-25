@@ -120,12 +120,7 @@ class TestPythonKinds(unittest.TestCase):
                 text=True,
                 check=False,
             )
-        # PYTHON_KINDS is empty until Task 15, so no kind name is accepted yet;
-        # once registered the same call must exit 0 on a clean tree.
-        if "python/Makefile" in rcf.PYTHON_KINDS:
-            self.assertEqual(done.returncode, 0, done.stdout)
-        else:
-            self.assertEqual(done.returncode, 2)
+        self.assertEqual(done.returncode, 0, done.stdout)
 
 
 class TestCheckAndWrite(unittest.TestCase):

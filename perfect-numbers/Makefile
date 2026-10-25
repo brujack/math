@@ -14,9 +14,6 @@ test: lint
 coverage:
 	pytest --cov=perfect_numbers --cov-report=term-missing --cov-fail-under=90 test_perfect_numbers.py
 
-
-benchmark:
-	timeout 60 python3 perfect_numbers.py 6
 mutants:
 	@command -v cosmic-ray >/dev/null || { printf "cosmic-ray not installed: pip install cosmic-ray\n" >&2; exit 1; }
 	rm -f cosmic-ray-session.sqlite

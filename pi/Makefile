@@ -14,9 +14,6 @@ test: lint
 coverage:
 	pytest --cov=pi --cov-report=term-missing --cov-fail-under=90 test_pi.py
 
-
-benchmark:
-	timeout 30 python3 pi.py 10000
 mutants:
 	@command -v cosmic-ray >/dev/null || { printf "cosmic-ray not installed: pip install cosmic-ray\n" >&2; exit 1; }
 	rm -f cosmic-ray-session.sqlite

@@ -14,9 +14,6 @@ test: lint
 coverage:
 	pytest --cov=collatz --cov-report=term-missing --cov-fail-under=90 test_collatz.py
 
-
-benchmark:
-	timeout 30 python3 collatz.py 5
 mutants:
 	@command -v cosmic-ray >/dev/null || { printf "cosmic-ray not installed: pip install cosmic-ray\n" >&2; exit 1; }
 	rm -f cosmic-ray-session.sqlite
