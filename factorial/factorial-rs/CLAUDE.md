@@ -16,7 +16,8 @@ Build (requires GMP -- run `install_deps.sh` first):
 
 ```bash
 cd factorial-rs
-make factorial   # builds release binary and copies it to ~/Downloads/factorial (when `~/Downloads` exists; otherwise it prints the path and still succeeds)
+make factorial   # cargo build --release (binary in target/release/factorial)
+make install     # build, then copy to ${XDG_BIN_HOME:-~/.local/bin}/factorial
 ./target/release/factorial [N]
 ```
 
@@ -60,17 +61,19 @@ This pattern appears in `factorial_rec` where the squared half-factorial is mate
 
 ```bash
 cd factorial-rs
-make factorial           # cargo build --release + copy to ~/Downloads/factorial
+make factorial           # cargo build --release (binary in target/release/factorial)
+make install             # build, then copy to ${XDG_BIN_HOME:-~/.local/bin}/factorial
 ./target/release/factorial       # interactive mode
 ./target/release/factorial 1000  # compute 1000!
 ```
 
 ## Makefile Targets
 
-- `make factorial` — runs `cargo build --release` and copies the binary to `~/Downloads/factorial` (when `~/Downloads` exists; otherwise it prints the path and still succeeds)
+- `make factorial` — runs `cargo build --release`; the binary stays in `target/release/factorial`
+- `make install` — builds, then copies the binary to `${XDG_BIN_HOME:-~/.local/bin}/factorial` (created if missing)
 - `make lint` — runs `cargo clippy -- -D warnings`
 - `make test` — runs lint then `cargo test`
-- `make clean` — runs `cargo clean` and removes `~/Downloads/factorial`
+- `make clean` — runs `cargo clean`
 
 ## Testing
 

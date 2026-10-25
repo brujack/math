@@ -1,7 +1,14 @@
-.PHONY: amicable lint test bench mutants clean
+.PHONY: amicable lint test bench mutants clean install
 
 amicable:
 	cargo build --release
+
+# Installs to the XDG user bin dir on Linux and macOS alike; make amicable alone
+# writes nothing outside the crate.
+install: amicable
+	@dest="$${XDG_BIN_HOME:-$$HOME/.local/bin}"; \
+	mkdir -p "$$dest" && cp target/release/amicable "$$dest/amicable" && \
+	printf 'installed %s\n' "$$dest/amicable"
 
 lint:
 	../../scripts/rust-check.sh lint

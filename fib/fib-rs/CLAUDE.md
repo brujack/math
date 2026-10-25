@@ -18,10 +18,11 @@ Current structure:
 
 ```bash
 cd fib/fib-rs
-make fib       # cargo build --release, copies binary to ~/Downloads/fib (when `~/Downloads` exists; otherwise it prints the path and still succeeds)
+make fib       # cargo build --release (binary in target/release/fib)
+make install   # build, then copy to ${XDG_BIN_HOME:-~/.local/bin}/fib
 make lint      # cargo clippy -- -D warnings
 make test      # lint, then cargo test
-make clean     # cargo clean + remove ~/Downloads/fib
+make clean     # cargo clean
 ```
 
 Or directly:

@@ -30,7 +30,8 @@ This installs the Rust toolchain via rustup and `cargo-tarpaulin` for coverage.
 
 ```bash
 cd prime-rs
-make prime       # cargo build --release, copies binary to ~/Downloads/prime
+make prime       # cargo build --release (binary in target/release/prime)
+make install     # build, then copy to ${XDG_BIN_HOME:-~/.local/bin}/prime
 ```
 
 Or manually:
@@ -45,10 +46,11 @@ cargo build --release
 
 | Target       | Description                                          |
 | ------------ | ---------------------------------------------------- |
-| `make prime` | Build release binary and copy to `~/Downloads/prime` |
+| `make prime` | Build the release binary (`target/release/prime`) |
+| `make install` | Build, then copy to `${XDG_BIN_HOME:-~/.local/bin}/prime` |
 | `make lint`  | Lint with `cargo clippy -- -D warnings`              |
 | `make test`  | Run lint then unit tests (`cargo test`)              |
-| `make clean` | Remove build artifacts and `~/Downloads/prime`       |
+| `make clean` | Remove build artifacts |
 
 ### Tests
 

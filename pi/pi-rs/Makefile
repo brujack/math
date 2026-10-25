@@ -1,13 +1,14 @@
-.PHONY: pi lint test bench clean mutants
+.PHONY: pi lint test bench clean mutants install
 
 pi:
 	cargo build --release
-	@# Convenience copy only: a machine without ~/Downloads must still build.
-	@if [ -d "$$HOME/Downloads" ]; then \
-		cp target/release/pi "$$HOME/Downloads/pi"; \
-	else \
-		printf 'built target/release/pi (no ~/Downloads to copy it to)\n'; \
-	fi
+
+# Installs to the XDG user bin dir on Linux and macOS alike; make pi alone
+# writes nothing outside the crate.
+install: pi
+	@dest="$${XDG_BIN_HOME:-$$HOME/.local/bin}"; \
+	mkdir -p "$$dest" && cp target/release/pi "$$dest/pi" && \
+	printf 'installed %s\n' "$$dest/pi"
 
 lint:
 	../../scripts/rust-check.sh lint
@@ -31,4 +32,3 @@ mutants:
 
 clean:
 	cargo clean
-	rm -f ~/Downloads/pi

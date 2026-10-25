@@ -1,13 +1,14 @@
-.PHONY: e lint test bench clean mutants
+.PHONY: e lint test bench clean mutants install
 
 e:
 	cargo build --release
-	@# Convenience copy only: a machine without ~/Downloads must still build.
-	@if [ -d "$$HOME/Downloads" ]; then \
-		cp target/release/e "$$HOME/Downloads/e"; \
-	else \
-		printf 'built target/release/e (no ~/Downloads to copy it to)\n'; \
-	fi
+
+# Installs to the XDG user bin dir on Linux and macOS alike; make e alone
+# writes nothing outside the crate.
+install: e
+	@dest="$${XDG_BIN_HOME:-$$HOME/.local/bin}"; \
+	mkdir -p "$$dest" && cp target/release/e "$$dest/e" && \
+	printf 'installed %s\n' "$$dest/e"
 
 lint:
 	../../scripts/rust-check.sh lint
@@ -31,4 +32,3 @@ mutants:
 
 clean:
 	cargo clean
-	rm -f ~/Downloads/e

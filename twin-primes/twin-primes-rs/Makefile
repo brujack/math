@@ -1,13 +1,14 @@
-.PHONY: twin-primes lint test bench clean mutants
+.PHONY: twin-primes lint test bench clean mutants install
 
 twin-primes:
 	cargo build --release
-	@# Convenience copy only: a machine without ~/Downloads must still build.
-	@if [ -d "$$HOME/Downloads" ]; then \
-		cp target/release/twin-primes "$$HOME/Downloads/twin-primes"; \
-	else \
-		printf 'built target/release/twin-primes (no ~/Downloads to copy it to)\n'; \
-	fi
+
+# Installs to the XDG user bin dir on Linux and macOS alike; make twin-primes alone
+# writes nothing outside the crate.
+install: twin-primes
+	@dest="$${XDG_BIN_HOME:-$$HOME/.local/bin}"; \
+	mkdir -p "$$dest" && cp target/release/twin-primes "$$dest/twin-primes" && \
+	printf 'installed %s\n' "$$dest/twin-primes"
 
 lint:
 	../../scripts/rust-check.sh lint
@@ -31,4 +32,3 @@ mutants:
 
 clean:
 	cargo clean
-	rm -f ~/Downloads/twin-primes

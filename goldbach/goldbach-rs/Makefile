@@ -1,7 +1,14 @@
-.PHONY: goldbach lint test bench clean mutants
+.PHONY: goldbach lint test bench clean mutants install
 
 goldbach:
 	cargo build --release
+
+# Installs to the XDG user bin dir on Linux and macOS alike; make goldbach alone
+# writes nothing outside the crate.
+install: goldbach
+	@dest="$${XDG_BIN_HOME:-$$HOME/.local/bin}"; \
+	mkdir -p "$$dest" && cp target/release/goldbach "$$dest/goldbach" && \
+	printf 'installed %s\n' "$$dest/goldbach"
 
 lint:
 	../../scripts/rust-check.sh lint

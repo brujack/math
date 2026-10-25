@@ -1,13 +1,14 @@
-.PHONY: sq lint test bench clean mutants
+.PHONY: sq lint test bench clean mutants install
 
 sq:
 	cargo build --release
-	@# Convenience copy only: a machine without ~/Downloads must still build.
-	@if [ -d "$$HOME/Downloads" ]; then \
-		cp target/release/sq "$$HOME/Downloads/sq"; \
-	else \
-		printf 'built target/release/sq (no ~/Downloads to copy it to)\n'; \
-	fi
+
+# Installs to the XDG user bin dir on Linux and macOS alike; make sq alone
+# writes nothing outside the crate.
+install: sq
+	@dest="$${XDG_BIN_HOME:-$$HOME/.local/bin}"; \
+	mkdir -p "$$dest" && cp target/release/sq "$$dest/sq" && \
+	printf 'installed %s\n' "$$dest/sq"
 
 lint:
 	../../scripts/rust-check.sh lint
@@ -31,4 +32,3 @@ mutants:
 
 clean:
 	cargo clean
-	rm -f ~/Downloads/sq

@@ -29,16 +29,18 @@ Build (requires GMP + MPFR — run `install_deps.sh` first):
 
 ```bash
 cd pi-rs
-make pi          # builds release binary and copies it to ~/Downloads/pi (when `~/Downloads` exists; otherwise it prints the path and still succeeds)
+make pi          # cargo build --release (binary in target/release/pi)
+make install     # build, then copy to ${XDG_BIN_HOME:-~/.local/bin}/pi
 ./target/release/pi [digits]
 ```
 
 A `Makefile` is provided in `pi-rs/`:
 
-- `make pi` — runs `cargo build --release` and copies the binary to `~/Downloads/pi` (when `~/Downloads` exists; otherwise it prints the path and still succeeds)
+- `make pi` — runs `cargo build --release`; the binary stays in `target/release/pi`
+- `make install` — builds, then copies the binary to `${XDG_BIN_HOME:-~/.local/bin}/pi` (created if missing)
 - `make lint` — runs `cargo clippy -- -D warnings`
 - `make test` — runs lint then `cargo test`
-- `make clean` — runs `cargo clean` and removes `~/Downloads/pi`
+- `make clean` — runs `cargo clean`
 
 ### Rust Code Layout (`pi-rs/src/main.rs`)
 
