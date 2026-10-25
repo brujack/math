@@ -48,7 +48,7 @@ python3 factorial.py
 python3 factorial.py 1000
 ```
 
-The script accepts an optional positional argument `n`. When omitted it prompts interactively. It always writes the result to `factorial_<n>.txt` in the current working directory.
+The script accepts an optional positional `SIZE` (the `n` of `n!`). When omitted at a terminal it prompts interactively; EOF at the prompt exits 1 with `Error: no input; pass SIZE as an argument`, and a bare non-TTY run exits 2. Flags: `--show` also prints the digits to stdout, `--smoke` runs a quick check at `SMOKE_SIZE` (1000), `--yes` is accepted but unused (`LARGE_RUN_THRESHOLD` is `None`). It always writes the result to `factorial_<n>.txt` in the current working directory. `make test` runs `scripts/cli_contract.py factorial.py`.
 
 ## Code Layout
 
@@ -80,8 +80,9 @@ Public API:
 
 CLI:
 
-- `parse_args(argv)`: `argparse`-based parser; optional positional `n` (int). Returns namespace.
-- `get_target_n(args)`: returns `args.n` if provided (raises `ValueError` for negative); otherwise loops on interactive stdin input, retrying on non-integer or negative input.
+- `parse_args(argv)`: `argparse`-based parser; optional positional `size` (int) plus `--show`, `--yes`, `--smoke`. Returns namespace.
+- `refuse_large_run(size, yes)`: exits 1 naming `--yes` when `LARGE_RUN_THRESHOLD` is set and reached (never, since it is `None`).
+- `get_target_n(args)`: returns `args.size` if provided (raises `ValueError` for negative); otherwise loops on interactive stdin input, retrying on non-integer or negative input; EOF exits 1.
 
 Output:
 
@@ -89,7 +90,7 @@ Output:
 
 Entry point:
 
-- `main()`: calls `parse_args()`, `get_target_n()`, `calculate_factorial()`, `_write_factorial_file()`.
+- `main(argv=None)`: calls `parse_args()`, `get_target_n()`, `refuse_large_run()`, `calculate_factorial()`, `_write_factorial_file()`; with `--show` prints the written digits.
 
 ## Important Behavior
 
@@ -149,7 +150,7 @@ python3 -m pytest test_factorial.py -v   # if pytest is installed
 
 gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 
-#### Test coverage (94% line coverage, 55 tests)
+#### Test coverage (94% line coverage, 72 tests)
 
 | Class                                | Tests | Notes                                                                        |
 | ------------------------------------ | ----- | ---------------------------------------------------------------------------- |
@@ -159,7 +160,11 @@ gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 | `TestComputeSwingFallback`           | 1     | OSError triggers serial fallback, result correct, message printed            |
 | `TestComputeSwing`                   | 8     | swing(0..6), empty primes, identity check, return type                       |
 | `TestCalculateFactorial`             | 9     | 0!..20! vs `FACTORIAL_REF`, negative raises, gmpy2 type (skipped without it) |
-| `TestParseArgs`                      | 3     | no args, positional, --help exits                                            |
+| `TestParseArgs`                      | 7     | no args, positional, --help, flags, --smoke, bare non-TTY exit 2             |
+| `TestCliContractConstants`           | 2     | `SMOKE_SIZE` 1000, `LARGE_RUN_THRESHOLD` None                                |
+| `TestRefuseLargeRun`                 | 5     | threshold boundary, `--yes`, refusal before any file write                   |
+| `TestInteractiveEof`                 | 1     | EOF at prompt exits 1 with contract message                                  |
+| `TestShowFlag`                       | 2     | `--show` prints digits; absent it does not                                   |
 | `TestGetTargetN`                     | 5     | from args, zero, negative raises, interactive valid, retry on bad input      |
 | `TestOutputFile`                     | 4     | file created, filename correct, content digits, idempotent overwrite         |
 | `TestProcessPoolPermissionError`     | 1     | PermissionError triggers serial fallback in `_compute_swing`                 |
