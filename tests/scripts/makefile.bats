@@ -203,7 +203,7 @@ for e in json.load(open('${REPO_ROOT}/renovate.json')).get('extends', []):
     _clean_path="$(printf '%s' "${PATH}" | tr ':' '\n' | grep -v 'tests/mocks' | tr '\n' ':' | sed 's/:$//')"
 
     local makefiles count=0 bad=""
-    makefiles="$(cd "${REPO_ROOT}" && PATH="${_clean_path}" command git ls-files '*/*/Makefile')"
+    makefiles="$(cd "${REPO_ROOT}" && PATH="${_clean_path}" command git ls-files '*/*-rs/Makefile')"
     [ -n "${makefiles}" ]
 
     while IFS= read -r mf; do

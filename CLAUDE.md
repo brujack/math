@@ -69,6 +69,7 @@ make lint       # cargo fmt --check, then cargo clippy --all-targets -- -D warni
 make test       # lint, then cargo test
 ```
 
+All 11 crates are treated identically (operator rule): each crate's `Makefile`, `rustfmt.toml` and `release-<crate>-rs.yml` is rendered from `scripts/crate_templates/` by `scripts/render_crate_files.py` (`@CRATE@` is the only placeholder); edit the template and run `--write`, never one crate's copy, and `tests/test_crate_uniformity.py` fails on any drift.
 A single `ruff.toml` at the repo root serves all 8 Python sub-projects via ancestor discovery; keep one root `ruff.toml` only and never create per-subproject configs. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 `ruff==0.16.4` is pinned at all 17 install sites (8 `*-py.yml` workflows, `scripts.yml`, 8 `install_deps.sh`); bump them together. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 Root `make lint` runs `ruff check .` plus `ruff format --check` scoped to `git ls-files '*.py'` (never `ruff format --check .`, which rewrites markdown code blocks) alongside `lint-hooks`. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
