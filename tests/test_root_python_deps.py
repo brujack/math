@@ -141,9 +141,17 @@ def _classify_repo() -> dict[str, dict[str, str]]:
     first_party = _first_party_roots()
     stdlib = sys.stdlib_module_names
     classification: dict[str, dict[str, str]] = {}
-    for rel in _git_ls_files(*POPULATION_PATHSPECS):
+    # Paths come from walking the tree and are only filtered by git's list, so no
+    # path is built from subprocess output (Snyk Code flags that as traversal).
+    tracked = set(_git_ls_files(*POPULATION_PATHSPECS))
+    for path in sorted(
+        p for spec in POPULATION_PATHSPECS for p in REPO_ROOT.glob(spec)
+    ):
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        if rel not in tracked:
+            continue
         per_file: dict[str, str] = {}
-        for name in sorted(_top_level_imports(REPO_ROOT / rel)):
+        for name in sorted(_top_level_imports(path)):
             if name in first_party:
                 per_file[name] = "first-party"
             elif name in stdlib:
