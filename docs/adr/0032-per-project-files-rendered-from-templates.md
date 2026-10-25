@@ -12,12 +12,12 @@ Hand-copied per-project files drifted anyway. Before math#166-#170, the 11 Rust 
 Makefiles, installers and workflows differed in ways nobody had chosen. Before this change the
 8 Python projects differed in the same way:
 
-- 5 installers installed unpinned packages with `--upgrade` and no C libraries;
+- all 8 installers left every package but `ruff` unpinned, 5 of them with `--upgrade`, and 5 installed no C libraries;
 - only 3 workflows installed GMP and MPFR or published test metrics;
 - steps ran in 4 different orders;
 - one project's check was named `test` instead of `Test <module>.py`;
 - cosmic-ray timeouts were 30 s in six projects and 60 s in two;
-- amicable's `clean` removed its output files and the other seven did not.
+- amicable's `clean` removed its output files, six others' `clean` did not, and sq had no `clean` target.
 
 None of these differences was recorded as a decision.
 
