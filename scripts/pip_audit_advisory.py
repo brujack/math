@@ -23,6 +23,8 @@ import tempfile
 
 # pip-audit's documented exit status when the audit ran and found vulnerabilities.
 _VULNS_FOUND = 1
+# One retry absorbs a transient PyPI/OSV failure without making an outage green.
+_ATTEMPTS = 2
 
 
 def _escape(message):
@@ -56,32 +58,66 @@ def _summarize(dependencies):
     return audited, vulnerabilities, warnings
 
 
-def run(args):
+class _AuditFailed(Exception):
+    """The audit did not happen or produced nothing trustworthy."""
+
+
+def _audit_once(args):
+    """Run pip-audit once; return (dependencies, audited, vulnerabilities, warnings)."""
     with tempfile.TemporaryDirectory() as tmp:
         report = pathlib.Path(tmp) / "pip-audit.json"
-        try:
-            proc = subprocess.run(
-                ["pip-audit", *args, "-f", "json", "-o", str(report)], check=False
-            )
-        except FileNotFoundError:
-            return _error("not installed")
+        proc = subprocess.run(
+            ["pip-audit", *args, "-f", "json", "-o", str(report)], check=False
+        )
         try:
             data = json.loads(report.read_text())
         except (OSError, json.JSONDecodeError) as exc:
-            return _error(f"exit {proc.returncode}, no readable JSON report ({exc})")
+            raise _AuditFailed(
+                f"exit {proc.returncode}, no readable JSON report ({exc})"
+            ) from exc
     dependencies = data.get("dependencies") if isinstance(data, dict) else None
     if not isinstance(dependencies, list) or not all(
         isinstance(dep, dict) for dep in dependencies
     ):
-        return _error("JSON report has no dependencies list of objects")
+        raise _AuditFailed("JSON report has no dependencies list of objects")
     if proc.returncode not in (0, _VULNS_FOUND):
-        return _error(f"exit {proc.returncode}")
-
+        raise _AuditFailed(f"exit {proc.returncode}")
     audited, vulnerabilities, warnings = _summarize(dependencies)
     if audited == 0:
-        return _error("audited 0 packages")
+        raise _AuditFailed("audited 0 packages")
     if proc.returncode != 0 and vulnerabilities == 0:
-        return _error(f"exit {proc.returncode} with no vulnerabilities reported")
+        raise _AuditFailed(f"exit {proc.returncode} with no vulnerabilities reported")
+    return dependencies, audited, vulnerabilities, warnings
+
+
+def _audit_with_retry(args):
+    """Return _audit_once's result, retrying once; raise _AuditFailed after that.
+
+    pip-audit queries PyPI and OSV, so one failed attempt may be an outage. After the
+    retry it fails closed (ADR-0016 amendment): an audit that did not happen must not
+    read as advisory-green.
+    """
+    for attempt in range(1, _ATTEMPTS):
+        try:
+            return _audit_once(args)
+        except _AuditFailed as exc:
+            print(
+                f"::warning::pip-audit: attempt {attempt} failed, retrying: "
+                f"{_escape(str(exc))}"
+            )
+    try:
+        return _audit_once(args)
+    except _AuditFailed as exc:
+        raise _AuditFailed(f"{exc} (after {_ATTEMPTS} attempts)") from exc
+
+
+def run(args):
+    try:
+        dependencies, audited, vulnerabilities, warnings = _audit_with_retry(args)
+    except FileNotFoundError:
+        return _error("not installed")
+    except _AuditFailed as exc:
+        return _error(str(exc))
 
     for warning in warnings:
         print(f"::warning::pip-audit: {_escape(warning)}")

@@ -144,7 +144,12 @@ class TestPipAuditRunsThroughTheAdvisoryWrapper(unittest.TestCase):
                 or step.get("name") == "Run pip-audit"
             ):
                 audit_steps.append((label, job_id, step.get("name"), run.strip()))
-        self.assertEqual(len(audit_steps), 9, audit_steps)
+        self.assertEqual(
+            len(audit_steps),
+            9,
+            f"{audit_steps}"
+            "; when adding a Python sub-project, update this count with its workflow",
+        )
         for label, _job, step_name, run in audit_steps:
             with self.subTest(workflow=label, step=step_name):
                 self.assertEqual(run, WRAPPER_RUN)
@@ -198,7 +203,11 @@ class TestPipAuditAuditsAProjectInterpreter(unittest.TestCase):
                     self.assertLess(
                         setup[0], names.index("Install Python dependencies")
                     )
-        self.assertEqual(checked, 9)
+        self.assertEqual(
+            checked,
+            9,
+            "when adding a Python sub-project, update this count with its workflow",
+        )
 
 
 class TestBenchmarkGatesCanFail(unittest.TestCase):
@@ -208,7 +217,12 @@ class TestBenchmarkGatesCanFail(unittest.TestCase):
             for name, _, step in workflow_steps()
             if step.get("name") == "Benchmark (timeout gate)"
         ]
-        self.assertEqual(len(found), 8, [n for n, _ in found])
+        self.assertEqual(
+            len(found),
+            8,
+            f"{[n for n, _ in found]}"
+            "; when adding a Python sub-project, update this count with its workflow",
+        )
         for name, step in found:
             with self.subTest(workflow=name):
                 self.assertFalse(step.get("continue-on-error"))

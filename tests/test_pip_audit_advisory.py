@@ -23,11 +23,16 @@ SCRIPT = REPO_ROOT / "scripts" / "pip_audit_advisory.py"
 
 FAKE_PIP_AUDIT = r"""#!/usr/bin/env bash
 printf '%s\n' "$*" >> "${FAKE_CALLS}"
+call=$(wc -l < "${FAKE_CALLS}")
 out=""
 while [[ $# -gt 0 ]]; do
     [[ "$1" == "-o" || "$1" == "--output" ]] && out="$2"
     shift
 done
+# FAKE_CRASH_CALLS=N: the first N calls crash (exit 2, no report), like an outage.
+if [[ "${call}" -le "${FAKE_CRASH_CALLS:-0}" ]]; then
+    exit 2
+fi
 if [[ -n "${FAKE_JSON+set}" && -n "${out}" ]]; then
     printf '%s' "${FAKE_JSON}" > "${out}"
 fi
@@ -193,6 +198,23 @@ class TestPipAuditAdvisory(unittest.TestCase):
         result = run_advisory({"FAKE_JSON": json.dumps(data)})
         self.assertEqual(result.returncode, 0, result.output)
         self.assertIn("100%25 broken%0Asecond line%0Dthird", result.output)
+
+    def test_one_transient_failure_is_retried(self):
+        result = run_advisory({"FAKE_JSON": json.dumps(CLEAN), "FAKE_CRASH_CALLS": "1"})
+        self.assertEqual(result.returncode, 0, result.output)
+        self.assertEqual(len(result.calls.splitlines()), 2)
+        self.assertIn("::warning::pip-audit: attempt 1 failed", result.output)
+
+    def test_two_failures_fail_closed(self):
+        result = run_advisory({"FAKE_JSON": json.dumps(CLEAN), "FAKE_CRASH_CALLS": "2"})
+        self.assertEqual(result.returncode, 1, result.output)
+        self.assertEqual(len(result.calls.splitlines()), 2)
+        self.assertIn("::error", result.output)
+
+    def test_vulnerabilities_are_not_retried(self):
+        result = run_advisory({"FAKE_JSON": json.dumps(VULNERABLE), "FAKE_RC": "1"})
+        self.assertEqual(result.returncode, 0, result.output)
+        self.assertEqual(len(result.calls.splitlines()), 1)
 
     def test_missing_pip_audit_fails(self):
         result = run_advisory({"PATH": "/nonexistent"})

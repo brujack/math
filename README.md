@@ -386,7 +386,7 @@ RUST_CHECK_OFFLINE=1 make test
 
 Every Rust sub-project also has `make bench` (Criterion benchmarks). CI alerts when any benchmark regresses more than 30% vs the previous run. `cargo test` includes CLI integration tests from `tests/cli.rs` alongside the unit tests.
 
-Python CI runs two additional quality steps per sub-project: `pyright` (static type checking) and `pip-audit` (dependency security scan). These run in CI only — there is no local `make` target for them. Run them manually with `pyright` and `pip-audit` from the sub-project directory.
+Python CI runs two additional quality steps per sub-project: `pyright` (static type checking) and `pip-audit` (dependency security scan). These run in CI only — there is no local `make` target for them. Run them manually with `pyright` from the sub-project directory and `python3 scripts/pip_audit_advisory.py` from the repo root (the wrapper CI runs: findings and skipped dependencies warn, an audit that did not happen fails; ADR-0016).
 
 ---
 

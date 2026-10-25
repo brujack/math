@@ -264,7 +264,7 @@ Sub-project `CLAUDE.md` files are the source of truth for implementation detail;
 Verify rust-check wrapper changes with unit tests (`python3 scripts/test_rust_check.py`) plus a full online+offline crate matrix before merge. → ai-config/docs/knowledge/math-quick-reference.md § rust-offline-wrapper learnings
 
 
-- Generated output files (`pi_*_digits.txt`, `primes_1e*.txt`, `twin-primes_1e*.txt`, `e_*_digits.txt`, `factorial_*.txt`) are large artifacts — do not commit them.
+- Generated output files (`pi_*_digits.txt`, `e_*_digits.txt`, `factorial_*.txt`, and `<name>_1e*.txt` from primes, twin-primes, fib, sq, amicable, collatz and perfect-numbers) are artifacts, written by `make benchmark` too — `.gitignore` covers them; do not commit them.
 - See each project's `CLAUDE.md` for detailed implementation guidance, code layout, and editing rules.
 
 ## Definition of Done

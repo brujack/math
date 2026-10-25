@@ -49,6 +49,12 @@ happened:
 - pip-audit missing, no readable JSON report, zero packages audited, or a non-zero
   exit with no vulnerabilities reported: `::error`, exit 1
 
+pip-audit needs PyPI and OSV, so an outage or rate limit is now a red `test` job
+rather than a silent pass, and it skips the later steps in that job (pyright, coverage).
+That trade is deliberate: a gate that cannot tell "no vulnerabilities" from "could not
+look" is the failure this amendment fixes. The wrapper retries once before failing, to
+absorb a transient error without letting a real outage read as clean.
+
 `tests/test_pip_audit_advisory.py` pins this against the JSON shapes measured from
 pip-audit 2.10.1, and `tests/test_workflow_continue_on_error.py` keeps
 `continue-on-error` to an allow-list with recorded reasons.
