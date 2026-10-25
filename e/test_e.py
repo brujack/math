@@ -40,7 +40,8 @@ from e import (
 )
 
 # Known decimal expansion of e — used for accuracy assertions.
-_LARGE = 1_000_001  # pinned to LARGE_RUN_THRESHOLD by TestCliContractConstants
+assert LARGE_RUN_THRESHOLD is not None
+_LARGE: int = LARGE_RUN_THRESHOLD
 E_REF = "2.71828182845904523536028747135266249775724709369995"
 
 
@@ -974,7 +975,10 @@ class TestGetTargetDigitsInteractive(unittest.TestCase):
             with self.assertRaises(SystemExit) as cm:
                 get_target_digits(self._ns(None))
         self.assertEqual(cm.exception.code, 1)
-        self.assertIn("no input; pass SIZE as an argument", err.getvalue())
+        self.assertEqual(
+            err.getvalue(),
+            f"Error: no input; pass SIZE as an argument (e.g. python3 e.py {SMOKE_SIZE}).\n",
+        )
 
     def test_eof_at_confirmation_reads_as_no_and_exits_0(self):
         with (
@@ -1030,16 +1034,27 @@ class TestMain(unittest.TestCase):
         self.assertNotIn(digit_line, out.splitlines())
 
     def test_rerun_overwrites_file(self):
+        with open("e_10_digits.txt", "w") as f:
+            f.write("junk")
         self._run(["10"])
-        first = open("e_10_digits.txt").read()
-        self._run(["10"])
-        self.assertEqual(open("e_10_digits.txt").read(), first)
+        with open("e_10_digits.txt") as f:
+            content = f.read()
+        self.assertNotEqual(content, "junk")
+        self.assertIn("2.7182818284", content)
+
+    def test_show_line_prints_before_saved_line(self):
+        lines = self._run(["10", "--show"]).splitlines()
+        show_idx = lines.index("2.7182818284")
+        saved_idx = next(
+            i for i, ln in enumerate(lines) if ln.startswith("Full precision e saved")
+        )
+        self.assertLess(show_idx, saved_idx)
 
     def test_smoke_writes_smoke_file(self):
         self._run(["--smoke"])
         self.assertTrue(os.path.exists(f"e_{SMOKE_SIZE}_digits.txt"))
 
-    def test_large_run_without_yes_refused_before_compute(self):
+    def test_refusal_happens_before_any_file_write(self):
         with (
             unittest.mock.patch("e.calculate_e") as calc,
             unittest.mock.patch("e.save_e_to_file") as save,

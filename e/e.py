@@ -542,8 +542,7 @@ def save_e_to_file(e_value, digits, filename):  # noqa: C901 — multi-backend p
 # ---------------------------------------------------------------------------
 
 
-def parse_args(argv=None):
-    """Parse command-line arguments."""
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Calculate e (Euler's number) to a specified number of decimal places.",
         epilog="Run with no arguments at a terminal for interactive prompts.",
@@ -578,7 +577,7 @@ def parse_args(argv=None):
     return args
 
 
-def refuse_large_run(size, yes):
+def refuse_large_run(size: int, yes: bool) -> None:
     """Exit 1 naming --yes when size needs confirmation and --yes is absent."""
     if LARGE_RUN_THRESHOLD is not None and size >= LARGE_RUN_THRESHOLD and not yes:
         print(f"Error: {size} is a large run; pass --yes to proceed.", file=sys.stderr)
@@ -599,6 +598,7 @@ def get_target_digits(args):
                 "Enter the number of decimal places to calculate e (1-1000000): "
             )
         except EOFError:
+            print()
             print(
                 f"Error: no input; pass SIZE as an argument (e.g. python3 e.py {SMOKE_SIZE}).",
                 file=sys.stderr,
@@ -677,7 +677,7 @@ def calculate_e(digits=1000):
 # ---------------------------------------------------------------------------
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> None:
     """Main function to execute e calculation."""
     try:
         args = parse_args(argv)
@@ -699,9 +699,9 @@ def main(argv=None):
         filename = f"e_{target_digits}_digits.txt"
         print(f"\nSaving {target_digits:,} digits to {filename}...")
         e_str = save_e_to_file(e_result, target_digits, filename)
-        print(f"\nFull precision e saved to {filename}")
         if args.show:
             print(e_str)
+        print(f"\nFull precision e saved to {filename}")
 
     except KeyboardInterrupt:
         print("\n\nCalculation interrupted by user.")
@@ -709,7 +709,7 @@ def main(argv=None):
     except ValueError as error:
         print(f"\nError: {error}")
         sys.exit(1)
-    except (RuntimeError, OSError, ArithmeticError, EOFError, MemoryError) as ex:
+    except (RuntimeError, OSError, ArithmeticError, MemoryError) as ex:
         print(f"\nError occurred during calculation: {ex}")
         sys.exit(1)
 

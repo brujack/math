@@ -180,7 +180,7 @@ python3 -m pytest test_e.py -v   # if pytest is installed
 
 gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 
-#### Test coverage (97% line coverage, 73 tests)
+#### Test coverage (94% line coverage, 99 tests)
 
 | Class                                | Tests | Notes                                                                   |
 | ------------------------------------ | ----- | ----------------------------------------------------------------------- |
@@ -204,7 +204,7 @@ gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 | `TestSaveEEstimateAndProgress`       | 1     | Exercises `estimate_conversion_time` tiers via patched ProcessPool      |
 | `TestSaveEToFilePhaseAFallback`      | 1     | OSError triggers serial fallback in `save_e_to_file`                    |
 | `TestGetTargetDigitsInteractive`     | 5     | Interactive prompt: valid, retries, large-N decline + accept            |
-| `TestMain`                           | 14    | Always-save, --show, large-run refusal/--yes, error handlers            |
+| `TestMain`                           | 15    | Always-save, --show, large-run refusal/--yes, error handlers            |
 | `TestCliContractConstants`           | 2     | Pins SMOKE_SIZE and LARGE_RUN_THRESHOLD                                 |
 | `TestRefuseLargeRun`                 | 1     | Threshold boundaries                                                    |
 | `TestEntryPointGuard`                | 1     | Module runs via subprocess (`if __name__ == "__main__"` block)          |
