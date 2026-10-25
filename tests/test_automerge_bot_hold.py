@@ -2,8 +2,8 @@
 
 The guard's `run:` text is extracted from the workflow (no PyYAML) and executed
 under `bash -e` against a stub `gh`, so the test exercises the shipped script
-rather than a copy. Point BOTHOLD_WORKFLOW at an older workflow to confirm the
-test fails against the pre-change guard.
+rather than a copy. To confirm the test fails against an older guard, check that
+workflow version out in a scratch copy of the repo and run the test there.
 
 This file uses its own `gh` stub instead of tests/mocks/gh because that mock
 does not apply `--jq` and cannot tell the author call from the labels call
@@ -20,7 +20,11 @@ import textwrap
 import unittest
 from pathlib import Path
 
-WORKFLOW = os.environ.get("BOTHOLD_WORKFLOW", ".github/workflows/auto-merge.yml")
+# A constant, not an environment override: Snyk Code treats an env-supplied path
+# reaching open() as traversal, which kept the advisory snyk-scan red.
+WORKFLOW = (
+    Path(__file__).resolve().parent.parent / ".github" / "workflows" / "auto-merge.yml"
+)
 
 STUB_GH = """#!/usr/bin/env bash
 if [ "${GH_FAIL:-}" = "1" ]; then
@@ -53,7 +57,7 @@ def extract_hold_run(path):
         (i for i, ln in enumerate(lines) if re.match(r"^\s*(-\s+)?id:\s*hold\s*$", ln)),
         None,
     )
-    assert id_idx is not None, "no `id: hold` step in " + path
+    assert id_idx is not None, f"no `id: hold` step in {path}"
     step_indent = len(lines[id_idx]) - len(lines[id_idx].lstrip())
     run_idx = None
     for i in range(id_idx + 1, len(lines)):

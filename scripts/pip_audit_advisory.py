@@ -9,13 +9,13 @@ nothing, and a run that found CVEs all looked like a clean audit.
 
 Exit 0: the audit ran. Each vulnerability and each dependency pip-audit could not
         audit becomes a `::warning` annotation, and one summary line goes to
-        $GITHUB_STEP_SUMMARY.
+        pip-audit-summary.md in the working directory, which the workflow step
+        appends to $GITHUB_STEP_SUMMARY.
 Exit 1: the audit did not happen or cannot be trusted: pip-audit is missing, wrote no
         readable JSON, audited zero packages, or exited non-zero with nothing found.
 """
 
 import json
-import os
 import pathlib
 import subprocess
 import sys
@@ -25,6 +25,8 @@ import tempfile
 _VULNS_FOUND = 1
 # One retry absorbs a transient PyPI/OSV failure without making an outage green.
 _ATTEMPTS = 2
+# Relative to cwd; each workflow step appends it to $GITHUB_STEP_SUMMARY.
+SUMMARY_FILE = "pip-audit-summary.md"
 
 
 def _escape(message):
@@ -127,10 +129,10 @@ def run(args):
         f"{vulnerabilities} vulnerabilities, {skipped} skipped"
     )
     print(line)
-    summary = os.environ.get("GITHUB_STEP_SUMMARY")
-    if summary:
-        with open(summary, "a", encoding="utf-8") as f:
-            f.write(f"- {line}\n")
+    # Written to a fixed file in cwd and appended to $GITHUB_STEP_SUMMARY by the
+    # workflow step: opening a path taken from the environment here is what Snyk
+    # Code flags as traversal, and the runner-set summary path needs no Python.
+    pathlib.Path(SUMMARY_FILE).write_text(f"- {line}\n", encoding="utf-8")
     return 0
 
 
