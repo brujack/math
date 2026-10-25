@@ -13,7 +13,7 @@ test: lint
 coverage:
 	pytest --cov=sq --cov-report=term-missing --cov-fail-under=90 test_sq.py
 benchmark:
-	printf "999999999\n" | timeout 30 python3 sq.py
+	printf "n\n" | timeout 30 python3 sq.py 1
 mutants:
 	@command -v cosmic-ray >/dev/null || { printf "cosmic-ray not installed: pip install cosmic-ray\n" >&2; exit 1; }
 	rm -f cosmic-ray-session.sqlite

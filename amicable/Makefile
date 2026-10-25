@@ -15,7 +15,7 @@ coverage:
 
 
 benchmark:
-	printf "100000\n" | timeout 60 python3 amicable.py
+	timeout 60 python3 amicable.py 5
 mutants:
 	@command -v cosmic-ray >/dev/null || { printf "cosmic-ray not installed: pip install cosmic-ray\n" >&2; exit 1; }
 	rm -f cosmic-ray-session.sqlite
