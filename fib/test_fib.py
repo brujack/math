@@ -222,6 +222,18 @@ class TestMain(unittest.TestCase):
         # last value must have <= 1000 digits
         self.assertLessEqual(len(lines[-1]), 1000)
 
+    def test_x4_writes_numbers_past_python_int_str_limit(self):
+        # Python 3.11+ refuses str() on ints over 4,300 digits by default, so every
+        # X >= 4 run crashed in f.write(str(fib)). One 5,000-digit value stands in
+        # for the ~240 MB a real X=4 run writes.
+        big = 10**4999 + 7
+        with patch.object(fib, "generate_fibonacci", return_value=iter([1, big])):
+            self._run_main(["fib.py", "4"], ["y"])
+        with open("fib_1e4.txt") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(lines, ["1", str(10**4999 + 7)])
+        self.assertEqual(len(lines[-1]), 5000)
+
     def test_streaming_x3_count_reported(self):
         # x=3 → max_digits=10^3=1000 → limit=10^1000; exactly 4,786 Fibonacci numbers
         # have fewer than 1,000 decimal digits.

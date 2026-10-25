@@ -29,6 +29,10 @@ jobs:
       - name: Install GMP and MPFR
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
 
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14"
+
       - name: Install Python dependencies
         run: pip install mpmath gmpy2 coverage ruff==0.16.4 hypothesis pyright pip-audit pytest pytest-cov
 
@@ -36,8 +40,7 @@ jobs:
         run: make test
 
       - name: Run pip-audit
-        run: pip-audit
-        continue-on-error: true
+        run: python3 "${GITHUB_WORKSPACE}/scripts/pip_audit_advisory.py"
 
       - name: Run pyright
         run: pyright
@@ -75,4 +78,3 @@ jobs:
 
       - name: Benchmark (timeout gate)
         run: make benchmark
-        continue-on-error: true

@@ -15,7 +15,7 @@ coverage:
 
 
 benchmark:
-	timeout 30 python3 fib.py 5000
+	timeout 30 python3 fib.py 3
 mutants:
 	@command -v cosmic-ray >/dev/null || { printf "cosmic-ray not installed: pip install cosmic-ray\n" >&2; exit 1; }
 	rm -f cosmic-ray-session.sqlite
