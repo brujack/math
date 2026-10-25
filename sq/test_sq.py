@@ -14,7 +14,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 import sq as sq_module
-from sq import generate_squares, get_exponent, main, parse_args
+from sq import generate_squares, get_exponent, main, parse_args, refuse_large_run
 
 
 class TestGenerateSquares(unittest.TestCase):
@@ -68,33 +68,80 @@ class TestGenerateSquares(unittest.TestCase):
 
 
 class TestParseArgs(unittest.TestCase):
-    def test_no_args(self):
-        old_argv = sys.argv
-        sys.argv = ["sq.py"]
-        args = parse_args()
-        sys.argv = old_argv
-        self.assertIsNone(args.exponent)
+    def test_size_given(self):
+        args = parse_args(["1"])
+        self.assertEqual(args.size, 1)
+        self.assertFalse(args.show)
+        self.assertFalse(args.yes)
+        self.assertFalse(args.smoke)
 
-    def test_with_valid_arg(self):
-        old_argv = sys.argv
-        sys.argv = ["sq.py", "1"]
-        args = parse_args()
-        sys.argv = old_argv
-        self.assertEqual(args.exponent, 1)
+    def test_no_args_on_terminal_leaves_size_unset(self):
+        with patch("sys.stdin.isatty", return_value=True):
+            self.assertIsNone(parse_args([]).size)
 
-    def test_invalid_non_integer_exits(self):
-        old_argv = sys.argv
-        sys.argv = ["sq.py", "abc"]
-        try:
-            with self.assertRaises(SystemExit):
-                parse_args()
-        finally:
-            sys.argv = old_argv
+    def test_no_args_without_terminal_exits_2(self):
+        with (
+            patch("sys.stdin.isatty", return_value=False),
+            redirect_stderr(io.StringIO()) as err,
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            parse_args([])
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertIn("SIZE is required", err.getvalue())
+
+    def test_invalid_non_integer_exits_2(self):
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as ctx:
+            parse_args(["abc"])
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_show_flag(self):
+        self.assertTrue(parse_args(["1", "--show"]).show)
+
+    def test_yes_flag_is_accepted(self):
+        self.assertTrue(parse_args(["1", "--yes"]).yes)
+
+    def test_smoke_sets_size_and_clears_show(self):
+        args = parse_args(["--smoke", "--show"])
+        self.assertEqual(args.size, sq_module.SMOKE_SIZE)
+        self.assertFalse(args.show)
+
+    def test_smoke_with_size_exits_2(self):
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as ctx:
+            parse_args(["--smoke", "1"])
+        self.assertEqual(ctx.exception.code, 2)
+
+
+class TestCliContractConstants(unittest.TestCase):
+    def test_smoke_size(self):
+        self.assertEqual(sq_module.SMOKE_SIZE, 1)
+
+    def test_no_large_run_threshold(self):
+        self.assertIsNone(sq_module.LARGE_RUN_THRESHOLD)
+
+
+class TestRefuseLargeRun(unittest.TestCase):
+    def test_no_threshold_never_refuses(self):
+        refuse_large_run(10**9, False)
+
+    def test_threshold_refuses_at_boundary_without_yes(self):
+        with (
+            patch.object(sq_module, "LARGE_RUN_THRESHOLD", 5),
+            redirect_stderr(io.StringIO()) as err,
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            refuse_large_run(5, False)
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn("--yes", err.getvalue())
+
+    def test_threshold_allows_one_below_and_yes(self):
+        with patch.object(sq_module, "LARGE_RUN_THRESHOLD", 5):
+            refuse_large_run(4, False)
+            refuse_large_run(5, True)
 
 
 class TestGetExponent(unittest.TestCase):
-    def _args(self, exponent):
-        return argparse.Namespace(exponent=exponent)
+    def _args(self, size):
+        return argparse.Namespace(size=size)
 
     def test_valid_value(self):
         self.assertEqual(get_exponent(self._args(1)), 1)
@@ -128,10 +175,10 @@ class TestGetExponent(unittest.TestCase):
 
 
 class TestGetExponentInteractive(unittest.TestCase):
-    """Cover the interactive prompt branch (args.exponent is None)."""
+    """Cover the interactive prompt branch (args.size is None)."""
 
     def _args_none(self):
-        return argparse.Namespace(exponent=None)
+        return argparse.Namespace(size=None)
 
     def test_interactive_valid_first_try(self):
         with patch("builtins.input", side_effect=["1"]), redirect_stdout(io.StringIO()):
@@ -160,7 +207,7 @@ class TestGetExponentInteractive(unittest.TestCase):
 
 
 class TestMain(unittest.TestCase):
-    """Cover main() — file is always written; user is prompted to also display."""
+    """Cover main(): the file is always written; --show echoes it to stdout."""
 
     def setUp(self):
         self._cwd = os.getcwd()
@@ -173,50 +220,49 @@ class TestMain(unittest.TestCase):
             os.unlink(os.path.join(self._tmp, f))
         os.rmdir(self._tmp)
 
-    def _run_main(self, argv, inputs):
-        old_argv = sys.argv
-        sys.argv = argv
-        try:
-            with (
-                patch("builtins.input", side_effect=inputs),
-                redirect_stdout(io.StringIO()) as buf,
-            ):
-                main()
-            return buf.getvalue()
-        finally:
-            sys.argv = old_argv
+    def _run_main(self, argv):
+        with (
+            patch("builtins.input", side_effect=AssertionError("must not prompt")),
+            redirect_stdout(io.StringIO()) as buf,
+        ):
+            main(argv)
+        return buf.getvalue()
 
-    def test_main_writes_file_and_skips_display_on_no(self):
-        out = self._run_main(["sq.py", "1"], ["n"])
+    def test_main_writes_file_without_echoing_squares(self):
+        out = self._run_main(["1"])
         self.assertIn("Perfect Square", out)
-        self.assertTrue(os.path.exists("sq_1e1.txt"))
         with open("sq_1e1.txt") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], "1 | 1")
         self.assertEqual(lines[-1], "9999800001 | 99999")
-        # display branch was NOT taken — squares not echoed to stdout
-        self.assertNotIn("9999800001 | 99999", out)
+        self.assertNotIn("9999800001 | 99999", out.splitlines())
 
-    def test_main_writes_file_and_displays_on_yes(self):
-        out = self._run_main(["sq.py", "1"], ["y"])
+    def test_show_prints_every_line_as_written(self):
+        out = self._run_main(["1", "--show"])
+        with open("sq_1e1.txt") as f:
+            written = f.read().splitlines()
+        shown = [ln for ln in out.splitlines() if " | " in ln]
+        self.assertEqual(shown, written)
+
+    def test_smoke_writes_the_file(self):
+        self._run_main(["--smoke"])
         self.assertTrue(os.path.exists("sq_1e1.txt"))
-        # Display branch echoed the buffer to stdout
-        self.assertIn("1 | 1", out)
-        self.assertIn("9999800001 | 99999", out)
+
+    def test_invalid_size_exits_1_and_writes_nothing(self):
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as ctx:
+            self._run_main(["2"])
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertEqual(os.listdir("."), [])
 
     def test_main_idempotent_overwrites_file(self):
-        # First run
-        self._run_main(["sq.py", "1"], ["n"])
+        self._run_main(["1"])
         first_size = os.path.getsize("sq_1e1.txt")
-        # Second run with same args produces an identical file
-        self._run_main(["sq.py", "1"], ["n"])
+        self._run_main(["1"])
         self.assertEqual(os.path.getsize("sq_1e1.txt"), first_size)
 
     def test_main_reports_correct_count(self):
-        # main() prints "Found N,NNN perfect squares" — assert exact count so
-        # mutations to count initialisation (0→1/-1) or increment (+=1→+=0/2)
-        # are detected.
-        out = self._run_main(["sq.py", "1"], ["n"])
+        # Exact count kills mutations to count initialisation or increment.
+        out = self._run_main(["1"])
         self.assertIn("Found 99,999 perfect squares", out)
 
 
@@ -235,25 +281,20 @@ class TestFileWritePermissionError(unittest.TestCase):
         os.rmdir(self._tmp)
 
     def test_exits_nonzero_on_permission_error(self):
-        old_argv = sys.argv
-        sys.argv = ["sq.py", "1"]
-        try:
-            buf = io.StringIO()
-            with (
-                patch(
-                    "builtins.open",
-                    side_effect=PermissionError(
-                        "[Errno 13] Permission denied: 'sq_1e1.txt'"
-                    ),
+        buf = io.StringIO()
+        with (
+            patch(
+                "builtins.open",
+                side_effect=PermissionError(
+                    "[Errno 13] Permission denied: 'sq_1e1.txt'"
                 ),
-                redirect_stdout(buf),
-            ):
-                with self.assertRaises(SystemExit) as cm:
-                    main()
-            self.assertEqual(cm.exception.code, 1)
-            self.assertIn("Error", buf.getvalue())
-        finally:
-            sys.argv = old_argv
+            ),
+            redirect_stdout(buf),
+        ):
+            with self.assertRaises(SystemExit) as cm:
+                main(["1"])
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("Error", buf.getvalue())
 
 
 class TestKeyboardInterrupt(unittest.TestCase):
@@ -271,20 +312,15 @@ class TestKeyboardInterrupt(unittest.TestCase):
         os.rmdir(self._tmp)
 
     def test_exits_nonzero_on_keyboard_interrupt(self):
-        old_argv = sys.argv
-        sys.argv = ["sq.py", "1"]
-        try:
-            buf = io.StringIO()
-            with (
-                patch("sq.generate_squares", side_effect=KeyboardInterrupt),
-                redirect_stdout(buf),
-            ):
-                with self.assertRaises(SystemExit) as cm:
-                    main()
-            self.assertEqual(cm.exception.code, 1)
-            self.assertIn("interrupted", buf.getvalue())
-        finally:
-            sys.argv = old_argv
+        buf = io.StringIO()
+        with (
+            patch("sq.generate_squares", side_effect=KeyboardInterrupt),
+            redirect_stdout(buf),
+        ):
+            with self.assertRaises(SystemExit) as cm:
+                main(["1"])
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("interrupted", buf.getvalue())
 
 
 class TestEntryPoint(unittest.TestCase):
@@ -295,7 +331,7 @@ class TestEntryPoint(unittest.TestCase):
 
         proc = subprocess.run(
             [sys.executable, sq_module.__file__, "1"],
-            input="n\n",
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             timeout=10,
@@ -343,18 +379,18 @@ class TestClosedStdin(unittest.TestCase):
             files = sorted(os.listdir(tmp))
         return proc, files
 
-    def test_display_prompt_eof_reads_as_no(self):
+    def test_size_argument_runs_without_reading_stdin(self):
         proc, files = self._run("1")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertNotIn("Traceback", proc.stderr)
         self.assertEqual(files, ["sq_1e1.txt"])
-        self.assertNotIn("1 | 1\n4 | 2", proc.stdout)
+        self.assertNotIn("9999800001 | 99999", proc.stdout.splitlines())
 
-    def test_exponent_prompt_eof_exits_1_with_a_remedy(self):
+    def test_bare_run_without_terminal_exits_2(self):
         proc, files = self._run()
-        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertEqual(proc.returncode, 2, proc.stdout)
         self.assertNotIn("Traceback", proc.stderr)
-        self.assertIn("pass N as an argument", proc.stderr)
+        self.assertIn("SIZE is required", proc.stderr)
         self.assertEqual(files, [])
 
     def test_exponent_prompt_eof_after_a_bad_answer_still_exits(self):
@@ -364,49 +400,23 @@ class TestClosedStdin(unittest.TestCase):
             redirect_stderr(io.StringIO()),
             self.assertRaises(SystemExit) as ctx,
         ):
-            get_exponent(argparse.Namespace(exponent=None))
+            get_exponent(argparse.Namespace(size=None))
         self.assertEqual(ctx.exception.code, 1)
 
 
-class TestAskYes(unittest.TestCase):
-    def _ask(self, side_effect):
-        with (
-            patch("builtins.input", side_effect=side_effect),
-            redirect_stdout(io.StringIO()) as out,
-        ):
-            return sq_module.ask_yes("Q? "), out.getvalue()
-
-    def test_eof_reads_as_no_and_ends_the_prompt_line(self):
-        self.assertEqual(self._ask(EOFError), (False, "\n"))
-
-    def test_yes_answers(self):
-        for answer in ("y", "Y", " yes ", "YES"):
-            with self.subTest(answer=answer):
-                self.assertTrue(self._ask([answer])[0])
-
-    def test_keyboard_interrupt_still_propagates(self):
-        # main() turns Ctrl-C into exit 1; ask_yes must not swallow it as "no".
-        with (
-            patch("builtins.input", side_effect=KeyboardInterrupt),
-            self.assertRaises(KeyboardInterrupt),
-        ):
-            sq_module.ask_yes("Q? ")
-
-    def test_eof_at_exponent_prompt_ends_the_prompt_line_on_stdout(self):
+class TestEofAtSizePrompt(unittest.TestCase):
+    def test_eof_at_size_prompt_exits_1_naming_the_remedy(self):
         with (
             patch("builtins.input", side_effect=EOFError),
             redirect_stdout(io.StringIO()) as out,
             redirect_stderr(io.StringIO()) as err,
-            self.assertRaises(SystemExit),
+            self.assertRaises(SystemExit) as ctx,
         ):
-            sq_module.get_exponent(argparse.Namespace(exponent=None))
+            get_exponent(argparse.Namespace(size=None))
+        self.assertEqual(ctx.exception.code, 1)
         self.assertEqual(out.getvalue(), "\n")
-        self.assertTrue(err.getvalue().startswith("Error: no input"))
-
-    def test_other_answers_are_no(self):
-        for answer in ("", "n", "no", "yep", "y es"):
-            with self.subTest(answer=answer):
-                self.assertFalse(self._ask([answer])[0])
+        self.assertIn("pass SIZE as an argument", err.getvalue())
+        self.assertIn("python3 sq.py 1", err.getvalue())
 
 
 if __name__ == "__main__":

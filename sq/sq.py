@@ -19,24 +19,56 @@ def generate_squares(max_digits: int):
         k += 1
 
 
-def parse_args() -> argparse.Namespace:
+SMOKE_SIZE = 1
+LARGE_RUN_THRESHOLD: int | None = None
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate all perfect squares with up to 10^N digits",
-        epilog="Run without arguments for an interactive prompt.",
+        epilog="Run with no arguments at a terminal for interactive prompts.",
     )
     parser.add_argument(
-        "exponent",
-        type=int,
+        "size",
         nargs="?",
+        type=int,
+        metavar="N",
         help="N: generates perfect squares with up to 10^N digits (max 1)",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--show", action="store_true", help="also print each result line to stdout"
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="confirm a large run (ignored when this program has none)",
+    )
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help=f"quick check at SMOKE_SIZE ({SMOKE_SIZE})",
+    )
+    args = parser.parse_args(argv)
+    if args.smoke:
+        if args.size is not None:
+            parser.error("--smoke takes no SIZE")
+        args.size, args.show = SMOKE_SIZE, False
+    elif args.size is None and not sys.stdin.isatty():
+        parser.error("SIZE is required when stdin is not a terminal")
+    return args
+
+
+def refuse_large_run(size: int, yes: bool) -> None:
+    """Exit 1 naming --yes when size needs confirmation and --yes is absent."""
+    if LARGE_RUN_THRESHOLD is not None and size >= LARGE_RUN_THRESHOLD and not yes:
+        print(f"Error: {size} is a large run; pass --yes to proceed.", file=sys.stderr)
+        sys.exit(1)
 
 
 def get_exponent(args: argparse.Namespace) -> int:
     """Return validated exponent from CLI args, or prompt interactively."""
-    if args.exponent is not None:
-        x = args.exponent
+    if args.size is not None:
+        x = args.size
         if x != 1:
             print("Error: N must be 1.", file=sys.stderr)
             sys.exit(1)
@@ -51,9 +83,9 @@ def get_exponent(args: argparse.Namespace) -> int:
                 return x
             print("N must be 1.")
         except EOFError:
-            print()  # end the prompt line, as ask_yes does
+            print()  # end the prompt line
             print(
-                "Error: no input; pass N as an argument (e.g. python3 sq.py 1).",
+                "Error: no input; pass SIZE as an argument (e.g. python3 sq.py 1).",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -61,19 +93,10 @@ def get_exponent(args: argparse.Namespace) -> int:
             print("Please enter a positive integer.")
 
 
-def ask_yes(prompt: str) -> bool:
-    """Ask a y/n question; end of input (stdin closed, as in CI) reads as no."""
-    try:
-        answer = input(prompt)
-    except EOFError:
-        print()
-        return False
-    return answer.strip().lower() in ("y", "yes")
-
-
-def main() -> None:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
     x = get_exponent(args)
+    refuse_large_run(x, args.yes)
     max_digits = 10**x
 
     print("Perfect Square Generator (Python)")
@@ -93,7 +116,7 @@ def main() -> None:
 
         print(f"\nFound {count:,} perfect squares with up to 10^{x} digits")
         print(f"Saved to {filename}")
-        if ask_yes(f"Also display all {count:,} perfect squares? (y/n): "):
+        if args.show:
             print(buf.getvalue(), end="")
     except KeyboardInterrupt:
         print("\nGeneration interrupted.")

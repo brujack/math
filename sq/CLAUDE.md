@@ -18,30 +18,33 @@ Current structure:
 ```bash
 make run       # python3 sq.py
 make lint      # ruff check .
-make test      # lint, then pytest test_sq.py -v
+make test      # lint, pytest test_sq.py -v, then ../scripts/cli_contract.py sq.py
 make coverage  # run tests and print coverage report
 ```
 
 Or directly:
 
 ```bash
-python3 sq.py      # interactive prompt
-python3 sq.py 1    # generate all perfect squares with up to 10 digits
+python3 sq.py            # interactive prompt (terminal only; non-TTY exits 2)
+python3 sq.py 1          # write sq_1e1.txt
+python3 sq.py 1 --show   # also print each `square | root` line
+python3 sq.py --smoke    # quick check at SMOKE_SIZE (1)
 ```
 
 ## Code Layout
 
 - `generate_squares(max_digits)` — generator that yields `(sq, root)` tuples for every perfect square with at most `max_digits` decimal digits. Uses `k*k < 10^max_digits` stopping criterion; limit precomputed once before the loop.
-- `parse_args()` — parses CLI via `argparse`; returns `Namespace` with optional `exponent` int.
-- `get_exponent(args)` — returns validated exponent from args, or prompts interactively. Valid value: 1 only. Calls `sys.exit(1)` for any other value.
-- `ask_yes(prompt)` — y/n prompt; returns `True` only for `y`/`yes` (any case, trimmed). End of input (stdin closed, as in CI) prints a newline and reads as no.
-- `main()` — top-level entry: parses args, validates, buffers output, prompts to display or save to `sq_1e1.txt`.
+- `SMOKE_SIZE = 1`, `LARGE_RUN_THRESHOLD = None` — CLI contract constants read by `scripts/cli_contract.py` (pinned by `TestCliContractConstants`).
+- `parse_args(argv=None)` — `argparse` with optional `size`, `--show`, `--yes`, `--smoke`; `--smoke` takes no SIZE and forces `size=SMOKE_SIZE`, `show=False`; a bare run on a non-TTY exits 2.
+- `refuse_large_run(size, yes)` — exits 1 naming `--yes` when `size >= LARGE_RUN_THRESHOLD` without `--yes`; a no-op here because there is no threshold.
+- `get_exponent(args)` — returns validated `args.size`, or prompts interactively. Valid value: 1 only. Calls `sys.exit(1)` for any other value; EOF at the prompt exits 1 with a message to pass SIZE as an argument.
+- `main(argv=None)` — top-level entry: parses args, validates, buffers output, saves to `sq_1e1.txt`, prints the buffer only with `--show`.
 
 ## Important Behavior
 
-- **Output:** always buffered in a `StringIO` and always saved to `sq_1eN.txt`. User is then prompted to also display on screen.
+- **Output:** always buffered in a `StringIO` and always saved to `sq_1eN.txt`. `--show` prints the buffer (each `square | root` line exactly as written) to stdout; there is no display prompt.
 - **Valid N:** 1 only. `get_exponent` exits with code 1 for any other value.
-- **Closed stdin:** the display prompt reads end of input as no (the file is still written); the interactive N prompt exits 1 with a message to pass N as an argument.
+- **Closed stdin:** nothing reads stdin when SIZE is given; a bare non-TTY run exits 2; EOF at the interactive N prompt exits 1 with a message to pass SIZE as an argument.
 - **Stopping criterion:** `k*k < 10^max_digits` (precomputed limit). For N=1: limit=10^10, last included square is 99,999² = 9,999,800,001.
 - **No external dependencies:** uses Python stdlib only.
 
@@ -62,19 +65,21 @@ make coverage  # pytest --cov, fails under 90%
 
 ### Test coverage
 
-99% line coverage (`sq.py`), 43 tests.
+99% line coverage (`sq.py`), 51 tests.
 
 | Class                          | Tests                                                                                                                                  |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `TestGenerateSquares`          | 11 — boundary (empty, 1-digit, 2-digit, 10-digit), correctness (perfect square, increasing), count, last value, exclusion, idempotency |
-| `TestParseArgs`                | 3 — no-arg, with-arg, invalid non-integer exits                                                                                        |
+| `TestParseArgs`                | 8 — size, no-arg on TTY, non-TTY bare run exits 2, invalid integer, `--show`, `--yes`, `--smoke` (clears show), `--smoke` with SIZE exits 2 |
 | `TestGetExponent`              | 7 — valid (1), zero exits, too-high exits, negative exits; exit-code assertions for each failure path                                  |
 | `TestGetExponentInteractive`   | 4 — interactive prompt: valid, retries on too-high/zero/non-integer                                                                    |
-| `TestMain`                     | 4 — file-only branch ("n"), display branch ("y"), idempotency on second run, exact count assertion                                     |
+| `TestMain`                     | 6 — file-only, `--show` echoes every line as written, `--smoke`, invalid size writes nothing, idempotent overwrite, exact count        |
 | `TestSquaresProperties`        | 3 — property tests: all perfect squares, all positive, strictly increasing                                                             |
 | `TestEntryPoint`               | 1 — module runs via subprocess (exercises `if __name__ == "__main__"`)                                                                 |
-| `TestClosedStdin`              | 3 — subprocess with stdin closed: display prompt reads as no, N prompt exits 1; EOF after a bad answer                                  |
-| `TestAskYes`                   | 5 — EOF reads as no, yes forms, other answers are no, Ctrl-C propagates, EOF newline on stdout at the N prompt                        |
+| `TestClosedStdin`              | 4 — subprocess with stdin closed: SIZE runs, bare run exits 2; EOF after a bad answer                                                   |
+| `TestEofAtSizePrompt`          | 1 — EOF at the N prompt exits 1 naming the remedy, newline on stdout                                                                   |
+| `TestCliContractConstants`     | 2 — `SMOKE_SIZE` and `LARGE_RUN_THRESHOLD` pinned                                                                                       |
+| `TestRefuseLargeRun`           | 3 — no threshold never refuses; refuses at boundary; allows one below and with `--yes`                                                  |
 | `TestFileWritePermissionError` | 1 — `main()` exits 1 on `PermissionError` when writing output file                                                                     |
 | `TestKeyboardInterrupt`        | 1 — `main()` exits 1 on KeyboardInterrupt during generation                                                                            |
 
