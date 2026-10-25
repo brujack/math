@@ -143,6 +143,18 @@ See [`perfect-numbers/README.md`](perfect-numbers/README.md) for full details.
 
 ## Quick Reference
 
+### Python CLI contract
+
+All eight Python programs share one command line (`<module>` is pi, fib, sq, e, factorial, perfect_numbers, collatz or amicable):
+
+```bash
+python3 <module>.py SIZE [--show] [--yes]   # never reads stdin; always writes the output file, --show also prints
+python3 <module>.py --smoke                 # quick check at the program's SMOKE_SIZE
+python3 <module>.py                         # interactive prompts at a terminal; exit 2 with usage if stdin is not one
+```
+
+Large runs need `--yes`: pi and e above 1,000,000 digits, fib X >= 4 (otherwise exit 1 naming `--yes`). The other programs accept and ignore it.
+
 ### Python (`pi/`)
 
 ```bash
