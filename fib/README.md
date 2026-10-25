@@ -26,7 +26,8 @@ make test              # run unit tests
 ```bash
 cd fib/fib-rs
 bash install_deps.sh   # install GMP + Rust toolchain (one time)
-make fib               # build release binary → ~/Downloads/fib
+make fib               # cargo build --release (binary in target/release/fib)
+make install           # build, then copy to ${XDG_BIN_HOME:-~/.local/bin}/fib
 ./target/release/fib 3
 make test
 ```

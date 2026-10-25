@@ -12,7 +12,8 @@ to `goldbach_1eN.txt`.
 ## Build
 
 ```bash
-make goldbach   # cargo build --release
+make goldbach   # cargo build --release (binary in target/release/goldbach)
+make install    # build, then copy to ${XDG_BIN_HOME:-~/.local/bin}/goldbach
 make lint       # cargo fmt --check + cargo clippy
 make test       # lint + cargo test
 ```

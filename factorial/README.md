@@ -40,7 +40,8 @@ make test              # run unit tests
 ```bash
 cd factorial/factorial-rs
 bash install_deps.sh   # install GMP + Rust toolchain (one time)
-make factorial         # build release binary → ~/Downloads/factorial
+make factorial         # cargo build --release (binary in target/release/factorial)
+make install           # build, then copy to ${XDG_BIN_HOME:-~/.local/bin}/factorial
 ./target/release/factorial 1000
 make test
 ```
@@ -61,10 +62,11 @@ make test
 
 | Target      | Command                                          |
 | ----------- | ------------------------------------------------ |
-| `factorial` | `cargo build --release` + copy to `~/Downloads/` |
+| `factorial` | Build the release binary (`target/release/factorial`) |
+| `install` | Build, then copy to `${XDG_BIN_HOME:-~/.local/bin}/factorial` |
 | `lint`      | `cargo clippy -- -D warnings`                    |
 | `test`      | lint, then `cargo test`                          |
-| `clean`     | `cargo clean` + remove `~/Downloads/factorial`   |
+| `clean`     | Remove build artifacts |
 
 ## Output
 

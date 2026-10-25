@@ -9,7 +9,8 @@ Injectable I/O pattern: `run<W,E>(stdout, stderr, out_path, limit)`.
 ## Running
 
 ```bash
-make amicable  # cargo build --release
+make amicable  # cargo build --release (binary in target/release/amicable)
+make install   # build, then copy to ${XDG_BIN_HOME:-~/.local/bin}/amicable
 make lint      # cargo fmt --check + clippy -D warnings
 make test      # lint + cargo test
 ```

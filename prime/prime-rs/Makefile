@@ -1,8 +1,14 @@
-.PHONY: prime lint test bench clean mutants
+.PHONY: prime lint test bench clean mutants install
 
 prime:
 	cargo build --release
-	cp target/release/prime ~/Downloads/prime
+
+# Installs to the XDG user bin dir on Linux and macOS alike; make prime alone
+# writes nothing outside the crate.
+install: prime
+	@dest="$${XDG_BIN_HOME:-$$HOME/.local/bin}"; \
+	mkdir -p "$$dest" && cp target/release/prime "$$dest/prime" && \
+	printf 'installed %s\n' "$$dest/prime"
 
 lint:
 	../../scripts/rust-check.sh lint
@@ -26,4 +32,3 @@ mutants:
 
 clean:
 	cargo clean
-	rm -f ~/Downloads/prime

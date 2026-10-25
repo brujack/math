@@ -12,7 +12,8 @@ Vector memoization: `cache[n] = chain_length(n) + 1` (0 = not computed).
 ## Build
 
 ```bash
-make collatz   # cargo build --release
+make collatz   # cargo build --release (binary in target/release/collatz)
+make install   # build, then copy to ${XDG_BIN_HOME:-~/.local/bin}/collatz
 make lint      # cargo fmt --check + cargo clippy
 make test      # lint + cargo test
 ```

@@ -64,6 +64,7 @@ All 11 projects (pi, prime, fib, sq, twin-primes, e, factorial, perfect-numbers,
 ```bash
 cd <project>/<project>-rs
 make <project>  # cargo build --release
+make install    # build, then copy to ${XDG_BIN_HOME:-~/.local/bin}/<project> (Linux and macOS)
 make lint       # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
 make test       # lint, then cargo test
 ```

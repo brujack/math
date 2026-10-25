@@ -13,7 +13,8 @@ formula. Valid N range: 1–54 (covers all 10 known perfect numbers).
 
 ```bash
 cd perfect-numbers-rs
-make perfect-numbers  # cargo build --release
+make perfect-numbers  # cargo build --release (binary in target/release/perfect-numbers)
+make install          # build, then copy to ${XDG_BIN_HOME:-~/.local/bin}/perfect-numbers
 make lint             # cargo fmt --check + clippy
 make test             # lint + cargo test
 ```

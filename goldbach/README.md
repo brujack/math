@@ -18,7 +18,8 @@ Output: one line per pair `n p q` (p ≤ q, p + q = n), saved to `goldbach_1eN.t
 
 ```bash
 cd goldbach-rs
-make goldbach   # cargo build --release
+make goldbach   # cargo build --release (binary in target/release/goldbach)
+make install    # build, then copy to ${XDG_BIN_HOME:-~/.local/bin}/goldbach
 make lint       # cargo fmt --check + clippy
 make test       # lint + cargo test
 ```

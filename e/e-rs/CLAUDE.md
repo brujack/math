@@ -16,7 +16,8 @@ Build (requires GMP + MPFR -- run `install_deps.sh` first):
 
 ```bash
 cd e-rs
-make e           # builds release binary and copies it to ~/Downloads/e
+make e           # cargo build --release (binary in target/release/e)
+make install     # build, then copy to ${XDG_BIN_HOME:-~/.local/bin}/e
 ./target/release/e [digits]
 ```
 
@@ -61,10 +62,11 @@ Integer::from(&l.q * &r.p) + &r.q
 
 ## Makefile Targets
 
-- `make e` -- runs `cargo build --release` and copies the binary to `~/Downloads/e`
+- `make e` -- runs `cargo build --release`; the binary stays in `target/release/e`
+- `make install` -- builds, then copies the binary to `${XDG_BIN_HOME:-~/.local/bin}/e` (created if missing)
 - `make lint` -- runs `cargo clippy -- -D warnings`
 - `make test` -- runs lint then `cargo test`
-- `make clean` -- runs `cargo clean` and removes `~/Downloads/e`
+- `make clean` -- runs `cargo clean`
 
 ## Testing
 

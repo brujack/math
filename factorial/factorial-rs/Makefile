@@ -1,8 +1,14 @@
-.PHONY: factorial lint test bench clean mutants
+.PHONY: factorial lint test bench clean mutants install
 
 factorial:
 	cargo build --release
-	cp target/release/factorial ~/Downloads/factorial
+
+# Installs to the XDG user bin dir on Linux and macOS alike; make factorial alone
+# writes nothing outside the crate.
+install: factorial
+	@dest="$${XDG_BIN_HOME:-$$HOME/.local/bin}"; \
+	mkdir -p "$$dest" && cp target/release/factorial "$$dest/factorial" && \
+	printf 'installed %s\n' "$$dest/factorial"
 
 lint:
 	../../scripts/rust-check.sh lint
@@ -26,4 +32,3 @@ mutants:
 
 clean:
 	cargo clean
-	rm -f ~/Downloads/factorial

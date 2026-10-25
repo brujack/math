@@ -102,7 +102,8 @@ Requires Rust 1.85+ and GMP + MPFR (run `pi/pi-rs/install_deps.sh` first):
 
 ```bash
 cd pi-rs
-make pi          # cargo build --release, copies binary to ~/Downloads/pi
+make pi          # cargo build --release (binary in target/release/pi)
+make install     # build, then copy to ${XDG_BIN_HOME:-~/.local/bin}/pi
 ```
 
 Or manually:
@@ -118,10 +119,11 @@ The binary is at `pi-rs/target/release/pi`.
 
 | Target       | Description                                       |
 | ------------ | ------------------------------------------------- |
-| `make pi`    | Build release binary and copy to `~/Downloads/pi` |
+| `make pi`    | Build the release binary (`target/release/pi`) |
+| `make install` | Build, then copy to `${XDG_BIN_HOME:-~/.local/bin}/pi` |
 | `make lint`  | Lint with `cargo clippy -- -D warnings`           |
 | `make test`  | Run lint then unit tests (`cargo test`)           |
-| `make clean` | Remove build artifacts and `~/Downloads/pi`       |
+| `make clean` | Remove build artifacts |
 
 ### Tests
 

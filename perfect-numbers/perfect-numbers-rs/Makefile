@@ -1,7 +1,14 @@
-.PHONY: perfect-numbers lint test bench clean mutants
+.PHONY: perfect-numbers lint test bench clean mutants install
 
 perfect-numbers:
 	cargo build --release
+
+# Installs to the XDG user bin dir on Linux and macOS alike; make perfect-numbers alone
+# writes nothing outside the crate.
+install: perfect-numbers
+	@dest="$${XDG_BIN_HOME:-$$HOME/.local/bin}"; \
+	mkdir -p "$$dest" && cp target/release/perfect-numbers "$$dest/perfect-numbers" && \
+	printf 'installed %s\n' "$$dest/perfect-numbers"
 
 lint:
 	../../scripts/rust-check.sh lint

@@ -34,16 +34,18 @@ Two-phase segmented Sieve of Eratosthenes:
 
 ```bash
 cd prime-rs
-make prime       # cargo build --release, copies binary to ~/Downloads/prime
+make prime       # cargo build --release (binary in target/release/prime)
+make install     # build, then copy to ${XDG_BIN_HOME:-~/.local/bin}/prime
 ./target/release/prime [N]
 ```
 
 A `Makefile` is provided in `prime-rs/`:
 
-- `make prime` — runs `cargo build --release` and copies the binary to `~/Downloads/prime`
+- `make prime` — runs `cargo build --release`; the binary stays in `target/release/prime`
+- `make install` — builds, then copies the binary to `${XDG_BIN_HOME:-~/.local/bin}/prime` (created if missing)
 - `make lint` — runs `cargo clippy -- -D warnings`
 - `make test` — runs lint then `cargo test`
-- `make clean` — runs `cargo clean` and removes `~/Downloads/prime`
+- `make clean` — runs `cargo clean`
 
 No external C libraries required (unlike the pi project); only `rayon` and `clap`.
 

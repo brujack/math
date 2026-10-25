@@ -1,7 +1,14 @@
-.PHONY: collatz lint test bench mutants clean
+.PHONY: collatz lint test bench mutants clean install
 
 collatz:
 	cargo build --release
+
+# Installs to the XDG user bin dir on Linux and macOS alike; make collatz alone
+# writes nothing outside the crate.
+install: collatz
+	@dest="$${XDG_BIN_HOME:-$$HOME/.local/bin}"; \
+	mkdir -p "$$dest" && cp target/release/collatz "$$dest/collatz" && \
+	printf 'installed %s\n' "$$dest/collatz"
 
 lint:
 	../../scripts/rust-check.sh lint

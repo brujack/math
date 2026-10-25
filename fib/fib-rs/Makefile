@@ -1,8 +1,14 @@
-.PHONY: fib lint test bench clean mutants
+.PHONY: fib lint test bench clean mutants install
 
 fib:
 	cargo build --release
-	cp target/release/fib ~/Downloads/fib
+
+# Installs to the XDG user bin dir on Linux and macOS alike; make fib alone
+# writes nothing outside the crate.
+install: fib
+	@dest="$${XDG_BIN_HOME:-$$HOME/.local/bin}"; \
+	mkdir -p "$$dest" && cp target/release/fib "$$dest/fib" && \
+	printf 'installed %s\n' "$$dest/fib"
 
 lint:
 	../../scripts/rust-check.sh lint
@@ -26,4 +32,3 @@ mutants:
 
 clean:
 	cargo clean
-	rm -f ~/Downloads/fib
