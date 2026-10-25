@@ -9,8 +9,10 @@ on pipes the grandchild still holds open.
 import os
 import subprocess
 import sys
+import tempfile
 
-# The test owns this path so it can kill the sleeper even if the harness raises.
+# The test owns this file so it can kill the sleeper even if the harness raises.
+# The variable carries a bare file name, always resolved inside the temp directory.
 PID_FILE_ENV = "CLI_CONTRACT_PID_FILE"
 
 SMOKE_SIZE = 2
@@ -19,9 +21,14 @@ LARGE_RUN_THRESHOLD: int | None = None
 SLEEPER = "import time; time.sleep(30)  # cli_contract_grandchild"
 
 
+def _pid_file_path(default: str) -> str:
+    name = os.path.basename(os.environ.get(PID_FILE_ENV, default))
+    return os.path.join(tempfile.gettempdir(), name)
+
+
 def main() -> None:
     grandchild = subprocess.Popen([sys.executable, "-c", SLEEPER])
-    with open(os.environ.get(PID_FILE_ENV, "gc.pid"), "w") as handle:
+    with open(_pid_file_path("gc.pid"), "w") as handle:
         handle.write(str(grandchild.pid))
     sys.stdin.readline()
 

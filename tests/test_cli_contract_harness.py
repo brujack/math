@@ -17,6 +17,7 @@ import textwrap
 import threading
 import time
 import unittest
+import uuid
 from unittest import mock
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -97,10 +98,12 @@ class TestRunCase(unittest.TestCase):
         The cleanup is registered before run_case so a failing or raising test
         cannot leak a sleeper (tdd-007: an inert failure mode).
         """
-        scratch = tempfile.TemporaryDirectory()
-        self.addCleanup(scratch.cleanup)
-        pid_file = pathlib.Path(scratch.name) / "sleeper.pid"
-        env = mock.patch.dict(os.environ, {"CLI_CONTRACT_PID_FILE": str(pid_file)})
+        # The fixtures take a bare file name and resolve it under the temp
+        # directory, so the variable cannot point a write anywhere else.
+        name = f"cli_contract_sleeper_{uuid.uuid4().hex}.pid"
+        pid_file = pathlib.Path(tempfile.gettempdir()) / name
+        self.addCleanup(pid_file.unlink, missing_ok=True)
+        env = mock.patch.dict(os.environ, {"CLI_CONTRACT_PID_FILE": name})
         env.start()
         self.addCleanup(env.stop)
 
