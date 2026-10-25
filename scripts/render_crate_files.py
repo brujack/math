@@ -38,6 +38,7 @@ KINDS = {
     "release.yml": ".github/workflows/release-{crate}-rs.yml",
     "ci.yml": ".github/workflows/{crate}-rs.yml",
     "nextest.toml": "{crate}/{crate}-rs/.config/nextest.toml",
+    "install_deps.sh": "{crate}/{crate}-rs/install_deps.sh",
 }
 
 PLACEHOLDER = "@CRATE@"

@@ -13,6 +13,7 @@ on:
       - "*/*-rs/Makefile"
       - "*/*-rs/rustfmt.toml"
       - "*/*-rs/.config/nextest.toml"
+      - "*/*-rs/install_deps.sh"
       - ".github/workflows/*-rs.yml"
       - ".github/actions/**"
       - "pyrightconfig.json"

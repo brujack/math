@@ -30,7 +30,7 @@ Reference material lives in `ai-config/docs/knowledge/math-<topic>.md` (ADR-0020
 ## Dependency Installation
 
 Each sub-project has its own installer: `<project>/install_deps.sh` for Python, `<project>/<project>-rs/install_deps.sh` for Rust (19 total; `goldbach`, `prime` and `twin-primes` have only the nested Rust one). → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
-Rust installers add the toolchain, `cargo-tarpaulin` (not for `sq-rs`) and GMP (+ MPFR for pi/e/factorial) where needed; Python installers add `ruff`, `coverage`, `pytest`, `pytest-cov` (plus GMP + MPFR, `mpmath`, `gmpy2` for pi/e/factorial). → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
+The 11 Rust installers are identical (rendered from `scripts/crate_templates/install_deps.sh`, tested by `tests/scripts/crate_install_deps.bats`): GMP + MPFR, the rustup toolchain, and `cargo-nextest`, `cargo-machete` and `cargo-tarpaulin` at CI's pinned versions; Python installers add `ruff`, `coverage`, `pytest`, `pytest-cov` (plus GMP + MPFR, `mpmath`, `gmpy2` for pi/e/factorial). → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
 
 Root-scope Python has no `install_deps.sh` by design: `requirements-dev.txt` (`defusedxml==0.7.1`, `pyyaml==6.0.3`) is consumed by `make install-deps`. → ai-config/docs/knowledge/math-dependency-installation.md § Root-scope Python
 
@@ -69,7 +69,7 @@ make lint       # cargo fmt --check, then cargo clippy --all-targets -- -D warni
 make test       # lint, then cargo test
 ```
 
-All 11 crates are treated identically (operator rule): each crate's `Makefile`, `rustfmt.toml`, `.config/nextest.toml`, `<crate>-rs.yml` and `release-<crate>-rs.yml` is rendered from `scripts/crate_templates/` by `scripts/render_crate_files.py` (`@CRATE@` is the only placeholder); edit the template and run `--write`, never one crate's copy, and `tests/test_crate_uniformity.py` fails on any drift.
+All 11 crates are treated identically (operator rule): each crate's `Makefile`, `rustfmt.toml`, `.config/nextest.toml`, `install_deps.sh`, `<crate>-rs.yml` and `release-<crate>-rs.yml` is rendered from `scripts/crate_templates/` by `scripts/render_crate_files.py` (`@CRATE@` is the only placeholder); edit the template and run `--write`, never one crate's copy, and `tests/test_crate_uniformity.py` fails on any drift.
 A single `ruff.toml` at the repo root serves all 8 Python sub-projects via ancestor discovery; keep one root `ruff.toml` only and never create per-subproject configs. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 `ruff==0.16.4` is pinned at all 17 install sites (8 `*-py.yml` workflows, `scripts.yml`, 8 `install_deps.sh`); bump them together. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 Root `make lint` runs `ruff check .` plus `ruff format --check` scoped to `git ls-files '*.py'` (never `ruff format --check .`, which rewrites markdown code blocks) alongside `lint-hooks`. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
