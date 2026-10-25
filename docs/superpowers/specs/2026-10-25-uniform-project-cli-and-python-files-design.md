@@ -286,3 +286,65 @@ N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
 - R17 reviewed: fixed in 7117d87
 - finding R18 (2026-10-25, reviewer both): NOT-BUILT — The root CLAUDE.md hunk changes only the pre-push line; the Notes bullet saying output files are 'written by `make benchmark` too' is not edited.
 - R18 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- finding R9 (2026-10-25, reviewer both): NOT-BUILT — Looked for typings/gmpy2/__init__.pyi, stubPath edits to any pyrightconfig.json and an e/pi mode change; none appear in the diff.
+- R9 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- finding R10 (2026-10-25, reviewer both): NOT-BUILT — No scripts/crate_templates/python/ files, renderer change, install_deps.sh or cosmic-ray.toml change, or tests/test_crate_uniformity.py change appear; the Makefiles and workflows are hand-edited.
+- R10 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- finding R11 (2026-10-25, reviewer both): NOT-BUILT — benchmark: targets remain and are edited in amicable, e, pi and sq Makefiles (e.g. `timeout 30 python3 amicable.py 5`), no *-py.yml Benchmark step is removed, and TestBenchmarkGatesCanFail is untouched.
+- R11 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- finding R12 (2026-10-25, reviewer both): NOT-BUILT — No installer, workflow install step or tests/test_tool_pins.py change appears in the diff.
+- R12 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- finding R13 (2026-10-25, reviewer both): NOT-BUILT — The *-py.yml hunks add only two paths: entries; no test-metrics-<p>-py publishing step is added.
+- R13 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- finding R14 (2026-10-25, reviewer both): NOT-BUILT — No cosmic-ray.toml file is in the diff.
+- R14 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- finding R15 (2026-10-25, reviewer both): NOT-BUILT — .github/workflows/scripts.yml is not in the diff.
+- R15 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- finding R18 (2026-10-25, reviewer both): NOT-BUILT — The root CLAUDE.md hunk edits only the pre-push line; no edit removes the 'written by `make benchmark` too' Notes text.
+- R18 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+
+## Spec alignment (2026-10-25)
+
+- spec: docs/superpowers/specs/2026-10-25-uniform-project-cli-and-python-files-design.md
+- anchor: 95a4378893327f6f1b7143e2a5cc67767ceb5cfc
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16, R17, R18
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+| R9 | both | NOT-BUILT | Looked for typings/gmpy2/__init__.pyi, stubPath edits to any pyrightconfig.json and an e/pi mode change; none appear in the diff. | - R9 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence. |
+| R10 | both | NOT-BUILT | No scripts/crate_templates/python/ files, renderer change, install_deps.sh or cosmic-ray.toml change, or tests/test_crate_uniformity.py change appear; the Makefiles and workflows are hand-edited. | - R10 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence. |
+| R11 | both | NOT-BUILT | benchmark: targets remain and are edited in amicable, e, pi and sq Makefiles (e.g. `timeout 30 python3 amicable.py 5`), no *-py.yml Benchmark step is removed, and TestBenchmarkGatesCanFail is untouched. | - R11 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence. |
+| R12 | both | NOT-BUILT | No installer, workflow install step or tests/test_tool_pins.py change appears in the diff. | - R12 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence. |
+| R13 | both | NOT-BUILT | The *-py.yml hunks add only two paths: entries; no test-metrics-<p>-py publishing step is added. | - R13 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence. |
+| R14 | both | NOT-BUILT | No cosmic-ray.toml file is in the diff. | - R14 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence. |
+| R15 | both | NOT-BUILT | .github/workflows/scripts.yml is not in the diff. | - R15 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence. |
+| R18 | both | NOT-BUILT | The root CLAUDE.md hunk edits only the pre-push line; no edit removes the 'written by `make benchmark` too' Notes text. | - R18 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence. |
+
+### Reviewed
+
+- R9 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- R10 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- R11 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- R12 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- R13 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- R14 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- R15 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- R17 reviewed: fixed in 7117d87
+- R18 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- R9 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- R10 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- R11 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- R12 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- R13 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- R14 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- R15 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- R18 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+
+### Verifications
+
+- V1: no evidence recorded
+- V2: no evidence recorded
+- V3: no evidence recorded
