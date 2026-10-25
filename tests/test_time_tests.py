@@ -131,3 +131,78 @@ class TestFetchHistoricalErrorPath(unittest.TestCase):
         ):
             self.assertEqual(fetch_historical("math", "test-metrics"), [])
         self.assertEqual(buf.getvalue(), "")
+
+
+class TestMainImportsModuleFromWorkingDirectory(unittest.TestCase):
+    """The workflows run `python3 <repo>/scripts/time_tests.py --module test_<m>`
+    from the project directory. Python puts the script's own directory on
+    sys.path, not the working directory, so the test module has to be found
+    from the working directory explicitly or every run records one
+    `_FailedTest` instead of the suite."""
+
+    _SCRIPT = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "scripts",
+        "time_tests.py",
+    )
+
+    def _run(self, module):
+        import json
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "test_sample.py"), "w") as f:
+                f.write(
+                    "import unittest\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_a(self):\n        pass\n"
+                    "    def test_b(self):\n        pass\n"
+                )
+            bindir = os.path.join(d, "bin")
+            os.mkdir(bindir)
+            gh = os.path.join(bindir, "gh")
+            with open(gh, "w") as f:
+                f.write("#!/bin/sh\nexit 1\n")
+            os.chmod(gh, 0o755)
+            env = dict(
+                os.environ, PATH=bindir + os.pathsep + os.environ.get("PATH", "")
+            )
+            env.pop("PYTHONPATH", None)
+            r = subprocess.run(
+                [
+                    sys.executable,
+                    self._SCRIPT,
+                    "--repo",
+                    "math",
+                    "--run-id",
+                    "1",
+                    "--module",
+                    module,
+                ],
+                cwd=d,
+                env=env,
+                capture_output=True,
+                text=True,
+                stdin=subprocess.DEVNULL,
+                check=False,
+            )
+            metrics = None
+            path = os.path.join(d, "test-metrics.json")
+            if os.path.exists(path):
+                with open(path) as f:
+                    metrics = json.load(f)
+            return r, metrics
+
+    def test_module_in_working_directory_is_loaded(self):
+        r, metrics = self._run("test_sample")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        assert metrics is not None
+        self.assertEqual(metrics["stats"]["total"], 2)
+        self.assertFalse(any("_FailedTest" in name for name in metrics["all_timings"]))
+
+    def test_missing_module_fails(self):
+        r, metrics = self._run("test_absent")
+        self.assertEqual(r.returncode, 1)
+        assert metrics is not None
+        self.assertEqual(metrics["stats"]["failed"], 1)

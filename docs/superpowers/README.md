@@ -63,6 +63,7 @@ Add a new row to the group that matches its priority.
 
 | Feature | Notes |
 | ------- | ----- |
+| Python mutation workflows probably mutate nothing | Found by bug-scan on math PR 3 of the uniform-python-cli plan, inferred, not reproduced: `mutation-testing-python.yml` and `mutation-pr.yml` install only `cosmic-ray`, but every `test_*.py` imports `hypothesis` (pi, e, factorial also need `mpmath`, `gmpy2`). The 2026-10-01 run reported 0 survivors for all 8 (fib in about 18 s), which fits every mutant being "killed" by an import error, since `cosmic-ray exec` runs no baseline. Reproduce, then install the rendered installer's pinned set and add a baseline run that fails the job. |
 
 ### P2 — latent bugs, supply chain and test gaps guarding real risk
 
