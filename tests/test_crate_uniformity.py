@@ -74,6 +74,14 @@ class TestCheckAndWrite(unittest.TestCase):
         self.assertEqual(len(first), 11)
         self.assertEqual(second, [])
 
+    def test_write_creates_missing_parent_directories(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._tree(tmp, lambda c: f"build {c}\n")
+            kinds = {"Makefile": "{crate}/{crate}-rs/.config/Makefile"}
+            written = rcf.write(root, kinds)
+            self.assertEqual(rcf.check(root, kinds), [])
+        self.assertEqual(len(written), 11)
+
     def test_cli_check_exits_1_on_drift_and_0_when_clean(self):
         script = REPO_ROOT / "scripts" / "render_crate_files.py"
         with tempfile.TemporaryDirectory() as tmp:
@@ -103,7 +111,10 @@ class TestCheckAndWrite(unittest.TestCase):
 class TestRepoCratesMatchTemplates(unittest.TestCase):
     def test_every_kind_covers_all_11_crates(self):
         self.assertEqual(len(rcf.CRATES), 11)
-        self.assertEqual(set(rcf.KINDS), {"Makefile", "rustfmt.toml", "release.yml"})
+        self.assertEqual(
+            set(rcf.KINDS),
+            {"Makefile", "rustfmt.toml", "release.yml", "ci.yml", "nextest.toml"},
+        )
 
     def test_scripts_workflow_runs_on_every_rendered_file(self):
         # The check runs in scripts.yml, which is paths-filtered: a PR touching only

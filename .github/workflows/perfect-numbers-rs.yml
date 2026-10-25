@@ -23,8 +23,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Install GMP
-        run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+      - name: Install GMP and MPFR
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec  # stable
 
@@ -39,12 +39,40 @@ jobs:
         run: cargo install cargo-machete --locked --version 0.9.2
 
       - name: Run tests
+        # nextest reads NEXTEST_PROFILE: the ci profile writes the JUnit report
+        # test_metrics.py reads, while make test stays the single test definition.
+        env:
+          NEXTEST_PROFILE: ci
         run: make test
+
+      - name: Install Python dependencies
+        if: always()
+        run: pip install defusedxml==0.7.1
+
+      - name: Generate test metrics
+        if: always()
+        working-directory: ${{ github.workspace }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_RUN_ID: ${{ github.run_id }}
+        run: |
+          python3 scripts/test_metrics.py \
+            --repo math \
+            --run-id "${GH_RUN_ID}" \
+            --junit perfect-numbers/perfect-numbers-rs/target/nextest/ci/junit.xml \
+            --artifact-name test-metrics-perfect-numbers-rs
+      - name: Upload test metrics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: test-metrics-perfect-numbers-rs
+          path: test-metrics.json
+          retention-days: 90
 
       - name: Install cargo-tarpaulin
         run: cargo install cargo-tarpaulin --locked --version 0.37.5
 
-      - name: Check coverage (>=90%)
+      - name: Check coverage (≥90%)
         run: cargo tarpaulin --out Json --fail-under 90
 
       - name: Publish coverage badge
@@ -85,8 +113,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Install GMP
-        run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+      - name: Install GMP and MPFR
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec  # stable
 
