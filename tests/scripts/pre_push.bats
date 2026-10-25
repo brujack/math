@@ -188,6 +188,16 @@ teardown() {
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
 }
 
+@test "typings/ change reaches the root test target" {
+    # Regression guard: tests/test_gmpy2_stub.py is the only guard on the stub
+    # and pyright accepts Any there, so a stub-only push must run it.
+    export MOCK_GIT_DIFF_NAMES="typings/gmpy2/__init__.pyi"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
+}
+
 @test ".claude/scripts/ change reaches the root test target" {
     # Regression guard: .claude/scripts/triage_log.py enters the type-check
     # denominator, but the trigger pattern did not name the directory.
