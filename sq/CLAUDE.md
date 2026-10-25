@@ -34,12 +34,14 @@ python3 sq.py 1    # generate all perfect squares with up to 10 digits
 - `generate_squares(max_digits)` — generator that yields `(sq, root)` tuples for every perfect square with at most `max_digits` decimal digits. Uses `k*k < 10^max_digits` stopping criterion; limit precomputed once before the loop.
 - `parse_args()` — parses CLI via `argparse`; returns `Namespace` with optional `exponent` int.
 - `get_exponent(args)` — returns validated exponent from args, or prompts interactively. Valid value: 1 only. Calls `sys.exit(1)` for any other value.
+- `ask_yes(prompt)` — y/n prompt; returns `True` only for `y`/`yes` (any case, trimmed). End of input (stdin closed, as in CI) prints a newline and reads as no.
 - `main()` — top-level entry: parses args, validates, buffers output, prompts to display or save to `sq_1e1.txt`.
 
 ## Important Behavior
 
 - **Output:** always buffered in a `StringIO` and always saved to `sq_1eN.txt`. User is then prompted to also display on screen.
 - **Valid N:** 1 only. `get_exponent` exits with code 1 for any other value.
+- **Closed stdin:** the display prompt reads end of input as no (the file is still written); the interactive N prompt exits 1 with a message to pass N as an argument.
 - **Stopping criterion:** `k*k < 10^max_digits` (precomputed limit). For N=1: limit=10^10, last included square is 99,999² = 9,999,800,001.
 - **No external dependencies:** uses Python stdlib only.
 
@@ -60,7 +62,7 @@ make coverage  # pytest --cov, fails under 90%
 
 ### Test coverage
 
-98% line coverage (`sq.py`), 35 tests.
+99% line coverage (`sq.py`), 41 tests.
 
 | Class                          | Tests                                                                                                                                  |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
@@ -71,6 +73,8 @@ make coverage  # pytest --cov, fails under 90%
 | `TestMain`                     | 4 — file-only branch ("n"), display branch ("y"), idempotency on second run, exact count assertion                                     |
 | `TestSquaresProperties`        | 3 — property tests: all perfect squares, all positive, strictly increasing                                                             |
 | `TestEntryPoint`               | 1 — module runs via subprocess (exercises `if __name__ == "__main__"`)                                                                 |
+| `TestClosedStdin`              | 3 — subprocess with stdin closed: display prompt reads as no, N prompt exits 1; EOF after a bad answer                                  |
+| `TestAskYes`                   | 3 — EOF reads as no, yes forms, other answers are no                                                                                  |
 | `TestFileWritePermissionError` | 1 — `main()` exits 1 on `PermissionError` when writing output file                                                                     |
 | `TestKeyboardInterrupt`        | 1 — `main()` exits 1 on KeyboardInterrupt during generation                                                                            |
 
