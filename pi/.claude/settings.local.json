@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "WebSearch",
-      "WebFetch(domain:gmpy2.readthedocs.io)"
-    ]
-  }
-}

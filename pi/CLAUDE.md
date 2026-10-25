@@ -13,7 +13,6 @@ Current structure:
 - `install_deps.sh`: rendered from `scripts/crate_templates/python/install_deps.sh`: GMP + MPFR (Homebrew, apt or dnf/yum) and every pinned Python package
 - `pi_1000000_digits.txt`: sample/generated output file
 - `pi_10000000_digits.txt`: sample/generated output file
-- `WARP.md`: similar repository guidance for Warp
 
 ## Rust Implementation (`pi-rs/`)
 

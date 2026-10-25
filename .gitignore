@@ -65,7 +65,7 @@ perfect-numbers_1e*.txt
 .cache/cargo-target-rust-checker/
 
 # Claude Code local settings (machine-specific)
-.claude/settings.local.json
+**/.claude/settings.local.json
 .claude/scheduled_tasks.lock
 
 # 10-80-10 loop logs — session-local, not source
