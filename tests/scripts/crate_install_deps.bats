@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# shellcheck disable=SC1090  # each test sources a per-test rendered copy of the template
 
 # Behaviour of scripts/crate_templates/install_deps.sh, which renders every
 # crate's <crate>/<crate>-rs/install_deps.sh. The template is rendered for one
