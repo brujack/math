@@ -14,7 +14,19 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 import fib
-from fib import generate_fibonacci, get_exponent, main, parse_args
+from fib import (
+    LARGE_RUN_THRESHOLD,
+    SMOKE_SIZE,
+    generate_fibonacci,
+    get_exponent,
+    main,
+    parse_args,
+    refuse_large_run,
+)
+
+if LARGE_RUN_THRESHOLD is None:
+    raise AssertionError("fib has a large-run threshold")
+THRESHOLD: int = LARGE_RUN_THRESHOLD
 
 
 class TestGenerateFibonacci(unittest.TestCase):
@@ -58,42 +70,85 @@ class TestGenerateFibonacci(unittest.TestCase):
 
 
 class TestParseArgs(unittest.TestCase):
-    def test_no_args(self):
-        old_argv = sys.argv
-        sys.argv = ["fib.py"]
-        args = parse_args()
-        sys.argv = old_argv
-        self.assertIsNone(args.exponent)
+    def test_no_args_on_tty(self):
+        with patch("sys.stdin.isatty", return_value=True):
+            args = parse_args([])
+        self.assertIsNone(args.size)
+        self.assertFalse(args.show)
+        self.assertFalse(args.yes)
 
     def test_with_valid_arg(self):
-        old_argv = sys.argv
-        sys.argv = ["fib.py", "3"]
-        args = parse_args()
-        sys.argv = old_argv
-        self.assertEqual(args.exponent, 3)
+        self.assertEqual(parse_args(["3"]).size, 3)
+
+    def test_flags_parse(self):
+        args = parse_args(["3", "--show", "--yes"])
+        self.assertTrue(args.show)
+        self.assertTrue(args.yes)
 
     def test_invalid_non_integer_arg_exits(self):
-        old_argv = sys.argv
-        sys.argv = ["fib.py", "abc"]
-        try:
-            with self.assertRaises(SystemExit):
-                parse_args()
-        finally:
-            sys.argv = old_argv
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            parse_args(["abc"])
+
+    def test_bare_non_tty_run_exits_2(self):
+        with (
+            patch("sys.stdin.isatty", return_value=False),
+            redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            parse_args([])
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_smoke_sets_size_and_clears_show(self):
+        args = parse_args(["--smoke", "--show"])
+        self.assertEqual(args.size, SMOKE_SIZE)
+        self.assertFalse(args.show)
+
+    def test_smoke_with_size_exits_2(self):
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as cm:
+            parse_args(["--smoke", "3"])
+        self.assertEqual(cm.exception.code, 2)
+
+
+class TestCliContractConstants(unittest.TestCase):
+    def test_smoke_size(self):
+        self.assertEqual(SMOKE_SIZE, 3)
+
+    def test_large_run_threshold(self):
+        self.assertEqual(LARGE_RUN_THRESHOLD, 4)
+
+
+class TestRefuseLargeRun(unittest.TestCase):
+    def test_one_below_threshold_passes(self):
+        refuse_large_run(THRESHOLD - 1, False)
+
+    def test_at_threshold_without_yes_exits_1_naming_yes(self):
+        err = io.StringIO()
+        with redirect_stderr(err), self.assertRaises(SystemExit) as cm:
+            refuse_large_run(THRESHOLD, False)
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("--yes", err.getvalue())
+
+    def test_at_threshold_with_yes_passes(self):
+        refuse_large_run(THRESHOLD, True)
 
 
 class TestGetExponent(unittest.TestCase):
-    def _args(self, exponent):
-        return argparse.Namespace(exponent=exponent)
+    def _args(self, size, yes=False):
+        return argparse.Namespace(size=size, yes=yes)
 
     def test_valid_low_boundary(self):
         self.assertEqual(get_exponent(self._args(1)), 1)
 
     def test_valid_high_boundary(self):
-        self.assertEqual(get_exponent(self._args(5)), 5)
+        self.assertEqual(get_exponent(self._args(5, yes=True)), 5)
 
     def test_valid_midrange(self):
         self.assertEqual(get_exponent(self._args(3)), 3)
+
+    def test_large_without_yes_exits_1(self):
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as cm:
+            get_exponent(self._args(4))
+        self.assertEqual(cm.exception.code, 1)
 
     def test_zero_exits(self):
         with self.assertRaises(SystemExit):
@@ -115,10 +170,10 @@ class TestGetExponent(unittest.TestCase):
 
 
 class TestGetExponentInteractive(unittest.TestCase):
-    """Cover the interactive prompt branch of get_exponent (args.exponent is None)."""
+    """Cover the interactive prompt branch of get_exponent (args.size is None)."""
 
     def _args_none(self):
-        return argparse.Namespace(exponent=None)
+        return argparse.Namespace(size=None)
 
     def test_interactive_valid_first_try(self):
         with patch("builtins.input", side_effect=["3"]), redirect_stdout(io.StringIO()):
@@ -155,8 +210,7 @@ class TestGetExponentInteractive(unittest.TestCase):
 
 
 class TestMain(unittest.TestCase):
-    """Cover main() — small-output branch (X<=2), large-output streaming (X==3),
-    and the X>=4 confirmation prompt (both yes and no paths)."""
+    """main(): buffered (X<=2), streaming (X==3), --show, and the large-run gate."""
 
     def setUp(self):
         self._cwd = os.getcwd()
@@ -169,89 +223,136 @@ class TestMain(unittest.TestCase):
             os.unlink(os.path.join(self._tmp, f))
         os.rmdir(self._tmp)
 
-    def _run_main(self, argv, inputs):
-        old_argv = sys.argv
-        sys.argv = argv
-        try:
-            with (
-                patch("builtins.input", side_effect=inputs),
-                redirect_stdout(io.StringIO()) as buf,
-            ):
-                main()
-            return buf.getvalue()
-        finally:
-            sys.argv = old_argv
+    def _run_main(self, argv, inputs=()):
+        with (
+            patch("builtins.input", side_effect=list(inputs)),
+            redirect_stdout(io.StringIO()) as buf,
+        ):
+            main(argv)
+        return buf.getvalue()
 
-    def test_small_x_display_branch(self):
-        # X=1, user chooses "y" → display all values, do not write file
-        out = self._run_main(["fib.py", "1"], ["y"])
-        self.assertIn("Fibonacci", out)
-        self.assertIn("1\n1\n2\n3\n5\n8", out)
-        self.assertFalse(os.path.exists("fib_1e1.txt"))
+    def test_small_x_writes_file_without_prompt(self):
+        out = self._run_main(["1"])
+        with open("fib_1e1.txt") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(lines[:6], ["1", "1", "2", "3", "5", "8"])
+        self.assertNotIn(lines[-1], out.splitlines())
 
-    def test_small_x_save_branch(self):
-        # X=2 → max_digits=10^2=100. User chooses "n" → file is written.
-        self._run_main(["fib.py", "2"], ["n"])
-        self.assertTrue(os.path.exists("fib_1e2.txt"))
+    def test_small_x_show_prints_each_line_and_still_writes(self):
+        out = self._run_main(["1", "--show"])
+        with open("fib_1e1.txt") as f:
+            lines = f.read().splitlines()
+        self.assertIn("\n".join(lines) + "\n", out)
+        self.assertGreater(len(lines), 6)
+
+    def test_small_x_file_content(self):
+        self._run_main(["2"])
         with open("fib_1e2.txt") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[:3], ["1", "1", "2"])
         self.assertLess(int(lines[-1]), 10**100)
 
-    def test_small_x_save_count_reported(self):
-        # x=2 → max_digits=10^2=100 → limit=10^100; exactly 480 Fibonacci numbers
-        # have fewer than 100 decimal digits.
-        # Verifies max_digits=10**x and count increment are both correct.
-        out = self._run_main(["fib.py", "2"], ["n"])
+    def test_small_x_count_reported(self):
+        # exactly 480 Fibonacci numbers have fewer than 100 decimal digits.
+        out = self._run_main(["2"])
         self.assertIn("Found 480", out)
 
     def test_small_x_uses_buffered_branch_for_x2(self):
-        # x=2 must take the small (buffered) branch, not the streaming branch.
-        # The streaming (large) branch prints "Saving to fib_1e2.txt..." (with ellipsis)
-        # before writing; the small branch never prints that string.
-        out = self._run_main(["fib.py", "2"], ["n"])
+        out = self._run_main(["2"])
         self.assertNotIn("Saving to fib_1e2.txt...", out)
 
     def test_streaming_branch_x3(self):
-        # X=3 → streaming-to-file path, no warning, no input prompts
-        self._run_main(["fib.py", "3"], [])
-        self.assertTrue(os.path.exists("fib_1e3.txt"))
+        self._run_main(["3"])
         with open("fib_1e3.txt") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], "1")
-        # last value must have <= 1000 digits
         self.assertLessEqual(len(lines[-1]), 1000)
 
-    def test_x4_writes_numbers_past_python_int_str_limit(self):
-        # Python 3.11+ refuses str() on ints over 4,300 digits by default, so every
-        # X >= 4 run crashed in f.write(str(fib)). One 5,000-digit value stands in
-        # for the ~240 MB a real X=4 run writes.
-        big = 10**4999 + 7
-        with patch.object(fib, "generate_fibonacci", return_value=iter([1, big])):
-            self._run_main(["fib.py", "4"], ["y"])
-        with open("fib_1e4.txt") as f:
-            lines = f.read().splitlines()
-        self.assertEqual(lines, ["1", str(10**4999 + 7)])
-        self.assertEqual(len(lines[-1]), 5000)
-
     def test_streaming_x3_count_reported(self):
-        # x=3 → max_digits=10^3=1000 → limit=10^1000; exactly 4,786 Fibonacci numbers
-        # have fewer than 1,000 decimal digits.
-        # Verifies count init (=0) and count increment (+=1) in the streaming branch.
-        out = self._run_main(["fib.py", "3"], [])
+        # exactly 4,786 Fibonacci numbers have fewer than 1,000 decimal digits.
+        out = self._run_main(["3"])
         self.assertIn("Found 4,786", out)
 
-    def test_large_x_warning_aborts_on_no(self):
-        # X=4 → warning + confirmation; "n" returns without writing a file
-        out = self._run_main(["fib.py", "4"], ["n"])
+    def test_streaming_x3_show_prints_longest_line(self):
+        out = self._run_main(["3", "--show"])
+        with open("fib_1e3.txt") as f:
+            longest = max(f.read().splitlines(), key=len)
+        self.assertIn(longest, out.splitlines())
+
+    def test_streaming_x3_without_show_hides_longest_line(self):
+        out = self._run_main(["3"])
+        with open("fib_1e3.txt") as f:
+            longest = max(f.read().splitlines(), key=len)
+        self.assertNotIn(longest, out.splitlines())
+
+    def test_smoke_runs_at_smoke_size(self):
+        self._run_main(["--smoke"])
+        self.assertTrue(os.path.exists(f"fib_1e{SMOKE_SIZE}.txt"))
+
+    def test_x4_writes_numbers_past_python_int_str_limit(self):
+        # Python 3.11+ refuses str() on ints over 4,300 digits unless main() lifts
+        # the cap. One 5,000-digit value stands in for a real X=4 run's output.
+        big = 10**4999 + 7
+        sys.set_int_max_str_digits(4300)
+        self.addCleanup(sys.set_int_max_str_digits, 0)
+        with patch.object(fib, "generate_fibonacci", return_value=iter([1, big])):
+            self._run_main(["4", "--yes"])
+        with open("fib_1e4.txt") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(lines, ["1", str(big)])
+        self.assertEqual(len(lines[-1]), 5000)
+
+    def test_large_x_with_yes_proceeds_without_prompting(self):
+        with patch.object(
+            fib, "generate_fibonacci", return_value=iter([1, 1, 2])
+        ) as gen:
+            self._run_main([str(THRESHOLD), "--yes"])
+        gen.assert_called_once_with(10**THRESHOLD)
+        with open(f"fib_1e{THRESHOLD}.txt") as f:
+            self.assertEqual(f.read().split(), ["1", "1", "2"])
+
+    def test_large_x_without_yes_exits_1_and_does_not_generate(self):
+        with (
+            patch.object(fib, "generate_fibonacci") as gen,
+            redirect_stderr(io.StringIO()) as err,
+            self.assertRaises(SystemExit) as cm,
+        ):
+            self._run_main([str(THRESHOLD)])
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("--yes", err.getvalue())
+        gen.assert_not_called()
+        self.assertEqual(os.listdir("."), [])
+
+    def test_threshold_boundary_x5_also_refused(self):
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            self._run_main(["5"])
+        self.assertEqual(os.listdir("."), [])
+
+    def test_interactive_large_x_warns_and_aborts_on_no(self):
+        with patch("sys.stdin.isatty", return_value=True):
+            out = self._run_main([], ["4", "n"])
         self.assertIn("Warning", out)
         self.assertFalse(os.path.exists("fib_1e4.txt"))
 
-    def test_large_x_warning_aborts_on_blank(self):
-        # X=4 → warning, blank confirmation also returns
-        out = self._run_main(["fib.py", "5"], [""])
+    def test_interactive_large_x_aborts_on_blank(self):
+        with patch("sys.stdin.isatty", return_value=True):
+            out = self._run_main([], ["5", ""])
         self.assertIn("Warning", out)
         self.assertFalse(os.path.exists("fib_1e5.txt"))
+
+    def test_interactive_large_x_proceeds_on_yes(self):
+        with patch.object(fib, "generate_fibonacci", return_value=iter([1, 1, 2])):
+            with patch("sys.stdin.isatty", return_value=True):
+                self._run_main([], ["4", "y"])
+        self.assertTrue(os.path.exists("fib_1e4.txt"))
+
+    def test_rerun_overwrites_file(self):
+        self._run_main(["1"])
+        with open("fib_1e1.txt", "a") as f:
+            f.write("junk\n")
+        self._run_main(["1"])
+        with open("fib_1e1.txt") as f:
+            self.assertNotIn("junk", f.read())
 
 
 class TestFileWritePermissionError(unittest.TestCase):
@@ -269,26 +370,20 @@ class TestFileWritePermissionError(unittest.TestCase):
         os.rmdir(self._tmp)
 
     def test_exits_nonzero_on_permission_error(self):
-        old_argv = sys.argv
-        sys.argv = ["fib.py", "1"]
-        try:
-            buf = io.StringIO()
-            with (
-                patch("builtins.input", return_value="n"),
-                patch(
-                    "builtins.open",
-                    side_effect=PermissionError(
-                        "[Errno 13] Permission denied: 'fib_1e1.txt'"
-                    ),
+        buf = io.StringIO()
+        with (
+            patch(
+                "builtins.open",
+                side_effect=PermissionError(
+                    "[Errno 13] Permission denied: 'fib_1e1.txt'"
                 ),
-                redirect_stdout(buf),
-            ):
-                with self.assertRaises(SystemExit) as cm:
-                    main()
-            self.assertEqual(cm.exception.code, 1)
-            self.assertIn("Error", buf.getvalue())
-        finally:
-            sys.argv = old_argv
+            ),
+            redirect_stdout(buf),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            main(["1"])
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("Error", buf.getvalue())
 
 
 class TestKeyboardInterrupt(unittest.TestCase):
@@ -306,20 +401,15 @@ class TestKeyboardInterrupt(unittest.TestCase):
         os.rmdir(self._tmp)
 
     def test_exits_nonzero_on_keyboard_interrupt(self):
-        old_argv = sys.argv
-        sys.argv = ["fib.py", "1"]
-        try:
-            buf = io.StringIO()
-            with (
-                patch("fib.generate_fibonacci", side_effect=KeyboardInterrupt),
-                redirect_stdout(buf),
-            ):
-                with self.assertRaises(SystemExit) as cm:
-                    main()
-            self.assertEqual(cm.exception.code, 1)
-            self.assertIn("interrupted", buf.getvalue())
-        finally:
-            sys.argv = old_argv
+        buf = io.StringIO()
+        with (
+            patch("fib.generate_fibonacci", side_effect=KeyboardInterrupt),
+            redirect_stdout(buf),
+        ):
+            with self.assertRaises(SystemExit) as cm:
+                main(["1"])
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("interrupted", buf.getvalue())
 
 
 class TestEntryPoint(unittest.TestCase):
@@ -331,7 +421,7 @@ class TestEntryPoint(unittest.TestCase):
 
         proc = subprocess.run(
             [sys.executable, fib.__file__, "1"],
-            input="n\n",
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             timeout=10,
@@ -380,26 +470,35 @@ class TestClosedStdin(unittest.TestCase):
             files = sorted(os.listdir(tmp))
         return proc, files
 
-    def test_display_prompt_eof_reads_as_no_and_saves(self):
+    def test_small_x_needs_no_stdin_and_saves(self):
         proc, files = self._run("2")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertNotIn("Traceback", proc.stderr)
         self.assertEqual(files, ["fib_1e2.txt"])
-        self.assertNotIn("1\n1\n2\n3\n5", proc.stdout)
 
-    def test_large_x_confirmation_eof_reads_as_no(self):
-        # X >= 4 asks before writing ~240 MB; no answer must not start the run.
+    def test_large_x_without_yes_is_refused_not_prompted(self):
         proc, files = self._run("4")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.returncode, 1, proc.stdout)
         self.assertNotIn("Traceback", proc.stderr)
+        self.assertIn("--yes", proc.stderr)
+        self.assertEqual(files, [])
+
+    def test_bare_run_exits_2(self):
+        proc, files = self._run()
+        self.assertEqual(proc.returncode, 2, proc.stdout)
         self.assertEqual(files, [])
 
     def test_exponent_prompt_eof_exits_1_with_a_remedy(self):
-        proc, files = self._run()
-        self.assertEqual(proc.returncode, 1, proc.stdout)
-        self.assertNotIn("Traceback", proc.stderr)
-        self.assertIn("pass X as an argument", proc.stderr)
-        self.assertEqual(files, [])
+        with (
+            patch("sys.stdin.isatty", return_value=True),
+            patch("builtins.input", side_effect=EOFError),
+            redirect_stdout(io.StringIO()),
+            redirect_stderr(io.StringIO()) as err,
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            main([])
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn("pass X as an argument", err.getvalue())
 
     def test_exponent_prompt_eof_after_a_bad_answer_still_exits(self):
         with (
@@ -408,7 +507,7 @@ class TestClosedStdin(unittest.TestCase):
             redirect_stderr(io.StringIO()),
             self.assertRaises(SystemExit) as ctx,
         ):
-            get_exponent(argparse.Namespace(exponent=None))
+            get_exponent(argparse.Namespace(size=None))
         self.assertEqual(ctx.exception.code, 1)
 
 
@@ -443,7 +542,7 @@ class TestAskYes(unittest.TestCase):
             redirect_stderr(io.StringIO()) as err,
             self.assertRaises(SystemExit),
         ):
-            fib.get_exponent(argparse.Namespace(exponent=None))
+            fib.get_exponent(argparse.Namespace(size=None))
         self.assertEqual(out.getvalue(), "\n")
         self.assertTrue(err.getvalue().startswith("Error: no input"))
 

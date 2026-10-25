@@ -9,6 +9,7 @@ lint:
 
 test: lint
 	pytest test_fib.py -v
+	python3 ../scripts/cli_contract.py fib.py
 
 coverage:
 	pytest --cov=fib --cov-report=term-missing --cov-fail-under=90 test_fib.py

@@ -26,27 +26,60 @@ def generate_fibonacci(max_digits: int):
         a, b = b, a + b
 
 
-def parse_args() -> argparse.Namespace:
+SMOKE_SIZE = 3
+LARGE_RUN_THRESHOLD: int | None = 4
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate all Fibonacci numbers with up to 10^X digits",
-        epilog="Run without arguments for an interactive prompt.",
+        epilog="Run with no arguments at a terminal for interactive prompts.",
     )
     parser.add_argument(
-        "exponent",
-        type=int,
+        "size",
         nargs="?",
+        type=int,
+        metavar="X",
         help="X: generates Fibonacci numbers with up to 10^X digits (e.g. 3 → up to 1,000 digits)",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--show", action="store_true", help="also print each result line to stdout"
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="confirm a large run (ignored when this program has none)",
+    )
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help=f"quick check at SMOKE_SIZE ({SMOKE_SIZE})",
+    )
+    args = parser.parse_args(argv)
+    if args.smoke:
+        if args.size is not None:
+            parser.error("--smoke takes no SIZE")
+        args.size, args.show = SMOKE_SIZE, False
+    elif args.size is None and not sys.stdin.isatty():
+        parser.error("SIZE is required when stdin is not a terminal")
+    return args
+
+
+def refuse_large_run(size: int, yes: bool) -> None:
+    """Exit 1 naming --yes when size needs confirmation and --yes is absent."""
+    if LARGE_RUN_THRESHOLD is not None and size >= LARGE_RUN_THRESHOLD and not yes:
+        print(f"Error: {size} is a large run; pass --yes to proceed.", file=sys.stderr)
+        sys.exit(1)
 
 
 def get_exponent(args: argparse.Namespace) -> int:
     """Return the validated exponent from CLI args, or prompt interactively."""
-    if args.exponent is not None:
-        x = args.exponent
+    if args.size is not None:
+        x = args.size
         if x < 1 or x > 5:
             print("Error: X must be between 1 and 5.", file=sys.stderr)
             sys.exit(1)
+        refuse_large_run(x, args.yes)
         return x
     while True:
         try:
@@ -78,8 +111,8 @@ def ask_yes(prompt: str) -> bool:
     return answer.strip().lower() in ("y", "yes")
 
 
-def main() -> None:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
     x = get_exponent(args)
     max_digits = 10**x
     # Python 3.11+ refuses str() on ints over 4,300 digits; X >= 4 writes up to
@@ -90,7 +123,13 @@ def main() -> None:
     print("=" * 40)
 
     try:
-        if x >= 4:
+        # The argument path was gated by refuse_large_run; only the interactive
+        # path still asks.
+        if (
+            args.size is None
+            and LARGE_RUN_THRESHOLD is not None
+            and x >= LARGE_RUN_THRESHOLD
+        ):
             print(
                 f"Warning: X={x} means Fibonacci numbers with up to {max_digits:,} digits "
                 f"— this may take a long time"
@@ -102,9 +141,10 @@ def main() -> None:
         print(
             f"Generating all Fibonacci numbers with up to 10^{x} = {max_digits:,} digits"
         )
+        filename = f"fib_1e{x}.txt"
 
         if x <= 2:
-            # Small result: buffer in memory, let user choose to display or save.
+            # Small result: buffer in memory, then write the file.
             buf = io.StringIO()
             count = 0
             for fib in generate_fibonacci(max_digits):
@@ -113,22 +153,22 @@ def main() -> None:
                 count += 1
 
             print(f"\nFound {count:,} Fibonacci numbers with up to 10^{x} digits")
-            if ask_yes(f"Display all {count:,} Fibonacci numbers? (y/n): "):
+            with open(filename, "w") as f:
+                f.write(buf.getvalue())
+            if args.show:
                 print(buf.getvalue(), end="")
-            else:
-                filename = f"fib_1e{x}.txt"
-                with open(filename, "w") as f:
-                    f.write(buf.getvalue())
-                print(f"Saved to {filename}")
+            print(f"Saved to {filename}")
         else:
             # Large result: stream directly to file.
-            filename = f"fib_1e{x}.txt"
             print(f"\nSaving to {filename}...")
             count = 0
             with open(filename, "w", buffering=8 * 1024 * 1024) as f:
                 for fib in generate_fibonacci(max_digits):
-                    f.write(str(fib))
+                    line = str(fib)
+                    f.write(line)
                     f.write("\n")
+                    if args.show:
+                        print(line)
                     count += 1
 
             print(f"Found {count:,} Fibonacci numbers with up to 10^{x} digits")

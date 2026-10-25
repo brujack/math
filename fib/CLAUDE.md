@@ -25,26 +25,33 @@ make coverage  # run tests and print coverage report
 Or directly:
 
 ```bash
-python3 fib.py        # interactive prompt
-python3 fib.py 3      # generate Fibonacci numbers with up to 1,000 digits
+python3 fib.py                # interactive prompt (terminal only; a bare non-TTY run exits 2)
+python3 fib.py 3              # generate Fibonacci numbers with up to 1,000 digits
+python3 fib.py 3 --show       # also print each number to stdout
+python3 fib.py 4 --yes        # X >= 4 is refused without --yes
+python3 fib.py --smoke        # quick check at X=3
 ```
 
 ## Code Layout
 
 - `generate_fibonacci(max_digits)` — generator that yields every Fibonacci number with at most `max_digits` decimal digits. Uses `b < 10^max_digits` stopping criterion; limit precomputed once before the loop.
-- `parse_args()` — parses CLI via `argparse`; returns `Namespace` with optional `exponent` int.
-- `get_exponent(args)` — returns validated exponent from args, or prompts interactively. Valid range: 1–5. Calls `sys.exit(1)` for out-of-range CLI args.
-- `ask_yes(prompt)` — y/n prompt; returns `True` only for `y`/`yes` (any case, trimmed). End of input (stdin closed, as in CI) prints a newline and reads as no.
-- `main()` — top-level entry: parses args, validates, warns for X ≥ 4, buffers or streams output.
+- `SMOKE_SIZE = 3`, `LARGE_RUN_THRESHOLD = 4` — pinned by `TestCliContractConstants`.
+- `parse_args(argv=None)` — `size` (X), `--show`, `--yes`, `--smoke`; bare non-TTY run exits 2; `--smoke` with a size exits 2.
+- `refuse_large_run(size, yes)` — exits 1 naming `--yes` when `size >= LARGE_RUN_THRESHOLD` and `--yes` is absent.
+- `get_exponent(args)` — returns validated exponent from `args.size`, or prompts interactively. Valid range: 1–5. Calls `sys.exit(1)` for out-of-range args and calls `refuse_large_run` on the argument path.
+- `ask_yes(prompt)` — y/n prompt; returns `True` only for `y`/`yes` (any case, trimmed). End of input prints a newline and reads as no.
+- `main(argv=None)` — top-level entry: parses args, validates, always writes `fib_1eX.txt`, `--show` prints each number.
 
 ## Important Behavior
 
-- **Small output (X ≤ 2):** result buffered in a `StringIO`, user prompted to display or save to `fib_1eX.txt`.
+- **Small output (X ≤ 2):** result buffered in a `StringIO`, then written to `fib_1eX.txt`.
 - **Large output (X ≥ 3):** streamed directly to `fib_1eX.txt` with 8 MB write buffer.
-- **Large-N warning:** X ≥ 4 prints a warning and requires `y/yes` confirmation.
-- **Closed stdin:** every y/n prompt reads end of input as no (X ≥ 4 then aborts, X ≤ 2 saves to file); the interactive X prompt exits 1 with a message to pass X as an argument.
-- **Int-string cap:** `main()` calls `sys.set_int_max_str_digits(0)`; without it Python 3.11+ raises `ValueError` on any value over 4,300 digits, so every X ≥ 4 run crashed.
+- **No display prompt:** the file is always written; `--show` also prints each number line.
+- **Large-run gate:** X ≥ 4 on the argument path is refused (exit 1) unless `--yes`; the interactive path prints a warning and asks `Continue? (y/n)`, EOF reads as no.
+- **Closed stdin:** the interactive X prompt exits 1 with a message to pass X as an argument; a bare non-TTY run exits 2.
+- **Int-string cap:** `main()` calls `sys.set_int_max_str_digits(0)`; without it Python 3.11+ raises `ValueError` on any value over 4,300 digits. Tested with a mocked generator, never a real X=4 run (about 15 s, 239 MB).
 - **Stopping criterion:** `b < 10^max_digits` (precomputed once). Equivalent to `len(str(b)) <= max_digits` but avoids per-iteration string conversion.
+- **Contract harness:** `make test` runs `python3 ../scripts/cli_contract.py fib.py` after pytest.
 
 ## Testing
 
@@ -63,7 +70,7 @@ make coverage  # pytest --cov, fails under 90%
 
 ### Test coverage
 
-99% line coverage (`fib.py`), 49 tests.
+99% line coverage (`fib.py`), 69 tests. The CLI-contract classes are `TestParseArgs`, `TestCliContractConstants`, `TestRefuseLargeRun`; large-run proceed/refuse is covered with a mocked `generate_fibonacci`.
 
 | Class                          | Tests                                                                                                           |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
