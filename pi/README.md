@@ -18,7 +18,7 @@ Both implementations use the same underlying C libraries (GMP and MPFR) and prod
 Each implementation has its own installer:
 
 ```bash
-bash pi/install_deps.sh        # pi.py — GMP + MPFR, mpmath, gmpy2, coverage
+bash pi/install_deps.sh        # pi.py — GMP + MPFR and the pinned Python packages
 bash pi/pi-rs/install_deps.sh  # pi-rs — GMP + MPFR, Rust toolchain, cargo-tarpaulin
 ```
 

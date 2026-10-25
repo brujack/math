@@ -29,7 +29,7 @@ Prime swing identity: `n! = swing(n) × (⌊n/2⌋!)²` (Luschny).
 
 ```bash
 cd factorial
-bash install_deps.sh   # install GMP, gmpy2, ruff, coverage (one time)
+bash install_deps.sh   # install GMP + MPFR and the pinned Python packages (one time)
 make run               # interactive prompts (terminal only)
 python3 factorial.py 1000  # compute 1000!, written to file
 python3 factorial.py 1000 --show  # also print the result

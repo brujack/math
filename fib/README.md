@@ -15,7 +15,7 @@ Two implementations:
 
 ```bash
 cd fib
-bash install_deps.sh   # install ruff + coverage (one time)
+bash install_deps.sh   # install GMP + MPFR and the pinned Python packages (one time)
 make run               # interactive prompts (terminal only)
 python3 fib.py 3       # generate Fibonacci numbers with up to 1,000 digits
 python3 fib.py 3 --show  # also print them
