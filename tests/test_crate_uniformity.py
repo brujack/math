@@ -32,6 +32,101 @@ class TestRender(unittest.TestCase):
         with self.assertRaises(ValueError):
             rcf.render("@CRATE@ @VERSION@", "pi")
 
+    def test_module_placeholder_uses_underscored_module_and_dir_name(self):
+        text = rcf.render(
+            "cd @CRATE@ && pytest test_@MODULE@.py",
+            "perfect-numbers",
+            "perfect_numbers",
+        )
+        self.assertEqual(text, "cd perfect-numbers && pytest test_perfect_numbers.py")
+
+    def test_module_placeholder_without_a_module_is_an_error(self):
+        with self.assertRaises(ValueError):
+            rcf.render("@CRATE@ @MODULE@", "pi")
+
+    def test_module_placeholder_with_a_module_still_rejects_unknown_names(self):
+        with self.assertRaises(ValueError):
+            rcf.render("@MODULE@ @VERSION@", "pi", "pi")
+
+    def test_module_is_derived_from_the_project_dir(self):
+        self.assertEqual(rcf.module_name("perfect-numbers"), "perfect_numbers")
+        self.assertEqual(rcf.module_name("pi"), "pi")
+
+
+_PY_KINDS = {"python/Makefile": "{project}/Makefile"}
+
+
+class TestPythonKinds(unittest.TestCase):
+    def _tree(self, tmp, content):
+        root = pathlib.Path(tmp)
+        (root / "scripts" / "crate_templates" / "python").mkdir(parents=True)
+        (root / "scripts" / "crate_templates" / "python" / "Makefile").write_text(
+            "test @CRATE@ @MODULE@\n"
+        )
+        for project in rcf.PYTHON_PROJECTS:
+            path = root / project / "Makefile"
+            path.parent.mkdir(parents=True)
+            path.write_text(content(project))
+        return root
+
+    def _expected(self, project):
+        return f"test {project} {project.replace('-', '_')}\n"
+
+    def test_check_reports_drifted_python_projects(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._tree(
+                tmp,
+                lambda p: "other\n" if p == "pi" else self._expected(p),
+            )
+            drift = rcf.check(root, {}, _PY_KINDS)
+        self.assertEqual(drift, ["pi/Makefile"])
+
+    def test_write_renders_module_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._tree(tmp, lambda p: "other\n")
+            first = rcf.write(root, {}, _PY_KINDS)
+            second = rcf.write(root, {}, _PY_KINDS)
+            self.assertEqual(rcf.check(root, {}, _PY_KINDS), [])
+            text = (root / "perfect-numbers" / "Makefile").read_text()
+        self.assertEqual(text, "test perfect-numbers perfect_numbers\n")
+        self.assertEqual(len(first), 8)
+        self.assertEqual(second, [])
+
+    def test_rust_kind_with_module_placeholder_is_an_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "scripts" / "crate_templates").mkdir(parents=True)
+            (root / "scripts" / "crate_templates" / "Makefile").write_text(
+                "@CRATE@ @MODULE@\n"
+            )
+            with self.assertRaises(ValueError):
+                rcf.check(root, {"Makefile": "{crate}/{crate}-rs/Makefile"})
+
+    def test_cli_accepts_python_kind_names(self):
+        script = REPO_ROOT / "scripts" / "render_crate_files.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._tree(tmp, self._expected)
+            done = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "--root",
+                    str(root),
+                    "--check",
+                    "--kind",
+                    "python/Makefile",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        # PYTHON_KINDS is empty until Task 15, so no kind name is accepted yet;
+        # once registered the same call must exit 0 on a clean tree.
+        if "python/Makefile" in rcf.PYTHON_KINDS:
+            self.assertEqual(done.returncode, 0, done.stdout)
+        else:
+            self.assertEqual(done.returncode, 2)
+
 
 class TestCheckAndWrite(unittest.TestCase):
     def _tree(self, tmp, content):
@@ -123,6 +218,22 @@ class TestRepoCratesMatchTemplates(unittest.TestCase):
             },
         )
 
+    def test_python_projects_are_the_dirs_with_a_module_file(self):
+        out = subprocess.run(
+            ["git", "ls-files", "*/*.py"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split()
+        derived = sorted(
+            d
+            for d in {pathlib.PurePosixPath(f).parts[0] for f in out}
+            if f"{d}/{d.replace('-', '_')}.py" in out
+        )
+        self.assertEqual(len(rcf.PYTHON_PROJECTS), 8)
+        self.assertEqual(sorted(rcf.PYTHON_PROJECTS), derived)
+
     def test_scripts_workflow_runs_on_every_rendered_file(self):
         # The check runs in scripts.yml, which is paths-filtered: a PR touching only
         # one crate's Makefile must still trigger it, or drift merges unchecked.
@@ -134,17 +245,29 @@ class TestRepoCratesMatchTemplates(unittest.TestCase):
             (REPO_ROOT / ".github/workflows/scripts.yml").read_text()
         )
         paths = workflow[True]["pull_request"]["paths"]
-        for kind, pattern in rcf.KINDS.items():
-            for crate in rcf.CRATES:
-                rel = pattern.format(crate=crate)
-                with self.subTest(kind=kind, path=rel):
-                    self.assertTrue(
-                        any(fnmatch.fnmatch(rel, glob) for glob in paths),
-                        f"scripts.yml paths do not trigger on {rel}",
-                    )
+        rendered = [
+            (kind, pattern.format(crate=crate))
+            for kind, pattern in rcf.KINDS.items()
+            for crate in rcf.CRATES
+        ] + [
+            (kind, pattern.format(project=project))
+            for kind, pattern in rcf.PYTHON_KINDS.items()
+            for project in rcf.PYTHON_PROJECTS
+        ]
+        # The templates themselves are inputs to the render, so they must trigger too.
+        rendered += [
+            (kind, f"scripts/crate_templates/{kind}")
+            for kind in (*rcf.KINDS, *rcf.PYTHON_KINDS)
+        ]
+        for kind, rel in rendered:
+            with self.subTest(kind=kind, path=rel):
+                self.assertTrue(
+                    any(fnmatch.fnmatch(rel, glob) for glob in paths),
+                    f"scripts.yml paths do not trigger on {rel}",
+                )
 
     def test_repo_matches_templates(self):
-        drift = rcf.check(REPO_ROOT, rcf.KINDS)
+        drift = rcf.check(REPO_ROOT, rcf.KINDS, rcf.PYTHON_KINDS)
         self.assertEqual(
             drift, [], "run: python3 scripts/render_crate_files.py --write"
         )
