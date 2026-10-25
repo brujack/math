@@ -520,9 +520,9 @@ STUB
     while IFS= read -r f; do
         p="${f%%/*}"
         [[ "${f}" == "${p}/${p//-/_}.py" ]] || continue
-        command git -C "${REPO_ROOT}" ls-files --error-unmatch "${p}/Makefile" > /dev/null 2>&1 || continue
+        env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git -C "${REPO_ROOT}" ls-files --error-unmatch "${p}/Makefile" > /dev/null 2>&1 || continue
         projects+=("${p}")
-    done < <(command git -C "${REPO_ROOT}" ls-files '*/*.py')
+    done < <(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git -C "${REPO_ROOT}" ls-files '*/*.py')
     [ "${#projects[@]}" -eq 8 ]
     for p in "${projects[@]}"; do
         d="${BATS_TEST_TMPDIR}/${p}"

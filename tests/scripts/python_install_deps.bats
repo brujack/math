@@ -3,8 +3,8 @@
 
 # Behaviour of scripts/crate_templates/python/install_deps.sh, which renders every
 # Python sub-project's <project>/install_deps.sh. A rendered copy is sourced (it
-# has a sourcing guard); every external command is a PATH mock that logs its
-# arguments, so no real sudo, package manager or pip is ever reached.
+# has a sourcing guard); sudo, every package manager, python3 and uname are PATH
+# mocks that log their arguments, so no real sudo, package manager or pip is reached.
 
 load '../helpers/common'
 
@@ -24,7 +24,7 @@ setup() {
     for tool in brew apt-get dnf yum pip pip3; do
         _mock "${tool}"
     done
-    # sudo only logs: the real package manager is never reached through it.
+    # sudo logs, then runs its arguments, which PATH resolves to the mocks.
     printf '#!/usr/bin/env bash\nprintf "sudo %%s\\n" "$*" >> "${LOG}"\n"$@"\n' > "${BIN}/sudo"
     printf '#!/usr/bin/env bash\nprintf "%%s\\n" "${FAKE_UNAME:-Linux}"\n' > "${BIN}/uname"
     # python3: `-m pip ...` logs (and fails when FAKE_PIP_FAIL is set); anything
@@ -119,7 +119,12 @@ _mock() {
 @test "RHEL family with neither dnf nor yum fails" {
     : > "${MATH_RHEL_RELEASE_FILE}"
     rm -f "${BIN}/dnf" "${BIN}/yum"
-    run bash "${SCRIPT}"
+    # Drop /usr/bin and /bin so a host's real dnf or yum cannot stand in for the
+    # removed mocks; keep only what the mocks' shebangs and python3 mock need.
+    local sys="${BATS_TEST_TMPDIR}/sys" t
+    mkdir -p "${sys}"
+    for t in bash env cat; do ln -s "$(command -v "${t}")" "${sys}/${t}"; done
+    PATH="${BIN}:${sys}" run bash "${SCRIPT}"
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"neither dnf nor yum found"* ]]
     ! grep -q '^pip ' "${LOG}"
@@ -147,4 +152,12 @@ _mock() {
     run bash "${SCRIPT}"
     [ "${status}" -ne 0 ]
     ! grep -q '^pip ' "${LOG}"
+}
+
+@test "with no override, detection reads the real distro marker files" {
+    unset MATH_DEBIAN_VERSION_FILE MATH_RHEL_RELEASE_FILE
+    source "${SCRIPT}"
+    [ "${DEBIAN_VERSION_FILE}" = "/etc/debian_version" ]
+    run declare -f is_rhel_family
+    [[ "${output}" == *"/etc/redhat-release /etc/fedora-release /etc/centos-release"* ]]
 }
