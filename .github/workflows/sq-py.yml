@@ -31,7 +31,7 @@ jobs:
           python-version: "3.14"
 
       - name: Install Python dependencies
-        run: pip install ruff==0.16.4 coverage hypothesis pyright pip-audit pytest pytest-cov
+        run: pip install ruff==0.16.4 coverage hypothesis pyright==1.1.411 pip-audit pytest pytest-cov
 
       - name: Run tests
         run: make test

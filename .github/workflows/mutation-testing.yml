@@ -35,7 +35,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec  # stable
 
       - name: Install cargo-mutants
-        run: cargo install cargo-mutants --locked
+        run: cargo install cargo-mutants --locked --version 27.1.0
 
       - name: Run mutants
         env:
