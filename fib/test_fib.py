@@ -24,9 +24,8 @@ from fib import (
     refuse_large_run,
 )
 
-if LARGE_RUN_THRESHOLD is None:
-    raise AssertionError("fib has a large-run threshold")
-THRESHOLD: int = LARGE_RUN_THRESHOLD
+assert LARGE_RUN_THRESHOLD is not None
+_LARGE: int = LARGE_RUN_THRESHOLD
 
 
 class TestGenerateFibonacci(unittest.TestCase):
@@ -119,17 +118,17 @@ class TestCliContractConstants(unittest.TestCase):
 
 class TestRefuseLargeRun(unittest.TestCase):
     def test_one_below_threshold_passes(self):
-        refuse_large_run(THRESHOLD - 1, False)
+        refuse_large_run(_LARGE - 1, False)
 
     def test_at_threshold_without_yes_exits_1_naming_yes(self):
         err = io.StringIO()
         with redirect_stderr(err), self.assertRaises(SystemExit) as cm:
-            refuse_large_run(THRESHOLD, False)
+            refuse_large_run(_LARGE, False)
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("--yes", err.getvalue())
 
     def test_at_threshold_with_yes_passes(self):
-        refuse_large_run(THRESHOLD, True)
+        refuse_large_run(_LARGE, True)
 
 
 class TestGetExponent(unittest.TestCase):
@@ -293,8 +292,8 @@ class TestMain(unittest.TestCase):
         # Python 3.11+ refuses str() on ints over 4,300 digits unless main() lifts
         # the cap. One 5,000-digit value stands in for a real X=4 run's output.
         big = 10**4999 + 7
+        self.addCleanup(sys.set_int_max_str_digits, sys.get_int_max_str_digits())
         sys.set_int_max_str_digits(4300)
-        self.addCleanup(sys.set_int_max_str_digits, 0)
         with patch.object(fib, "generate_fibonacci", return_value=iter([1, big])):
             self._run_main(["4", "--yes"])
         with open("fib_1e4.txt") as f:
@@ -306,9 +305,9 @@ class TestMain(unittest.TestCase):
         with patch.object(
             fib, "generate_fibonacci", return_value=iter([1, 1, 2])
         ) as gen:
-            self._run_main([str(THRESHOLD), "--yes"])
-        gen.assert_called_once_with(10**THRESHOLD)
-        with open(f"fib_1e{THRESHOLD}.txt") as f:
+            self._run_main([str(_LARGE), "--yes"])
+        gen.assert_called_once_with(10**_LARGE)
+        with open(f"fib_1e{_LARGE}.txt") as f:
             self.assertEqual(f.read().split(), ["1", "1", "2"])
 
     def test_large_x_without_yes_exits_1_and_does_not_generate(self):
@@ -317,7 +316,7 @@ class TestMain(unittest.TestCase):
             redirect_stderr(io.StringIO()) as err,
             self.assertRaises(SystemExit) as cm,
         ):
-            self._run_main([str(THRESHOLD)])
+            self._run_main([str(_LARGE)])
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("--yes", err.getvalue())
         gen.assert_not_called()
@@ -329,16 +328,39 @@ class TestMain(unittest.TestCase):
         self.assertEqual(os.listdir("."), [])
 
     def test_interactive_large_x_warns_and_aborts_on_no(self):
-        with patch("sys.stdin.isatty", return_value=True):
+        with (
+            patch.object(fib, "generate_fibonacci") as gen,
+            patch("sys.stdin.isatty", return_value=True),
+        ):
             out = self._run_main([], ["4", "n"])
         self.assertIn("Warning", out)
+        gen.assert_not_called()
         self.assertFalse(os.path.exists("fib_1e4.txt"))
 
     def test_interactive_large_x_aborts_on_blank(self):
-        with patch("sys.stdin.isatty", return_value=True):
+        with (
+            patch.object(fib, "generate_fibonacci") as gen,
+            patch("sys.stdin.isatty", return_value=True),
+        ):
             out = self._run_main([], ["5", ""])
         self.assertIn("Warning", out)
+        gen.assert_not_called()
         self.assertFalse(os.path.exists("fib_1e5.txt"))
+
+    def test_refusal_happens_before_any_file_write(self):
+        with (
+            patch("builtins.open") as opened,
+            patch.object(fib, "generate_fibonacci") as gen,
+            redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit),
+        ):
+            main([str(_LARGE)])
+        opened.assert_not_called()
+        gen.assert_not_called()
+
+    def test_small_x_show_echo_precedes_summary(self):
+        out = self._run_main(["1", "--show"])
+        self.assertLess(out.index("\n1\n1\n2\n"), out.index("Found "))
 
     def test_interactive_large_x_proceeds_on_yes(self):
         with patch.object(fib, "generate_fibonacci", return_value=iter([1, 1, 2])):
@@ -498,7 +520,10 @@ class TestClosedStdin(unittest.TestCase):
         ):
             main([])
         self.assertEqual(ctx.exception.code, 1)
-        self.assertIn("pass X as an argument", err.getvalue())
+        self.assertIn(
+            f"pass SIZE as an argument (e.g. python3 fib.py {SMOKE_SIZE})",
+            err.getvalue(),
+        )
 
     def test_exponent_prompt_eof_after_a_bad_answer_still_exits(self):
         with (

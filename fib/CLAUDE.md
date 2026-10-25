@@ -36,11 +36,11 @@ python3 fib.py --smoke        # quick check at X=3
 
 - `generate_fibonacci(max_digits)` — generator that yields every Fibonacci number with at most `max_digits` decimal digits. Uses `b < 10^max_digits` stopping criterion; limit precomputed once before the loop.
 - `SMOKE_SIZE = 3`, `LARGE_RUN_THRESHOLD = 4` — pinned by `TestCliContractConstants`.
-- `parse_args(argv=None)` — `size` (X), `--show`, `--yes`, `--smoke`; bare non-TTY run exits 2; `--smoke` with a size exits 2.
+- `parse_args(argv: list[str] | None = None)` — `size` (X), `--show`, `--yes`, `--smoke`; bare non-TTY run exits 2; `--smoke` with a size exits 2.
 - `refuse_large_run(size, yes)` — exits 1 naming `--yes` when `size >= LARGE_RUN_THRESHOLD` and `--yes` is absent.
 - `get_exponent(args)` — returns validated exponent from `args.size`, or prompts interactively. Valid range: 1–5. Calls `sys.exit(1)` for out-of-range args and calls `refuse_large_run` on the argument path.
 - `ask_yes(prompt)` — y/n prompt; returns `True` only for `y`/`yes` (any case, trimmed). End of input prints a newline and reads as no.
-- `main(argv=None)` — top-level entry: parses args, validates, always writes `fib_1eX.txt`, `--show` prints each number.
+- `main(argv: list[str] | None = None)` — top-level entry: parses args, validates, always writes `fib_1eX.txt`, `--show` prints each number.
 
 ## Important Behavior
 
@@ -48,7 +48,7 @@ python3 fib.py --smoke        # quick check at X=3
 - **Large output (X ≥ 3):** streamed directly to `fib_1eX.txt` with 8 MB write buffer.
 - **No display prompt:** the file is always written; `--show` also prints each number line.
 - **Large-run gate:** X ≥ 4 on the argument path is refused (exit 1) unless `--yes`; the interactive path prints a warning and asks `Continue? (y/n)`, EOF reads as no.
-- **Closed stdin:** the interactive X prompt exits 1 with a message to pass X as an argument; a bare non-TTY run exits 2.
+- **Closed stdin:** the interactive X prompt exits 1 with a message to pass SIZE as an argument; a bare non-TTY run exits 2.
 - **Int-string cap:** `main()` calls `sys.set_int_max_str_digits(0)`; without it Python 3.11+ raises `ValueError` on any value over 4,300 digits. Tested with a mocked generator, never a real X=4 run (about 15 s, 239 MB).
 - **Stopping criterion:** `b < 10^max_digits` (precomputed once). Equivalent to `len(str(b)) <= max_digits` but avoids per-iteration string conversion.
 - **Contract harness:** `make test` runs `python3 ../scripts/cli_contract.py fib.py` after pytest.
@@ -70,18 +70,20 @@ make coverage  # pytest --cov, fails under 90%
 
 ### Test coverage
 
-99% line coverage (`fib.py`), 69 tests. The CLI-contract classes are `TestParseArgs`, `TestCliContractConstants`, `TestRefuseLargeRun`; large-run proceed/refuse is covered with a mocked `generate_fibonacci`.
+99% line coverage (`fib.py`), 71 tests. The CLI-contract classes are `TestParseArgs`, `TestCliContractConstants`, `TestRefuseLargeRun`; large-run proceed/refuse is covered with a mocked `generate_fibonacci`.
 
 | Class                          | Tests                                                                                                           |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
 | `TestGenerateFibonacci`        | 9 — sequence correctness, known values, Fibonacci property, max_digits=0 empty                                  |
-| `TestParseArgs`                | 3 — no-arg, with-arg, invalid non-integer exits                                                                 |
-| `TestGetExponent`              | 7 — boundary validation, sys.exit for out-of-range and negative; exact exit-code assertion                      |
+| `TestParseArgs`                | 7 — no-arg on a TTY, size, `--show`/`--yes`, non-integer exits, bare non-TTY exits 2, `--smoke` sets size and clears show, `--smoke` with size exits 2 |
+| `TestCliContractConstants`     | 2 — pins `SMOKE_SIZE` and `LARGE_RUN_THRESHOLD`                                                                 |
+| `TestRefuseLargeRun`           | 3 — one below threshold passes, at threshold exits 1 naming `--yes`, at threshold with `--yes` passes          |
+| `TestGetExponent`              | 8 — boundary validation, sys.exit for out-of-range and negative; exact exit-code assertion; large without `--yes` exits 1 |
 | `TestGetExponentInteractive`   | 6 — interactive prompt: valid, low/high boundary, retries on out-of-range/zero/non-integer                      |
-| `TestMain`                     | 9 — display + save branches, buffered (X=2), streaming (X=3), X≥4 warning aborts on "n"/blank; X=4 past the 4,300-digit `str(int)` cap; count assertions |
+| `TestMain`                     | 20 — file always written, `--show` echo (before the summary), buffered (X=2), streaming (X=3), `--smoke`, mocked large-run proceed/refuse, refusal before any file write, interactive X≥4 abort/proceed with a mocked generator, X=4 past the 4,300-digit cap, rerun overwrites |
 | `TestFibonacciProperties`      | 3 — property tests: all positive, recurrence holds, strictly increasing after first two                         |
 | `TestEntryPoint`               | 1 — module runs via subprocess (exercises `if __name__ == "__main__"`)                                          |
-| `TestClosedStdin`              | 4 — subprocess with stdin closed: display prompt saves, X≥4 aborts, X prompt exits 1; EOF after a bad answer |
+| `TestClosedStdin`              | 5 — subprocess with stdin closed: small X saves, X≥4 refused without prompting, bare run exits 2; EOF at the X prompt exits 1 with the SIZE message, also after a bad answer |
 | `TestAskYes`                   | 5 — EOF reads as no, yes forms, other answers are no, Ctrl-C propagates, EOF newline on stdout at the X prompt |
 | `TestFileWritePermissionError` | 1 — `main()` exits 1 on `PermissionError` when writing output file                                              |
 | `TestKeyboardInterrupt`        | 1 — `main()` exits 1 on KeyboardInterrupt during generation                                                     |

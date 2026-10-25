@@ -93,7 +93,7 @@ def get_exponent(args: argparse.Namespace) -> int:
         except EOFError:
             print()  # end the prompt line, as ask_yes does
             print(
-                "Error: no input; pass X as an argument (e.g. python3 fib.py 3).",
+                f"Error: no input; pass SIZE as an argument (e.g. python3 fib.py {SMOKE_SIZE}).",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -152,11 +152,11 @@ def main(argv: list[str] | None = None) -> None:
                 buf.write("\n")
                 count += 1
 
-            print(f"\nFound {count:,} Fibonacci numbers with up to 10^{x} digits")
             with open(filename, "w") as f:
                 f.write(buf.getvalue())
             if args.show:
                 print(buf.getvalue(), end="")
+            print(f"\nFound {count:,} Fibonacci numbers with up to 10^{x} digits")
             print(f"Saved to {filename}")
         else:
             # Large result: stream directly to file.
