@@ -1,8 +1,9 @@
 """Minimal type stub for gmpy2 (2.3.x ships no .pyi or py.typed).
 
 Types only the names the e and pi sub-projects and their tests use. It
-deliberately contains no `Any`: every operand is a precise union, so a typo or
-a wrong argument type is still reported. Extend it when a sub-project starts
+deliberately contains no `Any`: every operand is a precise union (the one `object`
+is the `other` of `__eq__`/`__ne__`), so a typo or a wrong argument type is
+still reported. Extend it when a sub-project starts
 using another gmpy2 name; tests/test_gmpy2_stub.py fails until it is added.
 """
 
