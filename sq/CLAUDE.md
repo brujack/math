@@ -65,7 +65,7 @@ make coverage  # pytest --cov, fails under 90%
 
 ### Test coverage
 
-99% line coverage (`sq.py`), 51 tests.
+99% line coverage (`sq.py`), 53 tests.
 
 | Class                          | Tests                                                                                                                                  |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
@@ -73,10 +73,10 @@ make coverage  # pytest --cov, fails under 90%
 | `TestParseArgs`                | 8 — size, no-arg on TTY, non-TTY bare run exits 2, invalid integer, `--show`, `--yes`, `--smoke` (clears show), `--smoke` with SIZE exits 2 |
 | `TestGetExponent`              | 7 — valid (1), zero exits, too-high exits, negative exits; exit-code assertions for each failure path                                  |
 | `TestGetExponentInteractive`   | 4 — interactive prompt: valid, retries on too-high/zero/non-integer                                                                    |
-| `TestMain`                     | 6 — file-only, `--show` echoes every line as written, `--smoke`, invalid size writes nothing, idempotent overwrite, exact count        |
+| `TestMain`                     | 8 — file-only, `--show` echoes every line as written and before the summary, refusal before any write, `--smoke`, invalid size writes nothing, idempotent overwrite, exact count        |
 | `TestSquaresProperties`        | 3 — property tests: all perfect squares, all positive, strictly increasing                                                             |
 | `TestEntryPoint`               | 1 — module runs via subprocess (exercises `if __name__ == "__main__"`)                                                                 |
-| `TestClosedStdin`              | 4 — subprocess with stdin closed: SIZE runs, bare run exits 2; EOF after a bad answer                                                   |
+| `TestClosedStdin`              | 3 — subprocess with stdin closed: SIZE runs, bare run exits 2; EOF after a bad answer                                                   |
 | `TestEofAtSizePrompt`          | 1 — EOF at the N prompt exits 1 naming the remedy, newline on stdout                                                                   |
 | `TestCliContractConstants`     | 2 — `SMOKE_SIZE` and `LARGE_RUN_THRESHOLD` pinned                                                                                       |
 | `TestRefuseLargeRun`           | 3 — no threshold never refuses; refuses at boundary; allows one below and with `--yes`                                                  |

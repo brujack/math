@@ -244,6 +244,24 @@ class TestMain(unittest.TestCase):
         shown = [ln for ln in out.splitlines() if " | " in ln]
         self.assertEqual(shown, written)
 
+    def test_show_lines_print_before_the_summary(self):
+        lines = self._run_main(["1", "--show"]).splitlines()
+        last_result = max(i for i, ln in enumerate(lines) if " | " in ln)
+        found = next(i for i, ln in enumerate(lines) if ln.startswith("Found"))
+        saved = next(i for i, ln in enumerate(lines) if ln.startswith("Saved to"))
+        self.assertLess(last_result, found)
+        self.assertLess(found, saved)
+
+    def test_refusal_happens_before_any_file_write(self):
+        with (
+            patch.object(sq_module, "LARGE_RUN_THRESHOLD", 1),
+            redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            self._run_main(["1"])
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertEqual(os.listdir("."), [])
+
     def test_smoke_writes_the_file(self):
         self._run_main(["--smoke"])
         self.assertTrue(os.path.exists("sq_1e1.txt"))
@@ -415,8 +433,10 @@ class TestEofAtSizePrompt(unittest.TestCase):
             get_exponent(argparse.Namespace(size=None))
         self.assertEqual(ctx.exception.code, 1)
         self.assertEqual(out.getvalue(), "\n")
-        self.assertIn("pass SIZE as an argument", err.getvalue())
-        self.assertIn("python3 sq.py 1", err.getvalue())
+        self.assertEqual(
+            err.getvalue(),
+            f"Error: no input; pass SIZE as an argument (e.g. python3 sq.py {sq_module.SMOKE_SIZE}).\n",
+        )
 
 
 if __name__ == "__main__":

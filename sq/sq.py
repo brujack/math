@@ -85,7 +85,8 @@ def get_exponent(args: argparse.Namespace) -> int:
         except EOFError:
             print()  # end the prompt line
             print(
-                "Error: no input; pass SIZE as an argument (e.g. python3 sq.py 1).",
+                "Error: no input; pass SIZE as an argument "
+                f"(e.g. python3 sq.py {SMOKE_SIZE}).",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -114,10 +115,10 @@ def main(argv: list[str] | None = None) -> None:
         with open(filename, "w") as f:
             f.write(buf.getvalue())
 
-        print(f"\nFound {count:,} perfect squares with up to 10^{x} digits")
-        print(f"Saved to {filename}")
         if args.show:
             print(buf.getvalue(), end="")
+        print(f"\nFound {count:,} perfect squares with up to 10^{x} digits")
+        print(f"Saved to {filename}")
     except KeyboardInterrupt:
         print("\nGeneration interrupted.")
         sys.exit(1)

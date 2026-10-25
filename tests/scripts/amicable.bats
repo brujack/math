@@ -4,6 +4,11 @@ setup() {
     load "../helpers/common.bash"
     PYTHON_CLI="${REPO_ROOT}/amicable/amicable.py"
     RUST_BIN="${REPO_ROOT}/amicable/amicable-rs/target/release/amicable"
+    TMP_DIR=$(mktemp -d)
+}
+
+teardown() {
+    rm -rf "${TMP_DIR}"
 }
 
 # ── Python CLI ────────────────────────────────────────────────────────────────
@@ -25,21 +30,16 @@ setup() {
 }
 
 @test "python: N=3 --show produces exactly one pair" {
-    tmp=$(mktemp -d)
-    run bash -c "cd '${tmp}' && python3 '${PYTHON_CLI}' 3 --show </dev/null"
+    run bash -c "cd '${TMP_DIR}' && python3 '${PYTHON_CLI}' 3 --show </dev/null"
     [ "${status}" -eq 0 ]
-    [[ "${output}" == *$'220 284'* ]]
     [ "$(printf '%s\n' "${output}" | command grep -cx '220 284')" -eq 1 ]
-    rm -rf "${tmp}"
 }
 
 @test "python: N=3 without --show does not echo the pair" {
-    tmp=$(mktemp -d)
-    run bash -c "cd '${tmp}' && python3 '${PYTHON_CLI}' 3 </dev/null"
+    run bash -c "cd '${TMP_DIR}' && python3 '${PYTHON_CLI}' 3 </dev/null"
     [ "${status}" -eq 0 ]
     [ "$(printf '%s\n' "${output}" | command grep -cx '220 284')" -eq 0 ]
-    [ "$(cat "${tmp}/amicable_1e3.txt")" = "220 284" ]
-    rm -rf "${tmp}"
+    [ "$(cat "${TMP_DIR}/amicable_1e3.txt")" = "220 284" ]
 }
 
 # ── Rust CLI ──────────────────────────────────────────────────────────────────
@@ -76,5 +76,4 @@ setup() {
     run bash -c "cd '${tmp}' && '${RUST_BIN}' 3"
     [ "${status}" -eq 0 ]
     [ "${output}" = "220 284" ]
-    rm -rf "${tmp}"
 }
