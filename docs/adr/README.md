@@ -35,3 +35,4 @@ Repo-specific decisions for the `math` repository. Cross-cutting decisions (CI t
 | [0029](0029-release-notes-live-in-the-release-not-a-committed-changelog.md) | Release notes live in the release, not a committed CHANGELOG | 2026-10-24 | Accepted               |
 | [0030](0030-one-cli-contract-for-the-python-programs.md) | One CLI contract for the Python programs, checked by a shared harness | 2026-10-25 | Accepted               |
 | [0031](0031-vendored-exact-gmpy2-type-stub.md) | A vendored, exact gmpy2 type stub, so every Python project runs pyright standard | 2026-10-25 | Accepted               |
+| [0032](0032-per-project-files-rendered-from-templates.md) | Per-project build and CI files are rendered from one template per kind | 2026-10-25 | Accepted               |
