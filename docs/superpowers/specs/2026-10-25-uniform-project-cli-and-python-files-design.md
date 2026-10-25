@@ -156,3 +156,29 @@ Two PR series, Python first. Each PR keeps master green on its own.
 - **N3.** No pyright suppression is added to any `pyrightconfig.json`.
 - **N4.** No per-project template parameter beyond `@CRATE@` and `@MODULE@`.
 - **N5.** No coverage floor is lowered.
+
+## Multi-Lens Review
+
+Reviewed at commit: `c6ef152` (spec commit, after Step 7 self-review)
+
+### Goal-Fit
+
+Finding: The Rust half (series R1/R2, requirements R14-R16) does not serve the stated problem. The Rust per-crate files are already uniform (math#166-#170), the Rust CI template runs no benchmark step, and Rust benchmarking is Criterion (`benches/`, monthly `benchmarks.yml`). Reads-it test: R16's `benchmark:` target is consumed only by V3, a one-shot run; R14/R15's only consumer is the contract test R15 itself adds. The rewrite is also larger than stated: `read_line` counts are pi 12, e 12, fib 14, sq 13, prime 12, factorial 10, perfect-numbers 3, goldbach 1, collatz 1 and twin-primes and amicable 0, and every `io::Cursor` prompt test and line-numbered `exclude_re` moves with it. A simpler path is P1-P3, deferring the Rust CLIs until something consumes a uniform Rust CLI. Also: R9 raises the benchmark timeout from 30 s to 60 s for six projects (only amicable and perfect-numbers use 60 today), and the sq pipe is vestigial (sq already reads end of input as no). P2's "small typed helpers" do not reach R7: a helper written as the spec describes still reports 1 error because the attribute access moves into it; a local stub `typings/gmpy2/__init__.pyi` reaches 0.
+Assumption: The operator's rule covers runtime CLI behaviour across languages, not only per-project files. Settled by asking whether the 11 Rust binaries' prompts should be rewritten when no Rust file is blocked and nothing in CI runs `--benchmark`.
+Disposition:
+
+### Ergonomics
+
+Finding: The contract test sits in `tests/`, so it runs under root `make test-python` (pre-push only for `scripts/`, `tests/` or the root Makefile) and `scripts.yml` (paths without `*/*.py` or `*/*-rs/src/**`). A change to `pi/pi.py` or `pi-rs/src/main.rs`, the code the contract governs, runs neither, while an edit to a bats mock would build 11 GMP-linked release crates on a push. `scripts.yml` also has no Rust toolchain, GMP, MPFR or gmpy2. Fix: run each program's contract row in its own project workflow and `make test`. Secondary: `make bench` (Criterion, all 11 crates) and a new `make benchmark` collide by name, and today's Python recipes run in 0.09-0.50 s, so they are smoke runs; prime, twin-primes and goldbach sized to "under 10 s" would be the only stress-sized programs, a per-project difference; and pi and e above 1,000,000 digits change from warning and continuing to exiting 1 without `--yes`. Test gaps: R1 "never reads stdin" is untested (with stdin closed a prompting program reads EOF as no and passes), the "proceeds with `--yes`" half of R3 has no case, and `--show` has no stated assertion.
+Assumption: Building 11 GMP-linked release binaries per contract run is cheap enough for its trigger; settle by timing a cold release build of all crates on `claude` and on ubuntu-latest.
+Disposition:
+
+### Risk
+
+Finding: Same load-bearing flaw from a different angle: with stdin closed, the math#161 EOF rule makes a still-prompting CLI write its file and exit 0, so the SIZE case passes a program that breaks R1; detection needs an open, never-written pipe with a timeout, or an assertion that no prompt text reaches stdout. Placement as above leaves Section 1 unenforced on the PRs that change it. R7: pyright 1.1.411 `standard` on copies of master gives e 41 errors (23 attribute, 18 Optional) and pi 78; helpers only move the access, errors also sit in `test_e.py` and `test_pi.py`, and `--createstub` yields a useless stub; a hand-written `typings/gmpy2/__init__.pyi` for the 7 names used (`mpfr`, `mpz`, `get_context`, `sqrt`, `version`, `mp_version`, `mpfr_version`) plus `_gmpy2 is not None` narrowing would work, and is a new file to maintain. R12: cosmic-ray honours `# pragma: no mutate` only through a separate `cr-filter-pragma` step that the Makefile and `mutation-testing-python.yml` do not run, and the premise is wrong: no `cosmic-ray.toml` has an exclusion setting (`excluded-modules = []` everywhere); the real difference is `timeout` (60 for e and pi, 30 elsewhere). No R/N contradiction found.
+Assumption: A hand-written 7-name gmpy2 stub without `Any`, plus `is not None` narrowing, gets e and pi to 0 pyright `standard` errors; settle by writing it against scratch copies and requiring 0 errors and `grep -c Any` = 0.
+Disposition:
+
+### Adversarial Spec Review (comparison/judge designs only)
+
+N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
