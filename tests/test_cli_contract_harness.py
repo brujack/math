@@ -91,6 +91,28 @@ class TestLoadConstants(unittest.TestCase):
 
 
 class TestRunCase(unittest.TestCase):
+    def _own_pid_file(self) -> pathlib.Path:
+        """Point the sleeper fixtures at a test-owned pid file and kill on cleanup.
+
+        The cleanup is registered before run_case so a failing or raising test
+        cannot leak a sleeper (tdd-007: an inert failure mode).
+        """
+        scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        pid_file = pathlib.Path(scratch.name) / "sleeper.pid"
+        env = mock.patch.dict(os.environ, {"CLI_CONTRACT_PID_FILE": str(pid_file)})
+        env.start()
+        self.addCleanup(env.stop)
+
+        def kill_sleeper() -> None:
+            try:
+                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+            except (FileNotFoundError, ProcessLookupError, ValueError):
+                pass
+
+        self.addCleanup(kill_sleeper)
+        return pid_file
+
     def test_collects_exit_code_streams_and_files(self):
         result = cli_contract.run_case(FIXTURES / "conforming.py", ["2", "--show"])
         self.assertEqual(result.returncode, 0)
@@ -133,6 +155,7 @@ class TestRunCase(unittest.TestCase):
         self.assertIn("\ufffd", result.stdout)
 
     def test_timeout_kills_the_whole_process_group(self):
+        pid_file = self._own_pid_file()
         start = time.monotonic()
         result = cli_contract.run_case(
             FIXTURES / "grandchild_reader.py", [], timeout=SHORT_TIMEOUT
@@ -141,7 +164,7 @@ class TestRunCase(unittest.TestCase):
         self.assertTrue(result.timed_out)
         self.assertIsNone(result.returncode)
         self.assertLess(elapsed, SHORT_TIMEOUT + 5)
-        grandchild = int(result.files["gc.pid"])
+        grandchild = int(pid_file.read_text())
         for _ in range(50):
             if not _process_alive(grandchild):
                 break
@@ -149,9 +172,10 @@ class TestRunCase(unittest.TestCase):
         self.assertFalse(_process_alive(grandchild), "grandchild survived the timeout")
 
     def test_group_is_reaped_after_a_passing_run(self):
+        pid_file = self._own_pid_file()
         result = cli_contract.run_case(FIXTURES / "leaves_grandchild.py", [])
         self.assertEqual(result.returncode, 0)
-        grandchild = int(result.files["gc.pid"])
+        grandchild = int(pid_file.read_text())
         for _ in range(50):
             if not _process_alive(grandchild):
                 break
@@ -161,21 +185,32 @@ class TestRunCase(unittest.TestCase):
         )
 
     def test_drain_timeout_returns_timed_out_with_partial_output(self):
-        def leak_cleanup(result_files: dict[str, str]) -> None:
-            if "esc.pid" in result_files:
-                try:
-                    os.kill(int(result_files["esc.pid"]), signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+        self._own_pid_file()
+        before = _open_fd_count()
+        procs: list[subprocess.Popen[str]] = []
+        real_popen = subprocess.Popen
 
-        with mock.patch.object(cli_contract, "_DRAIN_TIMEOUT", SHORT_TIMEOUT):
+        def spy(*args, **kwargs):
+            proc = real_popen(*args, **kwargs)
+            procs.append(proc)  # keeps the pipes alive so only an explicit close shows
+            return proc
+
+        with (
+            mock.patch.object(cli_contract, "_DRAIN_TIMEOUT", SHORT_TIMEOUT),
+            mock.patch.object(cli_contract.subprocess, "Popen", spy),
+        ):
             result = cli_contract.run_case(
                 FIXTURES / "escaped_grandchild.py", [], timeout=SHORT_TIMEOUT
             )
-        leak_cleanup(result.files)
         self.assertTrue(result.timed_out)
         self.assertIsNone(result.returncode)
         self.assertIn("partial output", result.stdout)
+        self.assertEqual(len(procs), 1)
+        self.assertTrue(procs[0].stdout is not None and procs[0].stdout.closed)
+        self.assertTrue(procs[0].stderr is not None and procs[0].stderr.closed)
+        self.assertEqual(
+            _open_fd_count(), before, "pipes left open after the drain gave up"
+        )
 
     def test_interrupt_kills_the_child_and_propagates(self):
         started: list[int] = []
@@ -192,6 +227,7 @@ class TestRunCase(unittest.TestCase):
 
         watchdog = threading.Timer(3, release_hung_child)
         watchdog.daemon = True
+        self.addCleanup(watchdog.cancel)
 
         def spy(*args, **kwargs):
             proc = real_popen(*args, **kwargs)
