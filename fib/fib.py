@@ -58,8 +58,9 @@ def get_exponent(args: argparse.Namespace) -> int:
                 return x
             print("X must be between 1 and 5.")
         except EOFError:
+            print()  # end the prompt line, as ask_yes does
             print(
-                "\nError: no input; pass X as an argument (e.g. python3 fib.py 3).",
+                "Error: no input; pass X as an argument (e.g. python3 fib.py 3).",
                 file=sys.stderr,
             )
             sys.exit(1)

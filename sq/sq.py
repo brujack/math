@@ -51,8 +51,9 @@ def get_exponent(args: argparse.Namespace) -> int:
                 return x
             print("N must be 1.")
         except EOFError:
+            print()  # end the prompt line, as ask_yes does
             print(
-                "\nError: no input; pass N as an argument (e.g. python3 sq.py 1).",
+                "Error: no input; pass N as an argument (e.g. python3 sq.py 1).",
                 file=sys.stderr,
             )
             sys.exit(1)

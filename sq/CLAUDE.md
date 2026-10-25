@@ -62,7 +62,7 @@ make coverage  # pytest --cov, fails under 90%
 
 ### Test coverage
 
-99% line coverage (`sq.py`), 41 tests.
+99% line coverage (`sq.py`), 43 tests.
 
 | Class                          | Tests                                                                                                                                  |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
@@ -74,7 +74,7 @@ make coverage  # pytest --cov, fails under 90%
 | `TestSquaresProperties`        | 3 — property tests: all perfect squares, all positive, strictly increasing                                                             |
 | `TestEntryPoint`               | 1 — module runs via subprocess (exercises `if __name__ == "__main__"`)                                                                 |
 | `TestClosedStdin`              | 3 — subprocess with stdin closed: display prompt reads as no, N prompt exits 1; EOF after a bad answer                                  |
-| `TestAskYes`                   | 3 — EOF reads as no, yes forms, other answers are no                                                                                  |
+| `TestAskYes`                   | 5 — EOF reads as no, yes forms, other answers are no, Ctrl-C propagates, EOF newline on stdout at the N prompt                        |
 | `TestFileWritePermissionError` | 1 — `main()` exits 1 on `PermissionError` when writing output file                                                                     |
 | `TestKeyboardInterrupt`        | 1 — `main()` exits 1 on KeyboardInterrupt during generation                                                                            |
 

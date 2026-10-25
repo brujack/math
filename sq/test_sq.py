@@ -384,6 +384,25 @@ class TestAskYes(unittest.TestCase):
             with self.subTest(answer=answer):
                 self.assertTrue(self._ask([answer])[0])
 
+    def test_keyboard_interrupt_still_propagates(self):
+        # main() turns Ctrl-C into exit 1; ask_yes must not swallow it as "no".
+        with (
+            patch("builtins.input", side_effect=KeyboardInterrupt),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            sq_module.ask_yes("Q? ")
+
+    def test_eof_at_exponent_prompt_ends_the_prompt_line_on_stdout(self):
+        with (
+            patch("builtins.input", side_effect=EOFError),
+            redirect_stdout(io.StringIO()) as out,
+            redirect_stderr(io.StringIO()) as err,
+            self.assertRaises(SystemExit),
+        ):
+            sq_module.get_exponent(argparse.Namespace(exponent=None))
+        self.assertEqual(out.getvalue(), "\n")
+        self.assertTrue(err.getvalue().startswith("Error: no input"))
+
     def test_other_answers_are_no(self):
         for answer in ("", "n", "no", "yep", "y es"):
             with self.subTest(answer=answer):

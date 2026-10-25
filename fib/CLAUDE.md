@@ -63,7 +63,7 @@ make coverage  # pytest --cov, fails under 90%
 
 ### Test coverage
 
-99% line coverage (`fib.py`), 47 tests.
+99% line coverage (`fib.py`), 49 tests.
 
 | Class                          | Tests                                                                                                           |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
@@ -75,7 +75,7 @@ make coverage  # pytest --cov, fails under 90%
 | `TestFibonacciProperties`      | 3 — property tests: all positive, recurrence holds, strictly increasing after first two                         |
 | `TestEntryPoint`               | 1 — module runs via subprocess (exercises `if __name__ == "__main__"`)                                          |
 | `TestClosedStdin`              | 4 — subprocess with stdin closed: display prompt saves, X≥4 aborts, X prompt exits 1; EOF after a bad answer |
-| `TestAskYes`                   | 3 — EOF reads as no, yes forms, other answers are no                                                          |
+| `TestAskYes`                   | 5 — EOF reads as no, yes forms, other answers are no, Ctrl-C propagates, EOF newline on stdout at the X prompt |
 | `TestFileWritePermissionError` | 1 — `main()` exits 1 on `PermissionError` when writing output file                                              |
 | `TestKeyboardInterrupt`        | 1 — `main()` exits 1 on KeyboardInterrupt during generation                                                     |
 
