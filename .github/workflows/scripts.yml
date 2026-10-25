@@ -38,6 +38,10 @@ jobs:
           tar -xJf /tmp/sc.tar.xz -C /tmp
           sudo install -m755 "/tmp/shellcheck-v${SC_VER}/shellcheck" /usr/local/bin/shellcheck
           shellcheck --version | grep -q "version: ${SC_VER}"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14"
+
       - name: Install Python dependencies
         run: pip install -r requirements-dev.txt ruff==0.16.4 pyright==1.1.411 pip-audit
       - name: Lint hooks, scripts and bats suites

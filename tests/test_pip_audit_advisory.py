@@ -165,6 +165,35 @@ class TestPipAuditAdvisory(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0, result.output)
 
+    def test_non_dict_dependency_entry_fails_with_an_error(self):
+        data = {
+            "dependencies": [CLEAN["dependencies"][0], "garbage", None],
+            "fixes": [],
+        }
+        result = run_advisory({"FAKE_JSON": json.dumps(data)})
+        self.assertEqual(result.returncode, 1, result.output)
+        self.assertIn("::error", result.output)
+        self.assertNotIn("Traceback", result.output)
+
+    def test_unexpected_exit_code_fails_even_with_vulnerabilities(self):
+        # pip-audit exits 1 for "vulnerabilities found"; anything else is a failure.
+        result = run_advisory({"FAKE_JSON": json.dumps(VULNERABLE), "FAKE_RC": "2"})
+        self.assertNotEqual(result.returncode, 0, result.output)
+        self.assertIn("::error", result.output)
+
+    def test_annotation_text_is_escaped(self):
+        # A raw newline or % in a workflow command truncates or corrupts it.
+        data = {
+            "dependencies": [
+                CLEAN["dependencies"][0],
+                {"name": "odd", "skip_reason": "100% broken\nsecond line\rthird"},
+            ],
+            "fixes": [],
+        }
+        result = run_advisory({"FAKE_JSON": json.dumps(data)})
+        self.assertEqual(result.returncode, 0, result.output)
+        self.assertIn("100%25 broken%0Asecond line%0Dthird", result.output)
+
     def test_missing_pip_audit_fails(self):
         result = run_advisory({"PATH": "/nonexistent"})
         self.assertNotEqual(result.returncode, 0, result.output)

@@ -56,6 +56,39 @@ _WORKFLOW_NAME_RE = re.compile(r"^release-(.+)-rs\.yml$")
 # whole file, so a comment elsewhere in the file cannot feed it a false match.
 _SHA256_STEP_RE = re.compile(r"\(cd (\S+) && sha256sum (\S+)\)")
 
+_COMMAND_SEPARATORS = re.compile(r"&&|\|\||;|\|")
+# Any GitHub API call from run text: gh api in any spacing, or a raw HTTP client.
+_REPO_WRITE_RE = re.compile(r"\bgh\s+api\b|api\.github\.com|\bcurl\b|\bwget\b")
+
+# Every action a release job may use; a new one must be reviewed for repo writes.
+RELEASE_ACTIONS = {
+    "actions/checkout",
+    "dtolnay/rust-toolchain",
+    "Swatinem/rust-cache",
+    "orhun/git-cliff-action",
+    "./.github/actions/sbom-sign",
+    "softprops/action-gh-release",
+}
+
+
+def git_pushes(run_text):
+    """Return the tokens of every git command in run text whose subcommand is push.
+
+    Tokenised with shlex after joining backslash continuations, so spacing, quoting,
+    `git -C <dir> push` and `cmd && git push` all count.
+    """
+    pushes = []
+    for line in run_text.replace("\\\n", " ").splitlines():
+        for command in _COMMAND_SEPARATORS.split(line):
+            try:
+                tokens = shlex.split(command)
+            except ValueError:
+                tokens = command.split()
+            # git need not lead the command: sudo git ..., env X=1 git ...
+            if "git" in tokens and "push" in tokens[tokens.index("git") + 1 :]:
+                pushes.append(tokens[tokens.index("git") :])
+    return pushes
+
 
 def discover_release_workflows():
     """Return the sorted list of release-*-rs.yml workflow paths.
@@ -540,7 +573,9 @@ class TestReleaseWorkflowContract(unittest.TestCase):
         for path in self.workflows:
             with self.subTest(workflow=path.name):
                 for index, step in enumerate(release_steps(load_workflow(path))):
-                    run_text = (step.get("run") or "") if isinstance(step, dict) else ""
+                    run_text = (
+                        str(step.get("run") or "") if isinstance(step, dict) else ""
+                    )
                     self.assertNotIn(
                         "git commit",
                         run_text,
@@ -669,18 +704,61 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                 name = binary_name_from_filename(path)
                 pushes = []
                 for step in release_steps(load_workflow(path)):
-                    run_text = (step.get("run") or "") if isinstance(step, dict) else ""
-                    self.assertNotIn("gh api", run_text, path.name)
-                    pushes += [
-                        line.strip()
-                        for line in run_text.splitlines()
-                        if "git push" in line
-                    ]
+                    run_text = (
+                        str(step.get("run") or "") if isinstance(step, dict) else ""
+                    )
+                    self.assertIsNone(
+                        _REPO_WRITE_RE.search(run_text),
+                        f"{path.name} step {step.get('name')!r} calls the GitHub API",
+                    )
+                    pushes += git_pushes(run_text)
                 self.assertEqual(
                     pushes,
-                    [f'git push origin "{name}-v${{VERSION}}"'],
+                    [["git", "push", "origin", f"{name}-v${{VERSION}}"]],
                     f"{path.name} may push only its {name}-v<version> tag",
                 )
+
+    def test_release_token_scope_and_actions_are_pinned(self):
+        # contents: write is the real boundary on what a release can change, and a
+        # third-party action can push without any run text; both are pinned here.
+        for path in self.workflows:
+            with self.subTest(workflow=path.name):
+                workflow = load_workflow(path)
+                self.assertEqual(
+                    workflow.get("permissions"),
+                    {"contents": "write", "id-token": "write"},
+                )
+                self.assertNotIn("permissions", workflow["jobs"]["release"])
+                used = {
+                    str(step["uses"]).split("@")[0]
+                    for step in release_steps(workflow)
+                    if isinstance(step, dict) and "uses" in step
+                }
+                self.assertEqual(used, RELEASE_ACTIONS, path.name)
+
+    def test_push_detector_sees_evasive_forms(self):
+        cases = {
+            'git push origin "pi-v${VERSION}"': [
+                ["git", "push", "origin", "pi-v${VERSION}"]
+            ],
+            "git -C . push origin HEAD": [["git", "-C", ".", "push", "origin", "HEAD"]],
+            "git  push": [["git", "push"]],
+            "git \\\n  push origin x": [["git", "push", "origin", "x"]],
+            "true && git push origin x": [["git", "push", "origin", "x"]],
+            "sudo git push origin x": [["git", "push", "origin", "x"]],
+            'git tag "pi-v${VERSION}"': [],
+            "echo pushing git notes": [],
+        }
+        for run_text, expected in cases.items():
+            with self.subTest(run=run_text):
+                self.assertEqual(git_pushes(run_text), expected)
+        for text in (
+            "gh api repos/x/contents",
+            "gh  api x",
+            "curl -X PUT https://api.github.com/x",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNotNone(_REPO_WRITE_RE.search(text))
 
 
 def run_validate_step(step, version, tmp):

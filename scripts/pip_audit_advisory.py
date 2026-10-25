@@ -21,9 +21,17 @@ import subprocess
 import sys
 import tempfile
 
+# pip-audit's documented exit status when the audit ran and found vulnerabilities.
+_VULNS_FOUND = 1
+
+
+def _escape(message):
+    """Escape text for a workflow command, where %, CR and LF are control characters."""
+    return message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
 
 def _error(message):
-    print(f"::error::pip-audit: {message}")
+    print(f"::error::pip-audit: {_escape(message)}")
     return 1
 
 
@@ -62,8 +70,12 @@ def run(args):
         except (OSError, json.JSONDecodeError) as exc:
             return _error(f"exit {proc.returncode}, no readable JSON report ({exc})")
     dependencies = data.get("dependencies") if isinstance(data, dict) else None
-    if not isinstance(dependencies, list):
-        return _error("JSON report has no dependencies list")
+    if not isinstance(dependencies, list) or not all(
+        isinstance(dep, dict) for dep in dependencies
+    ):
+        return _error("JSON report has no dependencies list of objects")
+    if proc.returncode not in (0, _VULNS_FOUND):
+        return _error(f"exit {proc.returncode}")
 
     audited, vulnerabilities, warnings = _summarize(dependencies)
     if audited == 0:
@@ -72,7 +84,7 @@ def run(args):
         return _error(f"exit {proc.returncode} with no vulnerabilities reported")
 
     for warning in warnings:
-        print(f"::warning::pip-audit: {warning}")
+        print(f"::warning::pip-audit: {_escape(warning)}")
     skipped = len(dependencies) - audited
     line = (
         f"pip-audit (advisory): {audited} packages audited, "
