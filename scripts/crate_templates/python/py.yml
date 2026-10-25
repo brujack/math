@@ -1,0 +1,104 @@
+name: @CRATE@.py
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - "@CRATE@/*.py"
+      - "@CRATE@/install_deps.sh"
+      - "@CRATE@/Makefile"
+      - "@CRATE@/pyrightconfig.json"
+      - "scripts/cli_contract.py"
+      - "typings/**"
+      - ".github/workflows/@CRATE@-py.yml"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    name: Test @CRATE@.py
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: @CRATE@
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install GMP and MPFR
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14"
+
+      - name: Install Python dependencies
+        run: pip install mpmath==1.4.1 gmpy2==2.3.2 coverage==7.16.2 cosmic-ray==8.7.0 hypothesis==6.168.5 pytest==9.1.1 pytest-cov==7.1.0 ruff==0.16.4 pyright==1.1.411 pip-audit==2.10.1
+
+      - name: Run tests
+        run: make test
+
+      - name: Run pyright
+        run: pyright
+
+      - name: Run pip-audit
+        run: |
+          python3 "${GITHUB_WORKSPACE}/scripts/pip_audit_advisory.py"
+          cat pip-audit-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate test metrics
+        if: always()
+        continue-on-error: true
+        working-directory: @CRATE@
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_RUN_ID: ${{ github.run_id }}
+          GH_WORKSPACE: ${{ github.workspace }}
+        run: |
+          python3 "${GH_WORKSPACE}/scripts/time_tests.py" \
+            --repo math \
+            --run-id "${GH_RUN_ID}" \
+            --module test_@MODULE@ \
+            --artifact-name test-metrics-@CRATE@-py
+      - name: Upload test metrics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: test-metrics-@CRATE@-py
+          path: @CRATE@/test-metrics.json
+          retention-days: 90
+
+      - name: Check coverage (>=90%)
+        run: make coverage
+
+      - name: Publish coverage badge
+        working-directory: ${{ github.workspace }}
+        run: |
+          cd @CRATE@ && python3 -m coverage json -o /tmp/cov.json && cd ..
+          PCT=$(python3 -c "import json,math; d=json.load(open('/tmp/cov.json')); print(math.floor(d['totals']['percent_covered']))")
+          if   [ "$PCT" -ge 90 ]; then COLOR="brightgreen"
+          elif [ "$PCT" -ge 80 ]; then COLOR="green"
+          elif [ "$PCT" -ge 70 ]; then COLOR="yellow"
+          elif [ "$PCT" -ge 60 ]; then COLOR="orange"
+          else                         COLOR="red"
+          fi
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git fetch origin coverage-data 2>/dev/null && \
+            git worktree add /tmp/cov-data coverage-data || \
+            git worktree add -b coverage-data --orphan /tmp/cov-data
+          mkdir -p /tmp/cov-data/@CRATE@
+          printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' \
+            "$PCT" "$COLOR" > /tmp/cov-data/@CRATE@/python.json
+          cd /tmp/cov-data
+          git add .
+          git diff --staged --quiet && exit 0
+          for i in 1 2 3; do
+            git pull origin coverage-data --rebase 2>/dev/null || true
+            git diff --staged --quiet || git commit -m "coverage: @CRATE@/python.json → ${PCT}%"
+            git push origin coverage-data && break
+            sleep $((RANDOM % 5 + 1))
+          done

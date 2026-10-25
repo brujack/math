@@ -50,6 +50,7 @@ PYTHON_PROJECTS = [
 PYTHON_KINDS = {
     "python/Makefile": "{project}/Makefile",
     "python/install_deps.sh": "{project}/install_deps.sh",
+    "python/py.yml": ".github/workflows/{project}-py.yml",
 }
 
 # Template file name in scripts/crate_templates/ -> per-crate output path.

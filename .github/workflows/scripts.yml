@@ -17,6 +17,7 @@ on:
       - "*/*-rs/.config/nextest.toml"
       - "*/*-rs/install_deps.sh"
       - ".github/workflows/*-rs.yml"
+      - ".github/workflows/*-py.yml"
       - ".github/actions/**"
       - "pyrightconfig.json"
       - "requirements-dev.txt"

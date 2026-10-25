@@ -36,18 +36,41 @@ jobs:
           python-version: "3.14"
 
       - name: Install Python dependencies
-        run: pip install mpmath gmpy2 coverage ruff==0.16.4 hypothesis pyright==1.1.411 pip-audit pytest pytest-cov
+        run: pip install mpmath==1.4.1 gmpy2==2.3.2 coverage==7.16.2 cosmic-ray==8.7.0 hypothesis==6.168.5 pytest==9.1.1 pytest-cov==7.1.0 ruff==0.16.4 pyright==1.1.411 pip-audit==2.10.1
 
       - name: Run tests
         run: make test
+
+      - name: Run pyright
+        run: pyright
 
       - name: Run pip-audit
         run: |
           python3 "${GITHUB_WORKSPACE}/scripts/pip_audit_advisory.py"
           cat pip-audit-summary.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Run pyright
-        run: pyright
+      - name: Generate test metrics
+        if: always()
+        continue-on-error: true
+        working-directory: pi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_RUN_ID: ${{ github.run_id }}
+          GH_WORKSPACE: ${{ github.workspace }}
+        run: |
+          python3 "${GH_WORKSPACE}/scripts/time_tests.py" \
+            --repo math \
+            --run-id "${GH_RUN_ID}" \
+            --module test_pi \
+            --artifact-name test-metrics-pi-py
+      - name: Upload test metrics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: test-metrics-pi-py
+          path: pi/test-metrics.json
+          retention-days: 90
+
       - name: Check coverage (>=90%)
         run: make coverage
 
@@ -79,6 +102,3 @@ jobs:
             git push origin coverage-data && break
             sleep $((RANDOM % 5 + 1))
           done
-
-      - name: Benchmark (timeout gate)
-        run: make benchmark

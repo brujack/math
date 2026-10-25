@@ -213,6 +213,12 @@ class TestRepoCratesMatchTemplates(unittest.TestCase):
             },
         )
 
+    def test_python_workflow_is_a_rendered_python_kind(self):
+        self.assertIn("python/py.yml", rcf.PYTHON_KINDS)
+        self.assertEqual(
+            rcf.PYTHON_KINDS["python/py.yml"], ".github/workflows/{project}-py.yml"
+        )
+
     def test_python_projects_are_the_dirs_with_a_module_file(self):
         out = subprocess.run(
             ["git", "ls-files", "*/*.py"],

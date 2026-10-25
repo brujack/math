@@ -50,16 +50,15 @@ def pyright_installs():
 
 
 PYTHON_INSTALLERS = sorted(REPO_ROOT.glob("*/install_deps.sh"))
+PYTHON_WORKFLOWS = sorted((REPO_ROOT / ".github" / "workflows").glob("*-py.yml"))
 _REQUIREMENT = re.compile(r"^(?P<name>[A-Za-z0-9_.-]+)==(?P<version>\d+\.\d+\.\d+)$")
 
 
 def pip_installs():
-    """Yield (file, argument) for every `pip install` argument in the 8 Python installers.
-
-    Scope is the installers only: the `*-py.yml` workflows still carry unpinned
-    packages until they are rendered from a template.
+    """Yield (file, argument) for every `pip install` argument in the 8 Python
+    installers and the 8 `*-py.yml` workflows (both rendered from one template).
     """
-    for path in PYTHON_INSTALLERS:
+    for path in [*PYTHON_INSTALLERS, *PYTHON_WORKFLOWS]:
         for match in _PIP_INSTALL.finditer(path.read_text()):
             for token in match.group("rest").split("||")[0].split():
                 if not token.startswith("-"):
@@ -95,18 +94,20 @@ class TestPyrightPins(unittest.TestCase):
 
 
 class TestPythonInstallerPins(unittest.TestCase):
-    """Scope: the 8 Python `install_deps.sh` files (workflows are pinned separately)."""
+    """Scope: the 8 Python `install_deps.sh` files and the 8 `*-py.yml` workflows."""
 
     def test_every_installer_pip_argument_is_pinned(self):
         sites = list(pip_installs())
         self.assertEqual(
-            len({n for n, _ in sites}), 8, "an installer has no pip install"
+            len({n for n, _ in sites}),
+            16,
+            "an installer or workflow has no pip install",
         )
         for name, token in sites:
             with self.subTest(file=name, arg=token):
                 self.assertRegex(token, _REQUIREMENT)
 
-    def test_one_version_per_package_across_installers(self):
+    def test_one_version_per_package_across_installers_and_workflows(self):
         versions = {}
         for _, token in pip_installs():
             match = _REQUIREMENT.match(token)
