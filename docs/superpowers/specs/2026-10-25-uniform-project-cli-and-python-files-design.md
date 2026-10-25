@@ -259,3 +259,30 @@ Disposition: Addressed — operator: "Pre-push runs harness only". Revision 4 ru
 #### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+## Amendments
+
+- finding R1 (2026-10-25, reviewer both): DIFFERS — All 8 parse_args add size/--show/--yes/--smoke, but the non-TTY guard is `elif args.size is None and not sys.stdin.isatty()`, so a run with flag-only arguments (e.g. `pi.py --show` or `fib.py --yes`) at a terminal still falls through to the interactive input() prompt; the contract holds for SIZE or --smoke, not for 'any argument'.
+- R1 -> Each of the 8 Python CLIs accepts `SIZE`, `--show`, `--yes` and `--smoke`; given `SIZE` or `--smoke` it never reads stdin, and with neither it prompts only when stdin is a terminal (else exits 2). — flag-only runs at a terminal (`pi.py --show`) prompting for SIZE is the intended interactive mode and is what the READMEs document; the never-reads-stdin guarantee is for runs that name a size.
+- finding R2 (2026-10-25, reviewer A): DIFFERS — The file is always written and the full result goes to stdout only under `if args.show:`, but pi and e keep their unchanged digit-preview branch (show_pi_preview/show_e_preview, which the tests have to mock), so a truncated result still reaches stdout without --show; the other 6 programs gate result lines on args.show.
+- R2 -> A Python CLI given `SIZE` writes its output file, prints its result lines to stdout only with `--show`, and exits 0; pi and e keep their 100-digit preview, which is not a result line. — the preview predates the contract and the harness confirms the full result line never reaches stdout without `--show`.
+- finding R6 (2026-10-25, reviewer A): DIFFERS — It imports the module for SMOKE_SIZE/LARGE_RUN_THRESHOLD, uses an open never-closed pipe, CASE_TIMEOUT 60 / REFUSAL_TIMEOUT 5, and exits 1 printing 'case N (label): problem' per failure; but case 4 ('y on stdin') writes "y\n" into the pipe, so stdin is not 'never-written' for every case (the Design 2 matrix itself was not available to check the case list).
+- R6 -> `scripts/cli_contract.py` reads `SMOKE_SIZE` and `LARGE_RUN_THRESHOLD` from the module, runs the Design 2 matrix with stdin an `os.pipe()` whose write end stays open for the whole run and is written to only in the `y`-on-stdin case, a 60 s timeout (5 s for the refusal case), and exits non-zero naming each failing case. — Design 2's own matrix includes the `y`-on-stdin case; "never-written" described every other case.
+- finding R9 (2026-10-25, reviewer both): NOT-BUILT — The diff contains no typings/gmpy2/__init__.pyi, no pyrightconfig.json change (no stubPath, no mode change for e/pi), and no pyright-related edit at all.
+- R9 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- finding R10 (2026-10-25, reviewer both): NOT-BUILT — No scripts/crate_templates/python/ files, no renderer change, no install_deps.sh or cosmic-ray.toml change, and no tests/test_crate_uniformity.py change appear in the diff; the Makefiles and workflows are hand-edited.
+- R10 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- finding R11 (2026-10-25, reviewer both): NOT-BUILT — The benchmark: targets remain (amicable, e, pi, sq Makefiles edit them, e.g. amicable's to `timeout 30 python3 amicable.py 5`), no *-py.yml step is removed, and TestBenchmarkGatesCanFail is not touched.
+- R11 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- finding R12 (2026-10-25, reviewer both): NOT-BUILT — No installer, workflow install step, or tests/test_tool_pins.py change appears in the diff.
+- R12 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- finding R13 (2026-10-25, reviewer both): NOT-BUILT — The *-py.yml hunks add only two paths: entries; no test-metrics-<p>-py publishing step is added.
+- R13 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- finding R14 (2026-10-25, reviewer both): NOT-BUILT — No cosmic-ray.toml file is in the diff.
+- R14 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- finding R15 (2026-10-25, reviewer both): NOT-BUILT — .github/workflows/scripts.yml is not in the diff.
+- R15 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- finding R17 (2026-10-25, reviewer A): DIFFERS — The mocked --yes tests in pi, e and fib assert calc called with _LARGE (fib: 10**_LARGE), and seven constant tests pin literals, but e's test_large_run_threshold is `assertEqual(LARGE_RUN_THRESHOLD, _LARGE)` where _LARGE is LARGE_RUN_THRESHOLD, a tautology; e's 1_000_001 is pinned only indirectly by the boundary tests at 1000000/1000001.
+- R17 reviewed: fixed in 7117d87
+- finding R18 (2026-10-25, reviewer both): NOT-BUILT — The root CLAUDE.md hunk changes only the pre-push line; the Notes bullet saying output files are 'written by `make benchmark` too' is not edited.
+- R18 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
