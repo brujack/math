@@ -65,12 +65,16 @@ make run
 python3 e.py
 ```
 
-The script is interactive. It prompts for:
+CLI contract (shared harness `scripts/cli_contract.py`, run by `make test`):
 
-1. The number of decimal places to compute.
-2. Whether to print the result directly or save it to a file.
+```bash
+python3 e.py 1000            # compute 1000 digits, always writes e_1000_digits.txt
+python3 e.py 1000 --show     # also print the digit string (same text as the file's digit line)
+python3 e.py --smoke         # quick check at SMOKE_SIZE (10000)
+python3 e.py 2000000 --yes   # sizes >= LARGE_RUN_THRESHOLD (1,000,001) are refused (exit 1) without --yes
+```
 
-For values greater than `10000`, the script saves output automatically to a file named like `e_<digits>_digits.txt`.
+With no arguments at a terminal it prompts for the number of decimal places (a size >= `LARGE_RUN_THRESHOLD` asks `Continue with N digits? (y/n)`; EOF there reads as no and exits 0). EOF at the number prompt exits 1; a bare run with stdin not a terminal exits 2. The output file `e_<digits>_digits.txt` is always written; there is no "display all" prompt.
 
 ## Code Layout
 
@@ -96,15 +100,16 @@ Module-level worker functions (must stay at module level for multiprocessing pic
 
 CLI:
 
-- `parse_args(argv)`: parses command-line arguments via `argparse`; returns a namespace with an optional `digits` positional int.
-- `get_target_digits(args)`: returns the digit count from CLI args if provided, otherwise loops on interactive stdin input; validates that the value is a positive integer.
+- `parse_args(argv)`: parses command-line arguments via `argparse`; returns a namespace with an optional `size` positional int plus `--show`, `--yes`, `--smoke` (`--smoke` sets `size=SMOKE_SIZE`).
+- `refuse_large_run(size, yes)`: exits 1 naming `--yes` when `size >= LARGE_RUN_THRESHOLD` and `--yes` is absent.
+- `get_target_digits(args)`: returns the digit count from CLI args if provided, otherwise loops on interactive stdin input; validates that the value is a positive integer; the argument path calls `refuse_large_run`.
 
 Main functions:
 
 - `calculate_e(digits)`: tries gmpy2 Taylor/binary-splitting first, falls back to mpmath; caches `(P_int, Q_int)` in `_gmpy2_PQ_cache` for the subprocess. Returns a `gmpy2.mpfr` (fast path) or `mpmath.mpf` (fallback path).
 - `show_e_preview(e_value, preview_digits)`: prints a short preview of the computed digits.
-- `save_e_to_file(e_value, digits, filename)`: two-phase save -- subprocess conversion then parallel pwrite file write.
-- `main()`: top-level entry point; calls `parse_args()`, `get_target_digits()`, `calculate_e()`, and either `show_e_preview()` or `save_e_to_file()` based on digit count.
+- `save_e_to_file(e_value, digits, filename)`: two-phase save (returns the digit string) -- subprocess conversion then parallel pwrite file write.
+- `main(argv=None)`: top-level entry point; calls `parse_args()`, `get_target_digits()`, `calculate_e()`, `show_e_preview()`, then always `save_e_to_file()` (returns the digit string, printed with `--show`).
 
 Module-level constants / state:
 
@@ -188,7 +193,7 @@ gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 | `TestCalculateEParallel`             | 1     | Skipped without gmpy2                                                   |
 | `TestCalculateEGmpy2PhaseAFallback`  | 1     | OSError triggers serial fallback in `_calculate_e_gmpy2`                |
 | `TestGetTargetDigits`                | 5     | Argument parsing; includes minimum value (digits=1)                     |
-| `TestParseArgs`                      | 3     | CLI flag parsing                                                        |
+| `TestParseArgs`                      | 7     | CLI flag parsing                                                        |
 | `TestShowEPreview`                   | 4     | stdout capture                                                          |
 | `TestSaveEToFile`                    | 5     | File write + content checks                                             |
 | `TestETostrEdgeCases`                | 1     | Negative-mpfr sign-strip branch in `_e_to_str`                          |
@@ -199,7 +204,9 @@ gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 | `TestSaveEEstimateAndProgress`       | 1     | Exercises `estimate_conversion_time` tiers via patched ProcessPool      |
 | `TestSaveEToFilePhaseAFallback`      | 1     | OSError triggers serial fallback in `save_e_to_file`                    |
 | `TestGetTargetDigitsInteractive`     | 5     | Interactive prompt: valid, retries, large-N decline + accept            |
-| `TestMain`                           | 5     | Display/save branches, ValueError, KeyboardInterrupt, generic exception |
+| `TestMain`                           | 14    | Always-save, --show, large-run refusal/--yes, error handlers            |
+| `TestCliContractConstants`           | 2     | Pins SMOKE_SIZE and LARGE_RUN_THRESHOLD                                 |
+| `TestRefuseLargeRun`                 | 1     | Threshold boundaries                                                    |
 | `TestEntryPointGuard`                | 1     | Module runs via subprocess (`if __name__ == "__main__"` block)          |
 | `TestProcessPoolPermissionError`     | 1     | PermissionError triggers serial fallback in `save_e_to_file`            |
 | `TestProcessPoolSemaphoreExhaustion` | 2     | OSError and errno.ENOSPC trigger serial fallback in `save_e_to_file`    |

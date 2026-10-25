@@ -27,15 +27,20 @@ from hypothesis import strategies as st
 import e as e_module
 from e import (
     _HAS_GMPY2,
+    LARGE_RUN_THRESHOLD,
+    SMOKE_SIZE,
     _bs_chunk_worker,
     _e_to_str,
     _tree_combine,
     calculate_e,
     get_target_digits,
+    main,
     parse_args,
+    refuse_large_run,
 )
 
 # Known decimal expansion of e — used for accuracy assertions.
+_LARGE = 1_000_001  # pinned to LARGE_RUN_THRESHOLD by TestCliContractConstants
 E_REF = "2.71828182845904523536028747135266249775724709369995"
 
 
@@ -390,13 +395,23 @@ class TestGetTargetDigits(unittest.TestCase):
         with self.assertRaises(ValueError):
             get_target_digits(args)
 
-    def test_large_warning(self):
-        args = parse_args(["2000000"])
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            result = get_target_digits(args)
-        self.assertEqual(result, 2000000)
-        self.assertIn("Warning", buf.getvalue())
+    def test_below_threshold_needs_no_yes(self):
+        for size in (999_999, 1_000_000):
+            args = parse_args([str(size)])
+            self.assertEqual(get_target_digits(args), size)
+
+    def test_threshold_refused_without_yes(self):
+        args = parse_args(["1000001"])
+        err = io.StringIO()
+        with unittest.mock.patch("sys.stderr", err):
+            with self.assertRaises(SystemExit) as cm:
+                get_target_digits(args)
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("--yes", err.getvalue())
+
+    def test_threshold_accepted_with_yes(self):
+        args = parse_args(["1000001", "--yes"])
+        self.assertEqual(get_target_digits(args), 1_000_001)
 
     def test_minimum_one(self):
         args = parse_args(["1"])
@@ -412,12 +427,41 @@ class TestParseArgs(unittest.TestCase):
     """Tests for parse_args."""
 
     def test_no_args(self):
-        args = parse_args([])
-        self.assertIsNone(args.digits)
+        with unittest.mock.patch("sys.stdin.isatty", return_value=True):
+            args = parse_args([])
+        self.assertIsNone(args.size)
+        self.assertFalse(args.show)
+        self.assertFalse(args.yes)
+        self.assertFalse(args.smoke)
 
     def test_positional(self):
         args = parse_args(["42"])
-        self.assertEqual(args.digits, 42)
+        self.assertEqual(args.size, 42)
+
+    def test_flags(self):
+        args = parse_args(["42", "--show", "--yes"])
+        self.assertTrue(args.show)
+        self.assertTrue(args.yes)
+
+    def test_smoke_sets_size_and_clears_show(self):
+        args = parse_args(["--smoke", "--show"])
+        self.assertEqual(args.size, SMOKE_SIZE)
+        self.assertFalse(args.show)
+
+    def test_smoke_with_size_exits_2(self):
+        with unittest.mock.patch("sys.stderr", io.StringIO()):
+            with self.assertRaises(SystemExit) as cm:
+                parse_args(["--smoke", "5"])
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_bare_non_tty_exits_2(self):
+        with (
+            unittest.mock.patch("sys.stdin.isatty", return_value=False),
+            unittest.mock.patch("sys.stderr", io.StringIO()),
+        ):
+            with self.assertRaises(SystemExit) as cm:
+                parse_args([])
+        self.assertEqual(cm.exception.code, 2)
 
     def test_invalid_exits(self):
         with self.assertRaises(SystemExit):
@@ -487,6 +531,14 @@ class TestSaveEToFile(unittest.TestCase):
             from e import save_e_to_file
 
             save_e_to_file(self._e, digits, self._path)
+
+    def test_returns_digit_string_matching_file(self):
+        with redirect_stdout(io.StringIO()):
+            from e import save_e_to_file
+
+            e_str = save_e_to_file(self._e, 50, self._path)
+        with open(self._path) as f:
+            self.assertIn(e_str, f.read().splitlines())
 
     def test_file_is_created(self):
         self._save()
@@ -832,8 +884,6 @@ class TestFileWritePermissionError(unittest.TestCase):
 
         buf = io.StringIO()
         with (
-            unittest.mock.patch("sys.argv", ["e.py", "10"]),
-            unittest.mock.patch("builtins.input", return_value="n"),
             unittest.mock.patch(
                 "e.os.open",
                 side_effect=PermissionError(
@@ -843,7 +893,7 @@ class TestFileWritePermissionError(unittest.TestCase):
             redirect_stdout(buf),
         ):
             with self.assertRaises(SystemExit) as cm:
-                main()
+                main(["10"])
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("Error", buf.getvalue())
 
@@ -854,7 +904,7 @@ class TestGetTargetDigitsInteractive(unittest.TestCase):
     def _ns(self, digits):
         import argparse
 
-        return argparse.Namespace(digits=digits)
+        return argparse.Namespace(size=digits, yes=False, show=False)
 
     def test_interactive_valid_first_try(self):
         with (
@@ -878,7 +928,7 @@ class TestGetTargetDigitsInteractive(unittest.TestCase):
             self.assertEqual(get_target_digits(self._ns(None)), 5)
 
     def test_interactive_too_large_decline_then_accept(self):
-        # >1_000_000 triggers warning + confirmation; user declines, then enters smaller value
+        # >= LARGE_RUN_THRESHOLD triggers confirmation; user declines, then enters smaller value
         with (
             unittest.mock.patch(
                 "builtins.input",
@@ -899,6 +949,42 @@ class TestGetTargetDigitsInteractive(unittest.TestCase):
         ):
             self.assertEqual(get_target_digits(self._ns(None)), 1_500_000)
 
+    def test_interactive_boundary_below_threshold_not_prompted(self):
+        with (
+            unittest.mock.patch("builtins.input", side_effect=["1000000"]),
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(get_target_digits(self._ns(None)), 1_000_000)
+
+    def test_interactive_threshold_prompts(self):
+        with (
+            unittest.mock.patch("builtins.input", side_effect=["1000001", "y"]) as m,
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(get_target_digits(self._ns(None)), 1_000_001)
+        self.assertEqual(m.call_count, 2)
+
+    def test_eof_at_number_prompt_exits_1_with_message(self):
+        err = io.StringIO()
+        with (
+            unittest.mock.patch("builtins.input", side_effect=EOFError),
+            unittest.mock.patch("sys.stderr", err),
+            redirect_stdout(io.StringIO()),
+        ):
+            with self.assertRaises(SystemExit) as cm:
+                get_target_digits(self._ns(None))
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("no input; pass SIZE as an argument", err.getvalue())
+
+    def test_eof_at_confirmation_reads_as_no_and_exits_0(self):
+        with (
+            unittest.mock.patch("builtins.input", side_effect=["1000001", EOFError]),
+            redirect_stdout(io.StringIO()),
+        ):
+            with self.assertRaises(SystemExit) as cm:
+                get_target_digits(self._ns(None))
+        self.assertEqual(cm.exception.code, 0)
+
 
 class TestMain(unittest.TestCase):
     """Cover main() — small-digit display/save branches, large-digit auto-save,
@@ -915,104 +1001,134 @@ class TestMain(unittest.TestCase):
             os.unlink(os.path.join(self._tmp, f))
         os.rmdir(self._tmp)
 
-    def _run(self, argv, inputs):
-        from e import main
+    def _run(self, argv):
+        with redirect_stdout(io.StringIO()) as buf:
+            main(argv)
+        return buf.getvalue()
 
-        old_argv = sys.argv
-        sys.argv = argv
-        try:
-            with (
-                unittest.mock.patch("builtins.input", side_effect=inputs),
-                redirect_stdout(io.StringIO()) as buf,
-            ):
-                main()
-            return buf.getvalue()
-        finally:
-            sys.argv = old_argv
-
-    def test_small_digits_display_branch(self):
-        # CLI digits=10: no save_e_to_file (<=10000), user picks "y" to display
-        out = self._run(["e.py", "10"], ["y"])
-        self.assertIn("2.71828", out)
-        self.assertIn("Total digits", out)
-        self.assertFalse(
-            any(
-                name.startswith("e_") and name.endswith("_digits.txt")
-                for name in os.listdir(".")
-            )
-        )
-
-    def test_small_digits_save_branch(self):
-        out = self._run(["e.py", "10"], ["n"])
+    def test_small_digits_always_saves(self):
+        out = self._run(["10"])
         self.assertIn("2.71828", out)
         self.assertTrue(os.path.exists("e_10_digits.txt"))
 
-    def test_value_error_path(self):
-        # digits=0 → get_target_digits raises ValueError → handled, exit(1)
-        from e import main
+    def test_no_prompts_without_show(self):
+        with unittest.mock.patch("builtins.input", side_effect=AssertionError):
+            out = self._run(["10"])
+        self.assertNotIn("?", out)
+        self.assertNotIn("(y/n)", out)
 
-        sys.argv = ["e.py", "0"]
-        try:
-            with redirect_stdout(io.StringIO()) as buf:
-                with self.assertRaises(SystemExit) as cm:
-                    main()
-            self.assertEqual(cm.exception.code, 1)
-            self.assertIn("Error:", buf.getvalue())
-        finally:
-            sys.argv = ["e.py"]
+    def test_show_prints_digit_line_exactly_as_file(self):
+        out = self._run(["10", "--show"])
+        with open("e_10_digits.txt") as f:
+            digit_line = next(ln for ln in f.read().splitlines() if ln.startswith("2."))
+        self.assertIn(digit_line, out.splitlines())
+
+    def test_without_show_digit_line_not_printed(self):
+        out = self._run(["10"])
+        with open("e_10_digits.txt") as f:
+            digit_line = next(ln for ln in f.read().splitlines() if ln.startswith("2."))
+        self.assertNotIn(digit_line, out.splitlines())
+
+    def test_rerun_overwrites_file(self):
+        self._run(["10"])
+        first = open("e_10_digits.txt").read()
+        self._run(["10"])
+        self.assertEqual(open("e_10_digits.txt").read(), first)
+
+    def test_smoke_writes_smoke_file(self):
+        self._run(["--smoke"])
+        self.assertTrue(os.path.exists(f"e_{SMOKE_SIZE}_digits.txt"))
+
+    def test_large_run_without_yes_refused_before_compute(self):
+        with (
+            unittest.mock.patch("e.calculate_e") as calc,
+            unittest.mock.patch("e.save_e_to_file") as save,
+            unittest.mock.patch("sys.stderr", io.StringIO()) as err,
+            redirect_stdout(io.StringIO()),
+        ):
+            with self.assertRaises(SystemExit) as cm:
+                main([str(_LARGE)])
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("--yes", err.getvalue())
+        calc.assert_not_called()
+        save.assert_not_called()
+        self.assertEqual(os.listdir("."), [])
+
+    def test_large_run_with_yes_proceeds(self):
+        with (
+            unittest.mock.patch("e.calculate_e", return_value=object()) as calc,
+            unittest.mock.patch("e.show_e_preview"),
+            unittest.mock.patch("e.save_e_to_file", return_value="2.7") as save,
+            redirect_stdout(io.StringIO()),
+        ):
+            main([str(_LARGE), "--yes"])
+        calc.assert_called_once_with(_LARGE)
+        save.assert_called_once()
+        self.assertEqual(save.call_args.args[1], _LARGE)
+
+    def test_just_below_threshold_needs_no_yes(self):
+        with (
+            unittest.mock.patch("e.calculate_e", return_value=object()) as calc,
+            unittest.mock.patch("e.show_e_preview"),
+            unittest.mock.patch("e.save_e_to_file", return_value="2.7"),
+            redirect_stdout(io.StringIO()),
+        ):
+            main([str(_LARGE - 1)])
+        calc.assert_called_once_with(_LARGE - 1)
+
+    def test_value_error_path(self):
+        # digits=0 -> get_target_digits raises ValueError -> handled, exit(1)
+        with redirect_stdout(io.StringIO()) as buf:
+            with self.assertRaises(SystemExit) as cm:
+                main(["0"])
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("Error:", buf.getvalue())
 
     def test_keyboard_interrupt_path(self):
-        from e import main
-
-        sys.argv = ["e.py", "10"]
-        try:
-            with (
-                unittest.mock.patch("e.calculate_e", side_effect=KeyboardInterrupt),
-                redirect_stdout(io.StringIO()) as buf,
-            ):
-                with self.assertRaises(SystemExit) as cm:
-                    main()
-            self.assertEqual(cm.exception.code, 1)
-            self.assertIn("interrupted", buf.getvalue())
-        finally:
-            sys.argv = ["e.py"]
+        with (
+            unittest.mock.patch("e.calculate_e", side_effect=KeyboardInterrupt),
+            redirect_stdout(io.StringIO()) as buf,
+        ):
+            with self.assertRaises(SystemExit) as cm:
+                main(["10"])
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("interrupted", buf.getvalue())
 
     def test_generic_exception_path(self):
-        from e import main
+        with (
+            unittest.mock.patch("e.calculate_e", side_effect=RuntimeError("boom")),
+            redirect_stdout(io.StringIO()) as buf,
+        ):
+            with self.assertRaises(SystemExit) as cm:
+                main(["10"])
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("Error occurred", buf.getvalue())
 
-        sys.argv = ["e.py", "10"]
-        try:
-            with (
-                unittest.mock.patch("e.calculate_e", side_effect=RuntimeError("boom")),
-                redirect_stdout(io.StringIO()) as buf,
-            ):
-                with self.assertRaises(SystemExit) as cm:
-                    main()
-            self.assertEqual(cm.exception.code, 1)
-            self.assertIn("Error occurred", buf.getvalue())
-        finally:
-            sys.argv = ["e.py"]
+
+class TestCliContractConstants(unittest.TestCase):
+    """Pin the values the shared CLI contract harness reads."""
+
+    def test_smoke_size(self):
+        self.assertEqual(SMOKE_SIZE, 10000)
+
+    def test_large_run_threshold(self):
+        self.assertEqual(LARGE_RUN_THRESHOLD, _LARGE)
+
+
+class TestRefuseLargeRun(unittest.TestCase):
+    def test_boundaries(self):
+        refuse_large_run(_LARGE - 1, False)
+        refuse_large_run(_LARGE, True)
+        with unittest.mock.patch("sys.stderr", io.StringIO()):
+            with self.assertRaises(SystemExit) as cm:
+                refuse_large_run(_LARGE, False)
+        self.assertEqual(cm.exception.code, 1)
 
 
 class TestEntryPointGuard(unittest.TestCase):
     """Cover the `if __name__ == "__main__"` block and main-process guard."""
 
     def test_module_runs_via_subprocess(self):
-        import subprocess
-
-        proc = subprocess.run(
-            [sys.executable, e_module.__file__, "5"],
-            input="n\n",
-            capture_output=True,
-            text=True,
-            timeout=30,
-            cwd=tempfile.gettempdir(),
-            check=False,
-        )
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("e", proc.stdout)
-
-    def test_eof_on_stdin_prints_clean_message_not_traceback(self):
         import subprocess
 
         proc = subprocess.run(
@@ -1024,9 +1140,37 @@ class TestEntryPointGuard(unittest.TestCase):
             cwd=tempfile.gettempdir(),
             check=False,
         )
-        self.assertEqual(proc.returncode, 1, proc.stderr)
-        self.assertIn("Error occurred during calculation", proc.stdout)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("e", proc.stdout)
+
+    def test_sized_run_never_reads_stdin(self):
+        import subprocess
+
+        proc = subprocess.run(
+            [sys.executable, e_module.__file__, "5"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=tempfile.gettempdir(),
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertNotIn("Traceback", proc.stderr)
+
+    def test_bare_non_tty_run_exits_2(self):
+        import subprocess
+
+        proc = subprocess.run(
+            [sys.executable, e_module.__file__],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=tempfile.gettempdir(),
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 2, proc.stderr)
 
 
 class TestEProperties(unittest.TestCase):
