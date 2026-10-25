@@ -19,7 +19,7 @@ spec: docs/superpowers/specs/2026-10-25-uniform-project-cli-and-python-files-des
 - No pyright suppression in any `pyrightconfig.json`; no `# type: ignore` or `# pyright: ignore` anywhere (N3).
 - Template placeholders: only `@CRATE@` and `@MODULE@` (N4). No coverage floor lowered (N5). No Rust source file changes (N6).
 - Pins (newest stable at least two weeks old, resolved from PyPI 2026-10-25 with cutoff 2026-10-11): `mpmath==1.4.1`, `gmpy2==2.3.2`, `coverage==7.16.2`, `cosmic-ray==8.7.0`, `hypothesis==6.168.5`, `pytest==9.1.1`, `pytest-cov==7.1.0`, `pip-audit==2.10.1`; existing `ruff==0.16.4`, `pyright==1.1.411`.
-- Root `CLAUDE.md` is capped at 30,000 bytes (26,988 today); every edit to it must keep `python3 scripts/claude_md_budget.py CLAUDE.md` at exit 0.
+- Root `CLAUDE.md` is capped at 30,000 bytes (26,988 today); every edit to it must keep `python3 scripts/claude_md_budget.py HEAD` at exit 0.
 - Read `~/.claude/standards/python.md` before any `.py`, `pyrightconfig.json`, `install_deps.sh` or `*-py.yml` change.
 
 ### CLI contract shape (every P1 CLI task implements exactly this)
@@ -389,7 +389,7 @@ acceptance:
     exit_code: 0
   - cmd: make test
     exit_code: 0
-  - cmd: python3 scripts/claude_md_budget.py CLAUDE.md
+  - cmd: python3 scripts/claude_md_budget.py HEAD
     exit_code: 0
 max_retries: 3
 files_touched: [scripts/pre-push, tests/scripts/pre_push.bats, tests/test_python_workflow_paths.py, CLAUDE.md, .github/workflows/amicable-py.yml, .github/workflows/collatz-py.yml, .github/workflows/e-py.yml, .github/workflows/factorial-py.yml, .github/workflows/fib-py.yml, .github/workflows/perfect-numbers-py.yml, .github/workflows/pi-py.yml, .github/workflows/sq-py.yml]
@@ -482,7 +482,7 @@ acceptance:
     exit_code: 0
   - cmd: 'python3 -c "import json,sys; ps=\"amicable collatz e factorial fib perfect-numbers pi sq\".split(); sys.exit(0 if all(json.load(open(p+\"/pyrightconfig.json\")).get(\"stubPath\")==\"../typings\" for p in ps) else 1)"'
     exit_code: 0
-  - cmd: python3 scripts/claude_md_budget.py CLAUDE.md
+  - cmd: python3 scripts/claude_md_budget.py HEAD
     exit_code: 0
 max_retries: 2
 files_touched: [amicable/pyrightconfig.json, collatz/pyrightconfig.json, factorial/pyrightconfig.json, fib/pyrightconfig.json, perfect-numbers/pyrightconfig.json, sq/pyrightconfig.json, CLAUDE.md, README.md]
@@ -644,7 +644,7 @@ requirements: [R18]
 acceptance:
   - cmd: '! command grep -n "make benchmark" CLAUDE.md README.md'
     exit_code: 0
-  - cmd: python3 scripts/claude_md_budget.py CLAUDE.md
+  - cmd: python3 scripts/claude_md_budget.py HEAD
     exit_code: 0
   - cmd: 'command grep -q "crate_templates/python" CLAUDE.md'
     exit_code: 0
