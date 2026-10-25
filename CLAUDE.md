@@ -69,7 +69,7 @@ make lint       # cargo fmt --check, then cargo clippy --all-targets -- -D warni
 make test       # lint, then cargo test
 ```
 
-All 11 crates are treated identically (operator rule): each crate's `Makefile`, `rustfmt.toml` and `release-<crate>-rs.yml` is rendered from `scripts/crate_templates/` by `scripts/render_crate_files.py` (`@CRATE@` is the only placeholder); edit the template and run `--write`, never one crate's copy, and `tests/test_crate_uniformity.py` fails on any drift.
+All 11 crates are treated identically (operator rule): each crate's `Makefile`, `rustfmt.toml`, `.config/nextest.toml`, `<crate>-rs.yml` and `release-<crate>-rs.yml` is rendered from `scripts/crate_templates/` by `scripts/render_crate_files.py` (`@CRATE@` is the only placeholder); edit the template and run `--write`, never one crate's copy, and `tests/test_crate_uniformity.py` fails on any drift.
 A single `ruff.toml` at the repo root serves all 8 Python sub-projects via ancestor discovery; keep one root `ruff.toml` only and never create per-subproject configs. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 `ruff==0.16.4` is pinned at all 17 install sites (8 `*-py.yml` workflows, `scripts.yml`, 8 `install_deps.sh`); bump them together. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 Root `make lint` runs `ruff check .` plus `ruff format --check` scoped to `git ls-files '*.py'` (never `ruff format --check .`, which rewrites markdown code blocks) alongside `lint-hooks`. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
@@ -212,7 +212,7 @@ The floor is a regression ratchet over the reachable quarter of the denominator,
 `scripts/ci-gate.sh <PR>` polls the check-runs API (latest run per workflow and check name, so a superseded cancelled run is ignored) and fails on any non-advisory failure (`snyk-scan` is advisory; `secret-scan` and `auto-merge` are self-checks); tested via `tests/scripts/ci_gate.bats` with `tests/mocks/gh`. → ai-config/docs/knowledge/math-ci.md § Auto-merge gate
 
 
-A Rust workflow calling `scripts/test_metrics.py` (today `factorial-rs.yml`) needs `pip install defusedxml` (a step named `Install Python dependencies`, `if: always()`) immediately before `Generate test metrics`, or CI fails with `ModuleNotFoundError`. → ai-config/docs/knowledge/math-ci.md § test_metrics.py in Rust workflows
+Every `<crate>-rs.yml` runs `make test` with `NEXTEST_PROFILE: ci` (JUnit in `target/nextest/ci/junit.xml`) and publishes `test-metrics-<crate>-rs` via `scripts/test_metrics.py`, which needs `pip install defusedxml==0.7.1` (step `Install Python dependencies`, `if: always()`) immediately before `Generate test metrics`, or CI fails with `ModuleNotFoundError`. → ai-config/docs/knowledge/math-ci.md § test_metrics.py in Rust workflows
 
 
 ### Renovate auto-merge policy

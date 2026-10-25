@@ -36,6 +36,8 @@ KINDS = {
     "Makefile": "{crate}/{crate}-rs/Makefile",
     "rustfmt.toml": "{crate}/{crate}-rs/rustfmt.toml",
     "release.yml": ".github/workflows/release-{crate}-rs.yml",
+    "ci.yml": ".github/workflows/{crate}-rs.yml",
+    "nextest.toml": "{crate}/{crate}-rs/.config/nextest.toml",
 }
 
 PLACEHOLDER = "@CRATE@"
@@ -75,6 +77,7 @@ def write(root, kinds):
     for rel, text in _expected(root, kinds):
         path = root / rel
         if not path.is_file() or path.read_text() != text:
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
             written.append(rel)
     return written

@@ -12,6 +12,8 @@ on:
       # Rendered from scripts/crate_templates/; test_crate_uniformity checks them.
       - "*/*-rs/Makefile"
       - "*/*-rs/rustfmt.toml"
+      - "*/*-rs/.config/nextest.toml"
+      - ".github/workflows/*-rs.yml"
       - ".github/actions/**"
       - "pyrightconfig.json"
       - "requirements-dev.txt"
