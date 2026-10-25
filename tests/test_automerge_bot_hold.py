@@ -111,10 +111,11 @@ def run_guard(fixture, gh_fail=False, labels_fail=False):
         return proc.returncode, out_file.read_text()
 
 
-def fx(is_bot, login, labels=()):
+def fx(is_bot, login, labels=(), draft=False):
     return {
         "author": {"is_bot": is_bot, "login": login},
         "labels": [{"name": n} for n in labels],
+        "isDraft": draft,
     }
 
 
@@ -170,7 +171,17 @@ CASES = [
         False,
         0,
         "merge=true\n",
+    ),  # A draft is held green: gh pr merge refuses drafts, so trying turned the job
+    # red on every draft push. The ready_for_review run then merges.
+    ("13-human-draft", fx(False, "human", draft=True), False, 0, "merge=false\n"),
+    (
+        "14-labelled-bot-draft",
+        fx(True, "app/renovate", ["automerge-ok"], draft=True),
+        False,
+        0,
+        "merge=false\n",
     ),
+    ("15-unreadable-draft", {**fx(False, "human"), "isDraft": None}, False, 1, ""),
 ]
 
 

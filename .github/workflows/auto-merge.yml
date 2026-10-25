@@ -208,15 +208,21 @@ jobs:
         # step, so the merge ran anyway while the log claimed it was held. Do not
         # re-split this into an exit-code guard.
         #
+        # A DRAFT is held green too: gh pr merge refuses drafts, so trying turned
+        # this job red on every draft push (math's CLAUDE.md opens own PRs as
+        # drafts). The ready_for_review trigger re-runs the job and merges.
+        #
         # Exit codes differ on purpose: a missing label is NORMAL (green, held); a
         # failed author or label query is a BROKEN INSTRUMENT (red), because
         # falling through to merge on a query failure is the guard disabling
         # itself quietly.
         run: |
-          author=$(gh pr view "${PR_NUMBER}" --json author --jq '[.author.is_bot, .author.login] | @tsv') \
+          author=$(gh pr view "${PR_NUMBER}" --json author,isDraft --jq '[.author.is_bot, .author.login, .isDraft] | @tsv') \
             || { echo "cannot determine PR author -- refusing to auto-merge" >&2; exit 1; }
           is_bot=${author%%$'\t'*}
-          login=${author#*$'\t'}
+          rest=${author#*$'\t'}
+          login=${rest%%$'\t'*}
+          is_draft=${rest#*$'\t'}
           if [ -z "${login}" ]; then
             echo "empty PR author login -- refusing to auto-merge" >&2
             exit 1
@@ -224,6 +230,15 @@ jobs:
           if [ "${is_bot}" != "true" ] && [ "${is_bot}" != "false" ]; then
             echo "unreadable is_bot (${is_bot}) -- refusing to auto-merge" >&2
             exit 1
+          fi
+          if [ "${is_draft}" != "true" ] && [ "${is_draft}" != "false" ]; then
+            echo "unreadable isDraft (${is_draft}) -- refusing to auto-merge" >&2
+            exit 1
+          fi
+          if [ "${is_draft}" = "true" ]; then
+            echo "draft PR -- holding; the ready_for_review run merges"
+            echo "merge=false" >> "${GITHUB_OUTPUT}"
+            exit 0
           fi
           if [ "${is_bot}" = "true" ]; then
             labels=$(gh pr view "${PR_NUMBER}" --json labels --jq '.labels[].name') \
