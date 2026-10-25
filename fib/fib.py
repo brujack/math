@@ -65,6 +65,9 @@ def main() -> None:
     args = parse_args()
     x = get_exponent(args)
     max_digits = 10**x
+    # Python 3.11+ refuses str() on ints over 4,300 digits; X >= 4 writes up to
+    # 10^X-digit numbers, so lift the cap for this CLI process.
+    sys.set_int_max_str_digits(0)
 
     print("Fibonacci Number Generator (Python)")
     print("=" * 40)
