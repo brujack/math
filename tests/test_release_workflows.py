@@ -56,7 +56,8 @@ _WORKFLOW_NAME_RE = re.compile(r"^release-(.+)-rs\.yml$")
 # whole file, so a comment elsewhere in the file cannot feed it a false match.
 _SHA256_STEP_RE = re.compile(r"\(cd (\S+) && sha256sum (\S+)\)")
 
-_COMMAND_SEPARATORS = re.compile(r"&&|\|\||;|\|")
+# Shell command boundaries, including & and command substitution ($(...), `...`).
+_COMMAND_SEPARATORS = re.compile(r"&&|\|\||;|\||&|`|\$\(|\)")
 # Any GitHub API call from run text: gh api in any spacing, or a raw HTTP client.
 _REPO_WRITE_RE = re.compile(r"\bgh\s+api\b|api\.github\.com|\bcurl\b|\bwget\b")
 
@@ -75,7 +76,10 @@ def git_pushes(run_text):
     """Return the tokens of every git command in run text whose subcommand is push.
 
     Tokenised with shlex after joining backslash continuations, so spacing, quoting,
-    `git -C <dir> push` and `cmd && git push` all count.
+    `git -C <dir> push`, `cmd && git push`, `/usr/bin/git` and command substitution
+    all count. A tripwire for honest and agent mistakes, not a defence against a
+    hostile edit: git reached through a variable ("$GIT" push), an alias or a
+    called script is not seen.
     """
     pushes = []
     for line in run_text.replace("\\\n", " ").splitlines():
@@ -84,9 +88,11 @@ def git_pushes(run_text):
                 tokens = shlex.split(command)
             except ValueError:
                 tokens = command.split()
-            # git need not lead the command: sudo git ..., env X=1 git ...
-            if "git" in tokens and "push" in tokens[tokens.index("git") + 1 :]:
-                pushes.append(tokens[tokens.index("git") :])
+            # git need not lead the command (sudo git, env X=1 git) or be bare
+            # (/usr/bin/git); match it by basename.
+            names = [os.path.basename(token) for token in tokens]
+            if "git" in names and "push" in tokens[names.index("git") + 1 :]:
+                pushes.append(["git", *tokens[names.index("git") + 1 :]])
     return pushes
 
 
@@ -718,6 +724,21 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                     f"{path.name} may push only its {name}-v<version> tag",
                 )
 
+    def test_local_actions_used_by_releases_make_no_repo_writes(self):
+        # A local composite action runs with the release job's token, so its steps
+        # are part of the release's contract.
+        local = sorted(a for a in RELEASE_ACTIONS if a.startswith("./"))
+        self.assertEqual(local, ["./.github/actions/sbom-sign"])
+        for action in local:
+            with self.subTest(action=action):
+                doc = yaml.safe_load((REPO_ROOT / action / "action.yml").read_text())
+                steps = (doc.get("runs") or {}).get("steps") or []
+                self.assertTrue(steps, f"{action} has no steps to check")
+                for step in steps:
+                    run_text = str(step.get("run") or "")
+                    self.assertIsNone(_REPO_WRITE_RE.search(run_text), action)
+                    self.assertEqual(git_pushes(run_text), [], action)
+
     def test_release_token_scope_and_actions_are_pinned(self):
         # contents: write is the real boundary on what a release can change, and a
         # third-party action can push without any run text; both are pinned here.
@@ -728,6 +749,8 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                     workflow.get("permissions"),
                     {"contents": "write", "id-token": "write"},
                 )
+                # A second job would inherit contents: write unseen by the checks above.
+                self.assertEqual(set(workflow["jobs"]), {"release"})
                 self.assertNotIn("permissions", workflow["jobs"]["release"])
                 used = {
                     str(step["uses"]).split("@")[0]
@@ -746,6 +769,10 @@ class TestReleaseWorkflowContract(unittest.TestCase):
             "git \\\n  push origin x": [["git", "push", "origin", "x"]],
             "true && git push origin x": [["git", "push", "origin", "x"]],
             "sudo git push origin x": [["git", "push", "origin", "x"]],
+            "/usr/bin/git push origin x": [["git", "push", "origin", "x"]],
+            "echo $(git push origin x)": [["git", "push", "origin", "x"]],
+            "echo `git push origin x`": [["git", "push", "origin", "x"]],
+            "true & git push origin x": [["git", "push", "origin", "x"]],
             'git tag "pi-v${VERSION}"': [],
             "echo pushing git notes": [],
         }

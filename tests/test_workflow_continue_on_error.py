@@ -39,7 +39,8 @@ ALLOWED = {
 
 WRAPPER_RUN = 'python3 "${GITHUB_WORKSPACE}/scripts/pip_audit_advisory.py"'
 _PIP_AUDIT = re.compile(r"pip[-_]audit")
-_COMMAND_SEPARATORS = re.compile(r"&&|\|\||;|\|")
+# Shell command boundaries, including & and command substitution ($(...), `...`).
+_COMMAND_SEPARATORS = re.compile(r"&&|\|\||;|\||&|`|\$\(|\)")
 
 
 def pip_audit_calls(run):
@@ -135,7 +136,13 @@ class TestPipAuditRunsThroughTheAdvisoryWrapper(unittest.TestCase):
         audit_steps = []
         for label, job_id, step in workflow_steps():
             run = str(step.get("run") or "")
-            if pip_audit_calls(run) or step.get("name") == "Run pip-audit":
+            # An audit action (uses: pypa/gh-action-pip-audit) has no run text, so it
+            # can never equal the wrapper and fails below.
+            if (
+                pip_audit_calls(run)
+                or _PIP_AUDIT.search(str(step.get("uses", "")))
+                or step.get("name") == "Run pip-audit"
+            ):
                 audit_steps.append((label, job_id, step.get("name"), run.strip()))
         self.assertEqual(len(audit_steps), 9, audit_steps)
         for label, _job, step_name, run in audit_steps:
@@ -148,6 +155,8 @@ class TestPipAuditRunsThroughTheAdvisoryWrapper(unittest.TestCase):
             "pip install x && pip-audit": ["pip-audit"],
             "pip-audit || true": ["pip-audit"],
             "true; pip-audit -r req.txt": ["pip-audit -r req.txt"],
+            "pip install x & pip-audit": ["pip-audit"],
+            "echo $(pip-audit)": ["pip-audit"],
             "pip install ruff pip-audit pytest": [],
             WRAPPER_RUN: [WRAPPER_RUN],
         }
