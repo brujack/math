@@ -2,6 +2,7 @@
   "include": ["fib.py", "test_fib.py"],
   "pythonVersion": "3.11",
   "typeCheckingMode": "standard",
+  "stubPath": "../typings",
   "reportMissingImports": true,
   "reportMissingModuleSource": false
 }

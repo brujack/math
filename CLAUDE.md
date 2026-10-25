@@ -117,7 +117,7 @@ Coverage floor: 90% for Python and Rust per sub-project, never lowered.
 
 Every Python sub-project has a `pyrightconfig.json` and a `Run pyright` step in its CI workflow.
 
-Modes: `standard` for amicable, collatz, fib, sq, factorial, perfect-numbers; `basic` for pi and e (gmpy2 has no type stubs; `reportAttributeAccessIssue` and `reportOptionalMemberAccess` suppressed). → ai-config/docs/knowledge/math-testing-policy.md § Pyright modes
+Modes: all 8 at `standard`, gmpy2 typed by `typings/gmpy2/__init__.pyi` (exact stub, no `Any`, guarded by `tests/test_gmpy2_stub.py`), every config sets `stubPath: ../typings`. → ai-config/docs/knowledge/math-testing-policy.md § Pyright modes
 
 
 Root-scope Python (`tests/`, `scripts/`, `.claude/scripts/`) is gated by a root `pyrightconfig.json` (`standard` mode, `include` `["scripts", "tests", ".claude/scripts"]`) over every tracked root-scope `.py` file (count: `git ls-files 'tests/*.py' 'scripts/*.py' '.claude/scripts/*.py' | wc -l`). → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
@@ -128,7 +128,7 @@ pyright walks up the tree for its config like `ruff.toml`: deleting a sub-projec
 Run pyright manually with `cd <sub-project> && pyright`; for root scope run `pyright` from the repo root.
 
 
-When adding a new Python sub-project, add `pyrightconfig.json` (copy from any `standard`-mode sub-project) and a `Run pyright` step to the CI workflow. Start with `standard` mode; fall back to `basic` only if the dependency has no stubs.
+When adding a new Python sub-project, add `pyrightconfig.json` (copy from any `standard`-mode sub-project) and a `Run pyright` step to the CI workflow. Start with `standard` mode; if a dependency has no stubs, add its names to the shared stub in `typings/` instead of dropping to `basic`.
 
 ### Mutation testing (Rust)
 
