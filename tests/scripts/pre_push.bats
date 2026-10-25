@@ -430,6 +430,38 @@ STUB
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -ne 0 ]
-    [[ "${output}" == *"fib"* ]]
+    [[ "${output}" == *"CLI contract harness failed for fib"* ]]
     assert_no_match "cwd=perfect-numbers"
+}
+
+@test "a renamed harness still triggers the harness" {
+    setup_harness_stub
+    # Real git reports only the new name for a rename unless --no-renames is
+    # passed; this wrapper reproduces that and otherwise defers to the mock.
+    cat > "${BATS_TEST_TMPDIR}/stub-bin/git" <<STUB
+#!/usr/bin/env bash
+if [[ "\$*" == *"diff"* && "\$*" != *"--no-renames"* ]]; then
+    printf '%s\n' "scripts/cli_contract_renamed.py"
+    exit 0
+fi
+if [[ "\$*" == *"diff"* ]]; then
+    printf '%s\n' "scripts/cli_contract.py" "scripts/cli_contract_renamed.py"
+    exit 0
+fi
+exec "${REPO_ROOT}/tests/mocks/git" "\$@"
+STUB
+    chmod +x "${BATS_TEST_TMPDIR}/stub-bin/git"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [ "$(grep -c '^python3 ' "${MOCK_CALLS_FILE}")" -eq 8 ]
+}
+
+@test "paths merely resembling the harness do not trigger it" {
+    setup_harness_stub
+    export MOCK_GIT_DIFF_NAMES=$'scripts/cli_contract.pyc\ntests/scripts/cli_contract.py'
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    assert_no_match "^python3 "
 }

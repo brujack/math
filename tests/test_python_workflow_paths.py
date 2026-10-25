@@ -49,7 +49,9 @@ class PythonWorkflowPathsTest(unittest.TestCase):
                 self.assertIn(f".github/workflows/{project}-py.yml", paths)
 
     def test_there_are_eight_python_workflows(self) -> None:
-        found = sorted(p.name for p in (REPO_ROOT / ".github" / "workflows").glob("*-py.yml"))
+        found = sorted(
+            p.name for p in (REPO_ROOT / ".github" / "workflows").glob("*-py.yml")
+        )
         self.assertEqual(found, sorted(f"{p}-py.yml" for p in PROJECTS))
 
 
