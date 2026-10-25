@@ -391,6 +391,25 @@ STUB
     export PATH="${BATS_TEST_TMPDIR}/stub-bin:${PATH}"
 }
 
+# The python3 stub accepts any module name, so a typo in the entry table
+# (collatz:collatzz) passes every stubbed case. Check the table against the
+# tracked set instead, with a clean PATH so the git mock is not consulted.
+@test "every harness entry names a tracked <dir>/<module>.py and there are 8" {
+    local line entries entry dir module count=0 clean_path
+    clean_path="$(printf '%s' "${PATH}" | tr ':' '\n' | grep -v 'tests/mocks' | tr '\n' ':' | sed 's/:$//')"
+    line="$(command grep -m1 'for _entry in ' "${REPO_ROOT}/scripts/pre-push")"
+    entries="$(printf '%s' "${line}" | sed -E 's/.*for _entry in (.*); do.*/\1/')"
+    [ -n "${entries}" ]
+    [ "${entries}" != "${line}" ]
+    for entry in ${entries}; do
+        dir="${entry%%:*}"
+        module="${entry##*:}"
+        PATH="${clean_path}" git -C "${REPO_ROOT}" ls-files --error-unmatch -- "${dir}/${module}.py" >/dev/null
+        count=$((count + 1))
+    done
+    [ "${count}" -eq 8 ]
+}
+
 @test "harness-only push runs the harness over all 8 CLIs and no project suite" {
     setup_harness_stub
     export MOCK_GIT_DIFF_NAMES="scripts/cli_contract.py"

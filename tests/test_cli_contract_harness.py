@@ -407,6 +407,26 @@ class TestEachCheckHasAFailingMutant(unittest.TestCase):
             failures,
         )
 
+    def test_show_that_writes_no_file_fails_case_2(self):
+        # Blank stdout line == the empty "longest" of a missing file, so only the
+        # explicit "no non-empty output file" branch can flag this program.
+        failures = self._failures(
+            [
+                (
+                    '    with open("out.txt", "w") as handle:\n'
+                    '        handle.write("".join(line + "\\n" for line in lines))\n'
+                    "    if args.show:\n"
+                    '        print("\\n".join(lines))\n',
+                    "    if args.show:\n"
+                    '        print("")\n'
+                    "    else:\n"
+                    '        with open("out.txt", "w") as handle:\n'
+                    '            handle.write("".join(line + "\\n" for line in lines))\n',
+                )
+            ]
+        )
+        self.assertIn("case 2 (SIZE --show): wrote no non-empty output file", failures)
+
     def test_exit_0_with_no_arguments_fails_case_6(self):
         failures = self._failures(
             [

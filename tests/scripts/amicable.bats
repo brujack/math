@@ -72,8 +72,7 @@ teardown() {
 
 @test "rust: N=3 produces exactly one pair" {
     [[ -x "${RUST_BIN}" ]] || skip "Rust binary not built"
-    tmp=$(mktemp -d)
-    run bash -c "cd '${tmp}' && '${RUST_BIN}' 3"
+    run bash -c "cd '${TMP_DIR}' && '${RUST_BIN}' 3"
     [ "${status}" -eq 0 ]
     [ "${output}" = "220 284" ]
 }

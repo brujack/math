@@ -246,11 +246,12 @@ class TestMain(unittest.TestCase):
         self.assertIn("220 284", out.splitlines())
 
     def test_n4_writes_every_pair(self):
-        _, content = self._run_in_tmp(["4"])
+        out, content = self._run_in_tmp(["4"])
         self.assertEqual(
             content,
             "220 284\n1184 1210\n2620 2924\n5020 5564\n6232 6368\n",
         )
+        self.assertIn("Found 5 amicable pairs up to 10^4", out)
 
     def test_show_lines_precede_summary(self):
         out, _ = self._run_in_tmp(["3", "--show"])
