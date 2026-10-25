@@ -1,7 +1,9 @@
 # One CLI contract and uniform project files for the 8 Python sub-projects
 
-**Status:** Draft, revision 4, 2026-10-25. Design sections approved in conversation by the
-operator; revision 2 applies the operator's dispositions on the round-1 Multi-Lens Review
+**Status:** Approved, revision 4, 2026-10-25.
+- **Approved:** 2026-10-25 by the operator ("Approve, write plan"), after three Multi-Lens Review rounds.
+
+Design sections approved in conversation by the operator; revision 2 applies the operator's dispositions on the round-1 Multi-Lens Review
 (below): Rust CLIs deferred, per-project contract test with an open pipe, a vendored gmpy2
 stub, and five smaller corrections. Revision 3 applies the round-2 dispositions: shared inputs
 trigger the project workflows, a declared `LARGE_RUN_THRESHOLD`, "proceeds with `--yes`" checked
