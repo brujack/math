@@ -86,13 +86,15 @@ CLI:
 
 Output:
 
-- `_write_factorial_file(result, n)`: converts result to decimal string, writes to `factorial_<n>.txt` in the current working directory, prints digit count and write time, returns the filename.
+- `_write_factorial_file(result, n, show=False)`: converts result to decimal string, writes to `factorial_<n>.txt` in the current working directory, prints the digits first when `show`, then the digit count and write time; returns `(filename, digits)`.
 
 Entry point:
 
 - `main(argv=None)`: calls `parse_args()`, `get_target_n()`, `refuse_large_run()`, `calculate_factorial()`, `_write_factorial_file()`; with `--show` prints the written digits.
 
 ## Important Behavior
+
+- `main()` calls `sys.set_int_max_str_digits(0)`: Python 3.11+ otherwise raises `ValueError` converting any N! over 4,300 digits to a string (N >= ~1,700). A negative SIZE exits 1 with the message on stderr.
 
 - **Output file always written**: `_write_factorial_file` is always called. There is no preview-only mode. The file `factorial_<n>.txt` is overwritten on each run (idempotent).
 - **Return type depends on gmpy2**: `calculate_factorial` returns `gmpy2.mpz` when gmpy2 is installed, plain `int` otherwise. Tests use `int(result)` for comparison to be type-agnostic.
@@ -150,7 +152,7 @@ python3 -m pytest test_factorial.py -v   # if pytest is installed
 
 gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 
-#### Test coverage (94% line coverage, 72 tests)
+#### Test coverage (94% line coverage, 76 tests)
 
 | Class                                | Tests | Notes                                                                        |
 | ------------------------------------ | ----- | ---------------------------------------------------------------------------- |
@@ -164,7 +166,8 @@ gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 | `TestCliContractConstants`           | 2     | `SMOKE_SIZE` 1000, `LARGE_RUN_THRESHOLD` None                                |
 | `TestRefuseLargeRun`                 | 5     | threshold boundary, `--yes`, refusal before any file write                   |
 | `TestInteractiveEof`                 | 1     | EOF at prompt exits 1 with contract message                                  |
-| `TestShowFlag`                       | 2     | `--show` prints digits; absent it does not                                   |
+| `TestMainErrors`                     | 2     | negative SIZE exits 1; N! above 4,300 digits written under the default cap   |
+| `TestShowFlag`                       | 3     | `--show` prints digits; absent it does not                                   |
 | `TestGetTargetN`                     | 5     | from args, zero, negative raises, interactive valid, retry on bad input      |
 | `TestOutputFile`                     | 4     | file created, filename correct, content digits, idempotent overwrite         |
 | `TestProcessPoolPermissionError`     | 1     | PermissionError triggers serial fallback in `_compute_swing`                 |

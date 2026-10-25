@@ -145,17 +145,24 @@ def _compute_swing(m: int, primes: list[int]) -> int:
     return int(_tree_combine_int(partial_results))
 
 
-def _write_factorial_file(result: object, n: int) -> str:
-    """Write factorial result to factorial_<n>.txt. Returns filename."""
+def _write_factorial_file(
+    result: object, n: int, show: bool = False
+) -> tuple[str, str]:
+    """Write factorial result to factorial_<n>.txt. Returns (filename, digits).
+
+    With show, the digits are printed before the summary line.
+    """
     filename = f"factorial_{n}.txt"
     digits_str = str(int(result))  # type: ignore[arg-type]
+    if show:
+        print(digits_str)
     start = time.time()
     with open(filename, "w") as f:
         f.write(digits_str)
     elapsed = time.time() - start
     digit_count = len(digits_str)
     print(f"{digit_count:,} digits written to {filename} in {elapsed:.2f}s")
-    return filename
+    return filename, digits_str
 
 
 def _factorial_rec(n: int, primes: list[int]) -> int:
@@ -182,7 +189,6 @@ def calculate_factorial(n: int) -> int:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Parse CLI arguments. Returns namespace with optional positional 'size'."""
     parser = argparse.ArgumentParser(
         description="Compute N! to arbitrary precision using the prime swing algorithm.",
         epilog="Run with no arguments at a terminal for interactive prompts.",
@@ -191,7 +197,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "size",
         nargs="?",
         type=int,
-        metavar="N",
+        metavar="n",
         help="Integer to compute factorial of",
     )
     parser.add_argument(
@@ -234,6 +240,7 @@ def get_target_n(args: argparse.Namespace) -> int:
         try:
             raw = input("Enter N to compute N! : ").strip()
         except EOFError:
+            print()
             print(
                 "Error: no input; pass SIZE as an argument "
                 f"(e.g. python3 factorial.py {SMOKE_SIZE}).",
@@ -254,6 +261,8 @@ def get_target_n(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> None:
     """Entry point: parse args, compute factorial, write to file."""
     args = parse_args(argv)
+    # N! routinely exceeds the default 4,300-digit int-to-str limit.
+    sys.set_int_max_str_digits(0)
     try:
         n = get_target_n(args)
         refuse_large_run(n, args.yes)
@@ -261,11 +270,11 @@ def main(argv: list[str] | None = None) -> None:
         start = time.time()
         result = calculate_factorial(n)
         elapsed = time.time() - start
+        _write_factorial_file(result, n, show=args.show)
         print(f"Computed in {elapsed:.2f}s")
-        filename = _write_factorial_file(result, n)
-        if args.show:
-            with open(filename) as f:
-                print(f.read())
+    except ValueError as err:
+        print(f"Error: {err}", file=sys.stderr)
+        sys.exit(1)
     except KeyboardInterrupt:
         print("\nComputation interrupted.")
         sys.exit(1)

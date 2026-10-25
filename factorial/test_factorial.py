@@ -300,7 +300,7 @@ class TestRefuseLargeRun(unittest.TestCase):
         with patch("factorial.LARGE_RUN_THRESHOLD", 10):
             refuse_large_run(10, True)
 
-    def test_main_refuses_before_writing(self):
+    def test_refusal_happens_before_any_file_write(self):
         from factorial import main
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -325,8 +325,20 @@ class TestInteractiveEof(unittest.TestCase):
                 with self.assertRaises(SystemExit) as cm:
                     get_target_n(args)
         self.assertEqual(cm.exception.code, 1)
-        self.assertIn("no input; pass SIZE as an argument", err.getvalue())
-        self.assertIn("factorial.py 1000", err.getvalue())
+        self.assertEqual(
+            err.getvalue(),
+            "Error: no input; pass SIZE as an argument "
+            "(e.g. python3 factorial.py 1000).\n",
+        )
+
+    def test_eof_ends_the_prompt_line_on_stdout(self):
+        args = argparse.Namespace(size=None)
+        with patch("builtins.input", side_effect=EOFError):
+            with patch("sys.stderr", io.StringIO()):
+                with redirect_stdout(io.StringIO()) as out:
+                    with self.assertRaises(SystemExit):
+                        get_target_n(args)
+        self.assertEqual(out.getvalue(), "\n")
 
 
 class TestShowFlag(unittest.TestCase):
@@ -350,6 +362,13 @@ class TestShowFlag(unittest.TestCase):
         lines, written = self._run(["5", "--show"])
         self.assertEqual(written, "120")
         self.assertIn("120", lines)
+
+    def test_show_line_precedes_summary_lines(self):
+        lines, _ = self._run(["5", "--show"])
+        digits_at = lines.index("120")
+        for i, line in enumerate(lines):
+            if "Computed in" in line or "digits written" in line:
+                self.assertLess(digits_at, i)
 
     def test_without_show_digits_not_printed(self):
         lines, written = self._run(["5"])
@@ -401,7 +420,7 @@ class TestOutputFile(unittest.TestCase):
             os.chdir(tmpdir)
             try:
                 with patch("builtins.print"):
-                    filename = _write_factorial_file(6, 3)
+                    filename, _ = _write_factorial_file(6, 3)
                 self.assertEqual(filename, "factorial_3.txt")
             finally:
                 os.chdir(original_dir)
@@ -585,3 +604,35 @@ class TestEntryPointGuard(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("Computing 5!", proc.stdout)
+
+
+class TestMainErrors(unittest.TestCase):
+    def test_negative_size_exits_1_on_stderr(self):
+        from factorial import main
+
+        with patch("sys.stderr", io.StringIO()) as err:
+            with redirect_stdout(io.StringIO()):
+                with self.assertRaises(SystemExit) as cm:
+                    main(["--", "-5"])
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("non-negative", err.getvalue())
+
+    def test_large_result_exceeds_default_str_cap(self):
+        from factorial import main
+
+        before = sys.get_int_max_str_digits()
+        try:
+            sys.set_int_max_str_digits(4300)
+            with tempfile.TemporaryDirectory() as tmp:
+                cwd = os.getcwd()
+                os.chdir(tmp)
+                try:
+                    with redirect_stdout(io.StringIO()):
+                        main(["2000"])
+                    with open("factorial_2000.txt") as f:
+                        digits = f.read()
+                finally:
+                    os.chdir(cwd)
+        finally:
+            sys.set_int_max_str_digits(before)
+        self.assertGreater(len(digits), 4300)
