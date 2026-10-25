@@ -17,7 +17,6 @@ import textwrap
 import threading
 import time
 import unittest
-import uuid
 from unittest import mock
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -92,20 +91,20 @@ class TestLoadConstants(unittest.TestCase):
 
 
 class TestRunCase(unittest.TestCase):
-    def _own_pid_file(self) -> pathlib.Path:
-        """Point the sleeper fixtures at a test-owned pid file and kill on cleanup.
+    def _own_pid_file(self, tag: str) -> pathlib.Path:
+        """Own the pid file a sleeper fixture writes; kill and remove it on cleanup.
 
-        The cleanup is registered before run_case so a failing or raising test
-        cannot leak a sleeper (tdd-007: an inert failure mode).
+        The fixture names the file from its parent pid (this process) and a fixed
+        tag, so no environment input reaches open(). The cleanup is registered
+        before run_case so a failing or raising test cannot leak a sleeper
+        (tdd-007: an inert failure mode).
         """
-        # The fixtures take a bare file name and resolve it under the temp
-        # directory, so the variable cannot point a write anywhere else.
-        name = f"cli_contract_sleeper_{uuid.uuid4().hex}.pid"
-        pid_file = pathlib.Path(tempfile.gettempdir()) / name
+        pid_file = (
+            pathlib.Path(tempfile.gettempdir())
+            / f"cli_contract_{os.getpid()}_{tag}.pid"
+        )
+        pid_file.unlink(missing_ok=True)
         self.addCleanup(pid_file.unlink, missing_ok=True)
-        env = mock.patch.dict(os.environ, {"CLI_CONTRACT_PID_FILE": name})
-        env.start()
-        self.addCleanup(env.stop)
 
         def kill_sleeper() -> None:
             try:
@@ -158,7 +157,7 @@ class TestRunCase(unittest.TestCase):
         self.assertIn("\ufffd", result.stdout)
 
     def test_timeout_kills_the_whole_process_group(self):
-        pid_file = self._own_pid_file()
+        pid_file = self._own_pid_file("reader")
         start = time.monotonic()
         result = cli_contract.run_case(
             FIXTURES / "grandchild_reader.py", [], timeout=SHORT_TIMEOUT
@@ -175,7 +174,7 @@ class TestRunCase(unittest.TestCase):
         self.assertFalse(_process_alive(grandchild), "grandchild survived the timeout")
 
     def test_group_is_reaped_after_a_passing_run(self):
-        pid_file = self._own_pid_file()
+        pid_file = self._own_pid_file("leftover")
         result = cli_contract.run_case(FIXTURES / "leaves_grandchild.py", [])
         self.assertEqual(result.returncode, 0)
         grandchild = int(pid_file.read_text())
@@ -188,7 +187,7 @@ class TestRunCase(unittest.TestCase):
         )
 
     def test_drain_timeout_returns_timed_out_with_partial_output(self):
-        self._own_pid_file()
+        self._own_pid_file("escaped")
         before = _open_fd_count()
         procs: list[subprocess.Popen[str]] = []
         real_popen = subprocess.Popen

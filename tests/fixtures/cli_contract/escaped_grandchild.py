@@ -11,8 +11,9 @@ import sys
 import tempfile
 
 # The test owns this file so it can kill the sleeper even if the harness raises.
-# The variable carries a bare file name, always resolved inside the temp directory.
-PID_FILE_ENV = "CLI_CONTRACT_PID_FILE"
+# The name comes from the parent (test) pid and a fixed tag, not from the
+# environment, so no outside input reaches open().
+PID_FILE_TAG = "escaped"
 
 SMOKE_SIZE = 2
 LARGE_RUN_THRESHOLD: int | None = None
@@ -20,15 +21,15 @@ LARGE_RUN_THRESHOLD: int | None = None
 SLEEPER = "import os, time; os.setsid(); time.sleep(30)  # cli_contract_escaped"
 
 
-def _pid_file_path(default: str) -> str:
-    name = os.path.basename(os.environ.get(PID_FILE_ENV, default))
+def _pid_file_path() -> str:
+    name = f"cli_contract_{os.getppid()}_{PID_FILE_TAG}.pid"
     return os.path.join(tempfile.gettempdir(), name)
 
 
 def main() -> None:
     print("partial output", flush=True)
     grandchild = subprocess.Popen([sys.executable, "-c", SLEEPER])
-    with open(_pid_file_path("esc.pid"), "w") as handle:
+    with open(_pid_file_path(), "w") as handle:
         handle.write(str(grandchild.pid))
     sys.stdin.readline()
 
