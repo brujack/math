@@ -38,6 +38,18 @@ except ImportError:
     _gmpy2 = None
     _HAS_GMPY2 = False
 
+
+def _require_gmpy2():
+    """Return the gmpy2 module, or raise when it is not installed.
+
+    pyright does not carry a caller's `_gmpy2 is not None` check into a
+    callee, so every gmpy2-only function narrows through this one place.
+    """
+    if _gmpy2 is None:
+        raise RuntimeError("gmpy2 is required for this code path but is not installed")
+    return _gmpy2
+
+
 # ---------------------------------------------------------------------------
 # Module-level constants
 # ---------------------------------------------------------------------------
@@ -77,9 +89,10 @@ def _taylor_bs(a, b):
     Final result: e = Q(0,N) / P(0,N)
     """
     if b - a == 1:
+        gm = _require_gmpy2()
         if a == 0:
-            return _gmpy2.mpz(1), _gmpy2.mpz(1)
-        val = _gmpy2.mpz(a + 1)
+            return gm.mpz(1), gm.mpz(1)
+        val = gm.mpz(a + 1)
         return val, val
     m = (a + b) >> 1
     Pl, Ql = _taylor_bs(a, m)
@@ -136,6 +149,7 @@ def _calculate_e_gmpy2(digits):
     - e_mpfr  is a gmpy2.mpfr value
     - P_int, Q_int are plain Python ints (picklable)
     """
+    gm = _require_gmpy2()
     if digits > 1:
         # Need N such that log10(N!) > digits (truncation error < 10^-digits).
         # Stirling: log10(N!) ≈ N*(log10(N) - log10(e)).  The naive estimate
@@ -187,7 +201,7 @@ def _calculate_e_gmpy2(digits):
 
             # Convert to gmpy2.mpz and merge via tree reduction.
             print("  Combining chunks...", end="", flush=True)
-            pq_list = [(_gmpy2.mpz(P), _gmpy2.mpz(Q)) for P, Q in int_results]
+            pq_list = [(gm.mpz(P), gm.mpz(Q)) for P, Q in int_results]
             P, Q = _tree_combine(pq_list)
             print("\r  Combination complete.   ")
         except (PermissionError, OSError) as err:
@@ -203,11 +217,11 @@ def _calculate_e_gmpy2(digits):
     # Compute e = Q / P in MPFR with enough binary precision.
     prec = int(digits * 3.3219280948873626) + 100  # bits ~ digits * log2(10) + margin
 
-    ctx = _gmpy2.get_context()
+    ctx = gm.get_context()
     saved_prec = ctx.precision
     ctx.precision = prec
     try:
-        e_mpfr = _gmpy2.mpfr(Q) / _gmpy2.mpfr(P)
+        e_mpfr = gm.mpfr(Q) / gm.mpfr(P)
     finally:
         ctx.precision = saved_prec
 
@@ -226,7 +240,7 @@ def _e_to_str(e_value, digits):
     Dispatches to the fast gmpy2/MPFR path for gmpy2.mpfr values, otherwise
     falls back to mpmath.nstr (pure Python).
     """
-    if _HAS_GMPY2 and isinstance(e_value, _gmpy2.mpfr):
+    if _gmpy2 is not None and isinstance(e_value, _gmpy2.mpfr):
         mantissa, exp, _ = e_value.digits(10, digits + 5)
         sign = ""
         if mantissa.startswith("-"):
@@ -274,13 +288,14 @@ def _gmpy2_str_from_PQ(P_int, Q_int, digits):
     """
     prec = int(digits * 3.3219280948873626) + 100
 
-    ctx = _gmpy2.get_context()
+    gm = _require_gmpy2()
+    ctx = gm.get_context()
     saved_prec = ctx.precision
     ctx.precision = prec
     try:
-        P = _gmpy2.mpz(P_int)
-        Q = _gmpy2.mpz(Q_int)
-        e_mpfr = _gmpy2.mpfr(Q) / _gmpy2.mpfr(P)
+        P = gm.mpz(P_int)
+        Q = gm.mpz(Q_int)
+        e_mpfr = gm.mpfr(Q) / gm.mpfr(P)
         mantissa, exp, _ = e_mpfr.digits(10, digits + 5)
     finally:
         ctx.precision = saved_prec
@@ -358,7 +373,7 @@ def save_e_to_file(e_value, digits, filename):  # noqa: C901 — multi-backend p
     Returns:
         str: the decimal digit string exactly as written to the file.
     """
-    using_gmpy2 = _HAS_GMPY2 and isinstance(e_value, _gmpy2.mpfr)
+    using_gmpy2 = _gmpy2 is not None and isinstance(e_value, _gmpy2.mpfr)
     backend_label = "gmpy2/MPFR" if using_gmpy2 else "mpmath"
 
     def estimate_conversion_time(d):
@@ -647,7 +662,7 @@ def calculate_e(digits=1000):
     print(f"Calculating e to {digits:,} decimal places...")
     print(f"Running on {_CPU_COUNT} CPU core{'s' if _CPU_COUNT != 1 else ''}...")
 
-    if _HAS_GMPY2:
+    if _gmpy2 is not None:
         print(
             f"Backend: Taylor series / gmpy2 {_gmpy2.version()} "
             f"(GMP {_gmpy2.mp_version()}, MPFR {_gmpy2.mpfr_version()})"

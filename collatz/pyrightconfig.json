@@ -2,6 +2,7 @@
   "include": ["collatz.py", "test_collatz.py"],
   "pythonVersion": "3.11",
   "typeCheckingMode": "standard",
+  "stubPath": "../typings",
   "reportMissingImports": true,
   "reportMissingModuleSource": false
 }

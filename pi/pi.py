@@ -37,6 +37,18 @@ except ImportError:
     _gmpy2 = None
     _HAS_GMPY2 = False
 
+
+def _require_gmpy2():
+    """Return the gmpy2 module, or raise when it is not installed.
+
+    pyright does not carry a caller's `_gmpy2 is not None` check into a
+    callee, so every gmpy2-only function narrows through this one place.
+    """
+    if _gmpy2 is None:
+        raise RuntimeError("gmpy2 is required for this code path but is not installed")
+    return _gmpy2
+
+
 # ---------------------------------------------------------------------------
 # Module-level constants
 # ---------------------------------------------------------------------------
@@ -72,12 +84,13 @@ def _chudnovsky_bs(a, b):
     Full series (a=0, b=N) satisfies: π = 426880 √10005 · Q / T
     """
     if b - a == 1:
+        gm = _require_gmpy2()
         if a == 0:
-            return _gmpy2.mpz(1), _gmpy2.mpz(1), _gmpy2.mpz(_CHU_A)
-        az = _gmpy2.mpz(a)
-        P = _gmpy2.mpz(6 * a - 5) * _gmpy2.mpz(2 * a - 1) * _gmpy2.mpz(6 * a - 1)
-        Q = az**3 * _gmpy2.mpz(_CHU_C3_OVER_24)
-        T = P * (_gmpy2.mpz(_CHU_A) + _gmpy2.mpz(_CHU_B) * az)
+            return gm.mpz(1), gm.mpz(1), gm.mpz(_CHU_A)
+        az = gm.mpz(a)
+        P = gm.mpz(6 * a - 5) * gm.mpz(2 * a - 1) * gm.mpz(6 * a - 1)
+        Q = az**3 * gm.mpz(_CHU_C3_OVER_24)
+        T = P * (gm.mpz(_CHU_A) + gm.mpz(_CHU_B) * az)
         if a & 1:
             T = -T
         return P, Q, T
@@ -138,6 +151,7 @@ def _calculate_pi_gmpy2(digits):
     - Q_int, T_int are plain Python ints (picklable; used in subprocess
       for full-precision string conversion)
     """
+    gm = _require_gmpy2()
     N = digits // 14 + 10  # terms needed; each gives ≈14.18 decimal digits
 
     # Divide [0, N) into at most _CPU_COUNT chunks.
@@ -178,9 +192,7 @@ def _calculate_pi_gmpy2(digits):
 
             # Convert to gmpy2.mpz and merge via tree reduction.
             print("  Combining chunks...", end="", flush=True)
-            pqt_list = [
-                (_gmpy2.mpz(P), _gmpy2.mpz(Q), _gmpy2.mpz(T)) for P, Q, T in int_results
-            ]
+            pqt_list = [(gm.mpz(P), gm.mpz(Q), gm.mpz(T)) for P, Q, T in int_results]
             _, Q, T = _tree_combine(pqt_list)
             print("\r  Combination complete.   ")
         except (PermissionError, OSError) as err:
@@ -196,12 +208,12 @@ def _calculate_pi_gmpy2(digits):
     # Compute π = 426880 √10005 · Q / T in MPFR with enough binary precision.
     prec = int(digits * 3.3219280948873626) + 100  # bits ≈ digits·log₂(10) + margin
 
-    ctx = _gmpy2.get_context()
+    ctx = gm.get_context()
     saved_prec = ctx.precision
     ctx.precision = prec
     try:
-        sqrt_10005 = _gmpy2.sqrt(_gmpy2.mpfr(10005))
-        pi_mpfr = _gmpy2.mpfr(426880) * sqrt_10005 * _gmpy2.mpfr(Q) / _gmpy2.mpfr(T)
+        sqrt_10005 = gm.sqrt(gm.mpfr(10005))
+        pi_mpfr = gm.mpfr(426880) * sqrt_10005 * gm.mpfr(Q) / gm.mpfr(T)
     finally:
         ctx.precision = saved_prec
 
@@ -220,14 +232,15 @@ def _gmpy2_str_from_QT(Q_int, T_int, digits):
     """
     prec = int(digits * 3.3219280948873626) + 100
 
-    ctx = _gmpy2.get_context()
+    gm = _require_gmpy2()
+    ctx = gm.get_context()
     saved_prec = ctx.precision
     ctx.precision = prec
     try:
-        Q = _gmpy2.mpz(Q_int)
-        T = _gmpy2.mpz(T_int)
-        sqrt_10005 = _gmpy2.sqrt(_gmpy2.mpfr(10005))
-        pi_mpfr = _gmpy2.mpfr(426880) * sqrt_10005 * _gmpy2.mpfr(Q) / _gmpy2.mpfr(T)
+        Q = gm.mpz(Q_int)
+        T = gm.mpz(T_int)
+        sqrt_10005 = gm.sqrt(gm.mpfr(10005))
+        pi_mpfr = gm.mpfr(426880) * sqrt_10005 * gm.mpfr(Q) / gm.mpfr(T)
         mantissa, exp, _ = pi_mpfr.digits(10, digits + 5)
     finally:
         ctx.precision = saved_prec
@@ -264,7 +277,7 @@ def _pi_to_str(pi_value, digits):
     Dispatches to the fast gmpy2/MPFR path for gmpy2.mpfr values, otherwise
     falls back to mpmath.nstr (pure Python).
     """
-    if _HAS_GMPY2 and isinstance(pi_value, _gmpy2.mpfr):
+    if _gmpy2 is not None and isinstance(pi_value, _gmpy2.mpfr):
         return _gmpy2_mpfr_to_str(pi_value, digits)
     return mpmath.nstr(pi_value, digits + 1, strip_zeros=False)
 
@@ -426,7 +439,7 @@ def calculate_pi_high_precision(digits=1000):
     print(f"Calculating π to {digits:,} decimal places...")
     print(f"Running on {_CPU_COUNT} CPU core{'s' if _CPU_COUNT != 1 else ''}...")
 
-    if _HAS_GMPY2:
+    if _gmpy2 is not None:
         print(
             f"Backend: Chudnovsky / gmpy2 {_gmpy2.version()} "
             f"(GMP {_gmpy2.mp_version()}, MPFR {_gmpy2.mpfr_version()})"
@@ -507,7 +520,7 @@ def save_pi_to_file(pi_value, digits, filename):  # noqa: C901 — multi-backend
     Returns:
         str: the digit string written to the file (printed by ``--show``).
     """
-    using_gmpy2 = _HAS_GMPY2 and isinstance(pi_value, _gmpy2.mpfr)
+    using_gmpy2 = _gmpy2 is not None and isinstance(pi_value, _gmpy2.mpfr)
     backend_label = "gmpy2/MPFR" if using_gmpy2 else "mpmath"
 
     def estimate_conversion_time(d):

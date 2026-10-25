@@ -21,9 +21,11 @@ on:
       - ".claude/scripts/**"
       # Subjects of root unittest suites: test_automerge_bot_hold.py runs the
       # hold step extracted from auto-merge.yml, test_renovate_automerge_policy.py
-      # asserts renovate.json. Without these an edit to either skips its test.
+      # asserts renovate.json, test_gmpy2_stub.py guards typings/gmpy2 (pyright accepts
+      # Any in a stub). Without these an edit to any of them skips its test.
       - ".github/workflows/auto-merge.yml"
       - "renovate.json"
+      - "typings/**"
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 jobs:

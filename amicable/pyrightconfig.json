@@ -2,6 +2,7 @@
   "include": ["amicable.py", "test_amicable.py"],
   "pythonVersion": "3.11",
   "typeCheckingMode": "standard",
+  "stubPath": "../typings",
   "reportMissingImports": true,
   "reportMissingModuleSource": false
 }

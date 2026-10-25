@@ -320,12 +320,12 @@ class TestMpmathFallback(unittest.TestCase):
     def test_fallback_returns_mpmath_type(self):
         import mpmath
 
-        with unittest.mock.patch.object(e_module, "_HAS_GMPY2", False):
+        with unittest.mock.patch.object(e_module, "_gmpy2", None):
             e_val = _quiet_e(20)
         self.assertIsInstance(e_val, mpmath.mpf)
 
     def test_fallback_accuracy(self):
-        with unittest.mock.patch.object(e_module, "_HAS_GMPY2", False):
+        with unittest.mock.patch.object(e_module, "_gmpy2", None):
             e_val = _quiet_e(50)
             result = _e_to_str(e_val, 50)
         # mpmath.nstr may round the last digit differently; verify first 48 digits
@@ -856,7 +856,6 @@ class TestMissingGmpy2(unittest.TestCase):
 
         buf = io.StringIO()
         with (
-            unittest.mock.patch.object(e_module, "_HAS_GMPY2", False),
             unittest.mock.patch.object(e_module, "_gmpy2", None),
             redirect_stdout(buf),
         ):
@@ -864,6 +863,48 @@ class TestMissingGmpy2(unittest.TestCase):
         result = _e_to_str(e_val, 20)
         self.assertTrue(result.startswith("2.718281828459045"), f"got: {result!r}")
         self.assertNotIn("Error", buf.getvalue())
+
+
+class TestRequireGmpy2(unittest.TestCase):
+    """_require_gmpy2 narrows the optional import and fails loudly without it."""
+
+    def test_raises_when_gmpy2_missing(self):
+        with unittest.mock.patch.object(e_module, "_gmpy2", None):
+            with self.assertRaises(RuntimeError):
+                e_module._require_gmpy2()
+
+    @unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
+    def test_returns_module_when_present(self):
+        self.assertIs(e_module._require_gmpy2(), e_module._gmpy2)
+
+    def test_gmpy2_only_function_raises_when_missing(self):
+        with unittest.mock.patch.object(e_module, "_gmpy2", None):
+            with self.assertRaises(RuntimeError):
+                e_module._gmpy2_str_from_PQ(1, 1, 10)
+
+
+class TestSaveEToFileWithoutGmpy2(unittest.TestCase):
+    """save_e_to_file takes the mpmath path when gmpy2 is absent."""
+
+    def test_mpmath_value_saved_via_mpmath_path(self):
+        import mpmath
+
+        mpmath.mp.dps = 70
+        e_val = mpmath.e
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "e_20.txt")
+            buf = io.StringIO()
+            with (
+                unittest.mock.patch.object(e_module, "_gmpy2", None),
+                redirect_stdout(buf),
+            ):
+                e_str = e_module.save_e_to_file(e_val, 20, path)
+            with open(path) as f:
+                content = f.read()
+        self.assertIn("mpmath", buf.getvalue())
+        self.assertNotIn("gmpy2/MPFR", buf.getvalue())
+        self.assertTrue(e_str.startswith("2.71828182845904523536"), e_str)
+        self.assertIn(e_str, content.splitlines())
 
 
 class TestFileWritePermissionError(unittest.TestCase):

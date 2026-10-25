@@ -302,6 +302,40 @@ N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
 - R15 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
 - finding R18 (2026-10-25, reviewer both): NOT-BUILT — The root CLAUDE.md hunk edits only the pre-push line; no edit removes the 'written by `make benchmark` too' Notes text.
 - R18 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- finding R1 (2026-10-25, reviewer both): NOT-BUILT — Looked for argument parsing of SIZE/--show/--yes/--smoke and TTY-gated prompting in the 8 Python CLIs; the diff touches only gmpy2 narrowing in e.py and pi.py and no CLI argument handling.
+- R1 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it.
+- finding R2 (2026-10-25, reviewer both): NOT-BUILT — No change to output-file writing, --show gating of result lines, or exit codes appears in any Python CLI in the diff.
+- R2 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it.
+- finding R3 (2026-10-25, reviewer both): NOT-BUILT — No module-level LARGE_RUN_THRESHOLD, --yes refusal logic, or mocked 'proceeds with --yes' pytest appears in the diff.
+- R3 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it.
+- finding R4 (2026-10-25, reviewer both): NOT-BUILT — No module-level SMOKE_SIZE constant or --smoke handling appears in any Python CLI in the diff.
+- R4 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it.
+- finding R5 (2026-10-25, reviewer both): NOT-BUILT — No no-argument/non-TTY exit-2-with-usage behaviour is added in the diff.
+- R5 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it.
+- finding R6 (2026-10-25, reviewer both): NOT-BUILT — scripts/cli_contract.py does not appear in the diff.
+- R6 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it.
+- finding R7 (2026-10-25, reviewer A): NOT-BUILT — tests/test_cli_contract_harness.py does not appear in the diff.
+- R7 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it.
+- finding R8 (2026-10-25, reviewer both): NOT-BUILT — No Python project Makefile is changed, so no make test runs a harness after pytest.
+- R8 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it.
+- finding R10 (2026-10-25, reviewer both): NOT-BUILT — No scripts/crate_templates/python/ templates, renderer change, or tests/test_crate_uniformity.py change appears; the pyrightconfig.json edits are hand-made per project.
+- R10 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2).
+- finding R11 (2026-10-25, reviewer both): NOT-BUILT — No Python Makefile, *-py.yml, or TestBenchmarkGatesCanFail removal appears in the diff.
+- R11 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2).
+- finding R12 (2026-10-25, reviewer both): NOT-BUILT — No install_deps.sh, workflow, or tests/test_tool_pins.py change appears in the diff.
+- R12 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2).
+- finding R13 (2026-10-25, reviewer both): NOT-BUILT — No *-py.yml workflow is changed to publish test-metrics-<p>-py.
+- R13 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2).
+- finding R14 (2026-10-25, reviewer both): NOT-BUILT — No cosmic-ray.toml appears in the diff.
+- R14 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2).
+- finding R15 (2026-10-25, reviewer both): NOT-BUILT — .github/workflows/scripts.yml does not appear in the diff.
+- R15 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2).
+- finding R16 (2026-10-25, reviewer both): NOT-BUILT — No *-py.yml paths: change (scripts/cli_contract.py, typings/**) and no scripts/pre-push change appear in the diff.
+- R16 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it.
+- finding R17 (2026-10-25, reviewer A): NOT-BUILT — No test pinning SMOKE_SIZE/LARGE_RUN_THRESHOLD and no mocked --yes pytest asserting the threshold size appears in the diff.
+- R17 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it.
+- finding R18 (2026-10-25, reviewer both): NOT-BUILT — The root CLAUDE.md hunks change only the pyright Modes and new-sub-project lines; the 'written by `make benchmark` too' Notes line is not touched.
+- R18 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2).
 
 ## Spec alignment (2026-10-25)
 
@@ -314,14 +348,23 @@ N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
 
 | ID | Reviewer | Verdict | Reason | Amendment |
 | --- | --- | --- | --- | --- |
-| R9 | both | NOT-BUILT | Looked for typings/gmpy2/__init__.pyi, stubPath edits to any pyrightconfig.json and an e/pi mode change; none appear in the diff. | - R9 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence. |
-| R10 | both | NOT-BUILT | No scripts/crate_templates/python/ files, renderer change, install_deps.sh or cosmic-ray.toml change, or tests/test_crate_uniformity.py change appear; the Makefiles and workflows are hand-edited. | - R10 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence. |
-| R11 | both | NOT-BUILT | benchmark: targets remain and are edited in amicable, e, pi and sq Makefiles (e.g. `timeout 30 python3 amicable.py 5`), no *-py.yml Benchmark step is removed, and TestBenchmarkGatesCanFail is untouched. | - R11 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence. |
-| R12 | both | NOT-BUILT | No installer, workflow install step or tests/test_tool_pins.py change appears in the diff. | - R12 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence. |
-| R13 | both | NOT-BUILT | The *-py.yml hunks add only two paths: entries; no test-metrics-<p>-py publishing step is added. | - R13 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence. |
-| R14 | both | NOT-BUILT | No cosmic-ray.toml file is in the diff. | - R14 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence. |
-| R15 | both | NOT-BUILT | .github/workflows/scripts.yml is not in the diff. | - R15 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence. |
-| R18 | both | NOT-BUILT | The root CLAUDE.md hunk edits only the pre-push line; no edit removes the 'written by `make benchmark` too' Notes text. | - R18 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence. |
+| R1 | both | NOT-BUILT | Looked for argument parsing of SIZE/--show/--yes/--smoke and TTY-gated prompting in the 8 Python CLIs; the diff touches only gmpy2 narrowing in e.py and pi.py and no CLI argument handling. | - R1 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it. |
+| R2 | both | NOT-BUILT | No change to output-file writing, --show gating of result lines, or exit codes appears in any Python CLI in the diff. | - R2 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it. |
+| R3 | both | NOT-BUILT | No module-level LARGE_RUN_THRESHOLD, --yes refusal logic, or mocked 'proceeds with --yes' pytest appears in the diff. | - R3 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it. |
+| R4 | both | NOT-BUILT | No module-level SMOKE_SIZE constant or --smoke handling appears in any Python CLI in the diff. | - R4 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it. |
+| R5 | both | NOT-BUILT | No no-argument/non-TTY exit-2-with-usage behaviour is added in the diff. | - R5 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it. |
+| R6 | both | NOT-BUILT | scripts/cli_contract.py does not appear in the diff. | - R6 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it. |
+| R7 | A | NOT-BUILT | tests/test_cli_contract_harness.py does not appear in the diff. | - R7 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it. |
+| R8 | both | NOT-BUILT | No Python project Makefile is changed, so no make test runs a harness after pytest. | - R8 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it. |
+| R10 | both | NOT-BUILT | No scripts/crate_templates/python/ templates, renderer change, or tests/test_crate_uniformity.py change appears; the pyrightconfig.json edits are hand-made per project. | - R10 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2). |
+| R11 | both | NOT-BUILT | No Python Makefile, *-py.yml, or TestBenchmarkGatesCanFail removal appears in the diff. | - R11 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2). |
+| R12 | both | NOT-BUILT | No install_deps.sh, workflow, or tests/test_tool_pins.py change appears in the diff. | - R12 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2). |
+| R13 | both | NOT-BUILT | No *-py.yml workflow is changed to publish test-metrics-<p>-py. | - R13 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2). |
+| R14 | both | NOT-BUILT | No cosmic-ray.toml appears in the diff. | - R14 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2). |
+| R15 | both | NOT-BUILT | .github/workflows/scripts.yml does not appear in the diff. | - R15 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2). |
+| R16 | both | NOT-BUILT | No *-py.yml paths: change (scripts/cli_contract.py, typings/**) and no scripts/pre-push change appear in the diff. | - R16 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it. |
+| R17 | A | NOT-BUILT | No test pinning SMOKE_SIZE/LARGE_RUN_THRESHOLD and no mocked --yes pytest asserting the threshold size appears in the diff. | - R17 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it. |
+| R18 | both | NOT-BUILT | The root CLAUDE.md hunks change only the pyright Modes and new-sub-project lines; the 'written by `make benchmark` too' Notes line is not touched. | - R18 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2). |
 
 ### Reviewed
 
@@ -342,6 +385,23 @@ N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
 - R14 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
 - R15 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
 - R18 reviewed: `[P2]`/`[P3]` requirement, delivered by PR 2 or PR 3 of the plan; this branch is PR 1 (P1) and the plan runs the three PRs in sequence.
+- R1 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it.
+- R2 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it.
+- R3 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it.
+- R4 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it.
+- R5 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it.
+- R6 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it.
+- R7 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it.
+- R8 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it.
+- R10 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2).
+- R11 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2).
+- R12 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2).
+- R13 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2).
+- R14 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2).
+- R15 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2).
+- R16 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it.
+- R17 reviewed: `[P1]` requirement, delivered and merged in math#171 (68a2f8a); this branch is PR 2 (P2) and diffs against a master that already contains it.
+- R18 reviewed: `[P3]` requirement, delivered by PR 3 of the plan; this branch is PR 2 (P2).
 
 ### Verifications
 

@@ -162,7 +162,8 @@ Main functions:
 
 Module-level constants / state:
 
-- `_HAS_GMPY2`: `True` if gmpy2 imported successfully at startup.
+- `_gmpy2`: the gmpy2 module, or `None` when the import failed. Code checks `_gmpy2 is not None` (pyright does not carry a caller's check into a callee); gmpy2-only functions call `_require_gmpy2()`, which raises `RuntimeError` when it is `None`. Tests simulate absence by patching `_gmpy2` to `None`.
+- `_HAS_GMPY2`: `True` if gmpy2 imported successfully at startup; used only by tests for `skipUnless`, never by `pi.py` logic.
 - `_gmpy2_QT_cache`: `(Q_int, T_int)` from the most recent gmpy2 calculation; used to pass picklable data to the subprocess worker.
 - `_CPU_COUNT`: result of `os.cpu_count()`.
 - `_IO_WORKERS`: number of I/O worker threads (scales with cores, capped at 8).
@@ -232,7 +233,7 @@ python3 -m pytest test_pi.py -v   # if pytest is installed
 
 gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 
-#### Test coverage (94% line coverage, 108 tests)
+#### Test coverage (94% line coverage, 112 tests)
 
 | Class                                | Tests | Notes                                                                   |
 | ------------------------------------ | ----- | ----------------------------------------------------------------------- |
@@ -264,8 +265,14 @@ gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 | `TestEntryPointGuard`                | 1     | Module runs via subprocess (`if __name__ == "__main__"` block)          |
 | `TestProcessPoolPermissionError`     | 1     | PermissionError triggers serial fallback in `save_pi_to_file`           |
 | `TestProcessPoolSemaphoreExhaustion` | 2     | OSError and errno.ENOSPC trigger serial fallback in `save_pi_to_file`   |
-| `TestMissingGmpy2`                   | 1     | mpmath path used when `_HAS_GMPY2` is False                             |
+| `TestMissingGmpy2`                   | 1     | mpmath path used when `_gmpy2` is patched to None                       |
+| `TestRequireGmpy2`                   | 3     | `_require_gmpy2` raises without gmpy2, returns the module with it       |
+| `TestSavePiToFileWithoutGmpy2`       | 1     | `save_pi_to_file` takes the mpmath path when `_gmpy2` is None           |
 | `TestFileWritePermissionError`       | 1     | `main()` exits 1 on `PermissionError` when creating output file         |
+
+#### Type checking
+
+`pyrightconfig.json` runs pyright at `standard` with `stubPath` `../typings`: gmpy2 ships no stubs, so the vendored `typings/gmpy2/__init__.pyi` (exact, never claiming more than gmpy2 does at runtime; no `Any`, and `object` only for `__eq__`/`__ne__` `other`, both guarded by `tests/test_gmpy2_stub.py`, including string annotations) types the names e and pi use. Add a name to the stub before using a new gmpy2 attribute. Pyright at `standard` over e/ and pi/ is the primary gate for attribute use; the stub guard's alias scan (direct, `import ... as` and simple-assignment aliases) is only a cheap backstop. Run `cd pi && pyright`.
 
 #### Adding new tests
 

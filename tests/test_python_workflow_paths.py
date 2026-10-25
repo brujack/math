@@ -54,6 +54,13 @@ class PythonWorkflowPathsTest(unittest.TestCase):
         )
         self.assertEqual(found, sorted(f"{p}-py.yml" for p in PROJECTS))
 
+    def test_scripts_workflow_runs_when_the_gmpy2_stub_changes(self) -> None:
+        # tests/test_gmpy2_stub.py is the only guard on typings/gmpy2; pyright
+        # accepts `Any` there, so a stub-only PR must still trigger scripts.yml.
+        workflow = REPO_ROOT / ".github" / "workflows" / "scripts.yml"
+        parsed = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+        self.assertIn("typings/**", parsed[True]["pull_request"]["paths"])
+
 
 if __name__ == "__main__":
     unittest.main()
