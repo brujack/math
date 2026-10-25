@@ -1,11 +1,12 @@
 # One CLI contract and uniform project files for the 8 Python sub-projects
 
-**Status:** Draft, revision 3, 2026-10-25. Design sections approved in conversation by the
+**Status:** Draft, revision 4, 2026-10-25. Design sections approved in conversation by the
 operator; revision 2 applies the operator's dispositions on the round-1 Multi-Lens Review
 (below): Rust CLIs deferred, per-project contract test with an open pipe, a vendored gmpy2
 stub, and five smaller corrections. Revision 3 applies the round-2 dispositions: shared inputs
 trigger the project workflows, a declared `LARGE_RUN_THRESHOLD`, "proceeds with `--yes`" checked
-by mocked pytests, and the benchmark recipe and its CI steps deleted.
+by mocked pytests, and the benchmark recipe and its CI steps deleted. Revision 4 applies the
+round-3 disposition: pre-push runs the harness alone on a harness change.
 
 ## Problem
 
@@ -101,9 +102,18 @@ output file, so a second run in CI could change no decision.
 - Each project's `make test` runs pytest and then the harness against its own program, so the
   PR that changes `pi/pi.py` runs pi's contract in `pi-py.yml` (paths `pi/*.py`) with pi's
   dependencies installed, and pre-push runs it on any `.py` change in that project. The shared
-  inputs `scripts/cli_contract.py` and `typings/**` are in every `py.yml`'s `paths:`, and
-  pre-push treats a change to either as touching all 8 projects, so a PR that changes only the
-  harness or the stub still runs every real program against it.
+  inputs `scripts/cli_contract.py` and `typings/**` are in every `py.yml`'s `paths:`, so a PR
+  that changes only the harness or the stub still runs every real program against it in CI.
+  Locally, a push touching `scripts/cli_contract.py` runs the harness alone against the 8
+  programs (no pytest, about 2 s), which leaves pre-push's more-than-6-projects bail-out (the
+  macOS resource_tracker guard) untouched. `typings/**` stays CI-only, like sub-project pyright.
+- The harness holds stdin open with `os.pipe()`, keeping the write end open for the whole run:
+  `subprocess.run(..., stdin=subprocess.PIPE)` closes stdin at once, so a reader sees end of
+  input and the check is silently defeated (measured: rc 0 in 0.01 s against an `input()` stub).
+- A test pins each program's `SMOKE_SIZE` and `LARGE_RUN_THRESHOLD` to the values in R3 and R4,
+  because the harness learns both from the module and would follow a deleted gate. The mocked
+  "proceeds with `--yes`" pytests assert the mocked computation was called with the threshold
+  size, not only that the exit code was 0 (fib's decline path today is a bare `return`).
   `tests/test_cli_contract_harness.py` unit-tests the harness itself against stub programs
   (one that prompts, one that writes nothing, one that ignores `--yes`, one that conforms).
 
@@ -158,7 +168,7 @@ sub-project.
 - **R4.** `[P1]` Each Python CLI defines a module-level `SMOKE_SIZE` equal to its benchmark size on master `f7658ed` (amicable 5, collatz 5, e 10000, factorial 1000, fib 3, perfect-numbers 6, pi 10000, sq 1), and `--smoke` runs at that size.
 - **R5.** `[P1]` A Python CLI run with no arguments and stdin not a TTY exits 2 with usage.
 - **R6.** `[P1]` `scripts/cli_contract.py` reads `SMOKE_SIZE` and `LARGE_RUN_THRESHOLD` from the module, runs the Design 2 matrix with stdin an open, never-written pipe and a 60 s timeout (5 s for the refusal case), and exits non-zero naming each failing case.
-- **R7.** `[P1]` `tests/test_cli_contract_harness.py` shows the harness failing a stub that prompts, one that writes no output, one that does not refuse at its threshold, and one that rejects `--yes` when its threshold is `None`, and passing a conforming stub.
+- **R7.** `[P1]` `tests/test_cli_contract_harness.py` shows the harness failing a stub that prompts, one that writes no output, one that reads stdin without printing a prompt (must fail by timeout), one that does not refuse at its threshold, and one that rejects `--yes` when its threshold is `None`, and passing a conforming stub.
 - **R8.** `[P1]` Each Python project's `make test` runs the harness against its own program after pytest.
 - **R9.** `[P2]` A repo-root `typings/gmpy2/__init__.pyi` contains no `Any`, every Python `pyrightconfig.json` sets `stubPath` to `../typings`, and e and pi, including `test_e.py` and `test_pi.py`, pass pyright `standard` with 0 errors and no `reportAttributeAccessIssue` or `reportOptionalMemberAccess` override.
 - **R10.** `[P3]` `<p>/Makefile`, `<p>/install_deps.sh`, `.github/workflows/<p>-py.yml`, `<p>/pyrightconfig.json` and `<p>/cosmic-ray.toml` for the 8 projects are rendered from `scripts/crate_templates/python/` with only `@CRATE@` and `@MODULE@` substituted, and `tests/test_crate_uniformity.py` fails on any drift.
@@ -167,7 +177,9 @@ sub-project.
 - **R13.** `[P3]` All 8 Python workflows publish `test-metrics-<p>-py`.
 - **R14.** `[P3]` Every `cosmic-ray.toml` sets `timeout = 60`.
 - **R15.** `[P3]` `.github/workflows/scripts.yml` triggers on every path the renderer writes.
-- **R16.** `[P1]` Every `*-py.yml` `paths:` includes `scripts/cli_contract.py` and `typings/**`, and `scripts/pre-push` runs all 8 Python projects' `make test` when a push touches either.
+- **R16.** `[P1]` Every `*-py.yml` `paths:` includes `scripts/cli_contract.py` and `typings/**`, and `scripts/pre-push` runs `scripts/cli_contract.py` alone against all 8 Python programs when a push touches `scripts/cli_contract.py`, without changing its more-than-6-projects bail-out.
+- **R17.** `[P1]` A test pins each Python CLI's `SMOKE_SIZE` and `LARGE_RUN_THRESHOLD` to the R3 and R4 values, and the mocked "proceeds with `--yes`" pytests in pi, e and fib assert the mocked computation was called with the threshold size.
+- **R18.** `[P3]` The root `CLAUDE.md` no longer says output files are "written by `make benchmark` too".
 - **V1.** Each PR's CI is green with every affected project's workflow run; the PR body lists them.
 - **V2.** Every Python sub-project's coverage stays at or above 90% on CI after each PR.
 - **V3.** After P3, `make test` passes for all 8 Python projects in a clean copy of master on `claude`.
@@ -227,6 +239,20 @@ Disposition: Addressed — operator: "pytest, mocked, all 3". The harness checks
 Finding: Same shared-input trigger gap (pre-push regex has nothing for `typings/`). Smaller: fib's `--yes` case (15.5 s, 239 MB); the pin rule picks mpmath `1.5.0a1`, an alpha (newest stable is 1.4.1); the harness has no declared way to learn thresholds, which would force a hidden per-program table; no case checks `SIZE --yes` exits 0 where there is no threshold. Premises held: pyright standard on master copies gives e 41 and pi 78 errors; `stubPath: "../typings"` is honoured; a no-`Any` stub covering the used classes and methods (`context.precision`, arithmetic, `mpfr.digits`) plus 6 per-function `_gmpy2 is not None` guards in each of e and pi reaches 0 standard errors including the tests. No R/N contradiction.
 Assumption: fib's `--yes`-proceeds case finishes inside 60 s on every machine that runs fib's `make test`.
 Disposition: Addressed — operator: "pytest, mocked, all 3" and "Accept all, scoped re-review". Revision 3 declares `LARGE_RUN_THRESHOLD` (read by the harness), adds the no-threshold `--yes` case, and requires stable pins.
+
+#### Adversarial Spec Review (comparison/judge designs only)
+
+N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+### Round 3
+
+Reviewed at commit: `8c1b173` (revision 3). Risk lens only (operator: "Accept all, scoped re-review"), briefed to focus on the revision-3 diff while reading the whole body.
+
+#### Risk
+
+Finding: R16's pre-push half is vacuous: adding all 8 projects to `DIRS_TO_TEST` trips `scripts/pre-push`'s `"${#UNIQUE_DIRS[@]}" -gt 6` bail-out, which prints "skipping" and exits 0, and the `typings/**` half buys nothing locally because sub-project pyright is CI-only. Second: the open-pipe mechanism has no failing proof; `subprocess.run(..., stdin=subprocess.PIPE, timeout=5)` returned rc 0 in 0.01 s against an `input()` stub (stdin closed by `communicate()`), while `os.pipe()` with the write end held blocked to the timeout, and R7 has no silent-reader stub, so a harness delivering EOF passes R7. Third: the large-run gate is self-declared; with fib's threshold set to `None` and its gate deleted the harness skips the refusal case, nothing pins the R3/R4 values, and a mocked pytest asserting only exit 0 passes a gate that silently returns. Checked and held: no import side effects (top level is imports and constants, pools in functions, `__main__` guarded); every refusal precedes `open()`; the only other `make benchmark` consumer is a root CLAUDE.md line; all 8 smoke runs take 0.05-0.45 s; no R/N contradiction.
+Assumption: Running 8 Python `make test` targets in one pre-push still hangs macOS on resource_tracker; settled by a sequential run on the Mac Studio.
+Disposition: Addressed — operator: "Pre-push runs harness only". Revision 4 runs the harness alone on a harness change (bail-out untouched, assumption no longer load-bearing), requires `os.pipe()` and a silent-reader stub (R7), pins the constants and the mocked-call assertion (R17), and removes the stale CLAUDE.md line (R18).
 
 #### Adversarial Spec Review (comparison/judge designs only)
 
