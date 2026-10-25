@@ -8,11 +8,14 @@ numbers have the form 2^(p-1) * (2^p - 1) where 2^p - 1 is a Mersenne prime.
 Uses the Lucas-Lehmer primality test and the multiplicative sigma formula.
 
 Run without arguments for an interactive prompt, or supply N directly:
-    python3 perfect_numbers.py [N]
+    python3 perfect_numbers.py [N] [--show] [--yes] [--smoke]
 """
 
 import argparse
 import sys
+
+SMOKE_SIZE = 6
+LARGE_RUN_THRESHOLD: int | None = None
 
 
 def lucas_lehmer(p: int) -> bool:
@@ -62,24 +65,50 @@ def generate_perfect_numbers(limit: int):
         yield p, n
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Find all perfect numbers up to 10^N",
-        epilog="Run without arguments for an interactive prompt.",
+        epilog="Run with no arguments at a terminal for interactive prompts.",
     )
     parser.add_argument(
-        "exponent",
-        type=int,
+        "size",
         nargs="?",
+        type=int,
+        metavar="N",
         help="N: finds perfect numbers up to 10^N (1-54)",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--show", action="store_true", help="also print each result line to stdout"
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="confirm a large run (ignored when this program has none)",
+    )
+    parser.add_argument(
+        "--smoke", action="store_true", help=f"quick check at SMOKE_SIZE ({SMOKE_SIZE})"
+    )
+    args = parser.parse_args(argv)
+    if args.smoke:
+        if args.size is not None:
+            parser.error("--smoke takes no SIZE")
+        args.size, args.show = SMOKE_SIZE, False
+    elif args.size is None and not sys.stdin.isatty():
+        parser.error("SIZE is required when stdin is not a terminal")
+    return args
+
+
+def refuse_large_run(size: int, yes: bool) -> None:
+    """Exit 1 naming --yes when size needs confirmation and --yes is absent."""
+    if LARGE_RUN_THRESHOLD is not None and size >= LARGE_RUN_THRESHOLD and not yes:
+        print(f"Error: {size} is a large run; pass --yes to proceed.", file=sys.stderr)
+        sys.exit(1)
 
 
 def get_exponent(args: argparse.Namespace) -> int:
     """Return validated N from CLI args, or prompt interactively."""
-    if args.exponent is not None:
-        n = args.exponent
+    if args.size is not None:
+        n = args.size
         if n < 1 or n > 54:
             print("Error: N must be between 1 and 54.", file=sys.stderr)
             sys.exit(1)
@@ -93,11 +122,19 @@ def get_exponent(args: argparse.Namespace) -> int:
             print("N must be between 1 and 54.")
         except ValueError:
             print("Please enter a positive integer.")
+        except EOFError:
+            print(
+                "Error: no input; pass SIZE as an argument "
+                f"(e.g. python3 perfect_numbers.py {SMOKE_SIZE}).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
 
-def main() -> None:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
     n = get_exponent(args)
+    refuse_large_run(n, args.yes)
     limit = 10**n
 
     print("Perfect Number Finder (Python)")
@@ -141,6 +178,9 @@ def main() -> None:
                 f.write(str(pn))
                 f.write("\n")
         print(f"Saved to {filename}")
+        if args.show:
+            for pn in results:
+                print(pn)
 
     except KeyboardInterrupt:
         print("\nGeneration interrupted.")
