@@ -1127,7 +1127,7 @@ class TestCliContractConstants(unittest.TestCase):
         self.assertEqual(SMOKE_SIZE, 10000)
 
     def test_large_run_threshold(self):
-        self.assertEqual(LARGE_RUN_THRESHOLD, _LARGE)
+        self.assertEqual(LARGE_RUN_THRESHOLD, 1_000_001)
 
 
 class TestRefuseLargeRun(unittest.TestCase):
