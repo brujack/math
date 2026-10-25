@@ -51,6 +51,8 @@ PYTHON_KINDS = {
     "python/Makefile": "{project}/Makefile",
     "python/install_deps.sh": "{project}/install_deps.sh",
     "python/py.yml": ".github/workflows/{project}-py.yml",
+    "python/pyrightconfig.json": "{project}/pyrightconfig.json",
+    "python/cosmic-ray.toml": "{project}/cosmic-ray.toml",
 }
 
 # Template file name in scripts/crate_templates/ -> per-crate output path.

@@ -13,6 +13,8 @@ on:
       - "*/*-rs/Makefile"
       - "*/Makefile"
       - "*/install_deps.sh"
+      - "*/pyrightconfig.json"
+      - "*/cosmic-ray.toml"
       - "*/*-rs/rustfmt.toml"
       - "*/*-rs/.config/nextest.toml"
       - "*/*-rs/install_deps.sh"

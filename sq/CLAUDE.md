@@ -83,6 +83,14 @@ make coverage  # pytest --cov, fails under 90%
 | `TestFileWritePermissionError` | 1 — `main()` exits 1 on `PermissionError` when writing output file                                                                     |
 | `TestKeyboardInterrupt`        | 1 — `main()` exits 1 on KeyboardInterrupt during generation                                                                            |
 
+## Equivalent mutants
+
+`cosmic-ray.toml` is rendered from a template and carries no prose; these mutants cannot be killed by any valid input:
+
+- `max_digits = 10**x` in `main()`: `get_exponent` accepts only `x == 1`, so `10*x`, `10//x` and `10/x` all give 10 (or 10.0, which `generate_squares` handles identically).
+- `__name__ == "__main__"` guard: `<=` and `is` behave identically (`"sq" > "__main__"` lexicographically, so `<=` is False on import; CPython interns the literal).
+- `print("=" * 40)` in `main()`: the banner width is cosmetic.
+
 ## Keeping This File Up To Date
 
 Update this file whenever you:

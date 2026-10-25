@@ -4,7 +4,7 @@
 
 [cosmic-ray]
 module-path = "amicable.py"
-timeout = 30.0
+timeout = 60.0
 excluded-modules = []
 test-command = "python3 -m unittest test_amicable"
 

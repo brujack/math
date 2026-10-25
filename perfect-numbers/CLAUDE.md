@@ -85,6 +85,17 @@ make coverage  # pytest --cov, fails under 90%
 | `TestPerfectNumbersProperties` | 3     | property tests: positive, below limit, even-composites not prime                             |
 | `TestEntryPointGuard`          | 1     | module runs via subprocess                                                                   |
 
+## Equivalent mutants
+
+`cosmic-ray.toml` is rendered from a template and carries no prose; these mutants cannot be killed by any valid input:
+
+- `lucas_lehmer`: `s == 0` to `s <= 0` (`s` is a residue mod `mp`, never negative); `p == 2` to `p <= 2` (callers never pass `p < 2`, `is_prime` rejects them).
+- `verify_perfect`: any change to the `sigma == 2 * n` comparison, or to `mp`, still returns True, because Euler's identity gives `sigma == 2n` for every Mersenne exponent (and `mp` mutated to 0 gives `0 == 0`).
+- `is_prime`: `n == 2` to `n <= 2` (`n < 2` returned earlier); `n % 2 == 0` and `n % i == 0` to `<= 0` (remainders are non-negative); `i += 2` to `i += 1` (`n` is odd here, so even `i` never divides it); `i * i <= n` to `i + i <= n` (extra iterations only).
+- `generate_perfect_numbers`: `limit < 6` to `limit < 5` (`limit == 5` enters the loop, and `p = 2` gives 6 > 5, so it yields nothing, as before).
+- `__name__ == "__main__"` guard: `<=` and `is` behave identically.
+- `print("=" * 40)` in `main()`: the banner width is cosmetic.
+
 ## Keeping This File Up To Date
 
 Update whenever you:
