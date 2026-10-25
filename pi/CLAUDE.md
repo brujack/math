@@ -114,12 +114,13 @@ make run
 python3 pi.py
 ```
 
-The script is interactive. It prompts for:
+CLI contract: `python3 pi.py [DIGITS] [--show] [--yes] [--smoke]`.
 
-1. The number of decimal places to compute.
-2. Whether to print the result directly or save it to a file.
-
-For values greater than `10000`, the script saves output automatically to a file named like `pi_<digits>_digits.txt`.
+- With `DIGITS` it never prompts. `DIGITS >= LARGE_RUN_THRESHOLD` (1,000,001) exits 1 naming `--yes` unless `--yes` is passed.
+- With no `DIGITS` at a terminal it prompts for the digit count (and a `(y/n)` confirmation at or above the threshold, EOF reading as no with exit 0). On a non-TTY stdin with no `DIGITS` it exits 2; EOF at the number prompt exits 1.
+- The result is always written to `pi_<digits>_digits.txt`; `--show` additionally prints the digit string (the file's digit line) on its own line.
+- `--smoke` runs at `SMOKE_SIZE` (10000) and takes no `DIGITS`.
+- `make test` also runs `python3 ../scripts/cli_contract.py pi.py`.
 
 ## Code Layout
 
@@ -147,15 +148,17 @@ String conversion:
 
 CLI:
 
-- `parse_args()`: parses command-line arguments via `argparse`; returns a namespace with an optional `digits` positional int.
-- `get_target_digits(args)`: returns the digit count from CLI args if provided, otherwise loops on interactive stdin input; validates that the value is a positive integer.
+- `SMOKE_SIZE` (10000), `LARGE_RUN_THRESHOLD` (1_000_001): contract constants, pinned by `TestCliContractConstants`.
+- `parse_args(argv=None)`: `argparse` namespace with optional `size` positional plus `--show`, `--yes`, `--smoke`.
+- `refuse_large_run(size, yes)`: exits 1 naming `--yes` when `size >= LARGE_RUN_THRESHOLD` and not `yes`.
+- `get_target_digits(args)`: returns `args.size` (after `refuse_large_run`) if provided, otherwise loops on interactive stdin input; validates that the value is a positive integer.
 
 Main functions:
 
 - `calculate_pi_high_precision(digits)`: tries gmpy2 Chudnovsky first, falls back to mpmath; caches `(Q_int, T_int)` in `_gmpy2_QT_cache` for the subprocess. Returns a `gmpy2.mpfr` (fast path) or `mpmath.mpf` (fallback path).
 - `show_pi_preview(pi_value, preview_digits)`: prints a short preview of the computed digits.
 - `save_pi_to_file(pi_value, digits, filename)`: two-phase save — subprocess conversion then parallel pwrite file write.
-- `main()`: top-level entry point; calls `parse_args()`, `get_target_digits()`, `calculate_pi_high_precision()`, and either `show_pi_preview()` or `save_pi_to_file()` based on digit count.
+- `main(argv=None)`: top-level entry point; calls `parse_args()`, `get_target_digits()`, `calculate_pi_high_precision()`, `show_pi_preview()`, always `save_pi_to_file()`, and with `--show` prints `_pi_to_str(...)`.
 
 Module-level constants / state:
 
@@ -193,7 +196,7 @@ Also update the top-level `CLAUDE.md` if the change affects the repository overv
 
 - **Write the failing test first** for all new or changed functions, then add the minimum implementation. Tests go in `test_pi.py`.
 - Keep changes minimal and preserve the single-file CLI structure unless a refactor is clearly necessary.
-- Preserve the current interactive behavior unless the task explicitly changes UX.
+- Preserve the current interactive behavior (number prompt, large-run `(y/n)` confirmation) unless the task explicitly changes UX.
 - Ensure every script in the repository supports `-h` and `--help` with accurate command-line usage text.
 - Be careful with performance changes inside `save_pi_to_file`, since that function handles the main large-number bottleneck.
 - `_convert_gmpy2_worker`, `_convert_mpmath_worker`, `_bs_chunk_worker`, and `_pwrite_all` must remain at module level — moving them inside a function or class will break multiprocessing pickling.
@@ -229,7 +232,7 @@ python3 -m pytest test_pi.py -v   # if pytest is installed
 
 gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 
-#### Test coverage (97% line coverage, 84 tests)
+#### Test coverage (94% line coverage, 105 tests)
 
 | Class                                | Tests | Notes                                                                   |
 | ------------------------------------ | ----- | ----------------------------------------------------------------------- |
@@ -248,8 +251,10 @@ gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 | `TestSavePiToFile`                   | 5     | File write + content checks                                             |
 | `TestCalculatePiParallel`            | 1     | Skipped without gmpy2                                                   |
 | `TestCalculatePiGmpy2PhaseAFallback` | 1     | OSError triggers serial fallback in `_calculate_pi_gmpy2`               |
-| `TestGetTargetDigits`                | 5     | Argument parsing; includes minimum value (digits=1)                     |
-| `TestParseArgs`                      | 3     | CLI flag parsing                                                        |
+| `TestGetTargetDigits`                | 7     | Argument path; boundaries 999_999 / 1_000_000 / 1_000_001, `--yes`      |
+| `TestCliContractConstants`           | 2     | Pins `SMOKE_SIZE` and `LARGE_RUN_THRESHOLD`                             |
+| `TestRefuseLargeRun`                 | 1     | Threshold boundaries                                                    |
+| `TestParseArgs`                      | 7     | Flags, `--smoke`, non-TTY exit 2                                        |
 | `TestPiToStrNegativeSign`            | 1     | Negative-mpfr sign-strip branch in `_gmpy2_mpfr_to_str`                 |
 | `TestShowPiPreviewNoDecimal`         | 1     | Else branch when preview string lacks `.`                               |
 | `TestGetTargetDigitsInteractive`     | 5     | Interactive prompt: valid, retries, large-N decline + accept            |
