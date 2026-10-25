@@ -15,6 +15,21 @@
 #   Debian / Ubuntu                  -- apt
 #   RHEL / Fedora / CentOS           -- dnf (falls back to yum)
 
+# Distro marker files; the overrides let a test steer detection on any host.
+DEBIAN_VERSION_FILE="${MATH_DEBIAN_VERSION_FILE:-/etc/debian_version}"
+
+is_rhel_family() {
+    local f
+    if [[ -n "${MATH_RHEL_RELEASE_FILE:-}" ]]; then
+        [[ -f "${MATH_RHEL_RELEASE_FILE}" ]]
+        return
+    fi
+    for f in /etc/redhat-release /etc/fedora-release /etc/centos-release; do
+        [[ -f "${f}" ]] && return 0
+    done
+    return 1
+}
+
 install_macos() {
     printf '%s\n' "==> Detected macOS ($(uname -m))"
     if ! command -v brew >/dev/null 2>&1; then
@@ -54,9 +69,9 @@ install_c_libraries() {
             install_macos || return 1
             ;;
         Linux)
-            if [[ -f /etc/debian_version ]]; then
+            if [[ -f "${DEBIAN_VERSION_FILE}" ]]; then
                 install_debian || return 1
-            elif [[ -f /etc/redhat-release || -f /etc/fedora-release || -f /etc/centos-release ]]; then
+            elif is_rhel_family; then
                 install_rhel || return 1
             else
                 printf '%s\n' "Warning: unrecognised Linux distribution." >&2

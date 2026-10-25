@@ -515,8 +515,16 @@ STUB
 # the directory name, not the module), so the rendered clean target removes
 # that glob and nothing else.
 @test "Python make clean removes the program's output files and keeps others" {
-    local p d
-    for p in amicable collatz e factorial fib perfect-numbers pi sq; do
+    local p d f projects=()
+    # Derive the Python sub-projects: dirs tracking <dir>/<dir with - as _>.py and a Makefile.
+    while IFS= read -r f; do
+        p="${f%%/*}"
+        [[ "${f}" == "${p}/${p//-/_}.py" ]] || continue
+        command git -C "${REPO_ROOT}" ls-files --error-unmatch "${p}/Makefile" > /dev/null 2>&1 || continue
+        projects+=("${p}")
+    done < <(command git -C "${REPO_ROOT}" ls-files '*/*.py')
+    [ "${#projects[@]}" -eq 8 ]
+    for p in "${projects[@]}"; do
         d="${BATS_TEST_TMPDIR}/${p}"
         mkdir -p "${d}"
         cp "${REPO_ROOT}/${p}/Makefile" "${d}/Makefile"
