@@ -87,13 +87,13 @@ def git_pushes(run_text):
     """Return every line of run text that could push, stripped.
 
     Deliberately not a shell parser: after joining backslash continuations, any
-    line naming git and then push counts, so `git -C "$(pwd)" push`, `/usr/bin/git`,
-    command substitution, `bash -c "git push ..."` and `eval` are all caught, and
-    callers compare whole lines. An honest variant of an allowed line (an added
-    `2>&1`) therefore fails closed until the expected line is updated. A tripwire
-    for honest and agent mistakes, not a defence against a hostile edit: git
-    reached through a variable ("$GIT" push), an alias or an unscanned script is
-    not seen.
+    line naming git and then push counts (comments included), so `git -C "$(pwd)"
+    push`, `/usr/bin/git`, `$GIT push`, command substitution, and one-line
+    `bash -c "git push ..."` or `eval` are caught, and callers compare whole lines. An
+    honest variant of an allowed line (an added `2>&1`) fails closed until the
+    expected line is updated. A tripwire for honest and agent mistakes, not a
+    defence against a hostile edit: a quoted command split across lines without
+    a backslash, an alias, or a script the checks do not read is not seen.
     """
     return [
         line.strip()
@@ -727,7 +727,8 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                 self.assertEqual(
                     pushes,
                     [f'git push origin "{name}-v${{VERSION}}"'],
-                    f"{path.name} may push only its {name}-v<version> tag",
+                    f"{path.name}: the only line naming git then push may be the "
+                    f"{name}-v<version> tag push (comments count too)",
                 )
 
     def test_local_actions_used_by_releases_make_no_repo_writes(self):
@@ -751,6 +752,13 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                     r"\$\{GITHUB_WORKSPACE\}/(scripts/[\w.-]+)", run_text
                 )
                 self.assertTrue(called, f"{action} calls no repo script to scan")
+                # A script called another way ($GITHUB_WORKSPACE without braces,
+                # ./scripts/, github.workspace) would otherwise go unscanned.
+                self.assertEqual(
+                    run_text.count("scripts/"),
+                    len(called),
+                    f"{action} references a script the scan does not follow",
+                )
                 for script in called:
                     run_text += "\n" + (REPO_ROOT / script).read_text()
                 self.assertIsNone(_REPO_WRITE_RE.search(run_text), action)
