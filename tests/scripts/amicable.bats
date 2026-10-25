@@ -37,7 +37,7 @@ setup() {
     tmp=$(mktemp -d)
     run bash -c "cd '${tmp}' && python3 '${PYTHON_CLI}' 3 </dev/null"
     [ "${status}" -eq 0 ]
-    ! printf '%s\n' "${output}" | command grep -qx '220 284'
+    [ "$(printf '%s\n' "${output}" | command grep -cx '220 284')" -eq 0 ]
     [ "$(cat "${tmp}/amicable_1e3.txt")" = "220 284" ]
     rm -rf "${tmp}"
 }
