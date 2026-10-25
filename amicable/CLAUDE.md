@@ -19,14 +19,16 @@ make coverage  # pytest --cov, fails under 90%
 
 - `proper_divisor_sum_sieve(limit)` — O(N log N) sieve, returns list[int] of length limit+1
 - `find_amicable_pairs(limit)` — generator yielding (a,b) pairs with a < b <= limit
-- `parse_args(argv=None)` — argparse wrapper, N is optional positional
-- `get_exponent(args)` — validates N in [1,7]; interactive prompt if None
-- `main()` — entry point; writes to stdout and amicable_1eN.txt
+- `SMOKE_SIZE` (5) / `LARGE_RUN_THRESHOLD` (None: no large-run confirmation) — CLI contract constants
+- `parse_args(argv=None)` — `size` optional positional plus `--show`, `--yes`, `--smoke`; bare non-TTY run exits 2
+- `refuse_large_run(size, yes)` — exits 1 naming `--yes` at or above the threshold (inert here)
+- `get_exponent(args)` — validates `args.size` in [1,7]; interactive prompt if None, EOF exits 1
+- `main(argv=None)` — entry point; always writes amicable_1eN.txt, prints a count line and `Saved to` line
 
 ## Important Behavior
 
 - **Valid N range:** Python 1–7; Rust allows N up to 8. Python exits with an error for N>7 because the sieve at N=8 (100M entries) is marginal in pure Python (~800MB list overhead). Rust handles N=8 comfortably (~400MB Vec<u32>).
-- **Output file:** `amicable_1eN.txt` — one pair per line, `a b` format.
+- **Output file:** `amicable_1eN.txt` — one pair per line, `a b` format. Pairs reach stdout only with `--show`; `make test` runs `scripts/cli_contract.py` against the CLI.
 - **No pairs for N≤2:** The smallest pair is (220, 284), so b=284 > 10^2=100.
 
 ## Testing

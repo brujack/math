@@ -24,11 +24,21 @@ setup() {
     [ "${status}" -ne 0 ]
 }
 
-@test "python: N=3 produces exactly one pair" {
+@test "python: N=3 --show produces exactly one pair" {
     tmp=$(mktemp -d)
-    run bash -c "cd '${tmp}' && python3 '${PYTHON_CLI}' 3"
+    run bash -c "cd '${tmp}' && python3 '${PYTHON_CLI}' 3 --show </dev/null"
     [ "${status}" -eq 0 ]
-    [ "${output}" = "220 284" ]
+    [[ "${output}" == *$'220 284'* ]]
+    [ "$(printf '%s\n' "${output}" | command grep -cx '220 284')" -eq 1 ]
+    rm -rf "${tmp}"
+}
+
+@test "python: N=3 without --show does not echo the pair" {
+    tmp=$(mktemp -d)
+    run bash -c "cd '${tmp}' && python3 '${PYTHON_CLI}' 3 </dev/null"
+    [ "${status}" -eq 0 ]
+    ! printf '%s\n' "${output}" | command grep -qx '220 284'
+    [ "$(cat "${tmp}/amicable_1e3.txt")" = "220 284" ]
     rm -rf "${tmp}"
 }
 

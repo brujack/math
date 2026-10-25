@@ -9,6 +9,7 @@ lint:
 
 test: lint
 	pytest test_amicable.py -v
+	python3 ../scripts/cli_contract.py amicable.py
 
 coverage:
 	pytest --cov=amicable --cov-report=term-missing --cov-fail-under=90 test_amicable.py
