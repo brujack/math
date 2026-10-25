@@ -9,10 +9,12 @@ import contextlib
 import io
 import os
 import pathlib
+import signal
 import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
 import time
 import unittest
 from unittest import mock
@@ -111,6 +113,7 @@ class TestRunCase(unittest.TestCase):
             FIXTURES / "silent_reader.py", ["2"], timeout=SHORT_TIMEOUT
         )
         self.assertTrue(result.timed_out)
+        self.assertIsNone(result.returncode)
 
     def test_each_case_gets_a_fresh_directory(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -136,6 +139,7 @@ class TestRunCase(unittest.TestCase):
         )
         elapsed = time.monotonic() - start
         self.assertTrue(result.timed_out)
+        self.assertIsNone(result.returncode)
         self.assertLess(elapsed, SHORT_TIMEOUT + 5)
         grandchild = int(result.files["gc.pid"])
         for _ in range(50):
@@ -144,15 +148,56 @@ class TestRunCase(unittest.TestCase):
             time.sleep(0.1)
         self.assertFalse(_process_alive(grandchild), "grandchild survived the timeout")
 
+    def test_group_is_reaped_after_a_passing_run(self):
+        result = cli_contract.run_case(FIXTURES / "leaves_grandchild.py", [])
+        self.assertEqual(result.returncode, 0)
+        grandchild = int(result.files["gc.pid"])
+        for _ in range(50):
+            if not _process_alive(grandchild):
+                break
+            time.sleep(0.1)
+        self.assertFalse(
+            _process_alive(grandchild), "grandchild outlived a passing run"
+        )
+
+    def test_drain_timeout_returns_timed_out_with_partial_output(self):
+        def leak_cleanup(result_files: dict[str, str]) -> None:
+            if "esc.pid" in result_files:
+                try:
+                    os.kill(int(result_files["esc.pid"]), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+        with mock.patch.object(cli_contract, "_DRAIN_TIMEOUT", SHORT_TIMEOUT):
+            result = cli_contract.run_case(
+                FIXTURES / "escaped_grandchild.py", [], timeout=SHORT_TIMEOUT
+            )
+        leak_cleanup(result.files)
+        self.assertTrue(result.timed_out)
+        self.assertIsNone(result.returncode)
+        self.assertIn("partial output", result.stdout)
+
     def test_interrupt_kills_the_child_and_propagates(self):
         started: list[int] = []
         procs: list[subprocess.Popen[str]] = []
         real_popen = subprocess.Popen
 
+        watchdog_fired: list[bool] = []
+
+        def release_hung_child() -> None:
+            # Without this, a harness that fails to kill the child on interrupt
+            # hangs in proc.wait() forever instead of failing the test.
+            watchdog_fired.append(True)
+            os.kill(started[0], signal.SIGKILL)
+
+        watchdog = threading.Timer(3, release_hung_child)
+        watchdog.daemon = True
+
         def spy(*args, **kwargs):
             proc = real_popen(*args, **kwargs)
             started.append(proc.pid)
             procs.append(proc)
+            watchdog.start()
             return proc
 
         with (
@@ -161,6 +206,8 @@ class TestRunCase(unittest.TestCase):
             self.assertRaises(KeyboardInterrupt),
         ):
             cli_contract.run_case(FIXTURES / "silent_reader.py", ["2"])
+        watchdog.cancel()
+        self.assertEqual(watchdog_fired, [], "harness left the child running")
         self.assertFalse(_process_alive(started[0]), "child survived the interrupt")
         for proc in procs:
             for stream in (proc.stdout, proc.stderr):

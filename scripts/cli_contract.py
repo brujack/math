@@ -94,6 +94,12 @@ def _kill_group(proc: subprocess.Popen[str]) -> None:
         pass
 
 
+def _text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else value.decode(errors="replace")
+
+
 def run_case(
     path: pathlib.Path,
     args: list[str],
@@ -124,14 +130,28 @@ def run_case(
                 errors="replace",
                 start_new_session=True,
             )
+            # start_new_session means Ctrl-C does not reach the children, and in
+            # run_matrix only the main thread sees KeyboardInterrupt, so a
+            # shutdown can take up to CASE_TIMEOUT before the children die.
             timed_out = False
             try:
                 try:
                     stdout, stderr = proc.communicate(timeout=limit)
+                    # Reap stragglers of a passing run (workers, trackers).
+                    _kill_group(proc)
                 except subprocess.TimeoutExpired:
                     _kill_group(proc)
-                    stdout, stderr = proc.communicate(timeout=_DRAIN_TIMEOUT)
                     timed_out = True
+                    try:
+                        stdout, stderr = proc.communicate(timeout=_DRAIN_TIMEOUT)
+                    except subprocess.TimeoutExpired as drain:
+                        # A grandchild left the group and still holds the pipes.
+                        stdout, stderr = _text(drain.stdout), _text(drain.stderr)
+                        proc.kill()  # killpg may not have reached it
+                        proc.wait()
+                        for stream in (proc.stdout, proc.stderr):
+                            if stream is not None:
+                                stream.close()
             except BaseException:
                 _kill_group(proc)
                 proc.wait()
