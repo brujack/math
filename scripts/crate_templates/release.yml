@@ -1,0 +1,100 @@
+name: release-@CRATE@-rs
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version number without the v prefix (e.g. 1.2.0)"
+        required: true
+        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    name: Release @CRATE@-rs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Validate version
+        id: version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          checked=$(scripts/check-release-version.sh @CRATE@/@CRATE@-rs "${VERSION}")
+          echo "version=${checked}" >> "$GITHUB_OUTPUT"
+
+      - name: Install GMP and MPFR
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec  # stable
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: @CRATE@/@CRATE@-rs
+
+      - name: Install cargo-nextest
+        run: cargo install cargo-nextest --locked --version 0.9.148
+
+      - name: Install cargo-machete
+        run: cargo install cargo-machete --locked --version 0.9.2
+
+      - name: Run tests
+        run: make test
+        working-directory: @CRATE@/@CRATE@-rs
+
+      - name: Install cargo-auditable
+        run: cargo install cargo-auditable --locked --version 0.7.5
+
+      - name: Build release binary
+        run: cargo auditable build --release
+        working-directory: @CRATE@/@CRATE@-rs
+
+      - name: Generate release notes
+        uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff  # v4
+        with:
+          config: cliff.toml
+          args: --unreleased --tag "@CRATE@-v${{ steps.version.outputs.version }}" --strip all --include-path "@CRATE@/**" --tag-pattern "^@CRATE@-v.*"
+        env:
+          OUTPUT: /tmp/release-notes.md
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Generate SHA256 checksum
+        run: |
+          (cd @CRATE@/@CRATE@-rs/target/release && sha256sum @CRATE@) > @CRATE@/@CRATE@-rs/target/release/@CRATE@.sha256
+          cat @CRATE@/@CRATE@-rs/target/release/@CRATE@.sha256
+
+      - uses: ./.github/actions/sbom-sign
+        with:
+          binary_path: @CRATE@/@CRATE@-rs/target/release
+          binary_name: @CRATE@
+
+      - name: Create and push tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "@CRATE@-v${VERSION}"
+          git push origin "@CRATE@-v${VERSION}"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
+        with:
+          tag_name: "@CRATE@-v${{ steps.version.outputs.version }}"
+          name: "@CRATE@ v${{ steps.version.outputs.version }}"
+          body_path: /tmp/release-notes.md
+          files: |
+            @CRATE@/@CRATE@-rs/target/release/@CRATE@
+            @CRATE@/@CRATE@-rs/target/release/@CRATE@.sha256
+            @CRATE@/@CRATE@-rs/target/release/@CRATE@.sbom.spdx.json
+            @CRATE@/@CRATE@-rs/target/release/@CRATE@.bundle
+          fail_on_unmatched_files: true

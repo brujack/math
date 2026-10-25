@@ -9,6 +9,9 @@ on:
       - "Makefile"
       - ".github/workflows/scripts.yml"
       - ".github/workflows/release-*"
+      # Rendered from scripts/crate_templates/; test_crate_uniformity checks them.
+      - "*/*-rs/Makefile"
+      - "*/*-rs/rustfmt.toml"
       - ".github/actions/**"
       - "pyrightconfig.json"
       - "requirements-dev.txt"
