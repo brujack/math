@@ -37,7 +37,12 @@ ALLOWED = {
 }
 
 
-WRAPPER_RUN = 'python3 "${GITHUB_WORKSPACE}/scripts/pip_audit_advisory.py"'
+# Two lines: the wrapper writes pip-audit-summary.md, then shell appends it, so the
+# Python never opens a path taken from the environment (Snyk Code's traversal rule).
+WRAPPER_RUN = (
+    'python3 "${GITHUB_WORKSPACE}/scripts/pip_audit_advisory.py"\n'
+    'cat pip-audit-summary.md >> "$GITHUB_STEP_SUMMARY"'
+)
 _PIP_AUDIT = re.compile(r"pip[-_]audit")
 # Shell command boundaries, including & and command substitution ($(...), `...`).
 _COMMAND_SEPARATORS = re.compile(r"&&|\|\||;|\||&|`|\$\(|\)")
@@ -163,7 +168,9 @@ class TestPipAuditRunsThroughTheAdvisoryWrapper(unittest.TestCase):
             "pip install x & pip-audit": ["pip-audit"],
             "echo $(pip-audit)": ["pip-audit"],
             "pip install ruff pip-audit pytest": [],
-            WRAPPER_RUN: [WRAPPER_RUN],
+            # The summary append names the file, so it is a "call" too; the step
+            # must still equal WRAPPER_RUN exactly.
+            WRAPPER_RUN: WRAPPER_RUN.splitlines(),
         }
         for run, expected in cases.items():
             with self.subTest(run=run):

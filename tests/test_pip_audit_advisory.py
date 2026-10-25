@@ -80,7 +80,7 @@ class Run:
         self.calls = calls
 
 
-def run_advisory(env, args=()):
+def run_advisory(env, args=(), cwd=None):
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = pathlib.Path(tmp)
         bin_dir = tmp_path / "bin"
@@ -88,16 +88,18 @@ def run_advisory(env, args=()):
         fake = bin_dir / "pip-audit"
         fake.write_text(FAKE_PIP_AUDIT)
         fake.chmod(0o755)
-        summary = tmp_path / "summary"
-        summary.touch()
+        # The wrapper writes its summary line to a fixed file in cwd; the workflow
+        # step appends it to $GITHUB_STEP_SUMMARY, so the script never opens a path
+        # taken from the environment.
+        work = pathlib.Path(cwd) if cwd else tmp_path
+        summary = work / "pip-audit-summary.md"
         calls = tmp_path / "calls"
         calls.touch()
         proc = subprocess.run(
             [sys.executable, str(SCRIPT), *args],
-            cwd=tmp,
+            cwd=work,
             env={
                 "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-                "GITHUB_STEP_SUMMARY": str(summary),
                 "FAKE_CALLS": str(calls),
                 **env,
             },
@@ -108,7 +110,7 @@ def run_advisory(env, args=()):
         return Run(
             proc.returncode,
             proc.stdout + proc.stderr,
-            summary.read_text(),
+            summary.read_text() if summary.exists() else "",
             calls.read_text(),
         )
 
@@ -215,6 +217,20 @@ class TestPipAuditAdvisory(unittest.TestCase):
         result = run_advisory({"FAKE_JSON": json.dumps(VULNERABLE), "FAKE_RC": "1"})
         self.assertEqual(result.returncode, 0, result.output)
         self.assertEqual(len(result.calls.splitlines()), 1)
+
+    def test_summary_file_is_replaced_not_appended(self):
+        # A re-run in the same directory must not accumulate stale lines.
+        with tempfile.TemporaryDirectory() as tmp:
+            stale = pathlib.Path(tmp) / "pip-audit-summary.md"
+            stale.write_text("- stale line\n")
+            first = run_advisory({"FAKE_JSON": json.dumps(CLEAN)}, cwd=tmp)
+        self.assertEqual(first.returncode, 0, first.output)
+        self.assertNotIn("stale line", first.summary)
+
+    def test_failed_audit_writes_no_summary_file(self):
+        result = run_advisory({"FAKE_RC": "2", "FAKE_CRASH_CALLS": "2"})
+        self.assertEqual(result.returncode, 1, result.output)
+        self.assertEqual(result.summary, "")
 
     def test_missing_pip_audit_fails(self):
         result = run_advisory({"PATH": "/nonexistent"})

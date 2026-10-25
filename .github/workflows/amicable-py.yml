@@ -29,7 +29,9 @@ jobs:
       - run: make test
         working-directory: amicable
       - name: Run pip-audit
-        run: python3 "${GITHUB_WORKSPACE}/scripts/pip_audit_advisory.py"
+        run: |
+          python3 "${GITHUB_WORKSPACE}/scripts/pip_audit_advisory.py"
+          cat pip-audit-summary.md >> "$GITHUB_STEP_SUMMARY"
       - name: Run pyright
         run: pyright
         working-directory: amicable
