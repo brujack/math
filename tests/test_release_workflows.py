@@ -56,8 +56,6 @@ _WORKFLOW_NAME_RE = re.compile(r"^release-(.+)-rs\.yml$")
 # whole file, so a comment elsewhere in the file cannot feed it a false match.
 _SHA256_STEP_RE = re.compile(r"\(cd (\S+) && sha256sum (\S+)\)")
 
-# Shell command boundaries, including & and command substitution ($(...), `...`).
-_COMMAND_SEPARATORS = re.compile(r"&&|\|\||;|\||&|`|\$\(|\)")
 # Any GitHub API call from run text: gh api in any spacing, or a raw HTTP client.
 _REPO_WRITE_RE = re.compile(r"\bgh\s+api\b|api\.github\.com|\bcurl\b|\bwget\b")
 
@@ -72,28 +70,36 @@ RELEASE_ACTIONS = {
 }
 
 
-def git_pushes(run_text):
-    """Return the tokens of every git command in run text whose subcommand is push.
+# Actions a local composite used by a release may itself use, by composite.
+COMPOSITE_ACTIONS = {
+    "./.github/actions/sbom-sign": {
+        "anchore/sbom-action/download-syft",
+        "sigstore/cosign-installer",
+    },
+}
 
-    Tokenised with shlex after joining backslash continuations, so spacing, quoting,
-    `git -C <dir> push`, `cmd && git push`, `/usr/bin/git` and command substitution
-    all count. A tripwire for honest and agent mistakes, not a defence against a
-    hostile edit: git reached through a variable ("$GIT" push), an alias or a
-    called script is not seen.
+# A word "git" (bare or as a path's last part) followed later on the line by the
+# word "push".
+_PUSH_LINE_RE = re.compile(r"(?<![\w-])git(?![\w-]).*(?<![\w-])push(?![\w-])")
+
+
+def git_pushes(run_text):
+    """Return every line of run text that could push, stripped.
+
+    Deliberately not a shell parser: after joining backslash continuations, any
+    line naming git and then push counts, so `git -C "$(pwd)" push`, `/usr/bin/git`,
+    command substitution, `bash -c "git push ..."` and `eval` are all caught, and
+    callers compare whole lines. An honest variant of an allowed line (an added
+    `2>&1`) therefore fails closed until the expected line is updated. A tripwire
+    for honest and agent mistakes, not a defence against a hostile edit: git
+    reached through a variable ("$GIT" push), an alias or an unscanned script is
+    not seen.
     """
-    pushes = []
-    for line in run_text.replace("\\\n", " ").splitlines():
-        for command in _COMMAND_SEPARATORS.split(line):
-            try:
-                tokens = shlex.split(command)
-            except ValueError:
-                tokens = command.split()
-            # git need not lead the command (sudo git, env X=1 git) or be bare
-            # (/usr/bin/git); match it by basename.
-            names = [os.path.basename(token) for token in tokens]
-            if "git" in names and "push" in tokens[names.index("git") + 1 :]:
-                pushes.append(["git", *tokens[names.index("git") + 1 :]])
-    return pushes
+    return [
+        line.strip()
+        for line in run_text.replace("\\\n", " ").splitlines()
+        if _PUSH_LINE_RE.search(line)
+    ]
 
 
 def discover_release_workflows():
@@ -720,7 +726,7 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                     pushes += git_pushes(run_text)
                 self.assertEqual(
                     pushes,
-                    [["git", "push", "origin", f"{name}-v${{VERSION}}"]],
+                    [f'git push origin "{name}-v${{VERSION}}"'],
                     f"{path.name} may push only its {name}-v<version> tag",
                 )
 
@@ -734,10 +740,21 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                 doc = yaml.safe_load((REPO_ROOT / action / "action.yml").read_text())
                 steps = (doc.get("runs") or {}).get("steps") or []
                 self.assertTrue(steps, f"{action} has no steps to check")
-                for step in steps:
-                    run_text = str(step.get("run") or "")
-                    self.assertIsNone(_REPO_WRITE_RE.search(run_text), action)
-                    self.assertEqual(git_pushes(run_text), [], action)
+                self.assertEqual(
+                    {str(s["uses"]).split("@")[0] for s in steps if "uses" in s},
+                    COMPOSITE_ACTIONS[action],
+                )
+                run_text = "\n".join(str(s.get("run") or "") for s in steps)
+                # The composite's run step is a one-line call into a repo script, so
+                # the script's text is the body that runs with the release token.
+                called = re.findall(
+                    r"\$\{GITHUB_WORKSPACE\}/(scripts/[\w.-]+)", run_text
+                )
+                self.assertTrue(called, f"{action} calls no repo script to scan")
+                for script in called:
+                    run_text += "\n" + (REPO_ROOT / script).read_text()
+                self.assertIsNone(_REPO_WRITE_RE.search(run_text), action)
+                self.assertEqual(git_pushes(run_text), [], action)
 
     def test_release_token_scope_and_actions_are_pinned(self):
         # contents: write is the real boundary on what a release can change, and a
@@ -761,20 +778,23 @@ class TestReleaseWorkflowContract(unittest.TestCase):
 
     def test_push_detector_sees_evasive_forms(self):
         cases = {
-            'git push origin "pi-v${VERSION}"': [
-                ["git", "push", "origin", "pi-v${VERSION}"]
+            'git push origin "pi-v${VERSION}"': ['git push origin "pi-v${VERSION}"'],
+            "git -C . push origin HEAD": ["git -C . push origin HEAD"],
+            'git -C "$(pwd)" push origin x': ['git -C "$(pwd)" push origin x'],
+            "git  push": ["git  push"],
+            "git \\\n  push origin x": ["git    push origin x"],
+            "true && git push origin x": ["true && git push origin x"],
+            "sudo git push origin x": ["sudo git push origin x"],
+            "/usr/bin/git push origin x": ["/usr/bin/git push origin x"],
+            "echo $(git push origin x)": ["echo $(git push origin x)"],
+            'bash -c "git push origin x"': ['bash -c "git push origin x"'],
+            'eval "git push origin x"': ['eval "git push origin x"'],
+            'git push origin "pi-v${VERSION}" 2>&1': [
+                'git push origin "pi-v${VERSION}" 2>&1'
             ],
-            "git -C . push origin HEAD": [["git", "-C", ".", "push", "origin", "HEAD"]],
-            "git  push": [["git", "push"]],
-            "git \\\n  push origin x": [["git", "push", "origin", "x"]],
-            "true && git push origin x": [["git", "push", "origin", "x"]],
-            "sudo git push origin x": [["git", "push", "origin", "x"]],
-            "/usr/bin/git push origin x": [["git", "push", "origin", "x"]],
-            "echo $(git push origin x)": [["git", "push", "origin", "x"]],
-            "echo `git push origin x`": [["git", "push", "origin", "x"]],
-            "true & git push origin x": [["git", "push", "origin", "x"]],
             'git tag "pi-v${VERSION}"': [],
             "echo pushing git notes": [],
+            "git-cliff --unreleased": [],
         }
         for run_text, expected in cases.items():
             with self.subTest(run=run_text):
