@@ -52,7 +52,7 @@ Integer::from(&l.q * &r.p) + &r.q
 - `fn prompt_digits_with<R, W, E>(reader, out, err)`: trait-injected interactive prompt (loops until valid; defers to `confirm_large_digits_with` for n > 1_000_000)
 - `fn confirm_large_digits_with<R, W, E>(reader, out, err, n)`: y/n confirmation for large digit counts
 - `fn run<R, W, E>(cli, reader, out, err, dir)`: orchestration — returns process exit code; injects all I/O so tests can use pipes + temp dirs
-- `fn main()`: thin wrapper — locks stdio, calls `run`, exits with the returned code
+- `fn main()`: thin wrapper — locks stdin/stdout, passes unlocked `io::stderr()` (a held `StderrLock` deadlocks the progress thread's `eprint!`), calls `run`, exits with the returned code
 
 ## Important Behavior
 
@@ -88,7 +88,7 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-### Test coverage (94.58% line coverage, 63 tests: 58 unit + 5 integration)
+### Test coverage (92.59% line coverage, 65 tests: 59 unit + 6 integration)
 
 | Area                                    | Tests | Notes                                                                                                 |
 | --------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------- |
@@ -108,7 +108,7 @@ cargo tarpaulin --out Stdout
 | `run`                                   | 5     | digits=0 → exit 1, display=y, save=n, no-arg prompts, digits>10000 auto-saves                         |
 | `run_returns_err_on_stdout_failure`     | 1     | `run()` propagates Err when stdout write fails (FailWriter injection)                                 |
 | `run_returns_err_on_stderr_failure`     | 1     | `run()` propagates Err when stderr write fails (FailWriter injection)                                 |
-| `tests/cli.rs` (subprocess integration) | 5     | arg=0 exit 1, arg=10 + "y" displays, arg=10 + "n" saves, no-arg + "10\\nn\\n" prompts, unwritable dir |
+| `tests/cli.rs` (subprocess integration) | 6     | arg=0 exit 1, arg=10 + "y" displays, arg=10 + "n" saves, no-arg + "10\\nn\\n" prompts, unwritable dir, 10,000,000 digits exits within 60 s with a progress tick (stderr-lock deadlock regression) |
 
 Uncovered lines (10/210):
 

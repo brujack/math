@@ -256,10 +256,10 @@ fn main() {
     let cli = Cli::parse();
     let stdin = io::stdin();
     let stdout = io::stdout();
-    let stderr = io::stderr();
+    // Unlocked: a held StderrLock would block the progress thread's eprint!.
+    let mut err = io::stderr();
     let mut reader = stdin.lock();
     let mut out = stdout.lock();
-    let mut err = stderr.lock();
     let cwd = std::env::current_dir().expect("cwd unavailable");
     let code = run(cli, &mut reader, &mut out, &mut err, &cwd).expect("io error");
     std::process::exit(code);

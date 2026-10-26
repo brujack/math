@@ -97,3 +97,52 @@ fn cli_unwritable_output_dir() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+/// Regression: `main()` once held the `StderrLock` across `run()`, so the
+/// progress thread's first `eprint!` blocked on a lock owned by the main
+/// thread, which was itself blocked in `join()`. Any run long enough to reach
+/// the first progress tick hung forever; this one must exit on its own.
+#[test]
+fn regression_progress_thread_does_not_deadlock_on_locked_stderr() {
+    use std::time::{Duration, Instant};
+
+    let dir = tempdir().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_prime"))
+        .arg("8")
+        .current_dir(dir.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::from(std::fs::File::create(dir.path().join("stderr.log")).unwrap()))
+        .spawn()
+        .expect("failed to spawn binary");
+
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            assert!(status.success(), "binary failed: {status}");
+            // The test proves nothing if compute ends before the first tick:
+            // require a progress line printed by the thread mid-run.
+            let log = std::fs::read_to_string(dir.path().join("stderr.log")).unwrap();
+            assert!(
+                mid_run_ticks(&log, MARKER) > 0,
+                "no progress tick from the compute thread on stderr; the run no longer outlasts its first tick"
+            );
+            return;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("binary did not exit within 60 s: progress thread deadlocked on stderr");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Progress marker printed by the compute thread's ticks.
+const MARKER: &str = "Phase 2:";
+
+/// Counts progress ticks printed by the compute thread: segments (split on `\r`/`\n`)
+/// carrying `marker` and a `completed / total` count, which only the thread prints.
+fn mid_run_ticks(log: &str, marker: &str) -> usize {
+    log.split(['\r', '\n']).filter(|seg| seg.contains(marker) && seg.contains(" / ")).count()
+}
