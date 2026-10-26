@@ -12,6 +12,7 @@ on:
       # Rendered from scripts/crate_templates/; test_crate_uniformity checks them.
       - "*/*-rs/Makefile"
       - "*/*-rs/Cargo.toml"
+      - "*/*-rs/CLAUDE.md"
       - "*/Makefile"
       - "*/install_deps.sh"
       - "*/pyrightconfig.json"

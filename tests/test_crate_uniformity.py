@@ -345,5 +345,23 @@ class TestCargoTomlShape(unittest.TestCase):
         self.assertIn("*/*-rs/Cargo.toml", workflow[True]["pull_request"]["paths"])
 
 
+class TestCrateClaudeMd(unittest.TestCase):
+    def test_every_crate_has_its_own_claude_md(self):
+        missing = [
+            crate
+            for crate in rcf.CRATES
+            if not (REPO_ROOT / crate / f"{crate}-rs" / "CLAUDE.md").is_file()
+        ]
+        self.assertEqual(missing, [])
+
+    def test_scripts_workflow_triggers_on_crate_claude_md(self):
+        import yaml
+
+        workflow = yaml.safe_load(
+            (REPO_ROOT / ".github/workflows/scripts.yml").read_text()
+        )
+        self.assertIn("*/*-rs/CLAUDE.md", workflow[True]["pull_request"]["paths"])
+
+
 if __name__ == "__main__":
     unittest.main()

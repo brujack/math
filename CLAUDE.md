@@ -10,7 +10,7 @@ A trailing pointer on a rule means: before acting on that rule's subject, read t
 
 High-performance mathematical computation tools.
 
-Each sub-project has its own `CLAUDE.md`, the source of truth for its implementation detail (`twin-primes`' is `twin-primes/twin-primes-rs/CLAUDE.md`); keep this file and those in sync. → ai-config/docs/knowledge/math-overview.md § Sub-project table
+Each sub-project has its own `CLAUDE.md`, the source of truth for its implementation detail (every crate's is `<crate>/<crate>-rs/CLAUDE.md`); keep this file and those in sync. → ai-config/docs/knowledge/math-overview.md § Sub-project table
 Sub-projects (dir: language): `pi/` Python+Rust, `prime/` Rust, `fib/` Python+Rust, `sq/` Python+Rust, `twin-primes/` Rust, `e/` Python+Rust, `factorial/` Python+Rust, `perfect-numbers/` Python+Rust, `collatz/` Python+Rust, `goldbach/` Rust, `amicable/` Python+Rust. → ai-config/docs/knowledge/math-overview.md § Sub-project table
 Rust crates live at `<project>/<project>-rs/` (all 11 projects, e.g. `pi/pi-rs`, `twin-primes/twin-primes-rs`); the 8 Python sub-projects sit at `<project>/` (pi, fib, sq, e, factorial, perfect-numbers, collatz, amicable).
 
