@@ -28,6 +28,7 @@ Two permanent, complementary gates:
 - Drains the full stdin loop before acting — a single `git push` can send multiple refs; exiting on the first deletion ref would skip testing the real push.
 - Redirects stdin from `/dev/null` for `make test` to prevent deadlock with Python's `multiprocessing.resource_tracker` (which inherits the git pipe as stdin and blocks on EOF).
 - Skips local tests when >6 sub-projects are changed — cross-cutting changes (e.g. adding a Makefile target across all projects) exceed the macOS `ProcessPoolExecutor` semaphore limit; CI handles those instead.
+  > **Amended 2026-10-26 (math#180):** the skip is removed. `scripts/parallel-make-test.sh` runs the changed suites concurrently (`PRE_PUSH_JOBS`, default 8), each with `</dev/null` stdin and its own log and status file. A real push through the installed hook on the Mac Studio, with all 19 suites changed, exited 0 in 113 s and left no `resource_tracker` process. The bullet above is the original decision.
 - The hook is a **copy**, not a symlink. After editing `scripts/pre-push`, re-run `make install-hooks` — the installed `.git/hooks/pre-push` does not pick up changes automatically.
 
 **GitHub Actions** (`.github/workflows/*.yml`):
