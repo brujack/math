@@ -36,6 +36,10 @@ Measured on master `d79192c` by reading every `src/main.rs`, `src/lib.rs` and `C
     process isolation") and leaves the push to CI. P2, which changes all 11 crates, would push
     with no local test run.
   - No root target tests all 11 crates. Within a crate, cargo and nextest already use every core.
+- **Two binaries deadlocked; fixed separately.** pi-rs, prime-rs and e-rs held `stderr.lock()` in
+  `main()` while a progress thread called `eprint!`, so any run whose compute outlasted the first
+  200 ms tick hung (`pi 5000000`, `prime 9`). math#175 fixed it before this spec's work began. The
+  other 8 crates still lock stderr in `main()` but spawn no printing thread.
 - **Two crates have no crate `CLAUDE.md`.** pi-rs and prime-rs are documented in
   `pi/CLAUDE.md` and `prime/CLAUDE.md`; the other 9 crates have `<crate>-rs/CLAUDE.md`.
 
@@ -79,11 +83,26 @@ The type is `u64` in every crate; each `main.rs` converts it to its own SIZE typ
 **In-process shape.** Each crate's CLI logic lives in one function, called by a thin `main()`:
 
 ```rust
-pub fn run(cli: Cli, stdin_is_tty: bool, input: impl BufRead, out: impl Write) -> i32
+pub fn run(
+    cli: Cli,
+    stdin_is_tty: bool,
+    input: impl BufRead,
+    out: impl Write,
+    err: impl Write,
+    dir: &Path,
+) -> i32
 ```
 
-`main()` parses `Cli`, passes `std::io::stdin().is_terminal()`, the locked stdin and stdout, and
-exits with the returned code. It stays excluded from coverage (`tarpaulin_include`), as `main()`
+All 11 crates' current `run` already takes `err` and an output directory (amicable takes the output
+path), so tests stay hermetic: files go to a temp dir and stderr is a buffer.
+
+`main()` parses `Cli` and passes:
+- `std::io::stdin().is_terminal()` and the locked stdin;
+- unlocked `std::io::stdout()` and `std::io::stderr()`, which lock per write;
+- the current directory.
+
+It then exits with the returned code. Holding a lock across `run` is the math#175 deadlock wherever
+a thread prints. It stays excluded from coverage (`tarpaulin_include`), as `main()`
 is in all 11 crates today. Unit tests call `run` directly for every contract path, including the
 terminal prompt and its EOF, which the subprocess harness cannot reach.
 
@@ -106,12 +125,20 @@ in-process `io::Cursor` tests, which R14 removes.
 The first 8 equal their Python twins (ADR-0030). The Rust-only crates have no benchmark recipe to
 borrow from, and 3 is valid in all three ranges.
 
-**LARGE_RUN_THRESHOLD** is set per binary from a measurement on `claude`, before the binary's
-rewrite in P2. It is the smallest SIZE whose release-build run takes more than 60 s wall-clock or
-8 GiB peak RSS (`/usr/bin/time -v`), or `None` when the crate's own range check rejects every SIZE
-that large. Each probe runs under `timeout 61` and `ulimit -v 8388608`, so a probe past either limit
-stops there: the measurement only has to show that a SIZE exceeds a limit, not by how much. P2's first task measures all 11 and records each value as an amendment, with its
-command and result.
+**LARGE_RUN_THRESHOLD** is set per binary from a measurement on `claude`, taken after that binary's
+rewrite in its own P2 task, so the measured code is the code that ships.
+- **Definition:** the smallest SIZE whose release-build run takes more than 60 s wall-clock or
+  8 GiB maximum resident memory, or `None` when the crate's own range check rejects every SIZE
+  that large.
+- **Probe:** each run uses `timeout 61` and `/usr/bin/time -v`, which reports wall-clock, maximum
+  resident set size and CPU time. There is no `ulimit -v`: it caps virtual size, and the rayon crates
+  reserve several GiB of address space at small sizes (`pi 100000` measured at 3.38 GB virtual on
+  48 threads).
+- **Evidence for a timed-out probe:** the probe must show CPU time near 61 s × the thread count it
+  used, so a hang cannot pass as a slow run.
+
+The task records SIZE, wall-clock, max RSS and CPU time as an amendment and pins the value in R4's
+test.
 
 ### One harness
 
@@ -122,16 +149,16 @@ command and result.
   declaration raises `ContractConfigError`, which exits 2.
 - **Program.** It runs `<target-dir>/debug/<crate>`, with `<target-dir>` taken from
   `cargo metadata --format-version 1 --no-deps` so an exported `CARGO_TARGET_DIR` is honoured.
-  `cargo nextest run` (through `rust-check.sh test`) builds the crate's binary target in all 11
-  crates, including twin-primes, which has no `tests/cli.rs`. A missing binary exits 2 and names
-  `cargo build`.
+  The rendered `test` target runs `cargo build` immediately before the harness, so the binary is
+  always built from the tree under test. Freshness must not depend on cargo building binaries only
+  for integration tests. A missing binary exits 2 and names `cargo build`.
 - **Cases.** The six-case matrix, its checks, the open-stdin pipe, the process-group kill and the
   concurrency are unchanged. Only the argv prefix differs between the two modes.
 
 The Python mode's interface (`cli_contract.py <module.py>`) is unchanged.
 
-**The consumer.** `scripts/crate_templates/Makefile`'s `test` target runs
-`python3 ../../scripts/cli_contract.py --rust .` after `../../scripts/rust-check.sh test`. It is
+**The consumer.** `scripts/crate_templates/Makefile`'s `test` target runs `../../scripts/rust-check.sh
+test`, then `cargo build`, then `python3 ../../scripts/cli_contract.py --rust .`. It is
 rendered into all 11 crate Makefiles, so every `<crate>-rs.yml` CI job runs it. 
 
 The pre-push hook's `RUN_CLI_CONTRACT` arm runs on pushes that touch `scripts/cli_contract.py`.
@@ -164,19 +191,36 @@ The fixes:
 ### Parallel local tests
 
 **Pre-push.** `scripts/pre-push` runs the changed sub-projects' `make test` concurrently:
-- `xargs -P "${PRE_PUSH_JOBS:-4}"`, each run with `< /dev/null`;
+- `xargs -P "${PRE_PUSH_JOBS:-8}"`, each run with `< /dev/null`;
 - each sub-project's output goes to its own log file in a temp directory;
-- the hook prints one `ok`/`FAIL` line per sub-project, prints each failing log in full, and
-  exits 1 if any failed.
+- each job writes its own exit status to a status file, and the hook reads those files rather than
+  xargs's exit code. xargs reports 123, 124 or 125 for different child failures, and stops
+  starting new jobs on 255.
+- a sub-project with no status file counts as `FAIL` (a killed or crashed job);
+- the hook prints one `ok`/`FAIL` line per sub-project and each failing log in full, then exits 1
+  if any failed.
 
-The job count is fixed rather than `$(nproc)`: suites that use `ProcessPoolExecutor` or rayon
-already fan out inside themselves. The "more than 6 changed: skip" rule is removed.
+The hook's `set -e` must not abort before the logs print.
+
+The job count is fixed rather than `$(nproc)`, because the suites already fan out inside
+themselves through `ProcessPoolExecutor` and rayon. The default is 8: every development machine is
+workstation-class (`claude` has 48 threads, the Studio 20).
+
+**The "more than 6 changed: skip" rule is removed, on a measurement.** It existed for a macOS
+`resource_tracker` hang (`aba0ac2`). On the Mac Studio (macOS 27.0.1, Python 3.14.8), on a clean
+clone of master `7ebf29b`, the 8 Python suites ran 4 at a time:
+- no suite hung (exit 124 never occurred), and the whole run took 9 s;
+- 0 `resource_tracker` processes remained afterwards;
+- the only failures were pi and e. They failed run alone too, and were a separate spawn-precision
+  bug, fixed in math#174.
+
+On `claude`, all 11 crates' `make test` ran 4 at a time from a cold `CARGO_HOME` in 99 s.
 
 Concurrent cargo runs share the per-checkout `CARGO_HOME`; cargo's own package-cache lock
 serialises the downloads, which is the intended behaviour, not a deadlock.
 
 **Root target.** A root `make test-rust` runs all 11 crates' `make test` the same way, with
-`JOBS` defaulting to 4.
+`JOBS` defaulting to 8.
 
 The CI layout is unchanged: each crate already runs as its own concurrent workflow.
 
@@ -216,8 +260,14 @@ position, and R4 and R14 move those lines. A stale pattern fails silently:
 - survivors are green in `mutation-classify.sh`, so no issue is filed.
 
 P2 re-anchors every pattern after the rewrites and checks them with `cargo mutants --list`.
-A test asserts that each `exclude_re` matches at least one listed mutant. It runs where
-`cargo-mutants` is installed and skips with a message naming the install command elsewhere.
+
+The rendered `mutants` recipe (`scripts/crate_templates/Makefile`) then checks the patterns before
+every mutation run. It lists the mutants, verifies each `exclude_re` matches at least one, and
+fails naming any stale pattern. Every mutation run therefore fails loudly instead of silently
+re-admitting equivalents: the monthly workflow, `mutation-pr` and local `make mutants`.
+
+A root test only placed on the push path would run where the drift does not happen. A `lib.rs`
+edit runs only the crate suite, and `scripts.yml` does not install cargo-mutants.
 
 ## Requirements
 
@@ -225,32 +275,34 @@ A test asserts that each `exclude_re` matches at least one listed mutant. It run
 - **R2.** `[P1]` All 11 `Cargo.toml` files pass R1's test, including sq (gains the shared `[profile.release]`) and factorial (gains the shared `clap` entry).
 - **R3.** `[P1]` Every crate has `<crate>-rs/CLAUDE.md`, a test requires it for all 11, and the Rust sections of `pi/CLAUDE.md` and the content of `prime/CLAUDE.md` move into `pi/pi-rs/CLAUDE.md` and `prime/prime-rs/CLAUDE.md`.
 - **R4.** `[P2]` Every crate's `src/lib.rs` declares `pub const SMOKE_SIZE: u64` and `pub const LARGE_RUN_THRESHOLD: Option<u64>`, with the SMOKE_SIZE values in the Design table and the LARGE_RUN_THRESHOLD values recorded by R5, and a test in each crate pins both.
-- **R5.** `[P2]` Before any CLI rewrite, each binary's LARGE_RUN_THRESHOLD is measured on `claude` as the smallest SIZE whose release run exceeds 60 s wall-clock or 8 GiB peak RSS, each probe under `timeout 61` and `ulimit -v 8388608`, or `None` when the crate's range check rejects every such SIZE, and each value is recorded as an amendment to this spec with its command and result.
+- **R5.** `[P2]` After each binary's rewrite, its LARGE_RUN_THRESHOLD is measured on `claude` as the smallest SIZE whose release run exceeds 60 s wall-clock or 8 GiB maximum resident memory, each probe under `timeout 61` and `/usr/bin/time -v` with no `ulimit -v`, a timed-out probe counting only when its CPU time shows it was computing, or `None` when the crate's range check rejects every such SIZE; each value is recorded as an amendment to this spec with SIZE, wall-clock, max RSS and CPU time.
 - **R6.** `[P2]` Every binary accepts `SIZE [--show] [--yes]` and `--smoke`, never reads stdin when SIZE or `--smoke` is given, and refuses a SIZE at or above a non-`None` LARGE_RUN_THRESHOLD without `--yes` by exiting 1 before writing any file, with a message naming `--yes`.
 - **R7.** `[P2]` With no arguments, every binary exits 2 with clap's usage when stdin is not a terminal; when it is a terminal, an EOF at the single prompt prints an empty line, then `Error: no input; pass SIZE as an argument (e.g. <bin> <SMOKE_SIZE>).`, and exits 1.
 - **R8.** `[P2]` Without `--show` no result line reaches stdout; with `--show` the result lines print before the summary.
 - **R9.** `[P2]` factorial parses its arguments with clap.
 - **R10.** `[P2]` `scripts/cli_contract.py --rust <crate-dir>` reads both constants from `<crate-dir>/src/lib.rs`, resolves the target directory with `cargo metadata`, exits 2 on a missing, duplicated or unparsable declaration or a missing `<target-dir>/debug/<crate>`, and runs the same six-case matrix as the Python mode against that binary; the Python mode's interface is unchanged.
 - **R11.** `[P2]` `tests/test_cli_contract_harness.py` covers the Rust mode with fixture binaries or scripts for a conforming program and for each failing case, plus each `ContractConfigError` path.
-- **R12.** `[P2]` `scripts/crate_templates/Makefile`'s `test` target runs `python3 ../../scripts/cli_contract.py --rust .` after `rust-check.sh test`, rendered to all 11 crate Makefiles.
+- **R12.** `[P2]` `scripts/crate_templates/Makefile`'s `test` target runs `rust-check.sh test`, then `cargo build`, then `python3 ../../scripts/cli_contract.py --rust .`, rendered to all 11 crate Makefiles, and a test requires `tests/cli.rs` in all 11 crates.
 - **R13.** `[P2]` The pre-push `RUN_CLI_CONTRACT` arm also runs `tests/test_cli_contract_harness.py`, runs no Rust binary, and `tests/scripts/pre_push.bats` covers both facts.
 - **R14.** `[P2]` The `read_line`-based prompt paths other than R7's single prompt are removed from all 11 binaries, together with the tests that drove them through `io::Cursor`; their behaviour is covered by tests of the new paths.
 - **R15.** `[P2]` ADR-0033 records the Rust contract as an extension of ADR-0030, and root `CLAUDE.md`, each crate's `CLAUDE.md` and the root `README.md` CLI table describe the new usage.
-- **R16.** `[P2]` Every crate's CLI logic is a `pub fn run(cli, stdin_is_tty: bool, input: impl BufRead, out: impl Write) -> i32` called by a coverage-excluded `main()`, with in-process unit tests of every R6-R8 path, including the terminal prompt and its EOF.
-- **R17.** `[P2]` After the rewrites, every `exclude_re` in the 4 `.cargo/mutants.toml` files is re-anchored, and a test asserts each matches at least one mutant listed by `cargo mutants --list`, skipping with a message naming the install command when `cargo-mutants` is absent.
-- **R18.** `[P1]` `scripts/pre-push` runs the changed sub-projects' `make test` concurrently with `xargs -P "${PRE_PUSH_JOBS:-4}"`, stdin from `/dev/null` and one log per sub-project; it prints one `ok`/`FAIL` line per sub-project and each failing log, exits 1 if any failed, and no longer skips when more than 6 sub-projects changed; `tests/scripts/pre_push.bats` covers a pass, a single failure among several, and the 7-or-more case.
-- **R19.** `[P1]` A root `make test-rust` target runs all 11 crates' `make test` concurrently with `JOBS` defaulting to 4, exits non-zero if any fails, and `tests/scripts/makefile.bats` covers it.
+- **R16.** `[P2]` Every crate's CLI logic is a `pub fn run(cli, stdin_is_tty: bool, input: impl BufRead, out: impl Write, err: impl Write, dir: &Path) -> i32` called by a coverage-excluded `main()` that passes unlocked stdout and stderr, with in-process unit tests of every R6-R8 path, including the terminal prompt and its EOF, writing only into a temp dir.
+- **R17.** `[P2]` After the rewrites, every `exclude_re` in the 4 `.cargo/mutants.toml` files is re-anchored, and the rendered `mutants` recipe first verifies that each pattern matches at least one mutant listed by `cargo mutants --list`, failing with the stale pattern named; `tests/scripts/makefile.bats` covers a stale and a matching pattern.
+- **R18.** `[P1]` `scripts/pre-push` runs the changed sub-projects' `make test` concurrently with `xargs -P "${PRE_PUSH_JOBS:-8}"`, stdin from `/dev/null`, one log and one status file per sub-project; a missing status file counts as FAIL; it prints one `ok`/`FAIL` line per sub-project and each failing log before exiting 1 if any failed, and no longer skips when more than 6 sub-projects changed; `tests/scripts/pre_push.bats` covers a pass, a single failure among several, a job killed before writing its status, and the 7-or-more case asserting all 7 `make` calls ran.
+- **R19.** `[P1]` A root `make test-rust` target runs all 11 crates' `make test` concurrently with `JOBS` defaulting to 8, exits non-zero if any fails, and `tests/scripts/makefile.bats` covers it.
 - **V1.** `[P2]` Every `<crate>-rs.yml` CI run on P2 is green with the harness step present in its log.
 - **V2.** `[P1]` `cargo tarpaulin` coverage stays at or above 90% for every crate on Linux CI after P1.
 - **V3.** `[P2]` `cargo tarpaulin` coverage stays at or above 90% for every crate on Linux CI after P2.
 - **V4.** `[P2]` After P2, `make test` passes for all 11 crates in a clean clone of master on `claude`.
+- **V5.** `[P1]` After P1, `make test` passes for all 8 Python projects and all 11 crates on the Mac Studio (login shell, clean copy of the merged tree).
+- **V6.** `[P2]` After P2, `make test` passes for all 8 Python projects and all 11 crates on the Mac Studio (login shell, clean copy of the merged tree).
 - **N1.** No output file is renamed.
 - **N2.** No binary changes what SIZE means.
 - **N3.** No Cargo workspace is introduced.
 - **N4.** No `.cargo/mutants.toml` file or `exclude_re` exclusion is added or removed.
 - **N5.** No coverage floor is lowered.
 - **N6.** No Python program file (`<project>/<module>.py`) changes.
-- **N7.** No CI workflow job, step order or runner changes, other than the rendered Makefile's `test` line (R12).
+- **N7.** No CI workflow job, step order or runner changes; the rendered Makefile's `test` and `mutants` recipes (R12, R17) are the only CI-visible changes.
 
 ## Multi-Lens Review
 
