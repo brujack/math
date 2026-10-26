@@ -224,6 +224,21 @@ serialises the downloads, which is the intended behaviour, not a deadlock.
 
 The CI layout is unchanged: each crate already runs as its own concurrent workflow.
 
+### System GMP and MPFR
+
+The 5 `rug` crates (e, factorial, fib, perfect-numbers, pi) build GMP and MPFR from C source
+through `gmp-mpfr-sys` on every cold build: each new worktree, each cleared `.cache`, each CI cache
+miss. The C libraries are already present everywhere this code builds:
+- every crate's `install_deps.sh` installs them (Homebrew, apt or dnf/yum);
+- every `<crate>-rs.yml` installs `libgmp-dev` and `libmpfr-dev`.
+
+P1 enables `gmp-mpfr-sys`'s `use-system-libs` feature in those 5 crates, so the build links the
+installed libraries instead of compiling them. It ships only if cold-build time and `make test` are
+measured before and after on `claude` and on the Mac Studio, and both platforms build and pass. If
+either platform cannot link the system libraries (a version mismatch, or a Homebrew path cargo does
+not find), P1 records the failure in an amendment and drops this change rather than adding
+platform-specific configuration.
+
 ### Crate CLAUDE.md
 
 pi-rs and prime-rs get `<crate>-rs/CLAUDE.md`, matching the other 9 crates:
@@ -237,7 +252,7 @@ A test requires `<crate>-rs/CLAUDE.md` in all 11 crates.
 
 | PR | Contents |
 | -- | -------- |
-| **P1** | The `Cargo.toml` shape test and the fixes it requires: sq's profile, factorial's clap entry, formatting. The crate `CLAUDE.md` test and the two moves. Concurrent pre-push sub-project tests and the root `make test-rust` target. |
+| **P1** | The `Cargo.toml` shape test and the fixes it requires: sq's profile, factorial's clap entry, formatting. The crate `CLAUDE.md` test and the two moves. Concurrent pre-push sub-project tests and the root `make test-rust` target. System GMP and MPFR for the 5 `rug` crates. |
 | **P2** | Threshold measurements; harness Rust mode and its tests; the 11 CLI rewrites, each with its constants test; the Makefile template line rendered to 11; the pre-push arm; ADR-0033. |
 
 P2 lands all 11 crates in one PR, so no window has some binaries on the contract and others off.
@@ -290,12 +305,14 @@ edit runs only the crate suite, and `scripts.yml` does not install cargo-mutants
 - **R17.** `[P2]` After the rewrites, every `exclude_re` in the 4 `.cargo/mutants.toml` files is re-anchored, and the rendered `mutants` recipe first verifies that each pattern matches at least one mutant listed by `cargo mutants --list`, failing with the stale pattern named; `tests/scripts/makefile.bats` covers a stale and a matching pattern.
 - **R18.** `[P1]` `scripts/pre-push` runs the changed sub-projects' `make test` concurrently with `xargs -P "${PRE_PUSH_JOBS:-8}"`, stdin from `/dev/null`, one log and one status file per sub-project; a missing status file counts as FAIL; it prints one `ok`/`FAIL` line per sub-project and each failing log before exiting 1 if any failed, and no longer skips when more than 6 sub-projects changed; `tests/scripts/pre_push.bats` covers a pass, a single failure among several, a job killed before writing its status, and the 7-or-more case asserting all 7 `make` calls ran.
 - **R19.** `[P1]` A root `make test-rust` target runs all 11 crates' `make test` concurrently with `JOBS` defaulting to 8, exits non-zero if any fails, and `tests/scripts/makefile.bats` covers it.
+- **R20.** `[P1]` The 5 `rug` crates enable `gmp-mpfr-sys`'s `use-system-libs` feature through a `gmp-mpfr-sys` dependency entry identical in all 5 (R1's shape test covers it), so no build compiles GMP or MPFR from source; if `claude` or the Mac Studio cannot build with it, an amendment records why and the entry is not added.
 - **V1.** `[P2]` Every `<crate>-rs.yml` CI run on P2 is green with the harness step present in its log.
 - **V2.** `[P1]` `cargo tarpaulin` coverage stays at or above 90% for every crate on Linux CI after P1.
 - **V3.** `[P2]` `cargo tarpaulin` coverage stays at or above 90% for every crate on Linux CI after P2.
 - **V4.** `[P2]` After P2, `make test` passes for all 11 crates in a clean clone of master on `claude`.
 - **V5.** `[P1]` After P1, `make test` passes for all 8 Python projects and all 11 crates on the Mac Studio (login shell, clean copy of the merged tree).
 - **V6.** `[P2]` After P2, `make test` passes for all 8 Python projects and all 11 crates on the Mac Studio (login shell, clean copy of the merged tree).
+- **V7.** `[P1]` Cold `cargo build` and `make test` times for the 5 `rug` crates are recorded before and after R20 on `claude` and on the Mac Studio.
 - **N1.** No output file is renamed.
 - **N2.** No binary changes what SIZE means.
 - **N3.** No Cargo workspace is introduced.
