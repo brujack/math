@@ -635,7 +635,8 @@ class TestConvertMpmathWorker(unittest.TestCase):
         from e import _convert_mpmath_worker
 
         mpmath.mp.dps = 60
-        s = _convert_mpmath_worker(+mpmath.e, 20)
+        value = +mpmath.e
+        s = _convert_mpmath_worker(value._mpf_, value.context.prec, 20)
         self.assertTrue(s.startswith("2.71828182845904523536"))
 
 
@@ -905,6 +906,38 @@ class TestSaveEToFileWithoutGmpy2(unittest.TestCase):
         self.assertNotIn("gmpy2/MPFR", buf.getvalue())
         self.assertTrue(e_str.startswith("2.71828182845904523536"), e_str)
         self.assertIn(e_str, content.splitlines())
+
+    def test_mpmath_value_keeps_precision_through_spawn_worker(self):
+        """The spawn context rebuilds the value at default (53-bit) precision
+        unless precision travels with it; digits past ~16 must stay correct."""
+        import multiprocessing
+
+        import mpmath
+
+        real_get_context = multiprocessing.get_context
+        mpmath.mp.dps = 70
+        value = +mpmath.e
+        digits = 50
+        expected = "2.7182818284590452353602874713526624977572470936999"
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "e_50.txt")
+            with (
+                unittest.mock.patch.object(e_module, "_gmpy2", None),
+                unittest.mock.patch.object(
+                    e_module.multiprocessing,
+                    "get_context",
+                    lambda _method: real_get_context("spawn"),
+                ),
+                redirect_stdout(out),
+            ):
+                result = e_module.save_e_to_file(value, digits, path)
+            with open(path) as f:
+                lines = f.read().splitlines()
+        self.assertTrue(result.startswith(expected), result)
+        self.assertTrue(any(line.startswith(expected) for line in lines), lines)
+        # The serial fallback is correct by construction; it must not be what passed.
+        self.assertNotIn("Parallel mode unavailable", out.getvalue())
 
 
 class TestFileWritePermissionError(unittest.TestCase):

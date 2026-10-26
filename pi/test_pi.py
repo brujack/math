@@ -489,15 +489,21 @@ class TestConvertMpmathWorker(unittest.TestCase):
         cls._pi_mpf = mpmath.pi
 
     def test_returns_string(self):
-        result = _convert_mpmath_worker(self._pi_mpf, 10)
+        result = _convert_mpmath_worker(
+            self._pi_mpf._mpf_, self._pi_mpf.context.prec, 10
+        )
         self.assertIsInstance(result, str)
 
     def test_starts_with_3_dot(self):
-        result = _convert_mpmath_worker(self._pi_mpf, 10)
+        result = _convert_mpmath_worker(
+            self._pi_mpf._mpf_, self._pi_mpf.context.prec, 10
+        )
         self.assertTrue(result.startswith("3."))
 
     def test_correct_leading_digits(self):
-        result = _convert_mpmath_worker(self._pi_mpf, 10)
+        result = _convert_mpmath_worker(
+            self._pi_mpf._mpf_, self._pi_mpf.context.prec, 10
+        )
         # mpmath.nstr rounds to nearest — compare only the first 9 digits
         # (digit 10 is ambiguous due to rounding of the trailing digits).
         self.assertEqual(result[:10], PI_REF[:10])
@@ -1157,6 +1163,38 @@ class TestSavePiToFileWithoutGmpy2(unittest.TestCase):
         self.assertNotIn("gmpy2/MPFR", buf.getvalue())
         self.assertTrue(pi_str.startswith("3.14159265358979323846"), pi_str)
         self.assertIn(pi_str, content.splitlines())
+
+    def test_mpmath_value_keeps_precision_through_spawn_worker(self):
+        """The spawn context rebuilds the value at default (53-bit) precision
+        unless precision travels with it; digits past ~16 must stay correct."""
+        import multiprocessing
+
+        import mpmath
+
+        real_get_context = multiprocessing.get_context
+        mpmath.mp.dps = 70
+        value = +mpmath.pi
+        digits = 50
+        expected = "3.1415926535897932384626433832795028841971693993751"
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "pi_50.txt")
+            with (
+                unittest.mock.patch.object(pi_module, "_gmpy2", None),
+                unittest.mock.patch.object(
+                    pi_module.multiprocessing,
+                    "get_context",
+                    lambda _method: real_get_context("spawn"),
+                ),
+                redirect_stdout(out),
+            ):
+                result = pi_module.save_pi_to_file(value, digits, path)
+            with open(path) as f:
+                lines = f.read().splitlines()
+        self.assertTrue(result.startswith(expected), result)
+        self.assertTrue(any(line.startswith(expected) for line in lines), lines)
+        # The serial fallback is correct by construction; it must not be what passed.
+        self.assertNotIn("Parallel mode unavailable", out.getvalue())
 
 
 class TestFileWritePermissionError(unittest.TestCase):

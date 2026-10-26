@@ -95,7 +95,7 @@ String conversion:
 Module-level worker functions (must stay at module level for multiprocessing pickling):
 
 - `_convert_gmpy2_worker(P_int, Q_int, digits)`: subprocess worker for the gmpy2 path; receives plain Python ints (always picklable).
-- `_convert_mpmath_worker(e_value, digits)`: subprocess worker for the mpmath fallback path.
+- `_convert_mpmath_worker(mpf_tuple, prec, digits)`: subprocess worker for the mpmath fallback path; takes the exact `_mpf_` tuple plus precision bits and converts under `mpmath.workprec` (a pickled mpf is rebuilt at 53 bits under `spawn`).
 - `_pwrite_all(fd, data, offset)`: writes bytes to a file descriptor at an absolute offset using `os.pwrite(2)`; thread-safe.
 
 CLI:
@@ -181,7 +181,7 @@ python3 -m pytest test_e.py -v   # if pytest is installed
 
 gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 
-#### Test coverage (94% line coverage, 103 tests)
+#### Test coverage (94% line coverage, 104 tests)
 
 | Class                                | Tests | Notes                                                                   |
 | ------------------------------------ | ----- | ----------------------------------------------------------------------- |
@@ -213,7 +213,7 @@ gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 | `TestProcessPoolSemaphoreExhaustion` | 2     | OSError and errno.ENOSPC trigger serial fallback in `save_e_to_file`    |
 | `TestMissingGmpy2`                   | 1     | mpmath path used when `_gmpy2` is patched to None                       |
 | `TestRequireGmpy2`                   | 3     | `_require_gmpy2` raises without gmpy2, returns the module with it       |
-| `TestSaveEToFileWithoutGmpy2`        | 1     | `save_e_to_file` takes the mpmath path when `_gmpy2` is None            |
+| `TestSaveEToFileWithoutGmpy2`        | 2     | `save_e_to_file` takes the mpmath path when `_gmpy2` is None (incl. spawn-context precision)|
 | `TestFileWritePermissionError`       | 1     | `main()` exits 1 on `PermissionError` when creating output file         |
 
 #### Type checking
