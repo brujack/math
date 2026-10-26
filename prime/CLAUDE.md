@@ -78,7 +78,7 @@ Helpers:
 - `fn confirm_large_n_with<R, W, E>(reader, out, err, n)`: y/n confirmation for N ≥ 11; warning goes to `err`, prompt to `out`.
 - `fn prompt_n_with<R, W, E>(reader, out, err)`: interactive prompt for N; loops until valid (1–18).
 - `fn run<R, W, E>(cli, reader, out, err, dir)`: orchestration — handles both N≤6 (buffer/display-or-save) and N>7 (stream-to-file) paths with injectable I/O; returns process exit code.
-- `fn main()`: thin stdio wrapper; locks stdin/stdout/stderr, calls `run`, exits with returned code.
+- `fn main()`: thin stdio wrapper; locks stdin/stdout but passes unlocked `io::stderr()` (a held `StderrLock` deadlocks the progress thread's `eprint!`), calls `run`, exits with returned code.
 
 ### Bitset Representation
 

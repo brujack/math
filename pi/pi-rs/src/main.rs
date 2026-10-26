@@ -279,10 +279,10 @@ fn main() {
     let cli = Cli::parse();
     let stdin = io::stdin();
     let stdout = io::stdout();
-    let stderr = io::stderr();
+    // Unlocked: a held StderrLock would block the progress thread's eprint!.
+    let mut err = io::stderr();
     let mut reader = stdin.lock();
     let mut out = stdout.lock();
-    let mut err = stderr.lock();
     let dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let code = run(cli, &mut reader, &mut out, &mut err, &dir).unwrap_or(1);
     std::process::exit(code);

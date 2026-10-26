@@ -52,7 +52,7 @@ Integer::from(&l.q * &r.p) + &r.q
 - `fn prompt_digits_with<R, W, E>(reader, out, err)`: trait-injected interactive prompt (loops until valid; defers to `confirm_large_digits_with` for n > 1_000_000)
 - `fn confirm_large_digits_with<R, W, E>(reader, out, err, n)`: y/n confirmation for large digit counts
 - `fn run<R, W, E>(cli, reader, out, err, dir)`: orchestration — returns process exit code; injects all I/O so tests can use pipes + temp dirs
-- `fn main()`: thin wrapper — locks stdio, calls `run`, exits with the returned code
+- `fn main()`: thin wrapper — locks stdin/stdout, passes unlocked `io::stderr()` (a held `StderrLock` deadlocks the progress thread's `eprint!`), calls `run`, exits with the returned code
 
 ## Important Behavior
 

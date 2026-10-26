@@ -97,3 +97,36 @@ fn cli_unwritable_output_dir() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+/// Regression: `main()` once held the `StderrLock` across `run()`, so the
+/// progress thread's first `eprint!` blocked on a lock owned by the main
+/// thread, which was itself blocked in `join()`. Any run long enough to reach
+/// the first progress tick hung forever; this one must exit on its own.
+#[test]
+fn regression_progress_thread_does_not_deadlock_on_locked_stderr() {
+    use std::time::{Duration, Instant};
+
+    let dir = tempdir().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_prime"))
+        .arg("8")
+        .current_dir(dir.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("failed to spawn binary");
+
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            assert!(status.success(), "binary failed: {status}");
+            return;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("binary did not exit within 60 s: progress thread deadlocked on stderr");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
