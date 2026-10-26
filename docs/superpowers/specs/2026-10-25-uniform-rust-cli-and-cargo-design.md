@@ -240,18 +240,20 @@ The rendered `.config/nextest.toml` sets a `slow-timeout` with `terminate-after`
 profile, so the `ci` profile inherits it. A test that hangs, or runs far past the slowest test
 today, then fails by name instead of passing slowly or hanging the job.
 
-The bound is `slow-timeout = { period = "10s", terminate-after = 3 }`, which kills a test at 30 s.
-It was measured on master `815dae0` with JUnit timings:
+The bound is `slow-timeout = { period = "15s", terminate-after = 3 }`, which kills a test at 45 s.
+It was sized from JUnit timings on master `815dae0`, and from the `test-metrics-<crate>-rs`
+artifacts of every green CI run after math#176:
 
 | Run | e | pi | prime | Others |
 | --- | --- | --- | --- | --- |
 | `claude` | 6.07 s | 4.12 s | 0.72 s | ≤ 0.13 s |
-| `taskset -c 0-3` (4 CPUs, like CI) | 6.48 s | 4.82 s | 1.23 s | — |
+| CI, `ubuntu-latest` (4 vCPU, max over green runs) | 9.18 s | 6.69 s | 1.68 s | — |
 | 8 crates running concurrently | 6.58 s | 4.68 s | 1.10 s | — |
 
-The slowest test in each of e, pi and prime is math#175's deadlock regression test. 30 s is 4.6×
-the slowest. The P1 task measures the Mac Studio before committing, and records it as an amendment.
-If any machine's slowest test exceeds 10 s, the bound grows to keep 3× headroom.
+The slowest test in each of e, pi and prime is math#175's deadlock regression test. CI is the
+slowest machine, and 45 s is 4.9× its slowest test (9.18 s). The P1 task measures the Mac Studio before committing, and records it as an amendment.
+If any machine's slowest test exceeds 15 s, the bound grows to keep 3× headroom. P2 re-measures
+CI after the R16 rewrites.
 
 `retries = 2` in the `ci` profile does not soften the bound, because a hung test hangs on every
 retry. cargo-mutants runs `cargo test`, not nextest, so the bound never applies to mutation runs;
@@ -328,7 +330,7 @@ edit runs only the crate suite, and `scripts.yml` does not install cargo-mutants
 - **R17.** `[P2]` After the rewrites, every `exclude_re` in the 4 `.cargo/mutants.toml` files is re-anchored, and the rendered `mutants` recipe first verifies that each pattern matches at least one mutant listed by `cargo mutants --list --no-config`, failing with the stale pattern named; `tests/scripts/makefile.bats` covers a stale and a matching pattern.
 - **R18.** `[P1]` `scripts/pre-push` runs the changed sub-projects' `make test` concurrently with `xargs -P "${PRE_PUSH_JOBS:-8}"`, stdin from `/dev/null`, one log and one status file per sub-project; a missing status file counts as FAIL; it prints one `ok`/`FAIL` line per sub-project and each failing log before exiting 1 if any failed, and no longer skips when more than 6 sub-projects changed; `tests/scripts/pre_push.bats` covers a pass, a single failure among several, a job killed before writing its status, and the 7-or-more case asserting all 7 `make` calls ran.
 - **R19.** `[P1]` A root `make test-rust` target runs all 11 crates' `make test` concurrently with `JOBS` defaulting to 8, exits non-zero if any fails, and `tests/scripts/makefile.bats` covers it.
-- **R20.** `[P1]` `scripts/crate_templates/nextest.toml` sets `slow-timeout = { period = "10s", terminate-after = 3 }` on the default profile, rendered to all 11 crates (widened only to keep 3× headroom over the slowest test measured on `claude`, the Mac Studio and 4-CPU CI, recorded as an amendment), the rendered `ci.yml` coverage job sets `timeout-minutes: 30`, and a test fails if either bound is removed.
+- **R20.** `[P1]` `scripts/crate_templates/nextest.toml` sets `slow-timeout = { period = "15s", terminate-after = 3 }` on the default profile, rendered to all 11 crates (widened only to keep 3× headroom over the slowest test measured on `claude`, the Mac Studio and 4-CPU CI, recorded as an amendment), the rendered `ci.yml` coverage job sets `timeout-minutes: 30`, and a test fails if either bound is removed.
 - **R21.** `[P2]` The `math-new-cli` skill (ai-config `.claude/skills/math-new-cli/SKILL.md`) describes adding a project under this contract: rendered files from `scripts/crate_templates/`, the `run(cli, stdin_is_tty, input, out, err, dir)` shape, the two constants, and every list that hardcodes the project count.
 - **V1.** `[P2]` Every `<crate>-rs.yml` CI run on P2 is green with the harness step present in its log.
 - **V2.** `[P1]` `cargo tarpaulin` coverage stays at or above 90% for every crate on Linux CI after P1.
@@ -451,3 +453,21 @@ Reviewed at commit: `815dae0` (round-2 dispositions, R20 system GMP/MPFR, R21 ne
 
 **Renumbering.** Round 2's R20 (system libraries) is withdrawn. Its R21 (the nextest bound) is now
 R20. R21 is the `math-new-cli` update. V7 is withdrawn.
+
+### Round 4 (scoped Risk lens on the round-3 changes)
+
+Reviewed at commit: `94c6f94`
+
+- Finding: the bound was sized against `taskset -c 0-3` on `claude` (6.48 s), but CI's measured
+  slowest test is 9.18 s (e, from the `test-metrics-e-rs` artifacts). So 10 s × 3 left 3.27× on CI,
+  not the claimed 4.6×, and sat 0.8 s under the widen trigger.
+- Checked and clean:
+  - there are no dangling references to the withdrawn R20 or V7;
+  - the `ci` profile inherits the default profile's bound (tested on nextest 0.9.149);
+  - `cargo mutants --list --no-config` exists at 27.1.0 and lists 65 mutants against 62
+    configured in factorial-rs;
+  - `timeout-minutes: 30` contradicts nothing;
+  - N7 is complete.
+- Disposition: Addressed. The bound is now 15 s × 3 = 45 s, 4.9× CI's maximum. The table carries
+  the real CI row, and P2 re-measures CI after the rewrites.
+
