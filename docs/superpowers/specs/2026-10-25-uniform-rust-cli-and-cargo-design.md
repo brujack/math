@@ -40,6 +40,16 @@ Measured on master `d79192c` by reading every `src/main.rs`, `src/lib.rs` and `C
   `main()` while a progress thread called `eprint!`, so any run whose compute outlasted the first
   200 ms tick hung (`pi 5000000`, `prime 9`). math#175 fixed it before this spec's work began. The
   other 8 crates still lock stderr in `main()` but spawn no printing thread.
+- **Fixed separately while this spec was in review.**
+  - math#176: progress threads slept 200 ms before checking whether work was done, so pi's and
+    e's 256-case property test took 51 s.
+  - math#177: CI compiled nextest, tarpaulin and machete from source in every job, about 490 s
+    of an 884 s test job. Tools are now prebuilt, coverage runs as a parallel job, and bats runs
+    in parallel.
+- **No test is bounded in time.** `.config/nextest.toml` (rendered from
+  `scripts/crate_templates/nextest.toml`) sets no `slow-timeout`. The 51 s test passed for five
+  months, and a mutation that deleted a progress thread's shutdown signal hung every affected
+  test until it was killed. In CI that would wait for GitHub's 360-minute job timeout.
 - **Two crates have no crate `CLAUDE.md`.** pi-rs and prime-rs are documented in
   `pi/CLAUDE.md` and `prime/CLAUDE.md`; the other 9 crates have `<crate>-rs/CLAUDE.md`.
 
@@ -239,6 +249,20 @@ either platform cannot link the system libraries (a version mismatch, or a Homeb
 not find), P1 records the failure in an amendment and drops this change rather than adding
 platform-specific configuration.
 
+### Bounded tests
+
+The rendered `.config/nextest.toml` sets a `slow-timeout` with `terminate-after` on the default
+profile, so the `ci` profile inherits it. A test that hangs, or runs far past the slowest test
+today, then fails by name instead of passing slowly or hanging the job.
+
+P1 sets the bound from measurements of the slowest test in each crate:
+- on `claude` and on the Mac Studio, with nextest's slow-test reporting;
+- on CI, from the `test-metrics-<crate>-rs` JUnit artifacts.
+
+The bound must exceed the slowest measured test by at least 3×, and the measurements are recorded
+as an amendment. `retries = 2` in the `ci` profile does not soften the bound: a hung test hangs on
+every retry.
+
 ### Crate CLAUDE.md
 
 pi-rs and prime-rs get `<crate>-rs/CLAUDE.md`, matching the other 9 crates:
@@ -252,7 +276,7 @@ A test requires `<crate>-rs/CLAUDE.md` in all 11 crates.
 
 | PR | Contents |
 | -- | -------- |
-| **P1** | The `Cargo.toml` shape test and the fixes it requires: sq's profile, factorial's clap entry, formatting. The crate `CLAUDE.md` test and the two moves. Concurrent pre-push sub-project tests and the root `make test-rust` target. System GMP and MPFR for the 5 `rug` crates. |
+| **P1** | The `Cargo.toml` shape test and the fixes it requires: sq's profile, factorial's clap entry, formatting. The crate `CLAUDE.md` test and the two moves. Concurrent pre-push sub-project tests and the root `make test-rust` target. System GMP and MPFR for the 5 `rug` crates. The nextest `slow-timeout` bound. |
 | **P2** | Threshold measurements; harness Rust mode and its tests; the 11 CLI rewrites, each with its constants test; the Makefile template line rendered to 11; the pre-push arm; ADR-0033. |
 
 P2 lands all 11 crates in one PR, so no window has some binaries on the contract and others off.
@@ -306,6 +330,7 @@ edit runs only the crate suite, and `scripts.yml` does not install cargo-mutants
 - **R18.** `[P1]` `scripts/pre-push` runs the changed sub-projects' `make test` concurrently with `xargs -P "${PRE_PUSH_JOBS:-8}"`, stdin from `/dev/null`, one log and one status file per sub-project; a missing status file counts as FAIL; it prints one `ok`/`FAIL` line per sub-project and each failing log before exiting 1 if any failed, and no longer skips when more than 6 sub-projects changed; `tests/scripts/pre_push.bats` covers a pass, a single failure among several, a job killed before writing its status, and the 7-or-more case asserting all 7 `make` calls ran.
 - **R19.** `[P1]` A root `make test-rust` target runs all 11 crates' `make test` concurrently with `JOBS` defaulting to 8, exits non-zero if any fails, and `tests/scripts/makefile.bats` covers it.
 - **R20.** `[P1]` The 5 `rug` crates enable `gmp-mpfr-sys`'s `use-system-libs` feature through a `gmp-mpfr-sys` dependency entry identical in all 5 (R1's shape test covers it), so no build compiles GMP or MPFR from source; if `claude` or the Mac Studio cannot build with it, an amendment records why and the entry is not added.
+- **R21.** `[P1]` `scripts/crate_templates/nextest.toml` sets `slow-timeout` with `terminate-after` on the default profile, rendered to all 11 crates, with a bound at least 3× the slowest test measured on `claude`, the Mac Studio and CI (recorded as an amendment), and `tests/test_crate_uniformity.py` or a new test fails if the bound is removed.
 - **V1.** `[P2]` Every `<crate>-rs.yml` CI run on P2 is green with the harness step present in its log.
 - **V2.** `[P1]` `cargo tarpaulin` coverage stays at or above 90% for every crate on Linux CI after P1.
 - **V3.** `[P2]` `cargo tarpaulin` coverage stays at or above 90% for every crate on Linux CI after P2.
