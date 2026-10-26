@@ -50,7 +50,7 @@ A `Makefile` is provided in `pi-rs/`:
 - `fn bs_leaf(a)`: leaf computation with `rug::Integer`; increments `BS_LEAF_COUNT` on every call
 - `fn bs_merge(l, r)`: combines two adjacent ranges
 - `fn format_series_progress(completed, n)`: pure formatter for the compute progress line (testable in isolation)
-- `fn compute_pi(digits)`: resets `BS_LEAF_COUNT`, spawns a progress thread that prints series completion % every 200 ms, runs `bs(0, n)`, joins the thread, then builds `rug::Float` and calls `pi_to_string`
+- `fn compute_pi(digits)`: resets `BS_LEAF_COUNT`, spawns a progress thread that prints series completion % every 200 ms (a `recv_timeout(200 ms)` loop on an `mpsc` channel, so it exits the moment `bs` finishes), runs `bs(0, n)`, joins the thread, then builds `rug::Float` and calls `pi_to_string`
 - `fn pi_to_string(pi, digits)`: uses `pi.to_string_radix(10, Some(digits+5))`, trims to exact decimal places
 - `fn format_write_progress(written, pi_total, elapsed)`: pure formatter for the write progress line (testable in isolation)
 - `fn write_pi_file(dir, pi_str, digits)`: `#[cfg(unix)]` — builds `dir/pi_<digits>_digits.txt`, pre-allocates with `file.set_len()`, spawns a progress thread reporting write % and MB/s every 200 ms, parallel pwrite via rayon `par_chunks` (each chunk updates an `Arc<AtomicU64>` byte counter), joins thread and prints final MB/s; returns the written `PathBuf`
@@ -318,7 +318,7 @@ cargo tarpaulin --out Stdout
 | `run`                                   | 5     | digits=0 → exit 1, display=y, save=n, no-arg prompts, digits>10000 auto-saves                         |
 | `run_returns_err_on_stdout_failure`     | 1     | `run()` propagates Err when stdout write fails (FailWriter injection)                                 |
 | `run_returns_err_on_stderr_failure`     | 1     | `run()` propagates Err when stderr write fails (FailWriter injection)                                 |
-| `tests/cli.rs` (subprocess integration) | 6     | arg=0 exit 1, arg=10 + "y" displays, arg=10 + "n" saves, no-arg + "10\\ny\\n" prompts, unwritable dir, 5,000,000 digits exits within 60 s with a progress tick (stderr-lock deadlock regression) |
+| `tests/cli.rs` (subprocess integration) | 6     | arg=0 exit 1, arg=10 + "y" displays, arg=10 + "n" saves, no-arg + "10\\ny\\n" prompts, unwritable dir, 10,000,000 digits exits within 60 s with a progress tick (stderr-lock deadlock regression) |
 
 Uncovered lines (~17/224):
 

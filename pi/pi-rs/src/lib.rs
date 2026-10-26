@@ -1,6 +1,6 @@
 use std::io::{self, Write};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -137,21 +137,21 @@ pub fn compute_pi(digits: usize) -> String {
     );
 
     BS_LEAF_COUNT.store(0, Ordering::Relaxed);
-    let series_done = Arc::new(AtomicBool::new(false));
-    let series_done_c = Arc::clone(&series_done);
-    let series_thread = thread::spawn(move || loop {
-        thread::sleep(Duration::from_millis(200));
-        if series_done_c.load(Ordering::Relaxed) {
-            break;
+    let (series_done, series_done_c) = mpsc::channel::<()>();
+    let series_thread = thread::spawn(move || {
+        // Wake the moment work finishes (send or drop of the Sender); tick only on timeout.
+        while let Err(RecvTimeoutError::Timeout) =
+            series_done_c.recv_timeout(Duration::from_millis(200))
+        {
+            let completed = BS_LEAF_COUNT.load(Ordering::Relaxed);
+            eprint!("\r{}", format_series_progress(completed, n));
+            let _ = io::stderr().flush();
         }
-        let completed = BS_LEAF_COUNT.load(Ordering::Relaxed);
-        eprint!("\r{}", format_series_progress(completed, n));
-        let _ = io::stderr().flush();
     });
 
     let t0 = Instant::now();
     let pqt = bs(0, n);
-    series_done.store(true, Ordering::Relaxed);
+    let _ = series_done.send(());
     series_thread.join().unwrap();
     eprintln!("\r  Computing series:  100%  ({} terms)   ", fmt_int(n as usize));
     eprintln!("  Series done in {:.2}s", t0.elapsed().as_secs_f64());

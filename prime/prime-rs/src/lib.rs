@@ -1,5 +1,6 @@
 use std::io::{self, Write};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -154,19 +155,17 @@ pub fn find_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
 
     let processed = Arc::new(AtomicU64::new(0));
     let processed_c = Arc::clone(&processed);
-    let done = Arc::new(AtomicBool::new(false));
-    let done_c = Arc::clone(&done);
+    let (done, done_c) = mpsc::channel::<()>();
     let t2 = Instant::now();
 
-    let progress_thread = thread::spawn(move || loop {
-        thread::sleep(Duration::from_millis(200));
-        if done_c.load(Ordering::Relaxed) {
-            break;
+    let progress_thread = thread::spawn(move || {
+        // Wake the moment work finishes (send or drop of the Sender); tick only on timeout.
+        while let Err(RecvTimeoutError::Timeout) = done_c.recv_timeout(Duration::from_millis(200)) {
+            let n = processed_c.load(Ordering::Relaxed);
+            let elapsed = t2.elapsed().as_secs_f64();
+            eprint!("{}", format_phase2_progress(n, phase2_total, elapsed));
+            let _ = io::stderr().flush();
         }
-        let n = processed_c.load(Ordering::Relaxed);
-        let elapsed = t2.elapsed().as_secs_f64();
-        eprint!("{}", format_phase2_progress(n, phase2_total, elapsed));
-        let _ = io::stderr().flush();
     });
 
     let mut block_lo = phase2_start;
@@ -201,7 +200,7 @@ pub fn find_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
         }
     }
 
-    done.store(true, Ordering::Relaxed);
+    let _ = done.send(());
     progress_thread.join().unwrap();
 
     let elapsed2 = t2.elapsed().as_secs_f64();

@@ -57,7 +57,7 @@ Integer::from(&l.q * &r.p) + &r.q
 ## Important Behavior
 
 - `write_e_file` is `#[cfg(unix)]` only -- it uses POSIX `pwrite(2)` via `std::os::unix::fs::FileExt::write_at`
-- The progress thread pattern (spawn thread, `AtomicBool` flag, join after computation) is used for both series computation and file writing
+- The progress thread pattern (spawn thread that loops on `mpsc::Receiver::recv_timeout(200 ms)`, ticking on timeout and exiting when the worker sends or drops the `Sender`, join after computation) is used for both series computation and file writing
 - Term count estimation: `N = digits / log10(digits + 1) + 50` -- enough terms so that `N!` exceeds `10^digits`
 
 ## Makefile Targets
@@ -108,7 +108,7 @@ cargo tarpaulin --out Stdout
 | `run`                                   | 5     | digits=0 → exit 1, display=y, save=n, no-arg prompts, digits>10000 auto-saves                         |
 | `run_returns_err_on_stdout_failure`     | 1     | `run()` propagates Err when stdout write fails (FailWriter injection)                                 |
 | `run_returns_err_on_stderr_failure`     | 1     | `run()` propagates Err when stderr write fails (FailWriter injection)                                 |
-| `tests/cli.rs` (subprocess integration) | 6     | arg=0 exit 1, arg=10 + "y" displays, arg=10 + "n" saves, no-arg + "10\\nn\\n" prompts, unwritable dir, 10,000,000 digits exits within 60 s with a progress tick (stderr-lock deadlock regression) |
+| `tests/cli.rs` (subprocess integration) | 6     | arg=0 exit 1, arg=10 + "y" displays, arg=10 + "n" saves, no-arg + "10\\nn\\n" prompts, unwritable dir, 20,000,000 digits exits within 60 s with a progress tick (stderr-lock deadlock regression) |
 
 Uncovered lines (10/210):
 
