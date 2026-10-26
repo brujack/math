@@ -55,7 +55,9 @@ This pattern appears in `factorial_rec` where the squared half-factorial is mate
 
 - `fn run<R: BufRead, W: Write, E: Write>(n_arg: Option<&str>, reader, out, err, dir: &Path) -> io::Result<i32>` — orchestrator. Parses `n_arg` (or prompts via `prompt_n_with`), computes factorial, writes result to `dir/factorial_<n>.txt`, reports to `err`. Returns exit code.
 
-- `fn main()` — collects `std::env::args()`, calls `run` with locked stdio and `current_dir`.
+- `struct Cli` — clap `Parser` with one optional positional `n` (kept as a string so `run` owns the parse error message; `allow_hyphen_values` keeps `-5` reaching `run`); adds `--help` and `--version`.
+
+- `fn main()` — parses `Cli`, calls `run` with `cli.n.as_deref()`, locked stdio and `current_dir`.
 
 ## Build
 

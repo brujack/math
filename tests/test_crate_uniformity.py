@@ -10,10 +10,13 @@ differed. To change one crate's file, change the template and re-render all 11:
 """
 
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
+
+import tomllib
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -272,6 +275,74 @@ class TestRepoCratesMatchTemplates(unittest.TestCase):
         self.assertEqual(
             drift, [], "run: python3 scripts/render_crate_files.py --write"
         )
+
+
+class TestCargoTomlShape(unittest.TestCase):
+    """R1: the 11 Cargo.toml files differ only in name, description and extra deps."""
+
+    # Sections every crate must carry identically (tomllib-parsed values).
+    SHARED_TABLES = ("lints", "dev-dependencies")
+
+    def _load(self, crate):
+        path = REPO_ROOT / crate / f"{crate}-rs" / "Cargo.toml"
+        text = path.read_text()
+        return text, tomllib.loads(text)
+
+    @staticmethod
+    def _release_profile_text(text):
+        match = re.search(r"^\[profile\.release\]\n(.*?)(?=^\[|\Z)", text, re.M | re.S)
+        return match.group(1).strip() if match else None
+
+    def test_every_crate_has_one_bin_named_after_its_directory(self):
+        for crate in rcf.CRATES:
+            with self.subTest(crate=crate):
+                _, toml = self._load(crate)
+                self.assertEqual([b["name"] for b in toml.get("bin", [])], [crate])
+
+    def test_package_keys_match_apart_from_name_and_description(self):
+        shapes = {}
+        for crate in rcf.CRATES:
+            _, toml = self._load(crate)
+            shapes[crate] = {
+                k: v
+                for k, v in toml["package"].items()
+                if k not in ("name", "description")
+            }
+        reference = shapes[rcf.CRATES[0]]
+        for crate, shape in shapes.items():
+            with self.subTest(crate=crate):
+                self.assertEqual(shape, reference)
+
+    def test_lints_and_dev_dependencies_match(self):
+        for table in self.SHARED_TABLES:
+            reference = self._load(rcf.CRATES[0])[1].get(table)
+            for crate in rcf.CRATES:
+                with self.subTest(table=table, crate=crate):
+                    self.assertEqual(self._load(crate)[1].get(table), reference)
+
+    def test_clap_dependency_entry_matches(self):
+        for crate in rcf.CRATES:
+            with self.subTest(crate=crate):
+                _, toml = self._load(crate)
+                self.assertEqual(
+                    toml["dependencies"].get("clap"),
+                    {"version": "4", "features": ["derive"]},
+                )
+
+    def test_release_profile_text_is_byte_identical(self):
+        canonical = 'opt-level     = 3\nlto           = "thin"\ncodegen-units = 1'
+        for crate in rcf.CRATES:
+            with self.subTest(crate=crate):
+                text, _ = self._load(crate)
+                self.assertEqual(self._release_profile_text(text), canonical)
+
+    def test_scripts_workflow_triggers_on_cargo_toml(self):
+        import yaml
+
+        workflow = yaml.safe_load(
+            (REPO_ROOT / ".github/workflows/scripts.yml").read_text()
+        )
+        self.assertIn("*/*-rs/Cargo.toml", workflow[True]["pull_request"]["paths"])
 
 
 if __name__ == "__main__":

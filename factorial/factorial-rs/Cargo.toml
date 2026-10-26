@@ -14,6 +14,7 @@ path = "src/lib.rs"
 [dependencies]
 rug = { version = "1", features = ["integer"] }
 rayon = "1"
+clap = { version = "4", features = ["derive"] }
 
 [dev-dependencies]
 tempfile = "3"
@@ -32,4 +33,6 @@ missing_debug_implementations = "warn"
 wrong_self_convention = "warn"
 
 [profile.release]
-opt-level = 3
+opt-level     = 3
+lto           = "thin"
+codegen-units = 1

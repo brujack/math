@@ -34,6 +34,6 @@ missing_debug_implementations = "warn"
 wrong_self_convention = "warn"
 
 [profile.release]
-opt-level   = 3
-lto         = "thin"
+opt-level     = 3
+lto           = "thin"
 codegen-units = 1
