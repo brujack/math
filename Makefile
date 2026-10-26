@@ -71,8 +71,26 @@ install-deps:
 	  fi
 	python3 -m pip install -r requirements-dev.txt
 
+# Worker count for the parallel bats run; override with `make test JOBS=N`.
+JOBS ?= 8
+
+# GNU parallel is optional: `bats --jobs` shells out to it, so without it the suite
+# runs serially with a notice. moreutils installs an incompatible `parallel` under
+# the same name, so check --version rather than mere existence. Same shape as
+# ai-config's ADR-0078 guard.
+HAVE_PARALLEL := $(shell parallel --version 2>/dev/null | grep -q '^GNU parallel' && echo yes)
+
+# Safe to parallelise: every test works in BATS_TEST_TMPDIR (or its own mktemp -d),
+# redirects HOME where it matters, and the mocks' shared /tmp defaults are always
+# overridden per test. Conditional chosen with make ifneq, not a shell if, so
+# `make -n` prints only the branch that would run.
 test-hooks:
+ifneq ($(HAVE_PARALLEL),)
+	bats --jobs $(JOBS) --recursive tests/
+else
+	@printf "GNU parallel not found (a non-GNU parallel does not count), running bats serially (install: apt-get install parallel / brew install parallel)\n"
 	bats --recursive tests/
+endif
 
 # tests/*.py were type-checked by pyright and never executed by anything —
 # test_time_tests.py sat green-by-assumption for its whole life. This target is

@@ -184,6 +184,8 @@ Trigger pre-push tests on `.py`/`.rs` source changes only; Makefile, workflow an
 
 **Shell script testing** — BATS (`bats --recursive tests/`) is the standard for all shell script tests in this repo. Run with `make test-hooks`. Requires system-installed bats-core: `brew install bats-core` (macOS) or `sudo apt-get install -y bats` (Linux).
 
+`make test-hooks` runs `bats --jobs ${JOBS:-8}` when GNU parallel is installed (`JOBS=N` overrides), else serially with a notice; tests must stay isolated in `BATS_TEST_TMPDIR`.
+
 `make test-python` runs `python3 -m unittest discover -s tests -p 'test_*.py'` and `make test` runs `test-hooks` then `test-python`; `scripts.yml` calls both. → ai-config/docs/knowledge/math-ci.md § Repo-level Python tests
 
 
