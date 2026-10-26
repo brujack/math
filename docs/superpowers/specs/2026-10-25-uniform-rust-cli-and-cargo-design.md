@@ -1,7 +1,8 @@
 # Uniform Rust CLI Contract and Cargo.toml Shape for the 11 Crates
 
 - **Date:** 2026-10-25
-- **Status:** Draft
+- **Status:** Approved
+- **Approved:** 2026-10-26
 - **Related:**
   - ADR-0030 (one CLI contract for the Python programs);
   - ADR-0032 (per-project files rendered from templates);
