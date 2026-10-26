@@ -1,3 +1,8 @@
+# One test may run 45 s (15 s period, terminated on the third): without a bound a hang
+# waits for the CI job timeout and a slow test never fails. [profile.ci] inherits this.
+[profile.default]
+slow-timeout = { period = "15s", terminate-after = 3 }
+
 [profile.ci]
 retries = { backoff = "fixed", count = 2 }
 
