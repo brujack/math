@@ -1,4 +1,4 @@
-.PHONY: install-hooks install-deps test-hooks test-python test lint lint-hooks lint-python changelog validate-plan bash-coverage
+.PHONY: install-hooks install-deps test-hooks test-python test lint lint-hooks lint-python changelog validate-plan bash-coverage test-rust
 
 # Derived from the tracked set (git ls-files), not a hand-maintained list --
 # an omitted file leaves a hand-list's coverage unchanged rather than lowering
@@ -99,6 +99,20 @@ test-python:
 	python3 -m unittest discover -s tests -p 'test_*.py'
 
 test: lint test-hooks test-python
+
+# Every Rust crate, derived from the tracked tree rather than listed by hand. The
+# git call strips the GIT_* variables a hook exports, or it would read another repo.
+RUST_CRATE_DIRS := $(patsubst %/Makefile,%,$(shell env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git ls-files '*/*-rs/Makefile'))
+
+# Runs each crate's `make test` concurrently (JOBS at a time) and prints one ok/FAIL
+# line per crate. The empty-list guard matters: with no crates the runner would
+# usage-error, and a silent pass here would read as "all crates green".
+test-rust:
+	@if [ -z "$(strip $(RUST_CRATE_DIRS))" ]; then \
+	  printf 'no Rust crates found (git ls-files %s matched nothing)\n' "'*/*-rs/Makefile'" >&2; \
+	  exit 1; \
+	fi
+	scripts/parallel-make-test.sh $(JOBS) $(CURDIR) $(RUST_CRATE_DIRS)
 
 # Not wired into `test` or `lint-hooks` — it re-runs the entire bats suite
 # under a PS4 xtrace tracer, which takes minutes, so it stays an explicit,

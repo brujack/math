@@ -76,6 +76,8 @@ Root `make lint` runs `ruff check .` plus `ruff format --check` scoped to `git l
 `lint-python` exits 0 when ruff is missing (so a machine can still commit the fix); `scripts.yml` installs ruff so CI enforces it, and `tests/scripts/makefile.bats` asserts that. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 The two `# noqa: C901` directives in `e/e.py` and `pi/pi.py` are load-bearing: `maintainability-review` runs `ruff check --select C901` on the CLI, which overrides config, so removing one without refactoring reads as a 0 → 21 regression. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 
+Root `make test-rust` runs `make test` in all 11 crates concurrently via `scripts/parallel-make-test.sh` (`JOBS` default 8, crate list derived from `git ls-files '*/*-rs/Makefile'`, exits non-zero on an empty list or any `FAIL <crate>`); covered by `tests/scripts/makefile.bats`.
+
 ### Rust lint/test wrapper (`scripts/rust-check.sh`)
 
 All Rust crate `make lint` and `make test` go through `scripts/rust-check.sh`; `CARGO_HOME` defaults to `<repo>/.cache/cargo-home` when unset and `RUST_CHECK_OFFLINE=1` adds `--offline`. → ai-config/docs/knowledge/math-quick-reference.md § Rust lint/test wrapper
