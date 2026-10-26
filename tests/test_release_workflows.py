@@ -67,6 +67,7 @@ RELEASE_ACTIONS = {
     "orhun/git-cliff-action",
     "./.github/actions/sbom-sign",
     "softprops/action-gh-release",
+    "taiki-e/install-action",
 }
 
 
@@ -352,40 +353,51 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                         f"{path.name} step {index} runs bare 'cargo build --release'",
                     )
 
+    @staticmethod
+    def install_step_index(steps, tool):
+        """Index of the install-action step whose `tool:` list pins `tool@X.Y.Z`."""
+        for index, step in enumerate(steps):
+            if not str(step.get("uses", "")).startswith("taiki-e/install-action@"):
+                continue
+            entries = [
+                t.strip() for t in str(step["with"]["tool"]).split(",") if t.strip()
+            ]
+            if any(
+                re.fullmatch(re.escape(tool) + r"@\d+\.\d+\.\d+", e) for e in entries
+            ):
+                return index
+        return None
+
+    def assert_prebuilt_install(self, path, steps, index, tool):
+        step = steps[index]
+        self.assertEqual(
+            (step.get("with") or {}).get("fallback"),
+            "none",
+            f"{path.name}: {tool} install must set fallback: none",
+        )
+        self.assertRegex(
+            str(step["uses"]),
+            r"@[0-9a-f]{40}$",
+            f"{path.name}: install-action must be pinned to a commit SHA",
+        )
+
     def test_installs_cargo_auditable(self):
+        # cargo-auditable generates the dependency data the SBOM is built from, so
+        # an exact pin is a security property. It is a prebuilt, checksum-verified
+        # binary (fallback: none) rather than a source compile on every release.
         for path in self.workflows:
             with self.subTest(workflow=path.name):
                 steps = release_steps(load_workflow(path))
                 install_index = require_index(
-                    find_step_index_by_name(steps, "Install cargo-auditable"),
-                    f"{path.name} missing 'Install cargo-auditable' step",
+                    self.install_step_index(steps, "cargo-auditable"),
+                    f"{path.name} missing a pinned cargo-auditable install-action step",
                 )
                 build_index = require_index(
                     find_step_index_by_name(steps, "Build release binary"),
                     f"{path.name} missing 'Build release binary' step",
                 )
-                install_run = (steps[install_index].get("run") or "").strip()
-                # Assert the PROPERTIES, not the exact string. An exact-equality
-                # assertion here is inverted: it rejects a strictly better
-                # implementation (a pinned --version) as readily as a worse one.
-                # cargo-auditable generates the dependency data the SBOM is built
-                # from, so --locked and a pinned version are both security
-                # properties worth pinning -- but the set of flags is open.
-                self.assertTrue(
-                    install_run.startswith("cargo install cargo-auditable"),
-                    f"{path.name} must install cargo-auditable: got {install_run!r}",
-                )
-                self.assertIn(
-                    "--locked",
-                    install_run,
-                    f"{path.name} must install cargo-auditable with --locked",
-                )
-                self.assertRegex(
-                    install_run,
-                    r"--version \d+\.\d+\.\d+",
-                    f"{path.name} must pin cargo-auditable to an exact version -- "
-                    "it produces the provenance data the SBOM is derived from, so an "
-                    "unpinned install lets that tool change under us between releases",
+                self.assert_prebuilt_install(
+                    path, steps, install_index, "cargo-auditable"
                 )
                 self.assertLess(
                     install_index,
@@ -405,26 +417,26 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                 with self.subTest(workflow=path.name, tool=tool):
                     steps = release_steps(load_workflow(path))
                     install_index = require_index(
-                        find_step_index_by_name(steps, f"Install {tool}"),
-                        f"{path.name} missing 'Install {tool}' step: `make test` "
-                        "fails with 'no such command' before anything is tagged",
+                        self.install_step_index(steps, tool),
+                        f"{path.name} missing a pinned {tool} install-action step: "
+                        "`make test` fails with 'no such command' before anything is tagged",
                     )
                     tests_index = require_index(
                         find_step_index_by_name(steps, "Run tests"),
                         f"{path.name} missing 'Run tests' step",
                     )
-                    install_run = (steps[install_index].get("run") or "").strip()
-                    self.assertTrue(
-                        install_run.startswith(f"cargo install {tool}"),
-                        f"{path.name} must install {tool}: got {install_run!r}",
-                    )
-                    self.assertIn("--locked", install_run)
-                    self.assertRegex(install_run, r"--version \d+\.\d+\.\d+")
+                    self.assert_prebuilt_install(path, steps, install_index, tool)
                     self.assertLess(
                         install_index,
                         tests_index,
                         f"{path.name} must install {tool} BEFORE 'Run tests'",
                     )
+
+    def test_no_cargo_install_remains(self):
+        for path in self.workflows:
+            with self.subTest(workflow=path.name):
+                for step in release_steps(load_workflow(path)):
+                    self.assertNotIn("cargo install", step.get("run") or "")
 
     def test_references_sbom_sign_composite_action(self):
         for path in self.workflows:

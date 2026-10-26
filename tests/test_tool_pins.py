@@ -43,6 +43,7 @@ def cargo_installs():
 
 
 INSTALL_ACTION = "taiki-e/install-action@"
+AUDITABLE = "cargo-auditable"
 RUST_INSTALLERS = sorted(REPO_ROOT.glob("*/*-rs/install_deps.sh"))
 _TOOL_SPEC = re.compile(r"^(?P<name>[a-z][a-z0-9_-]*)@(?P<version>\d+\.\d+\.\d+)$")
 
@@ -103,7 +104,7 @@ def pip_installs():
 class TestCargoInstallPins(unittest.TestCase):
     def test_every_cargo_install_is_locked_and_versioned(self):
         sites = list(cargo_installs())
-        self.assertGreater(len(sites), 40, "scan found too few cargo install lines")
+        self.assertGreater(len(sites), 30, "scan found too few cargo install lines")
         for name, crate, version, locked in sites:
             with self.subTest(file=name, crate=crate):
                 self.assertTrue(locked, "missing --locked")
@@ -143,8 +144,10 @@ class TestInstallActionPins(unittest.TestCase):
 
     def test_scan_finds_the_ci_template_steps(self):
         steps = list(install_action_steps())
+        names = {n for n, _ in steps}
+        self.assertEqual(len(names), 22, "ci and release workflow per Rust crate")
         self.assertEqual(
-            len({n for n, _ in steps}), 11, "one per Rust crate ci workflow"
+            len([n for n in names if n.startswith("release-")]), 11, sorted(names)
         )
 
     def test_every_tool_entry_is_name_at_exact_version(self):
@@ -184,9 +187,22 @@ class TestInstallActionPins(unittest.TestCase):
                 if not match:
                     continue  # reported by the exact-version test
                 seen.add(match["name"])
+                if match["name"] == AUDITABLE:
+                    continue  # release-only: no local installer to agree with
                 with self.subTest(file=name, tool=entry):
                     self.assertEqual(pins.get(match["name"]), {match["version"]})
-        self.assertEqual(seen, {"cargo-nextest", "cargo-machete", "cargo-tarpaulin"})
+        self.assertEqual(
+            seen, {"cargo-nextest", "cargo-machete", "cargo-tarpaulin", AUDITABLE}
+        )
+
+    def test_release_only_tool_has_one_version(self):
+        versions = {
+            _TOOL_SPEC.match(entry)["version"]
+            for _, step in install_action_steps()
+            for entry in action_tools(step)
+            if entry.startswith(AUDITABLE + "@")
+        }
+        self.assertEqual(len(versions), 1, versions)
 
 
 class TestPyrightPins(unittest.TestCase):
