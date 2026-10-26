@@ -347,6 +347,12 @@ edit runs only the crate suite, and `scripts.yml` does not install cargo-mutants
 - **N6.** No Python program file (`<project>/<module>.py`) changes.
 - **N7.** No CI workflow job, step order or runner changes other than these, which are the spec's only CI-visible changes: the rendered Makefile's `test` and `mutants` recipes (R12, R17), the rendered `.config/nextest.toml` bound and the coverage job's `timeout-minutes` (R20).
 
+
+## Amendments
+
+- N7 -> No CI workflow job, step order or runner changes other than these, which are the spec's only CI-visible changes: the rendered Makefile's `test` and `mutants` recipes (R12, R17), the rendered `.config/nextest.toml` bound and the coverage job's `timeout-minutes` (R20), `scripts/cli_contract.py` added to the rendered `ci.yml` `paths:` so a harness change runs the 11 crate workflows, and `*/*-rs/Cargo.toml` and `*/*-rs/CLAUDE.md` added to `scripts.yml` `paths:` so the R1 and R3 tests run when those files change. — the plan's non-goal check found these three trigger paths CI-visible but unlisted; each exists so a new test or the harness actually runs where its subject changes
+- R12 -> `scripts/crate_templates/Makefile`'s `test` target runs `rust-check.sh test`, then `rust-check.sh build` (a new mode running `cargo build` under the wrapper's `CARGO_HOME`), then `python3 ../../scripts/cli_contract.py --rust .`, rendered to all 11 crate Makefiles, and a test requires `tests/cli.rs` in all 11 crates. — a bare `cargo build` bypasses `rust-check.sh`'s `CARGO_HOME`, and alternating the two homes rebuilt the crate on every call (pi-rs, 4.7-8.0 s, measured by the planner)
+
 ## Multi-Lens Review
 
 Reviewed at commit: `218a2e4` (round 1, before the revisions below)
