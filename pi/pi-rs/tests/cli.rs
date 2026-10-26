@@ -111,7 +111,7 @@ fn regression_progress_thread_does_not_deadlock_on_locked_stderr() {
         .current_dir(dir.path())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::from(std::fs::File::create(dir.path().join("stderr.log")).unwrap()))
         .spawn()
         .expect("failed to spawn binary");
 
@@ -119,6 +119,13 @@ fn regression_progress_thread_does_not_deadlock_on_locked_stderr() {
     loop {
         if let Some(status) = child.try_wait().unwrap() {
             assert!(status.success(), "binary failed: {status}");
+            // The test proves nothing if compute ends before the first tick:
+            // require a progress line printed by the thread mid-run.
+            let log = std::fs::read_to_string(dir.path().join("stderr.log")).unwrap();
+            assert!(
+                mid_run_ticks(&log, MARKER) > 0,
+                "no progress tick from the compute thread on stderr; the run no longer outlasts its first tick"
+            );
             return;
         }
         if Instant::now() >= deadline {
@@ -128,4 +135,13 @@ fn regression_progress_thread_does_not_deadlock_on_locked_stderr() {
         }
         std::thread::sleep(Duration::from_millis(50));
     }
+}
+
+/// Progress marker printed by the compute thread's ticks.
+const MARKER: &str = "Computing series:";
+
+/// Counts progress ticks printed by the compute thread: segments (split on `\r`/`\n`)
+/// carrying `marker` and a `completed / total` count, which only the thread prints.
+fn mid_run_ticks(log: &str, marker: &str) -> usize {
+    log.split(['\r', '\n']).filter(|seg| seg.contains(marker) && seg.contains(" / ")).count()
 }

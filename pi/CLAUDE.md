@@ -298,7 +298,7 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-#### Test coverage (91.87% line coverage, 60 tests: 55 unit + 5 integration)
+#### Test coverage (92.39% line coverage, 62 tests: 56 unit + 6 integration)
 
 | Area                                    | Tests | Notes                                                                                                 |
 | --------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------- |
@@ -318,7 +318,7 @@ cargo tarpaulin --out Stdout
 | `run`                                   | 5     | digits=0 → exit 1, display=y, save=n, no-arg prompts, digits>10000 auto-saves                         |
 | `run_returns_err_on_stdout_failure`     | 1     | `run()` propagates Err when stdout write fails (FailWriter injection)                                 |
 | `run_returns_err_on_stderr_failure`     | 1     | `run()` propagates Err when stderr write fails (FailWriter injection)                                 |
-| `tests/cli.rs` (subprocess integration) | 5     | arg=0 exit 1, arg=10 + "y" displays, arg=10 + "n" saves, no-arg + "10\\ny\\n" prompts, unwritable dir |
+| `tests/cli.rs` (subprocess integration) | 6     | arg=0 exit 1, arg=10 + "y" displays, arg=10 + "n" saves, no-arg + "10\\ny\\n" prompts, unwritable dir, 5,000,000 digits exits within 60 s with a progress tick (stderr-lock deadlock regression) |
 
 Uncovered lines (~17/224):
 

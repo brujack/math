@@ -139,7 +139,7 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-### Test coverage (96.24% line coverage, 55 tests: 48 unit + 7 integration)
+### Test coverage (91.48% line coverage, 57 tests: 51 unit + 6 integration)
 
 | Area                                    | Tests | Notes                                                                                                                                  |
 | --------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------- |
@@ -152,7 +152,7 @@ cargo tarpaulin --out Stdout
 | `confirm_large_n_with`                  | 4     | "y", "yes", "n", other input                                                                                                           |
 | `prompt_n_with`                         | 6     | valid, minimum=1, maximum=18, zero retry, non-numeric retry, above-max retry                                                           |
 | `run`                                   | 6     | invalid N → exit 1, N=1 display y, N=1 save n, N=7 streams to file, N=11 decline, no-arg prompts                                       |
-| `tests/cli.rs` (subprocess integration) | 5     | arg=0 exit 1, arg=1 + "y" displays, arg=1 + "n" saves, no-arg + "1\\ny\\n" prompts then displays, unwritable output dir exits non-zero |
+| `tests/cli.rs` (subprocess integration) | 6     | arg=0 exit 1, arg=1 + "y" displays, arg=1 + "n" saves, no-arg + "1\\ny\\n" prompts then displays, unwritable output dir exits non-zero, N=8 exits within 60 s with a progress tick (stderr-lock deadlock regression) |
 | `run_returns_err_on_stdout_failure`     | 1     | `run()` propagates `Err` when stdout write fails                                                                                       |
 | `run_returns_err_on_stderr_failure`     | 1     | `run()` propagates `Err` when stderr write fails for digits=0                                                                          |
 
