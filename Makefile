@@ -71,7 +71,8 @@ install-deps:
 	  fi
 	python3 -m pip install -r requirements-dev.txt
 
-# Worker count for the parallel bats run; override with `make test JOBS=N`.
+# Worker count for the parallel bats run (test-hooks) and the concurrent crate suites
+# (test-rust); override with `make test JOBS=N` or `make test-rust JOBS=N`.
 JOBS ?= 8
 
 # GNU parallel is optional: `bats --jobs` shells out to it, so without it the suite

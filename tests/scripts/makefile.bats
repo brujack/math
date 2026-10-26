@@ -590,9 +590,12 @@ setup_test_rust() {
     [ "$(printf '%s\n' "${EXPECTED_DIRS}" | wc -l)" -eq 11 ]
     run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u JOBS "${REAL_MAKE}" -C "${REPO_ROOT}" test-rust JOBS=3 --no-print-directory
     [ "${status}" -eq 0 ]
-    local dir
+    # GNU make's $(CURDIR) is the physical path (macOS /var -> /private/var), while
+    # REPO_ROOT is the logical one, so the expected calls use the physical root.
+    local dir root
+    root="$(cd "${REPO_ROOT}" && pwd -P)"
     for dir in ${EXPECTED_DIRS}; do
-        [ "$(grep -cxF "make -C ${REPO_ROOT}/${dir} test" "${MOCK_CALLS_FILE}")" -eq 1 ]
+        [ "$(grep -cxF "make -C ${root}/${dir} test" "${MOCK_CALLS_FILE}")" -eq 1 ]
         [[ "${output}" == *"ok ${dir}"* ]]
     done
     [ "$(grep -c '^make -C ' "${MOCK_CALLS_FILE}")" -eq 11 ]
