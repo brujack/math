@@ -14,6 +14,18 @@ print_usage() {
     printf "usage: parallel-make-test.sh <jobs> <root> <dir>...\n" >&2
 }
 
+# One job: runs a single dir's suite, logging to <tmp>/<name>.log and writing
+# the exit status to <tmp>/<name>.status. Invoked by xargs through --job so no
+# quoted script string is needed. A killed job never reaches the status write.
+run_job() {
+    local root="$1" dir="$2" tmp="$3" name
+    name="${dir//\//_}"
+    # stdin is /dev/null for every suite: Python multiprocessing's
+    # resource_tracker must not inherit git's push pipe and deadlock.
+    make -C "${root}/${dir}" test </dev/null >"${tmp}/${name}.log" 2>&1
+    printf "%s\n" "$?" >"${tmp}/${name}.status"
+}
+
 # Runs the jobs and prints the report. Called inside a subshell that owns the
 # temp directory, so the EXIT trap fires once, when that subshell ends.
 run_suites() {
@@ -21,11 +33,7 @@ run_suites() {
     shift 3
     local dir name status failed=0
 
-    # stdin is /dev/null for every suite: Python multiprocessing's
-    # resource_tracker must not inherit git's push pipe and deadlock.
-    printf '%s\0' "$@" | xargs -0 -P "${jobs}" -I{} bash -c \
-        'name="${2//\//_}"; make -C "$1/$2" test </dev/null >"$3/${name}.log" 2>&1; printf "%s\n" "$?" >"$3/${name}.status"' \
-        _ "${root}" {} "${tmp}"
+    printf '%s\0' "$@" | xargs -0 -P "${jobs}" -I{} bash "${BASH_SOURCE[0]}" --job "${root}" {} "${tmp}"
     # xargs's own exit code is deliberately ignored; the status files decide.
 
     for dir in "$@"; do
@@ -62,6 +70,12 @@ run_suites() {
 
 main() {
     local jobs root
+    if [[ "${1:-}" == "--job" ]]; then
+        shift
+        [[ "$#" -eq 3 ]] || { print_usage; return 2; }
+        run_job "$@"
+        return 0
+    fi
     if [[ "$#" -lt 3 ]]; then
         print_usage
         return 2
@@ -76,7 +90,7 @@ main() {
     fi
 
     (
-        tmp="$(mktemp -d)" || exit 1
+        tmp="$(mktemp -d "${TMPDIR:-/tmp}/parallel-make-test.XXXXXX")" || exit 1
         trap 'rm -rf -- "${tmp}"' EXIT
         run_suites "${jobs}" "${root}" "${tmp}" "$@"
     )

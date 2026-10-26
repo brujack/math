@@ -122,3 +122,23 @@ setup() {
     [ "$status" -eq 0 ]
     [ ! -e "${MOCK_CALLS_FILE}" ]
 }
+
+@test "--job mode writes a log and a status file for one dir" {
+    mkdir -p "${BATS_TEST_TMPDIR}/out"
+    run bash "${SCRIPT}" --job "${BATS_TEST_TMPDIR}" fib/fib-rs "${BATS_TEST_TMPDIR}/out"
+    [ "$status" -eq 0 ]
+    [ "$(cat "${BATS_TEST_TMPDIR}/out/fib_fib-rs.status")" = "0" ]
+    [ -f "${BATS_TEST_TMPDIR}/out/fib_fib-rs.log" ]
+}
+
+@test "--job mode records a failing status" {
+    mkdir -p "${BATS_TEST_TMPDIR}/out"
+    export MOCK_MAKE_FAIL_DIR="pi"
+    run bash "${SCRIPT}" --job "${BATS_TEST_TMPDIR}" pi "${BATS_TEST_TMPDIR}/out"
+    [ "$(cat "${BATS_TEST_TMPDIR}/out/pi.status")" = "1" ]
+}
+
+@test "--job mode with the wrong argument count is a usage error" {
+    run bash "${SCRIPT}" --job "${BATS_TEST_TMPDIR}" pi
+    [ "$status" -eq 2 ]
+}
