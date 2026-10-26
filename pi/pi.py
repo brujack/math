@@ -513,7 +513,8 @@ def save_pi_to_file(pi_value, digits, filename):  # noqa: C901 — multi-backend
 
       gmpy2 path: subprocess receives plain-int Q, T and recomputes the
                   final mpfr value — avoids any gmpy2 pickling uncertainty.
-      mpmath path: subprocess receives the mpmath.mpf directly.
+      mpmath path: subprocess receives the exact _mpf_ tuple and its precision
+      (a pickled mpf is rebuilt at the child's 53-bit default under spawn).
 
     Phase B — The resulting string is written to disk by _IO_WORKERS
     threads using os.pwrite(2), allowing non-overlapping chunks to be

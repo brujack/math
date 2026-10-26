@@ -919,6 +919,7 @@ class TestSaveEToFileWithoutGmpy2(unittest.TestCase):
         value = +mpmath.e
         digits = 50
         expected = "2.7182818284590452353602874713526624977572470936999"
+        out = io.StringIO()
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "e_50.txt")
             with (
@@ -928,13 +929,15 @@ class TestSaveEToFileWithoutGmpy2(unittest.TestCase):
                     "get_context",
                     lambda _method: real_get_context("spawn"),
                 ),
-                redirect_stdout(io.StringIO()),
+                redirect_stdout(out),
             ):
                 result = e_module.save_e_to_file(value, digits, path)
             with open(path) as f:
                 lines = f.read().splitlines()
         self.assertTrue(result.startswith(expected), result)
         self.assertTrue(any(line.startswith(expected) for line in lines), lines)
+        # The serial fallback is correct by construction; it must not be what passed.
+        self.assertNotIn("Parallel mode unavailable", out.getvalue())
 
 
 class TestFileWritePermissionError(unittest.TestCase):
