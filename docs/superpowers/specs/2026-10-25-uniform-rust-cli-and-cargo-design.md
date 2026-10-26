@@ -234,34 +234,33 @@ serialises the downloads, which is the intended behaviour, not a deadlock.
 
 The CI layout is unchanged: each crate already runs as its own concurrent workflow.
 
-### System GMP and MPFR
-
-The 5 `rug` crates (e, factorial, fib, perfect-numbers, pi) build GMP and MPFR from C source
-through `gmp-mpfr-sys` on every cold build: each new worktree, each cleared `.cache`, each CI cache
-miss. The C libraries are already present everywhere this code builds:
-- every crate's `install_deps.sh` installs them (Homebrew, apt or dnf/yum);
-- every `<crate>-rs.yml` installs `libgmp-dev` and `libmpfr-dev`.
-
-P1 enables `gmp-mpfr-sys`'s `use-system-libs` feature in those 5 crates, so the build links the
-installed libraries instead of compiling them. It ships only if cold-build time and `make test` are
-measured before and after on `claude` and on the Mac Studio, and both platforms build and pass. If
-either platform cannot link the system libraries (a version mismatch, or a Homebrew path cargo does
-not find), P1 records the failure in an amendment and drops this change rather than adding
-platform-specific configuration.
-
 ### Bounded tests
 
 The rendered `.config/nextest.toml` sets a `slow-timeout` with `terminate-after` on the default
 profile, so the `ci` profile inherits it. A test that hangs, or runs far past the slowest test
 today, then fails by name instead of passing slowly or hanging the job.
 
-P1 sets the bound from measurements of the slowest test in each crate:
-- on `claude` and on the Mac Studio, with nextest's slow-test reporting;
-- on CI, from the `test-metrics-<crate>-rs` JUnit artifacts.
+The bound is `slow-timeout = { period = "10s", terminate-after = 3 }`, which kills a test at 30 s.
+It was measured on master `815dae0` with JUnit timings:
 
-The bound must exceed the slowest measured test by at least 3×, and the measurements are recorded
-as an amendment. `retries = 2` in the `ci` profile does not soften the bound: a hung test hangs on
-every retry.
+| Run | e | pi | prime | Others |
+| --- | --- | --- | --- | --- |
+| `claude` | 6.07 s | 4.12 s | 0.72 s | ≤ 0.13 s |
+| `taskset -c 0-3` (4 CPUs, like CI) | 6.48 s | 4.82 s | 1.23 s | — |
+| 8 crates running concurrently | 6.58 s | 4.68 s | 1.10 s | — |
+
+The slowest test in each of e, pi and prime is math#175's deadlock regression test. 30 s is 4.6×
+the slowest. The P1 task measures the Mac Studio before committing, and records it as an amendment.
+If any machine's slowest test exceeds 10 s, the bound grows to keep 3× headroom.
+
+`retries = 2` in the `ci` profile does not soften the bound, because a hung test hangs on every
+retry. cargo-mutants runs `cargo test`, not nextest, so the bound never applies to mutation runs;
+their timeouts stay with `--timeout-multiplier`.
+
+nextest's bound does not reach the parallel `Coverage <crate>` job, because tarpaulin runs the
+tests itself. So the rendered `ci.yml` gives that job `timeout-minutes: 30`, about 7× its slowest
+run today (pi-rs 224 s, e-rs 245 s on math#177). A hang there then fails within 30 minutes instead
+of waiting 360.
 
 ### Crate CLAUDE.md
 
@@ -276,7 +275,7 @@ A test requires `<crate>-rs/CLAUDE.md` in all 11 crates.
 
 | PR | Contents |
 | -- | -------- |
-| **P1** | The `Cargo.toml` shape test and the fixes it requires: sq's profile, factorial's clap entry, formatting. The crate `CLAUDE.md` test and the two moves. Concurrent pre-push sub-project tests and the root `make test-rust` target. System GMP and MPFR for the 5 `rug` crates. The nextest `slow-timeout` bound. |
+| **P1** | The `Cargo.toml` shape test and the fixes it requires: sq's profile, factorial's clap entry, formatting. The crate `CLAUDE.md` test and the two moves. Concurrent pre-push sub-project tests and the root `make test-rust` target. The nextest `slow-timeout` bound and the coverage job's time limit. |
 | **P2** | Threshold measurements; harness Rust mode and its tests; the 11 CLI rewrites, each with its constants test; the Makefile template line rendered to 11; the pre-push arm; ADR-0033. |
 
 P2 lands all 11 crates in one PR, so no window has some binaries on the contract and others off.
@@ -301,7 +300,7 @@ position, and R4 and R14 move those lines. A stale pattern fails silently:
 P2 re-anchors every pattern after the rewrites and checks them with `cargo mutants --list`.
 
 The rendered `mutants` recipe (`scripts/crate_templates/Makefile`) then checks the patterns before
-every mutation run. It lists the mutants, verifies each `exclude_re` matches at least one, and
+every mutation run. It lists all mutants with `cargo mutants --list --no-config` (the configured listing already drops excluded mutants, so checking against it would always fail), verifies each `exclude_re` matches at least one, and
 fails naming any stale pattern. Every mutation run therefore fails loudly instead of silently
 re-admitting equivalents: the monthly workflow, `mutation-pr` and local `make mutants`.
 
@@ -326,25 +325,24 @@ edit runs only the crate suite, and `scripts.yml` does not install cargo-mutants
 - **R14.** `[P2]` The `read_line`-based prompt paths other than R7's single prompt are removed from all 11 binaries, together with the tests that drove them through `io::Cursor`; their behaviour is covered by tests of the new paths.
 - **R15.** `[P2]` ADR-0033 records the Rust contract as an extension of ADR-0030, and root `CLAUDE.md`, each crate's `CLAUDE.md` and the root `README.md` CLI table describe the new usage.
 - **R16.** `[P2]` Every crate's CLI logic is a `pub fn run(cli, stdin_is_tty: bool, input: impl BufRead, out: impl Write, err: impl Write, dir: &Path) -> i32` called by a coverage-excluded `main()` that passes unlocked stdout and stderr, with in-process unit tests of every R6-R8 path, including the terminal prompt and its EOF, writing only into a temp dir.
-- **R17.** `[P2]` After the rewrites, every `exclude_re` in the 4 `.cargo/mutants.toml` files is re-anchored, and the rendered `mutants` recipe first verifies that each pattern matches at least one mutant listed by `cargo mutants --list`, failing with the stale pattern named; `tests/scripts/makefile.bats` covers a stale and a matching pattern.
+- **R17.** `[P2]` After the rewrites, every `exclude_re` in the 4 `.cargo/mutants.toml` files is re-anchored, and the rendered `mutants` recipe first verifies that each pattern matches at least one mutant listed by `cargo mutants --list --no-config`, failing with the stale pattern named; `tests/scripts/makefile.bats` covers a stale and a matching pattern.
 - **R18.** `[P1]` `scripts/pre-push` runs the changed sub-projects' `make test` concurrently with `xargs -P "${PRE_PUSH_JOBS:-8}"`, stdin from `/dev/null`, one log and one status file per sub-project; a missing status file counts as FAIL; it prints one `ok`/`FAIL` line per sub-project and each failing log before exiting 1 if any failed, and no longer skips when more than 6 sub-projects changed; `tests/scripts/pre_push.bats` covers a pass, a single failure among several, a job killed before writing its status, and the 7-or-more case asserting all 7 `make` calls ran.
 - **R19.** `[P1]` A root `make test-rust` target runs all 11 crates' `make test` concurrently with `JOBS` defaulting to 8, exits non-zero if any fails, and `tests/scripts/makefile.bats` covers it.
-- **R20.** `[P1]` The 5 `rug` crates enable `gmp-mpfr-sys`'s `use-system-libs` feature through a `gmp-mpfr-sys` dependency entry identical in all 5 (R1's shape test covers it), so no build compiles GMP or MPFR from source; if `claude` or the Mac Studio cannot build with it, an amendment records why and the entry is not added.
-- **R21.** `[P1]` `scripts/crate_templates/nextest.toml` sets `slow-timeout` with `terminate-after` on the default profile, rendered to all 11 crates, with a bound at least 3× the slowest test measured on `claude`, the Mac Studio and CI (recorded as an amendment), and `tests/test_crate_uniformity.py` or a new test fails if the bound is removed.
+- **R20.** `[P1]` `scripts/crate_templates/nextest.toml` sets `slow-timeout = { period = "10s", terminate-after = 3 }` on the default profile, rendered to all 11 crates (widened only to keep 3× headroom over the slowest test measured on `claude`, the Mac Studio and 4-CPU CI, recorded as an amendment), the rendered `ci.yml` coverage job sets `timeout-minutes: 30`, and a test fails if either bound is removed.
+- **R21.** `[P2]` The `math-new-cli` skill (ai-config `.claude/skills/math-new-cli/SKILL.md`) describes adding a project under this contract: rendered files from `scripts/crate_templates/`, the `run(cli, stdin_is_tty, input, out, err, dir)` shape, the two constants, and every list that hardcodes the project count.
 - **V1.** `[P2]` Every `<crate>-rs.yml` CI run on P2 is green with the harness step present in its log.
 - **V2.** `[P1]` `cargo tarpaulin` coverage stays at or above 90% for every crate on Linux CI after P1.
 - **V3.** `[P2]` `cargo tarpaulin` coverage stays at or above 90% for every crate on Linux CI after P2.
 - **V4.** `[P2]` After P2, `make test` passes for all 11 crates in a clean clone of master on `claude`.
 - **V5.** `[P1]` After P1, `make test` passes for all 8 Python projects and all 11 crates on the Mac Studio (login shell, clean copy of the merged tree).
 - **V6.** `[P2]` After P2, `make test` passes for all 8 Python projects and all 11 crates on the Mac Studio (login shell, clean copy of the merged tree).
-- **V7.** `[P1]` Cold `cargo build` and `make test` times for the 5 `rug` crates are recorded before and after R20 on `claude` and on the Mac Studio.
 - **N1.** No output file is renamed.
 - **N2.** No binary changes what SIZE means.
 - **N3.** No Cargo workspace is introduced.
 - **N4.** No `.cargo/mutants.toml` file or `exclude_re` exclusion is added or removed.
 - **N5.** No coverage floor is lowered.
 - **N6.** No Python program file (`<project>/<module>.py`) changes.
-- **N7.** No CI workflow job, step order or runner changes; the rendered Makefile's `test` and `mutants` recipes (R12, R17) are the only CI-visible changes.
+- **N7.** No CI workflow job, step order or runner changes other than these, which are the spec's only CI-visible changes: the rendered Makefile's `test` and `mutants` recipes (R12, R17), the rendered `.config/nextest.toml` bound and the coverage job's `timeout-minutes` (R20).
 
 ## Multi-Lens Review
 
@@ -412,3 +410,44 @@ Reviewed at commit: `7ebf29b` (round-1 revisions and parallel local tests)
 - R21: the nextest `slow-timeout` bound.
 
 Both follow measurements made while fixing math#174-#177.
+
+### Round 3
+
+Reviewed at commit: `815dae0` (round-2 dispositions, R20 system GMP/MPFR, R21 nextest bound)
+
+**Goal-Fit.**
+- Finding: R20 (system GMP/MPFR) rested on two false premises.
+  - The from-source cost is already cached in `~/.cache/gmp-mpfr-sys`, outside the worktree and
+    `.cache/`: a fresh clone builds fib-rs in 4 s.
+  - MPC, which `rug`'s default `complex` feature needs, is installed nowhere.
+- Also: machete would flag the new dependency, against R1's identical-`[package]` rule, and N7
+  understated the CI-visible changes.
+- Disposition: Addressed. R20 and V7 dropped, with a Backlog row for caching GMP across CI
+  rust-cache misses. N7 now enumerates every CI-visible change.
+
+**Ergonomics.**
+- Finding: R20 fails on the Mac Studio (`gmp.h` not found; Homebrew is not on the compiler's
+  search path) and in both mutation workflows, which install no GMP/MPFR dev packages.
+- Measurement for R21: the slowest tests are e 6.07 s and pi 4.12 s, 6.48 s at 4 CPUs, unchanged
+  with 8 crates running concurrently. Nested parallelism is not a problem, because root bats runs
+  before the sub-project loop.
+- Also: the `math-new-cli` skill predates the templates.
+- Disposition: Addressed. R20 dropped. The bound is fixed at 10 s × 3 with the measurements
+  recorded, and the new R21 updates `math-new-cli`.
+
+**Risk.**
+- Finding: R20 does not build as written (`mpc.h: No such file or directory`). It needs `rug`
+  `default-features = false` plus `std`, or `libmpc-dev` in every workflow. It would also make
+  release binaries dynamically linked, so the SBOM would attest a bundled GMP they no longer
+  contain.
+- Secondary findings:
+  - R17's anchor check listed configured mutants, which already exclude the patterns, so it always
+    failed.
+  - R21 left the parallel coverage job unbounded.
+  - The bound on the default profile also applies to un-retried local runs.
+- Disposition: Addressed. R20 dropped. R17 lists with `--no-config`. The coverage job gets
+  `timeout-minutes: 30`. The local-run concern is covered by the 4.6× margin, measured
+  concurrently.
+
+**Renumbering.** Round 2's R20 (system libraries) is withdrawn. Its R21 (the nextest bound) is now
+R20. R21 is the `math-new-cli` update. V7 is withdrawn.
