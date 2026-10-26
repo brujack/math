@@ -624,3 +624,34 @@ setup_test_rust() {
     [[ "${output}" == *"twin-primes/twin-primes-rs"* ]]
     [ "$(printf '%s\n' "${output}" | grep -o '[a-z-]*/[a-z-]*-rs' | sort -u | wc -l)" -eq 11 ]
 }
+
+# The concurrency probe in the make mock records, per call, how many calls were live
+# at once. JOBS=1 must never overlap; JOBS=3 over 11 crates must overlap at least once.
+# Together they pin that `make test-rust JOBS=N` reaches the runner in both directions.
+run_test_rust_with_probe() {
+    local jobs="$1"
+    setup_test_rust
+    PROBE_DIR="${BATS_TEST_TMPDIR}/probe"
+    mkdir -p "${PROBE_DIR}"
+    export MOCK_MAKE_CONCURRENCY_DIR="${PROBE_DIR}"
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u JOBS "${REAL_MAKE}" -C "${REPO_ROOT}" test-rust JOBS="${jobs}" --no-print-directory
+    [ "${status}" -eq 0 ]
+    local seen=("${PROBE_DIR}"/seen.*)
+    [ "${#seen[@]}" -eq 11 ]
+    PROBE_MAX=0
+    local f v
+    for f in "${seen[@]}"; do
+        v="$(cat "${f}")"
+        if [ "${v}" -gt "${PROBE_MAX}" ]; then PROBE_MAX="${v}"; fi
+    done
+}
+
+@test "make test-rust JOBS=1 never runs two crate suites at once" {
+    run_test_rust_with_probe 1
+    [ "${PROBE_MAX}" -eq 1 ]
+}
+
+@test "make test-rust JOBS=3 runs crate suites concurrently" {
+    run_test_rust_with_probe 3
+    [ "${PROBE_MAX}" -gt 1 ]
+}
