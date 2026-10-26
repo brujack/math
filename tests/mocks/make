@@ -10,6 +10,18 @@ while [[ "$#" -gt 0 ]]; do
     fi
     shift
 done
+# Opt-in concurrency probe. Each call drops a marker, waits so overlapping calls
+# coexist, records how many markers are live in its own seen.<pid> file, then
+# removes its marker. Per-call files avoid a racy shared max and need no flock,
+# so it behaves the same on Linux and macOS.
+if [[ -n "${MOCK_MAKE_CONCURRENCY_DIR:-}" ]]; then
+    probe="${MOCK_MAKE_CONCURRENCY_DIR}"
+    : > "${probe}/marker.$$"
+    sleep 0.3
+    live=("${probe}"/marker.*)
+    printf '%s\n' "${#live[@]}" > "${probe}/seen.$$"
+    rm -f "${probe}/marker.$$"
+fi
 if [[ -n "${MOCK_MAKE_FAIL_DIR:-}" && "${target}" == */"${MOCK_MAKE_FAIL_DIR}" ]]; then
     printf "mock make: simulated failure in %s\n" "${target}"
     exit 1

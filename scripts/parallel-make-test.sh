@@ -8,6 +8,9 @@
 # Each job writes its own exit status to a file rather than relying on xargs's
 # exit code: xargs folds child failures into 123-125 and stops starting jobs on
 # 255. A dir with no status file (the job was killed before writing it) is FAIL.
+# When there are more dirs than jobs and a job is killed, GNU xargs stops
+# launching new ones, so dirs that never started have no status file and report
+# FAIL with "(no log written)". That outcome is fail-closed and intended.
 # Only flags that BSD xargs also supports are used (-0, -P, -I).
 
 print_usage() {

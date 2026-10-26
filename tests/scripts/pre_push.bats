@@ -148,6 +148,38 @@ teardown() {
     [[ "${output}" == *"ok pi"* ]]
 }
 
+@test "PRE_PUSH_JOBS=1 runs the changed suites one at a time" {
+    export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\ne/e.py'
+    export PRE_PUSH_JOBS=1
+    export MOCK_MAKE_CONCURRENCY_DIR="${BATS_TEST_TMPDIR}/probe"
+    mkdir -p "${MOCK_MAKE_CONCURRENCY_DIR}"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    local f max=0 n
+    for f in "${MOCK_MAKE_CONCURRENCY_DIR}"/seen.*; do
+        read -r n < "${f}"
+        [[ "${n}" -gt "${max}" ]] && max="${n}"
+    done
+    [ "${max}" -eq 1 ]
+}
+
+@test "the default job count runs the changed suites concurrently" {
+    export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\ne/e.py'
+    unset PRE_PUSH_JOBS
+    export MOCK_MAKE_CONCURRENCY_DIR="${BATS_TEST_TMPDIR}/probe"
+    mkdir -p "${MOCK_MAKE_CONCURRENCY_DIR}"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    local f max=0 n
+    for f in "${MOCK_MAKE_CONCURRENCY_DIR}"/seen.*; do
+        read -r n < "${f}"
+        [[ "${n}" -gt "${max}" ]] && max="${n}"
+    done
+    [ "${max}" -eq 3 ]
+}
+
 @test "make test failure exits non-zero" {
     export MOCK_GIT_DIFF_NAMES="pi/pi.py"
     export MOCK_MAKE_EXIT=1

@@ -142,3 +142,29 @@ setup() {
     run bash "${SCRIPT}" --job "${BATS_TEST_TMPDIR}" pi
     [ "$status" -eq 2 ]
 }
+
+# Highest number of simultaneously live mock-make calls recorded in a probe dir.
+max_concurrency() {
+    local f max=0 n
+    for f in "$1"/seen.*; do
+        read -r n < "${f}"
+        [[ "${n}" -gt "${max}" ]] && max="${n}"
+    done
+    printf '%s\n' "${max}"
+}
+
+@test "jobs=1 runs the suites one at a time" {
+    export MOCK_MAKE_CONCURRENCY_DIR="${BATS_TEST_TMPDIR}/probe"
+    mkdir -p "${MOCK_MAKE_CONCURRENCY_DIR}"
+    run bash "${SCRIPT}" 1 "${BATS_TEST_TMPDIR}" pi fib e
+    [ "$status" -eq 0 ]
+    [ "$(max_concurrency "${MOCK_MAKE_CONCURRENCY_DIR}")" -eq 1 ]
+}
+
+@test "jobs=3 runs the suites concurrently" {
+    export MOCK_MAKE_CONCURRENCY_DIR="${BATS_TEST_TMPDIR}/probe"
+    mkdir -p "${MOCK_MAKE_CONCURRENCY_DIR}"
+    run bash "${SCRIPT}" 3 "${BATS_TEST_TMPDIR}" pi fib e
+    [ "$status" -eq 0 ]
+    [ "$(max_concurrency "${MOCK_MAKE_CONCURRENCY_DIR}")" -eq 3 ]
+}
