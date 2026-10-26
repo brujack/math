@@ -186,7 +186,7 @@ Trigger pre-push tests on `.py`/`.rs` source changes only; Makefile, workflow an
 
 `make test-hooks` runs `bats --jobs ${JOBS:-8}` when GNU parallel is installed (`JOBS=N` overrides), else serially with a notice; tests must stay isolated in `BATS_TEST_TMPDIR`.
 
-`make test-python` runs `python3 -m unittest discover -s tests -p 'test_*.py'` and `make test` runs `test-hooks` then `test-python`; `scripts.yml` calls both. → ai-config/docs/knowledge/math-ci.md § Repo-level Python tests
+`make test-python` runs `python3 -m unittest discover -s tests -p 'test_*.py'` and `make test` runs `test-hooks` then `test-python`; `scripts.yml` runs `bats --recursive tests/` and `make test-python` directly. → ai-config/docs/knowledge/math-ci.md § Repo-level Python tests
 
 
 `.claude/scripts/triage_log.py` is vendored per-repo because its `.resolve()` follows the `~/.claude/scripts/` symlink and would write this repo's triage log into ai-config; invoke the vendored copy, not the home path. → ai-config/docs/knowledge/math-ci.md § triage_log.py

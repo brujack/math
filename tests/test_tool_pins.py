@@ -45,6 +45,7 @@ def cargo_installs():
 INSTALL_ACTION = "taiki-e/install-action@"
 AUDITABLE = "cargo-auditable"
 RUST_INSTALLERS = sorted(REPO_ROOT.glob("*/*-rs/install_deps.sh"))
+_ACTION_SHA = re.compile(r"^taiki-e/install-action@(?P<sha>[0-9a-f]{40})$")
 _TOOL_SPEC = re.compile(r"^(?P<name>[a-z][a-z0-9_-]*)@(?P<version>\d+\.\d+\.\d+)$")
 
 
@@ -56,6 +57,11 @@ def install_action_steps(workflows=None):
             for step in job.get("steps") or []:
                 if str(step.get("uses", "")).startswith(INSTALL_ACTION):
                     yield path.name, step
+
+
+def has_fallback_none(step):
+    """True when an install-action step sets `fallback: none` (no cargo-install fallback)."""
+    return (step.get("with") or {}).get("fallback") == "none"
 
 
 def action_tools(step):
@@ -167,16 +173,54 @@ class TestInstallActionPins(unittest.TestCase):
     def test_every_step_sets_fallback_none(self):
         for name, step in install_action_steps():
             with self.subTest(file=name):
-                self.assertEqual((step.get("with") or {}).get("fallback"), "none")
+                self.assertTrue(has_fallback_none(step))
 
-    def test_fixture_missing_fallback_is_detected(self):
+    def test_fixture_missing_fallback_is_flagged(self):
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
-            ((_, step),) = install_action_steps(
+            ((_, missing),) = install_action_steps(
                 self._write(tmp, "x@1.2.3", fallback=None)
             )
-        self.assertNotEqual((step.get("with") or {}).get("fallback"), "none")
+            ((_, wrong),) = install_action_steps(
+                self._write(tmp, "x@1.2.3", fallback="cargo-binstall")
+            )
+            ((_, good),) = install_action_steps(self._write(tmp, "x@1.2.3"))
+        self.assertFalse(has_fallback_none(missing))
+        self.assertFalse(has_fallback_none(wrong))
+        self.assertTrue(has_fallback_none(good))
+
+    def test_every_step_is_pinned_by_one_full_commit_sha(self):
+        shas = set()
+        for name, step in install_action_steps():
+            with self.subTest(file=name):
+                match = _ACTION_SHA.match(step["uses"])
+                self.assertIsNotNone(match, step["uses"])
+                shas.add(match["sha"])
+        self.assertEqual(len(shas), 1, shas)
+
+    def test_fixture_tag_pin_is_rejected(self):
+        for bad in ("v2", "v2.1.0", "abc1234", "A" * 40, "a" * 39):
+            self.assertIsNone(_ACTION_SHA.match(INSTALL_ACTION + bad), bad)
+        self.assertIsNotNone(_ACTION_SHA.match(INSTALL_ACTION + "a" * 40))
+
+    def test_every_step_keeps_checksum_verification_on(self):
+        for name, step in install_action_steps():
+            with self.subTest(file=name):
+                value = (step.get("with") or {}).get("checksum", True)
+                self.assertIn(value, (True, "true"))
+
+    def test_fixture_checksum_false_is_rejected(self):
+        import tempfile
+
+        for bad in (False, "false", "no"):
+            with tempfile.TemporaryDirectory() as tmp:
+                path = self._write(tmp, "x@1.2.3")[0]
+                doc = yaml.safe_load(path.read_text())
+                doc["jobs"]["t"]["steps"][0]["with"]["checksum"] = bad
+                path.write_text(yaml.safe_dump(doc))
+                ((_, step),) = install_action_steps([path])
+            self.assertNotIn(step["with"]["checksum"], (True, "true"), bad)
 
     def test_action_versions_match_installer_pins(self):
         pins = installer_pins()

@@ -6,14 +6,14 @@ load '../helpers/common'
 # detected from the host, and a test that passes only where GNU parallel happens to
 # be installed says nothing about the branch it is not on.
 @test "make test-hooks without GNU parallel runs bats --recursive tests/ serially" {
-    run make -C "${REPO_ROOT}" -n test-hooks HAVE_PARALLEL= --no-print-directory
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u JOBS -u HAVE_PARALLEL make -C "${REPO_ROOT}" -n test-hooks HAVE_PARALLEL= --no-print-directory
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"bats --recursive tests/"* ]]
     [[ "${output}" != *"--jobs"* ]]
 }
 
 @test "make test-hooks without GNU parallel prints a notice naming the remedy" {
-    run make -C "${REPO_ROOT}" -n test-hooks HAVE_PARALLEL= --no-print-directory
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u JOBS -u HAVE_PARALLEL make -C "${REPO_ROOT}" -n test-hooks HAVE_PARALLEL= --no-print-directory
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"GNU parallel not found"* ]]
     [[ "${output}" == *"apt-get install parallel"* ]]
@@ -21,14 +21,14 @@ load '../helpers/common'
 }
 
 @test "make test-hooks with GNU parallel runs bats --jobs 8 --recursive tests/" {
-    run make -C "${REPO_ROOT}" -n test-hooks HAVE_PARALLEL=yes --no-print-directory
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u JOBS -u HAVE_PARALLEL make -C "${REPO_ROOT}" -n test-hooks HAVE_PARALLEL=yes --no-print-directory
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"bats --jobs 8 --recursive tests/"* ]]
     [[ "${output}" != *"GNU parallel not found"* ]]
 }
 
 @test "make test-hooks honours a JOBS override" {
-    run make -C "${REPO_ROOT}" -n test-hooks HAVE_PARALLEL=yes JOBS=3 --no-print-directory
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u JOBS -u HAVE_PARALLEL make -C "${REPO_ROOT}" -n test-hooks HAVE_PARALLEL=yes JOBS=3 --no-print-directory
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"bats --jobs 3 --recursive tests/"* ]]
 }
@@ -38,7 +38,7 @@ load '../helpers/common'
     mkdir -p "${BATS_TEST_TMPDIR}/bin"
     printf '#!/bin/sh\necho "parallel from moreutils"\n' > "${BATS_TEST_TMPDIR}/bin/parallel"
     chmod +x "${BATS_TEST_TMPDIR}/bin/parallel"
-    run env PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" make -C "${REPO_ROOT}" -n test-hooks --no-print-directory
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u JOBS -u HAVE_PARALLEL PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" make -C "${REPO_ROOT}" -n test-hooks --no-print-directory
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"GNU parallel not found"* ]]
 }
