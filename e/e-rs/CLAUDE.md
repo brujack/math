@@ -57,7 +57,7 @@ Integer::from(&l.q * &r.p) + &r.q
 ## Important Behavior
 
 - `write_e_file` is `#[cfg(unix)]` only -- it uses POSIX `pwrite(2)` via `std::os::unix::fs::FileExt::write_at`
-- The progress thread pattern (spawn thread, `AtomicBool` flag, join after computation) is used for both series computation and file writing
+- The progress thread pattern (spawn thread that loops on `mpsc::Receiver::recv_timeout(200 ms)`, ticking on timeout and exiting when the worker sends or drops the `Sender`, join after computation) is used for both series computation and file writing
 - Term count estimation: `N = digits / log10(digits + 1) + 50` -- enough terms so that `N!` exceeds `10^digits`
 
 ## Makefile Targets

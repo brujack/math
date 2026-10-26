@@ -651,4 +651,19 @@ mod tests {
         let result = run(cli, &mut reader, &mut out, &mut FailWriter, dir.path());
         assert!(result.is_err());
     }
+
+    // --- Progress thread must wake when work finishes, not after a 200 ms sleep ---
+
+    #[test]
+    fn test_find_primes_tiny_returns_before_one_progress_tick() {
+        let mut buf = Vec::new();
+        let t = Instant::now();
+        let count = find_primes(100, &mut buf).unwrap();
+        let elapsed = t.elapsed();
+        assert_eq!(count, 25);
+        assert!(
+            elapsed < std::time::Duration::from_millis(200),
+            "find_primes(100) took {elapsed:?}, progress thread delayed it"
+        );
+    }
 }

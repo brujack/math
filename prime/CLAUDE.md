@@ -91,7 +91,7 @@ Helpers:
 
 ### Progress Output
 
-A background thread wakes every 200 ms and prints to stderr:
+A background thread (a `recv_timeout(200 ms)` loop on an `mpsc` channel, woken immediately when phase 2 ends) prints, every 200 ms, to stderr:
 
 ```
   Phase 2:  XX%  (N / N numbers sieved)  X.X M/s

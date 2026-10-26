@@ -26,7 +26,8 @@ Key difference from the Python version:
 use std::fs::File;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -106,19 +107,19 @@ fn write_pi_file(dir: &Path, pi_str: &str, digits: usize) -> io::Result<PathBuf>
 
     let bytes_written = Arc::new(AtomicU64::new(0));
     let bytes_written_c = Arc::clone(&bytes_written);
-    let write_done = Arc::new(AtomicBool::new(false));
-    let write_done_c = Arc::clone(&write_done);
+    let (write_done, write_done_c) = mpsc::channel::<()>();
     let t_write = Instant::now();
 
-    let progress_thread = thread::spawn(move || loop {
-        thread::sleep(Duration::from_millis(200));
-        if write_done_c.load(Ordering::Relaxed) {
-            break;
+    let progress_thread = thread::spawn(move || {
+        // Wake the moment work finishes (send or drop of the Sender); tick only on timeout.
+        while let Err(RecvTimeoutError::Timeout) =
+            write_done_c.recv_timeout(Duration::from_millis(200))
+        {
+            let written = bytes_written_c.load(Ordering::Relaxed);
+            let elapsed = t_write.elapsed().as_secs_f64();
+            eprint!("\r{}", format_write_progress(written, pi_total, elapsed));
+            let _ = io::stderr().flush();
         }
-        let written = bytes_written_c.load(Ordering::Relaxed);
-        let elapsed = t_write.elapsed().as_secs_f64();
-        eprint!("\r{}", format_write_progress(written, pi_total, elapsed));
-        let _ = io::stderr().flush();
     });
 
     pi.par_chunks(chunk_size).enumerate().try_for_each(|(i, chunk)| -> io::Result<()> {
@@ -131,7 +132,7 @@ fn write_pi_file(dir: &Path, pi_str: &str, digits: usize) -> io::Result<PathBuf>
         Ok(())
     })?;
 
-    write_done.store(true, Ordering::Relaxed);
+    let _ = write_done.send(());
     progress_thread.join().unwrap();
 
     let elapsed = t_write.elapsed().as_secs_f64();
@@ -802,5 +803,34 @@ mod tests {
             prop_assert!(!result.is_empty());
             prop_assert!(result.starts_with("3."));
         }
+    }
+
+    // --- Progress threads must wake when work finishes, not after a 200 ms sleep ---
+
+    const TICK_BUDGET: std::time::Duration = std::time::Duration::from_millis(200);
+
+    #[test]
+    fn test_compute_pi_tiny_returns_before_one_progress_tick() {
+        let t = Instant::now();
+        let s = compute_pi(5);
+        let elapsed = t.elapsed();
+        assert!(s.starts_with("3."));
+        assert!(
+            elapsed < TICK_BUDGET,
+            "compute_pi(5) took {elapsed:?}, progress thread delayed it"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_write_pi_file_tiny_returns_before_one_progress_tick() {
+        let dir = tempdir().unwrap();
+        let t = Instant::now();
+        write_pi_file(dir.path(), "3.14159", 5).unwrap();
+        let elapsed = t.elapsed();
+        assert!(
+            elapsed < TICK_BUDGET,
+            "write_pi_file took {elapsed:?}, progress thread delayed it"
+        );
     }
 }
