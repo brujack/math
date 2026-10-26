@@ -67,11 +67,15 @@ class GithubActionsManagerScopeTest(unittest.TestCase):
             if re.search(r"^\s*-?\s*uses:", f.read_text(encoding="utf-8"), re.M)
         ]
         self.assertTrue(files)
-        missing = [f.relative_to(REPO_ROOT).as_posix() for f in files if not _matches(f)]
+        missing = [
+            f.relative_to(REPO_ROOT).as_posix() for f in files if not _matches(f)
+        ]
         self.assertEqual(missing, [])
 
     def test_non_workflow_files_are_not_scanned(self) -> None:
-        self.assertFalse(_matches(REPO_ROOT / "scripts" / "crate_templates" / "Makefile"))
+        self.assertFalse(
+            _matches(REPO_ROOT / "scripts" / "crate_templates" / "Makefile")
+        )
         self.assertFalse(_matches(REPO_ROOT / "README.md"))
 
 
