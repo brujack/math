@@ -297,13 +297,20 @@ def _convert_gmpy2_worker(Q_int, T_int, digits):
     return _gmpy2_str_from_QT(Q_int, T_int, digits)
 
 
-def _convert_mpmath_worker(pi_value, digits):
+def _convert_mpmath_worker(mpf_tuple, prec, digits):
     """
-    Subprocess worker (mpmath path): convert mpmath.mpf to decimal string.
+    Subprocess worker (mpmath path): convert an mpf to a decimal string.
     Running in a subprocess bypasses the GIL so the main-thread progress
     display is not starved by the pure-Python mpmath.nstr call.
+
+    The value arrives as its exact ``_mpf_`` tuple plus the precision (bits)
+    it was computed at. A pickled mpf is rebuilt at the child's default
+    53-bit precision under the ``spawn`` context, which would corrupt digits
+    past ~16, so precision is applied here with ``workprec`` (scoped, so a
+    serial in-process call leaves global mpmath state untouched).
     """
-    return mpmath.nstr(pi_value, digits + 1, strip_zeros=False)
+    with mpmath.workprec(prec):
+        return mpmath.nstr(mpmath.mpf(mpf_tuple), digits + 1, strip_zeros=False)
 
 
 def _pwrite_all(fd, data, offset):
@@ -613,7 +620,13 @@ def save_pi_to_file(pi_value, digits, filename):  # noqa: C901 — multi-backend
                 Q_int, T_int = _gmpy2_QT_cache
                 future = pool.submit(_convert_gmpy2_worker, Q_int, T_int, digits)
             else:
-                future = pool.submit(_convert_mpmath_worker, pi_value, digits)
+                mpf_value = mpmath.mpf(pi_value)
+                future = pool.submit(
+                    _convert_mpmath_worker,
+                    mpf_value._mpf_,
+                    mpf_value.context.prec,
+                    digits,
+                )
 
             while not future.done():
                 progress.show_one_tick()
