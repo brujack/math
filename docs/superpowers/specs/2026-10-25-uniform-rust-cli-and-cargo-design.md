@@ -352,6 +352,34 @@ edit runs only the crate suite, and `scripts.yml` does not install cargo-mutants
 
 - N7 -> No CI workflow job, step order or runner changes other than these, which are the spec's only CI-visible changes: the rendered Makefile's `test` and `mutants` recipes (R12, R17), the rendered `.config/nextest.toml` bound and the coverage job's `timeout-minutes` (R20), `scripts/cli_contract.py` added to the rendered `ci.yml` `paths:` so a harness change runs the 11 crate workflows, and `*/*-rs/Cargo.toml` and `*/*-rs/CLAUDE.md` added to `scripts.yml` `paths:` so the R1 and R3 tests run when those files change. — the plan's non-goal check found these three trigger paths CI-visible but unlisted; each exists so a new test or the harness actually runs where its subject changes
 - R12 -> `scripts/crate_templates/Makefile`'s `test` target runs `rust-check.sh test`, then `rust-check.sh build` (a new mode running `cargo build` under the wrapper's `CARGO_HOME`), then `python3 ../../scripts/cli_contract.py --rust .`, rendered to all 11 crate Makefiles, and a test requires `tests/cli.rs` in all 11 crates. — a bare `cargo build` bypasses `rust-check.sh`'s `CARGO_HOME`, and alternating the two homes rebuilt the crate on every call (pi-rs, 4.7-8.0 s, measured by the planner)
+- finding R4 (2026-10-26, reviewer both): NOT-BUILT — No src/lib.rs in the diff declares SMOKE_SIZE or LARGE_RUN_THRESHOLD, and no test pins them.
+- R4 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Tasks 9-19 (constants) and 20 (threshold pins) of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- finding R5 (2026-10-26, reviewer both): NOT-BUILT — No binary rewrite or recorded LARGE_RUN_THRESHOLD measurement (SIZE, wall-clock, max RSS, CPU time) appears in the diff.
+- R5 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 20 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- finding R6 (2026-10-26, reviewer both): NOT-BUILT — No binary gains SIZE [--show] [--yes] / --smoke handling or a --yes refusal; factorial's Cli has only an optional positional n.
+- R6 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Tasks 9-19 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- finding R7 (2026-10-26, reviewer both): NOT-BUILT — No no-argument exit-2 / terminal-EOF 'Error: no input; pass SIZE as an argument' path appears in any binary.
+- R7 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Tasks 9-19 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- finding R8 (2026-10-26, reviewer both): NOT-BUILT — No --show gating of result lines appears in any binary.
+- R8 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Tasks 9-19 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- finding R10 (2026-10-26, reviewer both): NOT-BUILT — scripts/cli_contract.py is not in the diff; no --rust mode exists.
+- R10 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 6 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- finding R11 (2026-10-26, reviewer A): NOT-BUILT — tests/test_cli_contract_harness.py is not in the diff; no Rust-mode fixtures or ContractConfigError tests.
+- R11 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 6 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- finding R12 (2026-10-26, reviewer both): NOT-BUILT — scripts/crate_templates/Makefile, rust-check.sh build mode and a tests/cli.rs requirement test are absent from the diff.
+- R12 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 8 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- finding R13 (2026-10-26, reviewer both): NOT-BUILT — The pre-push RUN_CLI_CONTRACT arm only has comment edits; it does not run tests/test_cli_contract_harness.py and pre_push.bats adds no test for it.
+- R13 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 7 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- finding R14 (2026-10-26, reviewer both): NOT-BUILT — No read_line prompt paths or io::Cursor tests are removed from any binary.
+- R14 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Tasks 9-19 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- finding R15 (2026-10-26, reviewer both): NOT-BUILT — No ADR-0033 is in the diff, and the CLAUDE.md/README edits describe make test-rust and the pre-push runner, not the new SIZE/--show/--yes/--smoke usage.
+- R15 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 22 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- finding R16 (2026-10-26, reviewer both): NOT-BUILT — No crate gets pub fn run(cli, stdin_is_tty, input, out, err, dir) -> i32; factorial's run keeps its private generic io::Result<i32> signature.
+- R16 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Tasks 9-19 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- finding R17 (2026-10-26, reviewer both): NOT-BUILT — No .cargo/mutants.toml re-anchoring, no mutants-recipe stale-pattern check, and no makefile.bats coverage of it appear.
+- R17 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 21 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- finding R21 (2026-10-26, reviewer both): NOT-BUILT — The ai-config math-new-cli SKILL.md is not in the diff.
+- R21 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 23 (its own ai-config PR) of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
 
 ## Multi-Lens Review
 
@@ -478,3 +506,54 @@ Reviewed at commit: `94c6f94`
 - Disposition: Addressed. The bound is now 15 s × 3 = 45 s, 4.9× CI's maximum. The table carries
   the real CI row, and P2 re-measures CI after the rewrites.
 
+## Spec alignment (2026-10-26)
+
+- spec: docs/superpowers/specs/2026-10-25-uniform-rust-cli-and-cargo-design.md
+- anchor: a28049369036b19c836c4e375c4de574574fd883
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16, R17, R18, R19, R20, R21
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+| R4 | both | NOT-BUILT | No src/lib.rs in the diff declares SMOKE_SIZE or LARGE_RUN_THRESHOLD, and no test pins them. | - R4 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Tasks 9-19 (constants) and 20 (threshold pins) of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md |
+| R5 | both | NOT-BUILT | No binary rewrite or recorded LARGE_RUN_THRESHOLD measurement (SIZE, wall-clock, max RSS, CPU time) appears in the diff. | - R5 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 20 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md |
+| R6 | both | NOT-BUILT | No binary gains SIZE [--show] [--yes] / --smoke handling or a --yes refusal; factorial's Cli has only an optional positional n. | - R6 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Tasks 9-19 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md |
+| R7 | both | NOT-BUILT | No no-argument exit-2 / terminal-EOF 'Error: no input; pass SIZE as an argument' path appears in any binary. | - R7 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Tasks 9-19 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md |
+| R8 | both | NOT-BUILT | No --show gating of result lines appears in any binary. | - R8 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Tasks 9-19 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md |
+| R10 | both | NOT-BUILT | scripts/cli_contract.py is not in the diff; no --rust mode exists. | - R10 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 6 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md |
+| R11 | A | NOT-BUILT | tests/test_cli_contract_harness.py is not in the diff; no Rust-mode fixtures or ContractConfigError tests. | - R11 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 6 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md |
+| R12 | both | NOT-BUILT | scripts/crate_templates/Makefile, rust-check.sh build mode and a tests/cli.rs requirement test are absent from the diff. | - R12 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 8 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md |
+| R13 | both | NOT-BUILT | The pre-push RUN_CLI_CONTRACT arm only has comment edits; it does not run tests/test_cli_contract_harness.py and pre_push.bats adds no test for it. | - R13 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 7 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md |
+| R14 | both | NOT-BUILT | No read_line prompt paths or io::Cursor tests are removed from any binary. | - R14 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Tasks 9-19 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md |
+| R15 | both | NOT-BUILT | No ADR-0033 is in the diff, and the CLAUDE.md/README edits describe make test-rust and the pre-push runner, not the new SIZE/--show/--yes/--smoke usage. | - R15 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 22 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md |
+| R16 | both | NOT-BUILT | No crate gets pub fn run(cli, stdin_is_tty, input, out, err, dir) -> i32; factorial's run keeps its private generic io::Result<i32> signature. | - R16 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Tasks 9-19 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md |
+| R17 | both | NOT-BUILT | No .cargo/mutants.toml re-anchoring, no mutants-recipe stale-pattern check, and no makefile.bats coverage of it appear. | - R17 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 21 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md |
+| R21 | both | NOT-BUILT | The ai-config math-new-cli SKILL.md is not in the diff. | - R21 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 23 (its own ai-config PR) of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md |
+
+### Reviewed
+
+- R4 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Tasks 9-19 (constants) and 20 (threshold pins) of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- R5 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 20 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- R6 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Tasks 9-19 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- R7 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Tasks 9-19 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- R8 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Tasks 9-19 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- R10 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 6 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- R11 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 6 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- R12 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 8 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- R13 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 7 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- R14 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Tasks 9-19 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- R15 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 22 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- R16 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Tasks 9-19 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- R17 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 21 of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+- R21 reviewed: P1 of the two-PR plan builds R1-R3, R9 and R18-R20; this requirement is P2, Task 23 (its own ai-config PR) of docs/superpowers/plans/2026-10-26-uniform-rust-cli-and-cargo.md
+
+### Verifications
+
+- V1: no evidence recorded
+- V2: no evidence recorded
+- V3: no evidence recorded
+- V4: no evidence recorded
+- V5: no evidence recorded
+- V6: no evidence recorded

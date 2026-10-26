@@ -86,6 +86,100 @@ teardown() {
     [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 1 ]
 }
 
+@test "a passing suite prints an ok line" {
+    export MOCK_GIT_DIFF_NAMES="pi/pi.py"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"ok pi"* ]]
+}
+
+@test "one failing suite among several prints FAIL and its log and exits 1" {
+    export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\ne/e.py'
+    export MOCK_MAKE_FAIL_DIR="fib"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 1 ]
+    [[ "${output}" == *"FAIL fib"* ]]
+    [[ "${output}" == *"ok pi"* ]]
+    [[ "${output}" == *"ok e"* ]]
+    [[ "${output}" == *"simulated failure in ${BATS_TEST_TMPDIR}/fake-worktree/fib"* ]]
+    [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 3 ]
+}
+
+@test "a suite killed before writing its status prints FAIL and exits 1" {
+    export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\ne/e.py'
+    export MOCK_MAKE_KILL_DIR="e"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 1 ]
+    [[ "${output}" == *"FAIL e"* ]]
+    [[ "${output}" == *"ok pi"* ]]
+    [[ "${output}" == *"ok fib"* ]]
+}
+
+@test "seven changed Python sub-projects run all seven suites" {
+    export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\nsq/sq.py\ne/e.py\nfactorial/factorial.py\ncollatz/collatz.py\namicable/amicable.py'
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [[ "${output}" != *"skipping"* ]]
+    [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 7 ]
+}
+
+@test "the hook locates the runner through a symlink" {
+    export MOCK_GIT_DIFF_NAMES="pi/pi.py"
+    ln -s "${REPO_ROOT}/scripts/pre-push" "${BATS_TEST_TMPDIR}/pre-push-link"
+    run bash "${BATS_TEST_TMPDIR}/pre-push-link" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"ok pi"* ]]
+}
+
+@test "a relative symlink to the hook resolves too" {
+    export MOCK_GIT_DIFF_NAMES="pi/pi.py"
+    mkdir -p "${BATS_TEST_TMPDIR}/hooks"
+    ln -s "../real/pre-push" "${BATS_TEST_TMPDIR}/hooks/pre-push"
+    mkdir -p "${BATS_TEST_TMPDIR}/real"
+    cp "${REPO_ROOT}/scripts/pre-push" "${REPO_ROOT}/scripts/parallel-make-test.sh" "${BATS_TEST_TMPDIR}/real/"
+    run bash "${BATS_TEST_TMPDIR}/hooks/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"ok pi"* ]]
+}
+
+@test "PRE_PUSH_JOBS=1 runs the changed suites one at a time" {
+    export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\ne/e.py'
+    export PRE_PUSH_JOBS=1
+    export MOCK_MAKE_CONCURRENCY_DIR="${BATS_TEST_TMPDIR}/probe"
+    mkdir -p "${MOCK_MAKE_CONCURRENCY_DIR}"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    local f max=0 n
+    for f in "${MOCK_MAKE_CONCURRENCY_DIR}"/seen.*; do
+        read -r n < "${f}"
+        [[ "${n}" -gt "${max}" ]] && max="${n}"
+    done
+    [ "${max}" -eq 1 ]
+}
+
+@test "the default job count runs the changed suites concurrently" {
+    export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\ne/e.py'
+    unset PRE_PUSH_JOBS
+    export MOCK_MAKE_CONCURRENCY_DIR="${BATS_TEST_TMPDIR}/probe"
+    mkdir -p "${MOCK_MAKE_CONCURRENCY_DIR}"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    local f max=0 n
+    for f in "${MOCK_MAKE_CONCURRENCY_DIR}"/seen.*; do
+        read -r n < "${f}"
+        [[ "${n}" -gt "${max}" ]] && max="${n}"
+    done
+    [ "${max}" -eq 3 ]
+}
+
 @test "make test failure exits non-zero" {
     export MOCK_GIT_DIFF_NAMES="pi/pi.py"
     export MOCK_MAKE_EXIT=1
@@ -358,14 +452,14 @@ teardown() {
     [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 2 ]
 }
 
-@test "shell lint still runs when the >6 sub-project bail-out fires" {
+@test "shell lint still runs alongside seven concurrent sub-project suites" {
     export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\nsq/sq.py\ne/e.py\nfactorial/factorial.py\ncollatz/collatz.py\namicable/amicable.py\namicable/install_deps.sh'
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
-    [[ "${output}" == *"skipping local tests"* ]]
+    [[ "${output}" != *"skipping local tests"* ]]
     grep -qxF "make -C ${BATS_TEST_TMPDIR}/fake-worktree lint-hooks" "${MOCK_CALLS_FILE}"
-    [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 1 ]
+    [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 8 ]
 }
 
 @test "a non-.sh file in a sub-project does not trigger lint-hooks" {
@@ -433,14 +527,16 @@ STUB
     assert_no_match "^make -C .*/\(pi\|e\|fib\) test"
 }
 
-@test "harness still runs when the >6 sub-project bail-out fires" {
+@test "harness still runs alongside seven concurrent sub-project suites" {
     setup_harness_stub
     export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\nsq/sq.py\ne/e.py\nfactorial/factorial.py\ncollatz/collatz.py\namicable/amicable.py\nscripts/cli_contract.py'
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
-    [[ "${output}" == *"skipping local tests"* ]]
+    [[ "${output}" != *"skipping local tests"* ]]
     [ "$(grep -c '^python3 ' "${MOCK_CALLS_FILE}")" -eq 8 ]
+    # 7 sub-project suites plus the root target that scripts/cli_contract.py triggers.
+    [ "$(grep -c '^make' "${MOCK_CALLS_FILE}")" -eq 8 ]
 }
 
 @test "a push not touching the harness runs no harness" {

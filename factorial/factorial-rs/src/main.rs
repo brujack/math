@@ -1,6 +1,8 @@
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 
+use clap::Parser;
+
 use factorial::calculate_factorial;
 
 fn fmt_int(n: u64) -> String {
@@ -97,10 +99,19 @@ fn run<R: BufRead, W: Write, E: Write>(
 // Entry point
 // ---------------------------------------------------------------------------
 
+/// Command-line arguments; `n` stays a string so `run` keeps its own parse error message.
+#[derive(Parser, Debug)]
+#[command(version, about = "Compute N! with prime swing, GMP and rayon")]
+struct Cli {
+    /// N to compute N! for (prompted for when omitted)
+    #[arg(value_name = "N", allow_hyphen_values = true)]
+    n: Option<String>,
+}
+
 #[cfg(not(tarpaulin_include))]
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    let n_arg = args.get(1).map(|s| s.as_str());
+    let cli = Cli::parse();
+    let n_arg = cli.n.as_deref();
     let stdin = io::stdin();
     let mut reader = stdin.lock();
     let stdout = io::stdout();

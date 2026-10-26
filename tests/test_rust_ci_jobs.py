@@ -8,11 +8,20 @@ run side by side; the build job still waits only on `test` (core rule ci-020), a
 """
 
 import pathlib
+import sys
 import unittest
 
+import tomllib
 import yaml
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
+
+from scripts import render_crate_files as rcf
+
+# Spec R20: 15 s period x 3 = 45 s per test before nextest terminates it.
+SLOW_TIMEOUT = {"period": "15s", "terminate-after": 3}
+COVERAGE_TIMEOUT_MINUTES = 30
 CI_WORKFLOWS = sorted(
     p
     for p in (REPO_ROOT / ".github" / "workflows").glob("*-rs.yml")
@@ -91,6 +100,34 @@ class TestRustCiJobSplit(unittest.TestCase):
                     "taiki-e/install-action",
                 ):
                     self.assertIn(action, uses)
+
+
+class TestRustTimeBounds(unittest.TestCase):
+    def nextest(self, crate):
+        path = REPO_ROOT / crate / f"{crate}-rs" / ".config" / "nextest.toml"
+        return tomllib.loads(path.read_text())["profile"]
+
+    def test_every_crate_bounds_a_single_test(self):
+        for crate in rcf.CRATES:
+            with self.subTest(crate=crate):
+                self.assertEqual(
+                    self.nextest(crate)["default"]["slow-timeout"], SLOW_TIMEOUT
+                )
+
+    def test_ci_profile_inherits_the_bound(self):
+        # nextest's ci profile inherits default for any key it does not set, so the
+        # bound reaches CI only while ci stays silent on slow-timeout.
+        for crate in rcf.CRATES:
+            with self.subTest(crate=crate):
+                self.assertNotIn("slow-timeout", self.nextest(crate)["ci"])
+
+    def test_coverage_job_is_time_bounded(self):
+        for path in CI_WORKFLOWS:
+            with self.subTest(workflow=path.name):
+                self.assertEqual(
+                    jobs_of(path)["coverage"]["timeout-minutes"],
+                    COVERAGE_TIMEOUT_MINUTES,
+                )
 
 
 if __name__ == "__main__":

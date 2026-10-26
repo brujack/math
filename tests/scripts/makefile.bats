@@ -571,3 +571,87 @@ STUB
         [ -e "${d}/notes.txt" ]
     done
 }
+
+# test-rust: the real make runs the root target; PATH is then shadowed by the make
+# mock alone (not load_mocks, whose git mock would empty the derived crate list) so
+# the sub-makes parallel-make-test.sh starts are recorded, not executed.
+setup_test_rust() {
+    REAL_MAKE="$(command -v make)"
+    mkdir -p "${BATS_TEST_TMPDIR}/bin"
+    ln -s "${REPO_ROOT}/tests/mocks/make" "${BATS_TEST_TMPDIR}/bin/make"
+    export PATH="${BATS_TEST_TMPDIR}/bin:${PATH}"
+    export MOCK_CALLS_FILE="${BATS_TEST_TMPDIR}/calls"
+    : > "${MOCK_CALLS_FILE}"
+    EXPECTED_DIRS="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git -C "${REPO_ROOT}" ls-files '*/*-rs/Makefile' | sed 's|/Makefile$||')"
+}
+
+@test "make test-rust runs make test once in each of the 11 Rust crates" {
+    setup_test_rust
+    [ "$(printf '%s\n' "${EXPECTED_DIRS}" | wc -l)" -eq 11 ]
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u JOBS "${REAL_MAKE}" -C "${REPO_ROOT}" test-rust JOBS=3 --no-print-directory
+    [ "${status}" -eq 0 ]
+    # GNU make's $(CURDIR) is the physical path (macOS /var -> /private/var), while
+    # REPO_ROOT is the logical one, so the expected calls use the physical root.
+    local dir root
+    root="$(cd "${REPO_ROOT}" && pwd -P)"
+    for dir in ${EXPECTED_DIRS}; do
+        [ "$(grep -cxF "make -C ${root}/${dir} test" "${MOCK_CALLS_FILE}")" -eq 1 ]
+        [[ "${output}" == *"ok ${dir}"* ]]
+    done
+    [ "$(grep -c '^make -C ' "${MOCK_CALLS_FILE}")" -eq 11 ]
+}
+
+@test "make test-rust fails and names the crate when one crate's tests fail" {
+    setup_test_rust
+    export MOCK_MAKE_FAIL_DIR=fib/fib-rs
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u JOBS "${REAL_MAKE}" -C "${REPO_ROOT}" test-rust JOBS=3 --no-print-directory
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"FAIL fib/fib-rs"* ]]
+}
+
+@test "make test-rust refuses an empty crate list with a message" {
+    setup_test_rust
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u JOBS "${REAL_MAKE}" -C "${REPO_ROOT}" test-rust RUST_CRATE_DIRS= --no-print-directory
+    # make reports a failed recipe as its own exit 2; the guard's exit 1 is the cause.
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"no Rust crates found"* ]]
+    [ ! -s "${MOCK_CALLS_FILE}" ]
+}
+
+@test "make test-rust derives the crate list even with a decoy GIT_DIR exported" {
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u JOBS GIT_DIR=/nonexistent make -C "${REPO_ROOT}" -n test-rust --no-print-directory
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"twin-primes/twin-primes-rs"* ]]
+    [ "$(printf '%s\n' "${output}" | grep -o '[a-z-]*/[a-z-]*-rs' | sort -u | wc -l)" -eq 11 ]
+}
+
+# The concurrency probe in the make mock records, per call, how many calls were live
+# at once. JOBS=1 must never overlap; JOBS=3 over 11 crates must overlap at least once.
+# Together they pin that `make test-rust JOBS=N` reaches the runner in both directions.
+run_test_rust_with_probe() {
+    local jobs="$1"
+    setup_test_rust
+    PROBE_DIR="${BATS_TEST_TMPDIR}/probe"
+    mkdir -p "${PROBE_DIR}"
+    export MOCK_MAKE_CONCURRENCY_DIR="${PROBE_DIR}"
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u JOBS "${REAL_MAKE}" -C "${REPO_ROOT}" test-rust JOBS="${jobs}" --no-print-directory
+    [ "${status}" -eq 0 ]
+    local seen=("${PROBE_DIR}"/seen.*)
+    [ "${#seen[@]}" -eq 11 ]
+    PROBE_MAX=0
+    local f v
+    for f in "${seen[@]}"; do
+        v="$(cat "${f}")"
+        if [ "${v}" -gt "${PROBE_MAX}" ]; then PROBE_MAX="${v}"; fi
+    done
+}
+
+@test "make test-rust JOBS=1 never runs two crate suites at once" {
+    run_test_rust_with_probe 1
+    [ "${PROBE_MAX}" -eq 1 ]
+}
+
+@test "make test-rust JOBS=3 runs crate suites concurrently" {
+    run_test_rust_with_probe 3
+    [ "${PROBE_MAX}" -gt 1 ]
+}

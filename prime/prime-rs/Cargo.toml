@@ -13,10 +13,7 @@ name = "prime"
 path = "src/lib.rs"
 
 [dependencies]
-# Work-stealing thread pool for parallel segment processing.
 rayon = "1"
-
-# CLI argument parsing.
 clap = { version = "4", features = ["derive"] }
 
 [dev-dependencies]
@@ -36,6 +33,6 @@ missing_debug_implementations = "warn"
 wrong_self_convention = "warn"
 
 [profile.release]
-opt-level   = 3
-lto         = "thin"
+opt-level     = 3
+lto           = "thin"
 codegen-units = 1

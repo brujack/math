@@ -10,7 +10,7 @@ A trailing pointer on a rule means: before acting on that rule's subject, read t
 
 High-performance mathematical computation tools.
 
-Each sub-project has its own `CLAUDE.md`, the source of truth for its implementation detail (`twin-primes`' is `twin-primes/twin-primes-rs/CLAUDE.md`); keep this file and those in sync. → ai-config/docs/knowledge/math-overview.md § Sub-project table
+Each sub-project has its own `CLAUDE.md`, the source of truth for its implementation detail (every crate's is `<crate>/<crate>-rs/CLAUDE.md`); keep this file and those in sync. → ai-config/docs/knowledge/math-overview.md § Sub-project table
 Sub-projects (dir: language): `pi/` Python+Rust, `prime/` Rust, `fib/` Python+Rust, `sq/` Python+Rust, `twin-primes/` Rust, `e/` Python+Rust, `factorial/` Python+Rust, `perfect-numbers/` Python+Rust, `collatz/` Python+Rust, `goldbach/` Rust, `amicable/` Python+Rust. → ai-config/docs/knowledge/math-overview.md § Sub-project table
 Rust crates live at `<project>/<project>-rs/` (all 11 projects, e.g. `pi/pi-rs`, `twin-primes/twin-primes-rs`); the 8 Python sub-projects sit at `<project>/` (pi, fib, sq, e, factorial, perfect-numbers, collatz, amicable).
 
@@ -75,6 +75,8 @@ Every `pip install` in the 8 `*-py.yml` workflows and 8 Python `install_deps.sh`
 Root `make lint` runs `ruff check .` plus `ruff format --check` scoped to `git ls-files '*.py'` (never `ruff format --check .`, which rewrites markdown code blocks) alongside `lint-hooks`. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 `lint-python` exits 0 when ruff is missing (so a machine can still commit the fix); `scripts.yml` installs ruff so CI enforces it, and `tests/scripts/makefile.bats` asserts that. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 The two `# noqa: C901` directives in `e/e.py` and `pi/pi.py` are load-bearing: `maintainability-review` runs `ruff check --select C901` on the CLI, which overrides config, so removing one without refactoring reads as a 0 → 21 regression. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
+
+Root `make test-rust` runs `make test` in all 11 crates concurrently via `scripts/parallel-make-test.sh` (`JOBS` default 8, crate list derived from `git ls-files '*/*-rs/Makefile'`, exits non-zero on an empty list or any `FAIL <crate>`); covered by `tests/scripts/makefile.bats`.
 
 ### Rust lint/test wrapper (`scripts/rust-check.sh`)
 
@@ -172,11 +174,11 @@ Release and CI jobs run Node.js 24 with `actions/checkout@v7`; Rust builds `need
 Pre-commit: `scripts/pre-commit` (installed by `make install-hooks`) runs `make lint` on staged sub-projects and `ggshield secret scan pre-commit` (skipped if absent); install ggshield locally. → ai-config/docs/knowledge/math-ci.md § Pre-commit hook
 
 
-Pre-push: `scripts/pre-push` (installed by `make install-hooks`) runs `make test` per sub-project with `.py`/`.rs` source changes, and the root `make test` (`lint test-hooks test-python`) when the push touches `scripts/`, `tests/`, `typings/` or the root `Makefile`, else root `make lint-hooks` when it touches any `.sh` (e.g. an `install_deps.sh`), and `scripts/cli_contract.py` alone over the 8 Python CLIs when the push touches it, and refuses a pushed commit that changes `CLAUDE.md` past the 30000-byte ceiling; it skips branch deletions and is permanent. → ai-config/docs/knowledge/math-ci.md § Pre-push hook
+Pre-push: `scripts/pre-push` (installed by `make install-hooks`) runs `make test` concurrently (`scripts/parallel-make-test.sh`, `PRE_PUSH_JOBS` default 8, one log and status file per sub-project, no skip at any count) for sub-projects with `.py`/`.rs` source changes, and the root `make test` (`lint test-hooks test-python`) when the push touches `scripts/`, `tests/`, `typings/` or the root `Makefile`, else root `make lint-hooks` when it touches any `.sh` (e.g. an `install_deps.sh`), and `scripts/cli_contract.py` alone over the 8 Python CLIs when the push touches it, and refuses a pushed commit that changes `CLAUDE.md` past the 30000-byte ceiling; it skips branch deletions and is permanent. → ai-config/docs/knowledge/math-ci.md § Pre-push hook
 math's hooks bypass root `test:`, so fix the hooks (not the root target) when lint or test coverage on push is wrong. → ai-config/docs/knowledge/math-ci.md § Pre-push hook
 
 
-Trigger pre-push tests on `.py`/`.rs` source changes only; Makefile, workflow and doc changes must not run the suites (macOS `resource_tracker` daemons accumulate and hang), and run `make test < /dev/null`. → ai-config/docs/knowledge/math-ci.md § resource_tracker gotcha
+Trigger pre-push tests on `.py`/`.rs` source changes only; Makefile, workflow and doc changes must not run the suites, and run each `make test < /dev/null` (the `resource_tracker` hang; measured not to recur concurrently, so there is no sub-project-count skip). → ai-config/docs/knowledge/math-ci.md § resource_tracker gotcha
 
 
 `scripts/pre-push` resolves the repo root with `git rev-parse --show-toplevel` first, `--git-common-dir` parent only as fallback, or worktrees test the shared checkout instead of the feature worktree. → ai-config/docs/knowledge/math-ci.md § Worktree compatibility
@@ -214,6 +216,7 @@ The floor is a regression ratchet over the reachable quarter of the denominator,
 `scripts/ci-gate.sh <PR>` polls the check-runs API (latest run per workflow and check name, so a superseded cancelled run is ignored) and fails on any non-advisory failure (`snyk-scan` is advisory; `secret-scan` and `auto-merge` are self-checks); tested via `tests/scripts/ci_gate.bats` with `tests/mocks/gh`. → ai-config/docs/knowledge/math-ci.md § Auto-merge gate
 
 
+Every Rust test is bounded to 45 s (nextest `[profile.default]` `slow-timeout = { period = "15s", terminate-after = 3 }`, inherited by `ci`) and every `coverage` job to `timeout-minutes: 30` (`tests/test_rust_ci_jobs.py`); both come from the templates.
 Every `<crate>-rs.yml` runs `make test` with `NEXTEST_PROFILE: ci` (JUnit in `target/nextest/ci/junit.xml`) and publishes `test-metrics-<crate>-rs` via `scripts/test_metrics.py`, which needs `pip install defusedxml==0.7.1` (step `Install Python dependencies`, `if: always()`) immediately before `Generate test metrics`, or CI fails with `ModuleNotFoundError`. → ai-config/docs/knowledge/math-ci.md § test_metrics.py in Rust workflows
 
 

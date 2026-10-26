@@ -1,3 +1,33 @@
 #!/usr/bin/env bash
 printf "make %s\n" "$*" >> "${MOCK_CALLS_FILE:-/tmp/mock_calls}"
+# The target directory is the argument after -C; failure injection matches its
+# basename-relative tail so a test can pick one sub-project among several.
+target=""
+while [[ "$#" -gt 0 ]]; do
+    if [[ "$1" == "-C" ]]; then
+        target="$2"
+        break
+    fi
+    shift
+done
+# Opt-in concurrency probe. Each call drops a marker, waits so overlapping calls
+# coexist, records how many markers are live in its own seen.<pid> file, then
+# removes its marker. Per-call files avoid a racy shared max and need no flock,
+# so it behaves the same on Linux and macOS.
+if [[ -n "${MOCK_MAKE_CONCURRENCY_DIR:-}" ]]; then
+    probe="${MOCK_MAKE_CONCURRENCY_DIR}"
+    : > "${probe}/marker.$$"
+    sleep 0.3
+    live=("${probe}"/marker.*)
+    printf '%s\n' "${#live[@]}" > "${probe}/seen.$$"
+    rm -f "${probe}/marker.$$"
+fi
+if [[ -n "${MOCK_MAKE_FAIL_DIR:-}" && "${target}" == */"${MOCK_MAKE_FAIL_DIR}" ]]; then
+    printf "mock make: simulated failure in %s\n" "${target}"
+    exit 1
+fi
+if [[ -n "${MOCK_MAKE_KILL_DIR:-}" && "${target}" == */"${MOCK_MAKE_KILL_DIR}" ]]; then
+    kill -KILL "${PPID}"
+    exit 1
+fi
 exit "${MOCK_MAKE_EXIT:-0}"
