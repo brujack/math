@@ -115,7 +115,7 @@ fn regression_progress_thread_does_not_deadlock_on_locked_stderr() {
 
     let dir = tempdir().unwrap();
     let mut child = Command::new(bin())
-        .arg("10000000")
+        .arg("20000000")
         .current_dir(dir.path())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
