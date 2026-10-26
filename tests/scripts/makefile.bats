@@ -2,10 +2,45 @@
 
 load '../helpers/common'
 
-@test "make test-hooks recipe calls bats --recursive tests/" {
-    run make -C "${REPO_ROOT}" -n test-hooks --no-print-directory
+# HAVE_PARALLEL is forced on the command line in each case below: the default is
+# detected from the host, and a test that passes only where GNU parallel happens to
+# be installed says nothing about the branch it is not on.
+@test "make test-hooks without GNU parallel runs bats --recursive tests/ serially" {
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u JOBS -u HAVE_PARALLEL make -C "${REPO_ROOT}" -n test-hooks HAVE_PARALLEL= --no-print-directory
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"bats --recursive tests/"* ]]
+    [[ "${output}" != *"--jobs"* ]]
+}
+
+@test "make test-hooks without GNU parallel prints a notice naming the remedy" {
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u JOBS -u HAVE_PARALLEL make -C "${REPO_ROOT}" -n test-hooks HAVE_PARALLEL= --no-print-directory
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"GNU parallel not found"* ]]
+    [[ "${output}" == *"apt-get install parallel"* ]]
+    [[ "${output}" == *"brew install parallel"* ]]
+}
+
+@test "make test-hooks with GNU parallel runs bats --jobs 8 --recursive tests/" {
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u JOBS -u HAVE_PARALLEL make -C "${REPO_ROOT}" -n test-hooks HAVE_PARALLEL=yes --no-print-directory
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"bats --jobs 8 --recursive tests/"* ]]
+    [[ "${output}" != *"GNU parallel not found"* ]]
+}
+
+@test "make test-hooks honours a JOBS override" {
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u JOBS -u HAVE_PARALLEL make -C "${REPO_ROOT}" -n test-hooks HAVE_PARALLEL=yes JOBS=3 --no-print-directory
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"bats --jobs 3 --recursive tests/"* ]]
+}
+
+@test "make test-hooks treats a non-GNU parallel as absent" {
+    # moreutils ships a different `parallel` that rejects bats' flags.
+    mkdir -p "${BATS_TEST_TMPDIR}/bin"
+    printf '#!/bin/sh\necho "parallel from moreutils"\n' > "${BATS_TEST_TMPDIR}/bin/parallel"
+    chmod +x "${BATS_TEST_TMPDIR}/bin/parallel"
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u JOBS -u HAVE_PARALLEL PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" make -C "${REPO_ROOT}" -n test-hooks --no-print-directory
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"GNU parallel not found"* ]]
 }
 
 @test "make install-hooks recipe links pre-commit hook" {
@@ -65,7 +100,7 @@ load '../helpers/common'
 
     while IFS= read -r wf; do
         [[ -z "${wf}" ]] && continue
-        grep -qE '^[[:space:]]*run:[[:space:]]*cargo install cargo-machete' \
+        grep -qE '^[[:space:]]*(run:[[:space:]]*cargo install cargo-machete|tool:[[:space:]]*.*cargo-machete@[0-9])' \
             "${REPO_ROOT}/${wf}" || missing="${missing}${wf} "
     done <<< "${workflows}"
 

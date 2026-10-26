@@ -25,6 +25,13 @@ setup() {
     [[ "$output" == *"Test pi-rs"* ]]
 }
 
+@test "failing Coverage check blocks merge even when Test passes → exit 1 naming it" {
+    run bash -c "GITHUB_REPOSITORY=test-owner/test-repo MOCK_GH_PR_SHA=abc123 MOCK_GH_CHECK_RUNS_1='{\"name\":\"Test pi-rs\",\"status\":\"completed\",\"conclusion\":\"success\"}
+{\"name\":\"Coverage pi-rs\",\"status\":\"completed\",\"conclusion\":\"failure\"}' MOCK_GH_COUNTER_FILE=${BATS_TEST_TMPDIR}/gh_counter_cov CI_GATE_POLL_INTERVAL=0 CI_GATE_MAX_POLLS=5 ${REPO_ROOT}/scripts/ci-gate.sh 42 2>&1"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Coverage pi-rs"* ]]
+}
+
 @test "advisory snyk-scan failure with required passing → exit 0" {
     export MOCK_GH_CHECK_RUNS_1='{"name":"Test pi-rs","status":"completed","conclusion":"success"}
 {"name":"snyk-scan","status":"completed","conclusion":"failure"}'
