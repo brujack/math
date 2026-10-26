@@ -374,3 +374,41 @@ Disposition: Addressed. R17 re-anchors the patterns and adds a test that each ma
 ### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+### Round 2
+
+Reviewed at commit: `7ebf29b` (round-1 revisions and parallel local tests)
+
+**Goal-Fit.**
+- Finding: the harness's binary was fresh only because every crate happens to have an integration
+  test; cargo builds binaries only for those. Round 1's "twin-primes has no `tests/cli.rs`" was
+  false (11 of 11 have one).
+- Disposition: Addressed. The rendered `test` target runs `cargo build` before the harness, a
+  test requires `tests/cli.rs` in all 11 (R12), and the false sentence is removed.
+
+**Ergonomics.**
+- Finding: R18 removed the "more than 6: skip" macOS guard without evidence, and its log-only
+  output would show nothing during a hang.
+- Measurement: on the Mac Studio, the 8 Python suites ran 4 at a time with no hang and no leftover
+  `resource_tracker` processes. pi and e failed on a separate spawn-precision bug, fixed in
+  math#174.
+- Disposition: Addressed. The guard's removal now rests on that measurement. R18 gained per-job
+  status files, missing status = FAIL and a killed-job bats case. The default job count is 8,
+  because every development machine is workstation-class. V5 and V6 require macOS runs.
+
+**Risk.**
+- Finding 1: measuring thresholds on pre-rewrite binaries would record the pi and prime deadlock
+  as a threshold. That deadlock was fixed in math#175.
+- Finding 2: `ulimit -v` caps virtual size, and the rayon crates reserve GiB at small sizes.
+- Finding 3: R16's signature dropped `err` and `dir`.
+- Finding 4: xargs exit-status semantics.
+- Finding 5: R17's test would run where the drift does not happen.
+- Disposition: Addressed. R5 measures after each rewrite, using max RSS and CPU-time evidence and
+  no `ulimit -v`. R16 adds `err` and `dir`, with unlocked stdout and stderr. R18 uses status files.
+  R17's anchor check moves into the rendered `mutants` recipe.
+
+**Added by the operator after round 2:**
+- R20: system GMP and MPFR for the 5 `rug` crates.
+- R21: the nextest `slow-timeout` bound.
+
+Both follow measurements made while fixing math#174-#177.
