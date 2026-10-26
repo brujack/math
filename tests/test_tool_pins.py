@@ -107,6 +107,14 @@ def pip_installs():
                     yield path.relative_to(REPO_ROOT).as_posix(), token
 
 
+def _version_of(entry: str) -> str:
+    """Version of a `name@X.Y.Z` tool entry; fails loudly on any other form."""
+    match = _TOOL_SPEC.match(entry)
+    if match is None:
+        raise AssertionError(f"tool entry is not name@X.Y.Z: {entry!r}")
+    return match["version"]
+
+
 class TestCargoInstallPins(unittest.TestCase):
     def test_every_cargo_install_is_locked_and_versioned(self):
         sites = list(cargo_installs())
@@ -128,7 +136,7 @@ class TestCargoInstallPins(unittest.TestCase):
 class TestInstallActionPins(unittest.TestCase):
     """Prebuilt-binary installs via taiki-e/install-action are pinned like cargo installs."""
 
-    def _write(self, tmp, tool, fallback="none"):
+    def _write(self, tmp, tool, fallback: str | None = "none"):
         path = pathlib.Path(tmp) / "fixture.yml"
         with_block = {"tool": tool}
         if fallback is not None:
@@ -195,7 +203,8 @@ class TestInstallActionPins(unittest.TestCase):
         for name, step in install_action_steps():
             with self.subTest(file=name):
                 match = _ACTION_SHA.match(step["uses"])
-                self.assertIsNotNone(match, step["uses"])
+                if match is None:
+                    self.fail(f"not pinned by a full commit SHA: {step['uses']}")
                 shas.add(match["sha"])
         self.assertEqual(len(shas), 1, shas)
 
@@ -241,7 +250,7 @@ class TestInstallActionPins(unittest.TestCase):
 
     def test_release_only_tool_has_one_version(self):
         versions = {
-            _TOOL_SPEC.match(entry)["version"]
+            _version_of(entry)
             for _, step in install_action_steps()
             for entry in action_tools(step)
             if entry.startswith(AUDITABLE + "@")
