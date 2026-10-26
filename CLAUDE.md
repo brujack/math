@@ -172,11 +172,11 @@ Release and CI jobs run Node.js 24 with `actions/checkout@v7`; Rust builds `need
 Pre-commit: `scripts/pre-commit` (installed by `make install-hooks`) runs `make lint` on staged sub-projects and `ggshield secret scan pre-commit` (skipped if absent); install ggshield locally. → ai-config/docs/knowledge/math-ci.md § Pre-commit hook
 
 
-Pre-push: `scripts/pre-push` (installed by `make install-hooks`) runs `make test` per sub-project with `.py`/`.rs` source changes, and the root `make test` (`lint test-hooks test-python`) when the push touches `scripts/`, `tests/`, `typings/` or the root `Makefile`, else root `make lint-hooks` when it touches any `.sh` (e.g. an `install_deps.sh`), and `scripts/cli_contract.py` alone over the 8 Python CLIs when the push touches it, and refuses a pushed commit that changes `CLAUDE.md` past the 30000-byte ceiling; it skips branch deletions and is permanent. → ai-config/docs/knowledge/math-ci.md § Pre-push hook
+Pre-push: `scripts/pre-push` (installed by `make install-hooks`) runs `make test` concurrently (`scripts/parallel-make-test.sh`, `PRE_PUSH_JOBS` default 8, one log and status file per sub-project, no skip at any count) for sub-projects with `.py`/`.rs` source changes, and the root `make test` (`lint test-hooks test-python`) when the push touches `scripts/`, `tests/`, `typings/` or the root `Makefile`, else root `make lint-hooks` when it touches any `.sh` (e.g. an `install_deps.sh`), and `scripts/cli_contract.py` alone over the 8 Python CLIs when the push touches it, and refuses a pushed commit that changes `CLAUDE.md` past the 30000-byte ceiling; it skips branch deletions and is permanent. → ai-config/docs/knowledge/math-ci.md § Pre-push hook
 math's hooks bypass root `test:`, so fix the hooks (not the root target) when lint or test coverage on push is wrong. → ai-config/docs/knowledge/math-ci.md § Pre-push hook
 
 
-Trigger pre-push tests on `.py`/`.rs` source changes only; Makefile, workflow and doc changes must not run the suites (macOS `resource_tracker` daemons accumulate and hang), and run `make test < /dev/null`. → ai-config/docs/knowledge/math-ci.md § resource_tracker gotcha
+Trigger pre-push tests on `.py`/`.rs` source changes only; Makefile, workflow and doc changes must not run the suites, and run each `make test < /dev/null` (the `resource_tracker` hang; measured not to recur concurrently, so there is no sub-project-count skip). → ai-config/docs/knowledge/math-ci.md § resource_tracker gotcha
 
 
 `scripts/pre-push` resolves the repo root with `git rev-parse --show-toplevel` first, `--git-common-dir` parent only as fallback, or worktrees test the shared checkout instead of the feature worktree. → ai-config/docs/knowledge/math-ci.md § Worktree compatibility

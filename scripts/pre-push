@@ -9,6 +9,17 @@ if [[ -z "${REPO_ROOT}" ]]; then
     REPO_ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)" \
         || { printf "pre-push: could not determine repo root\n" >&2; exit 1; }
 fi
+# The installed hook is a symlink into the main checkout; resolve it by hand
+# (BSD readlink has no -f on older macOS) to find the runner beside the target.
+_src="${BASH_SOURCE[0]}"
+while [[ -L "${_src}" ]]; do
+    _link="$(readlink "${_src}")"
+    case "${_link}" in
+        /*) _src="${_link}" ;;
+        *) _src="$(dirname "${_src}")/${_link}" ;;
+    esac
+done
+HOOK_DIR="$(cd "$(dirname "${_src}")" && pwd -P)"
 DIRS_TO_TEST=()
 # The sub-project loop below only ever matches `<dir>/*.py` or `<dir>/**/*.rs`,
 # so a change to the hooks themselves, or to the bats suites that cover them,
@@ -21,7 +32,7 @@ RUN_HOOK_TESTS=0
 RUN_SHELL_LINT=0
 # Set when the shared CLI harness itself changed. The harness checks all 8
 # Python CLIs, so it runs alone over them (no pytest) regardless of which
-# sub-project suites the push selects, and regardless of the >6 bail-out.
+# sub-project suites the push selects.
 RUN_CLI_CONTRACT=0
 # SHAs refused by the CLAUDE.md byte-ceiling check; acted on after the ref loop
 # so every pushed ref is examined and the refusal precedes all early exits.
@@ -149,8 +160,7 @@ fi
 
 # Must run before both early exits below. The "no sub-projects" exit fires on
 # exactly the case this clause exists for — a scripts/- or bats-only push has an
-# empty DIRS_TO_TEST — and the >6 bail-out is about macOS process-isolation
-# limits in the Python suites, which the bats suite does not share.
+# empty DIRS_TO_TEST.
 if [[ "${RUN_HOOK_TESTS}" -eq 1 ]]; then
     printf "test: hooks and scripts (bats)\n"
     make -C "${REPO_ROOT}" test < /dev/null || exit 1
@@ -162,7 +172,7 @@ fi
 
 # Like the hook tests above, this precedes both early exits: the harness is the
 # one check that must run when only scripts/cli_contract.py changed (empty
-# DIRS_TO_TEST) and when the change is wide enough to trip the >6 bail-out.
+# DIRS_TO_TEST).
 # Each project is (directory, program file); the harness runs from the project
 # directory because it resolves the program relative to the working directory.
 if [[ "${RUN_CLI_CONTRACT}" -eq 1 ]]; then
@@ -180,23 +190,12 @@ if [[ "${#DIRS_TO_TEST[@]}" -eq 0 ]]; then
     exit 0
 fi
 
-# Cross-cutting changes (>6 sub-projects) cause Python multiprocessing
-# resource_tracker daemons to accumulate across sequential suites on macOS,
-# exhausting semaphores and hanging. CI runs each job in isolation — it is
-# the correct gate for large-scope changes. Skip locally and let CI handle it.
 UNIQUE_DIRS=()
 while IFS= read -r d; do UNIQUE_DIRS+=("$d"); done \
     < <(printf '%s\n' "${DIRS_TO_TEST[@]}" | sort -u)
 
-if [[ "${#UNIQUE_DIRS[@]}" -gt 6 ]]; then
-    printf "pre-push: %d sub-projects changed — skipping local tests (too many for macOS process isolation).\n" "${#UNIQUE_DIRS[@]}"
-    printf "CI will run all suites in isolation. Push proceeding.\n"
-    exit 0
-fi
-
-for dir in "${UNIQUE_DIRS[@]}"; do
-    printf "test: %s\n" "${dir}"
-    # Redirect stdin from /dev/null — prevents Python multiprocessing
-    # resource_tracker from inheriting git's push pipe and deadlocking.
-    make -C "${REPO_ROOT}/${dir}" test < /dev/null
-done
+# Suites run concurrently with a status file per job (parallel-make-test.sh),
+# stdin from /dev/null so Python multiprocessing's resource_tracker cannot
+# inherit git's push pipe. There is no sub-project-count bail-out: it was
+# measured not to be needed (spec 2026-10-25 R18).
+"${HOOK_DIR}/parallel-make-test.sh" "${PRE_PUSH_JOBS:-8}" "${REPO_ROOT}" "${UNIQUE_DIRS[@]}" || exit 1

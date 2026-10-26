@@ -1,3 +1,21 @@
 #!/usr/bin/env bash
 printf "make %s\n" "$*" >> "${MOCK_CALLS_FILE:-/tmp/mock_calls}"
+# The target directory is the argument after -C; failure injection matches its
+# basename-relative tail so a test can pick one sub-project among several.
+target=""
+while [[ "$#" -gt 0 ]]; do
+    if [[ "$1" == "-C" ]]; then
+        target="$2"
+        break
+    fi
+    shift
+done
+if [[ -n "${MOCK_MAKE_FAIL_DIR:-}" && "${target}" == */"${MOCK_MAKE_FAIL_DIR}" ]]; then
+    printf "mock make: simulated failure in %s\n" "${target}"
+    exit 1
+fi
+if [[ -n "${MOCK_MAKE_KILL_DIR:-}" && "${target}" == */"${MOCK_MAKE_KILL_DIR}" ]]; then
+    kill -KILL "${PPID}"
+    exit 1
+fi
 exit "${MOCK_MAKE_EXIT:-0}"
