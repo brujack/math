@@ -19,7 +19,10 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
+from io import StringIO
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = REPO_ROOT / "pyrightconfig.json"
@@ -94,6 +97,18 @@ def error_lines(report: dict, root: Path) -> list[str]:
         line = diag["range"]["start"]["line"] + 1
         lines.append(f"{name}:{line} {diag.get('rule', '-')} {diag['message']}")
     return lines
+
+
+SKIP_LINE = (
+    "pyright not found; root type errors are unchecked locally (run: make install-deps)"
+)
+
+
+def error_problem(report: dict, root: Path) -> str | None:
+    """None when the report has no errors, else a message listing them."""
+    if report["summary"]["errorCount"] == 0:
+        return None
+    return "pyright errors:\n" + "\n".join(error_lines(report, root))
 
 
 def version_problem(report: dict, pin: str) -> str | None:
@@ -198,6 +213,41 @@ class TestPyrightHelpers(unittest.TestCase):
         self.assertRegex(pinned_pyright(text), r"^\d+\.\d+\.\d+$")
 
 
+class TestSkipPath(unittest.TestCase):
+    def _setup(self, env_has_ci: bool):
+        class Probe(TestRootPyrightCoverage):
+            pass
+
+        env = {"CI": "true"} if env_has_ci else {}
+        buf = StringIO()
+        with (
+            mock.patch("shutil.which", return_value=None),
+            mock.patch.dict(os.environ, env),
+            redirect_stderr(buf),
+        ):
+            if not env_has_ci:
+                os.environ.pop("CI", None)
+            try:
+                Probe.setUpClass()
+            except RuntimeError as exc:
+                return Probe, buf.getvalue(), exc
+        return Probe, buf.getvalue(), None
+
+    def test_absent_pyright_outside_ci_writes_exact_line_and_skips(self):
+        probe, err, exc = self._setup(env_has_ci=False)
+        self.assertIsNone(exc)
+        self.assertEqual(err, SKIP_LINE + "\n")
+        self.assertIsNone(probe.pyright_bin)
+        self.assertNotIn("report", vars(probe))
+        with self.assertRaises(unittest.SkipTest):
+            probe("test_no_pyright_errors").setUp()
+
+    def test_absent_pyright_in_ci_raises(self):
+        _, err, exc = self._setup(env_has_ci=True)
+        self.assertIsInstance(exc, RuntimeError)
+        self.assertEqual(err, "")
+
+
 class TestRootPyrightCoverage(unittest.TestCase):
     """pyright's file count, error count and engine version at the repo root."""
 
@@ -216,10 +266,7 @@ class TestRootPyrightCoverage(unittest.TestCase):
                 raise RuntimeError(
                     "pyright is required in CI but was not found on PATH"
                 )
-            sys.stderr.write(
-                "SKIP: pyright not found on PATH; root type errors are not checked "
-                "(run `make install-deps`)\n"
-            )
+            sys.stderr.write(SKIP_LINE + "\n")
             return
         try:
             cls.report = _run_pyright(cls.pyright_bin, REPO_ROOT)
@@ -262,17 +309,36 @@ class TestRootPyrightCoverage(unittest.TestCase):
         )
 
     def test_no_pyright_errors(self):
-        report = self._report()
-        self.assertEqual(
-            report["summary"]["errorCount"],
-            0,
-            "pyright errors:\n" + "\n".join(error_lines(report, REPO_ROOT)),
-        )
+        problem = error_problem(self._report(), REPO_ROOT)
+        self.assertIsNone(problem, problem)
 
     def test_engine_version_matches_pin(self):
         text = (REPO_ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
         problem = version_problem(self._report(), pinned_pyright(text))
         self.assertIsNone(problem, problem)
+
+
+class TestErrorProblem(unittest.TestCase):
+    def test_zero_errors_is_none(self):
+        self.assertIsNone(error_problem(_REAL_REPORT, REPO_ROOT))
+
+    def test_one_error_exact_message(self):
+        report = {
+            "summary": {"errorCount": 1},
+            "generalDiagnostics": [
+                {
+                    "file": str(REPO_ROOT / "tests" / "a.py"),
+                    "severity": "error",
+                    "rule": "reportAssignmentType",
+                    "message": "bad",
+                    "range": {"start": {"line": 1, "character": 0}},
+                }
+            ],
+        }
+        self.assertEqual(
+            error_problem(report, REPO_ROOT),
+            "pyright errors:\ntests/a.py:2 reportAssignmentType bad",
+        )
 
 
 class TestSeededPyrightError(unittest.TestCase):
@@ -297,6 +363,8 @@ class TestSeededPyrightError(unittest.TestCase):
             self.assertEqual(diag["rule"], "reportAssignmentType")
             self.assertEqual(diag["range"]["start"]["line"] + 1, 2)
             self.assertEqual(len(error_lines(report, root.resolve())), 1)
+            problem = error_problem(report, root.resolve())
+            self.assertIn("reportAssignmentType", problem or "")
 
 
 if __name__ == "__main__":
