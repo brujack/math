@@ -164,3 +164,25 @@ setup() {
     [ "$status" -eq 1 ]
     grep -q 'actions/runs' "${MOCK_CALLS_FILE}"
 }
+
+# Exclusion is by exact name: a required check whose name merely is a substring of
+# an excluded one (here "scan" inside "snyk-scan") must still be gated.
+@test "required check named as a substring of an excluded name fails the gate → exit 1" {
+    export MOCK_GH_CHECK_RUNS_1='{"name":"scan","status":"completed","conclusion":"failure"}
+{"name":"snyk-scan","status":"completed","conclusion":"failure"}'
+    run bash -c "${REPO_ROOT}/scripts/ci-gate.sh 42 2>&1"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Required checks failed"* ]]
+    failed_block="${output#*Required checks failed:}"
+    [[ "$failed_block" == *"scan"* ]]
+    [[ "$failed_block" != *"snyk-scan"* ]]
+}
+
+@test "in-progress check named as a substring of an excluded name still blocks → timeout" {
+    export MOCK_GH_CHECK_RUNS='{"name":"scan","status":"in_progress","conclusion":""}'
+    export CI_GATE_MAX_POLLS=2
+    export CI_GATE_POLL_INTERVAL=0
+    run bash -c "${REPO_ROOT}/scripts/ci-gate.sh 42 2>&1"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Timeout: checks did not complete"* ]]
+}
