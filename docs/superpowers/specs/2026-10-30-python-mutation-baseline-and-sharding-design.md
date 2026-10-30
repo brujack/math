@@ -183,3 +183,65 @@ pytest. A test relying on a pytest-only feature passes `py.yml` and breaks every
 - **N4.** No change in behaviour of the Rust `mutation-testing.yml` or its use of `mutation-notify.sh`.
 - **N5.** No use of cosmic-ray's `http` distributor.
 - **N6.** No diff-scoped Python mutation in `mutation-pr.yml`.
+
+## Multi-Lens Review
+
+Reviewed at commit: `d8e8e94` (Step 7 self-review commit, before Step 8 dispatch)
+
+### Goal-Fit
+
+Finding: (1) The sharded matrix fails the reads-it test. Survivor counts land only in per-cell
+step summaries and a 30-day artifact; `mutation-notify.sh` never reads them (0 hits for
+`surviv`), N3 forbids gating on them, and no commit since 2026-06-01 acted on a Python survivor
+count. The matrix's only verdict-changing outputs are a baseline failure, a timeout or a dead
+runner, and R1 and R11 already catch the first. Either name a consumer, or split: PR1 = R1 and
+R11-R17 (the fail-closed fix), PR2 = sharding once a consumer exists. (2) R1 alone turns fake
+green into honest red; an unsharded pi then times out red rather than green. (3) R11's stated
+gap (a test that passes under pytest and fails under unittest) is caught in seconds by adding
+`python3 -m unittest test_@MODULE@` to the `py.yml` template, without installing cosmic-ray in
+`mutation-pr.yml`. Verification cases judged adequate. Premise verified: four monthly runs
+(July-October), all `success` at about 11 min.
+Assumption: someone acts on monthly Python survivor counts. Settled by asking the operator what
+reads the per-sub-project number and what decision it feeds.
+Disposition:
+
+### Ergonomics
+
+Finding: (1) A red `cosmic-ray baseline` gives no cause: it prints `Baseline failed` and an
+empty `>>>` block, because `result.output` is empty for an import error (verified in a scratch
+venv); running `python3 -m unittest test_fib` shows the `ImportError`. Re-run the test command
+on failure. (2) No run-level survivor total: reading a monthly run means 80 cell summaries, and
+`merge-multiple` overwrites the same-path `mutants-report.txt` and session files, keeping one
+shard in ten. The status line also lacks the shard id. (3) A shortfall names a count, not the
+missing `<dir>-<k>` cells; an empty `EXPECTED_STATUS_COUNT` silently behaves as unset. (4)
+Locally a real run is hours long, not resumable (`rm -f` before `init`) and not parallel in one
+checkout; document `MUTANT_SHARD=0/10` as the local sampling path and note the larger SIGKILL
+exposure in the Backlog row. (5) R13 passes if both lines are empty; require non-empty and
+containing `hypothesis`.
+Assumption: the `claude`-measured s/job holds on `ubuntu-latest` within the 2.8x margin. Settled
+by `gh workflow run mutation-testing-python.yml --ref <branch> -f subproject=pi` before merge.
+Disposition:
+
+### Risk
+
+Finding: (1) A timeout counts as a kill: cosmic-ray 8.7.0 `testing.py:71-74` returns
+`(TestOutcome.KILLED, "timeout")` (verified). On a slower runner, survivors past 60 s score as
+caught, and V1's "pi survivors > 0" still passes. Count `output = 'timeout'` rows per cell, put
+it in the status line, and go red above a stated fraction; also assert per cell that result rows
+equal `kept K` and `K > 0`. (2) `EXPECTED_STATUS_COUNT` cannot change a verdict where placed:
+`main()` returns on `RESULT == success` (line 104) before reading status files, and a dead cell
+already makes `RESULT` a failure. The case it can catch is `RESULT=success` with an incomplete
+download, so the check must run before the early return, with a bats case for it. (3) The
+expected count must be derived in `setup` from the validated list x 10, not from the emitted
+matrix (self-comparison) or a literal 80 (single-sub-project dispatch always red). (4)
+`merge-multiple` drops 9 of 10 report files per sub-project (same as Ergonomics 2). Matrix plus
+shard script judged proportionate; a blocking baseline step judged low risk. Premise verified:
+run 36822632196 log has 0 `hypothesis` matches and prints `surviving mutants: 0` for every
+sub-project.
+Assumption: on `ubuntu-latest` no meaningful fraction of mutant runs exceeds 60 s. Settled by a
+pre-merge dispatch for pi and sq, then counting `output='timeout'` rows in the uploaded session.
+Disposition:
+
+### Adversarial Spec Review (comparison/judge designs only)
+
+N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
