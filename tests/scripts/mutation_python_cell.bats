@@ -77,3 +77,24 @@ setup() {
     run -2 bash "${SCRIPT}" fib
     [ ! -e "${MOCK_CALLS_FILE}" ]
 }
+
+@test "unset GITHUB_WORKSPACE fails closed without calling make" {
+    unset GITHUB_WORKSPACE
+    run -2 bash "${SCRIPT}" fib 0 10
+    [[ "${output}" == *"mutation-python-cell: GITHUB_WORKSPACE unset"* ]]
+    [ ! -e "${MOCK_CALLS_FILE}" ]
+}
+
+@test "empty GITHUB_WORKSPACE fails closed without calling make" {
+    export GITHUB_WORKSPACE=""
+    run -2 bash "${SCRIPT}" fib 0 10
+    [[ "${output}" == *"mutation-python-cell: GITHUB_WORKSPACE unset"* ]]
+    [ ! -e "${MOCK_CALLS_FILE}" ]
+}
+
+@test "a directory at the status path fails with exit 2 without calling make" {
+    mkdir -p "${GITHUB_WORKSPACE}/status/fib-0"
+    run -2 bash "${SCRIPT}" fib 0 10
+    [[ "${output}" == *"is not a regular file"* ]]
+    [ ! -e "${MOCK_CALLS_FILE}" ]
+}

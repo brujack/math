@@ -29,17 +29,22 @@ validate_args() {
 main() {
     validate_args "$@" || return 2
     local _dir="$1" _k="$2" _n="$3"
+    [[ -n "${GITHUB_WORKSPACE:-}" ]] || { printf 'mutation-python-cell: GITHUB_WORKSPACE unset\n' >&2; return 2; }
     local _unit="${_dir}-${_k}"
     local _out="${GITHUB_WORKSPACE}/status/${_unit}"
     local _surv="${GITHUB_WORKSPACE}/survivors/${_unit}.txt"
     mkdir -p "${GITHUB_WORKSPACE}/status" "${GITHUB_WORKSPACE}/survivors" || return 1
     rm -f "${_out}" "${_surv}" || return 1
+    if [[ -e "${_out}" && ! -f "${_out}" ]]; then
+        printf 'mutation-python-cell: %s is not a regular file\n' "${_out}" >&2
+        return 2
+    fi
 
     local _rc=0
     make -C "${_dir}" mutants MUTANT_SHARD="${_k}/${_n}" CELL_LABEL="${_unit}" \
         STATUS_OUT="${_out}" SURVIVORS_OUT="${_surv}" || _rc=$?
 
-    if [[ ! -e "${_out}" ]]; then
+    if [[ ! -f "${_out}" ]]; then
         [[ "${_rc}" -eq 0 ]] && _rc=1
         printf 'red: %s — make mutants failed (exit %s)\n' "${_unit}" "${_rc}" > "${_out}" || return 1
     fi
