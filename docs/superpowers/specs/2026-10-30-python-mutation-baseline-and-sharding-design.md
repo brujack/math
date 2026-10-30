@@ -324,6 +324,10 @@ Python PR.
 ## Amendments
 
 - R8 -> `mutation-testing-python.yml` runs one `mutants` job per sub-project and shard (8 × 10 when no input is given) with `fail-fast: false` and `timeout-minutes: 90`; each runs `scripts/mutation-python-cell.sh`, which refuses (exit 2) an unset or empty `GITHUB_WORKSPACE` or a non-regular file at the status path, removes any earlier status and survivor file, runs `make -C <dir> mutants MUTANT_SHARD=<k>/10 CELL_LABEL=<dir>-<k> STATUS_OUT=… SURVIVORS_OUT=…`, writes `red: <dir>-<k> — make mutants failed (exit N)` when no status file exists and exits with make's code, or exits 1 with `(exit 1)` in the line when make exited 0 without writing one; an `if: cancelled()` step writes a `did not finish` red line when no status file exists. — a make that exits 0 without a verdict must not leave a red line on a green job, and a stale or misplaced status file must never stand in for this run's.
+- finding R6 (2026-10-30, reviewer A): DIFFERS — the requirement makes it red when the result row count differs from K, but the code (scripts/cosmic_ray_cell_status.py:44-57) tests set membership instead (work items without a result, results without a work item), so K+1 result rows in which two share one job_id would read green unless the schema makes work_results.job_id unique, which the diff does not show; the green line format, S/T counting, K==0 and outcome checks otherwise match.
+- R6 -> `scripts/cosmic_ray_cell_status.py <sqlite> <label>` prints `green: <label> — S surviving, T timed out, K jobs` and exits 0, counting S as `test_outcome = 'SURVIVED'` and T as `test_outcome = 'KILLED'` with `output = 'timeout'`; it prints `red:` and exits non-zero when `K == 0`, any work item has no result, any result has no work item, or any row is not `worker_outcome = 'NORMAL'` with `test_outcome` in `KILLED`, `SURVIVED`; timeout counts never make it red. — the two anti-joins are stricter than a count comparison, and `work_results.job_id` is cosmic-ray 8.7.0's primary key (`PRIMARY KEY (job_id)` in its schema), so duplicate result rows cannot occur.
+- finding R22 (2026-10-30, reviewer A): DIFFERS — the per-cell survivors/<dir>-<k>.txt lines (cosmic_ray_cell_status.py:85, `<module_path>:<row> <operator>`) and the 90-day mutants-survivors-python upload of the per-sub-project concatenation (workflow line 166) match, but the report comment does not link the artifact: it only names it in plain text ('Survivor locations are in artifact mutants-survivors-python.', mutation-survivor-report.sh:115) next to the run URL, and the upload step runs after the report step anyway.
+- R22 -> Each cell writes `survivors/<dir>-<k>.txt` (one `<module>:<line> <operator>` line per survivor) and notify uploads the per-sub-project concatenation as artifact `mutants-survivors-python` with `retention-days: 90`, named in the report comment beside the run URL. — the upload runs after the report step, so no artifact URL exists when the comment is written; the run URL leads to the artifact.
 
 ## Multi-Lens Review
 
@@ -450,3 +454,27 @@ a verdict.
 
 Review stopped after round 3 (operator, 2026-10-30): the remaining open question, runner time for
 pi's slowest shard, can only be answered by V1's branch dispatch, not by another prose round.
+
+## Spec alignment (2026-10-30)
+
+- spec: docs/superpowers/specs/2026-10-30-python-mutation-baseline-and-sharding-design.md
+- anchor: 0d7cb691dd2d324025e283b751e5fe7a3cbb0abf
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16, R17, R18, R19, R20, R21, R22, R23
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+| R6 | A | DIFFERS | the requirement makes it red when the result row count differs from K, but the code (scripts/cosmic_ray_cell_status.py:44-57) tests set membership instead (work items without a result, results without a work item), so K+1 result rows in which two share one job_id would read green unless the schema makes work_results.job_id unique, which the diff does not show; the green line format, S/T counting, K==0 and outcome checks otherwise match. | - R6 -> `scripts/cosmic_ray_cell_status.py <sqlite> <label>` prints `green: <label> — S surviving, T timed out, K jobs` and exits 0, counting S as `test_outcome = 'SURVIVED'` and T as `test_outcome = 'KILLED'` with `output = 'timeout'`; it prints `red:` and exits non-zero when `K == 0`, any work item has no result, any result has no work item, or any row is not `worker_outcome = 'NORMAL'` with `test_outcome` in `KILLED`, `SURVIVED`; timeout counts never make it red. — the two anti-joins are stricter than a count comparison, and `work_results.job_id` is cosmic-ray 8.7.0's primary key (`PRIMARY KEY (job_id)` in its schema), so duplicate result rows cannot occur. |
+| R22 | A | DIFFERS | the per-cell survivors/<dir>-<k>.txt lines (cosmic_ray_cell_status.py:85, `<module_path>:<row> <operator>`) and the 90-day mutants-survivors-python upload of the per-sub-project concatenation (workflow line 166) match, but the report comment does not link the artifact: it only names it in plain text ('Survivor locations are in artifact mutants-survivors-python.', mutation-survivor-report.sh:115) next to the run URL, and the upload step runs after the report step anyway. | - R22 -> Each cell writes `survivors/<dir>-<k>.txt` (one `<module>:<line> <operator>` line per survivor) and notify uploads the per-sub-project concatenation as artifact `mutants-survivors-python` with `retention-days: 90`, named in the report comment beside the run URL. — the upload runs after the report step, so no artifact URL exists when the comment is written; the run URL leads to the artifact. |
+
+### Reviewed
+
+- none
+
+### Verifications
+
+- V1: Pending: runs after push via gh workflow run on the branch; PR stays draft until it passes; result recorded in the PR body.
+- V2: 2026-10-30 at 6a1b084 in a git-archive copy: venv with only cosmic-ray==8.7.0 -> make -C fib mutants-baseline exit 2, log has ModuleNotFoundError (2 matches); venv with the py.yml pin set -> exit 0.
+- V3: 2026-10-30 at 6a1b084: fresh venv from the workflow pip line, `for dir in fib; do make -C "${dir}" mutants-baseline || exit 1; done` exit 0.
