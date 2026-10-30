@@ -267,7 +267,9 @@ class TestInstallActionPins(unittest.TestCase):
 class TestPyrightPins(unittest.TestCase):
     def test_every_pyright_install_is_pinned_to_one_version(self):
         sites = list(pyright_installs())
-        self.assertEqual(len(sites), 19, sites)  # 10 workflow sites + 8 installers + requirements-dev.txt
+        self.assertEqual(
+            len(sites), 19, sites
+        )  # 10 workflow sites + 8 installers + requirements-dev.txt
         pins = {token for _, token in sites}
         self.assertEqual(len(pins), 1, f"pyright pinned inconsistently: {sorted(pins)}")
         (pin,) = pins

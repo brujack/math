@@ -58,7 +58,7 @@ jobs:
           python-version: "3.14"
 
       - name: Install Python dependencies
-        run: pip install -r requirements-dev.txt ruff==0.16.4 pyright==1.1.411 pip-audit==2.10.1
+        run: pip install -r requirements-dev.txt ruff==0.16.4 pip-audit==2.10.1
       - name: Lint hooks, scripts and bats suites
         run: make lint
       - name: Run hook and script tests

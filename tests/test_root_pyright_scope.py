@@ -213,7 +213,9 @@ class TestRootPyrightCoverage(unittest.TestCase):
         # a wholly UNSET CI means "not running under a CI runner at all".
         if cls.pyright_bin is None:
             if "CI" in os.environ:
-                raise RuntimeError("pyright is required in CI but was not found on PATH")
+                raise RuntimeError(
+                    "pyright is required in CI but was not found on PATH"
+                )
             sys.stderr.write(
                 "SKIP: pyright not found on PATH; root type errors are not checked "
                 "(run `make install-deps`)\n"
@@ -286,7 +288,9 @@ class TestSeededPyrightError(unittest.TestCase):
             root = Path(tmp)
             shutil.copy(CONFIG_PATH, root / "pyrightconfig.json")
             (root / "scripts").mkdir()
-            (root / "scripts" / "seeded.py").write_text('\nx: int = "s"\n', encoding="utf-8")
+            (root / "scripts" / "seeded.py").write_text(
+                '\nx: int = "s"\n', encoding="utf-8"
+            )
             report = _run_pyright(pyright_bin, root)
             self.assertEqual(report["summary"]["errorCount"], 1, report)
             diag = report["generalDiagnostics"][0]
