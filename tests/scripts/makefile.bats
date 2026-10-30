@@ -655,3 +655,227 @@ run_test_rust_with_probe() {
     run_test_rust_with_probe 3
     [ "${PROBE_MAX}" -gt 1 ]
 }
+
+# The Python mutants recipe: baseline first, memory cap, optional shard, cell status last.
+# PATH is stripped of tests/mocks for `git ls-files` for the same reason as the Rust test above.
+_py_mutants_makefiles() {
+    local _clean_path mf
+    _clean_path="$(printf '%s' "${PATH}" | tr ':' '\n' | grep -v 'tests/mocks' | tr '\n' ':' | sed 's/:$//')"
+    while IFS= read -r mf; do
+        [[ -z "${mf}" ]] && continue
+        # Rendered copies are one level deep; the template sits under scripts/.
+        [[ "${mf}" == */*/* ]] && continue
+        [[ -f "${REPO_ROOT}/$(dirname "${mf}")/cosmic-ray.toml" ]] && printf '%s\n' "${mf}"
+    done < <(cd "${REPO_ROOT}" && PATH="${_clean_path}" command git ls-files '*/Makefile')
+}
+
+# Prints the mutants recipe (target line plus its tab-indented continuation) of a Makefile.
+_py_mutants_recipe() {
+    awk '/^mutants:/ {on=1; print; next} on && /^\t/ {print; next} on {exit}' "$1"
+}
+
+# Line number of the first recipe line matching an ERE, or empty.
+_py_recipe_line() {
+    printf '%s\n' "$1" | grep -nE -- "$2" | head -1 | cut -d: -f1
+}
+
+@test "exactly 8 Python Makefiles carry a cosmic-ray.toml" {
+    local count
+    count="$(_py_mutants_makefiles | wc -l)"
+    [ "${count}" -eq 8 ]
+}
+
+@test "every Python mutants-baseline falls back to the module's unittest on failure" {
+    local mf mod bad="" n=0
+    while IFS= read -r mf; do
+        n=$((n + 1))
+        mod="$(sed -n 's/^\tpython3 \([a-z_]*\)\.py$/\1/p' "${REPO_ROOT}/${mf}" | head -1)"
+        [ -n "${mod}" ] || { bad="${bad}${mf}(no module) "; continue; }
+        grep -qE '^mutants-baseline:' "${REPO_ROOT}/${mf}" || bad="${bad}${mf}(no mutants-baseline) "
+        grep -qF "cosmic-ray baseline cosmic-ray.toml || { python3 -m unittest test_${mod}; exit 1; }" "${REPO_ROOT}/${mf}" \
+            || bad="${bad}${mf}(no unittest fallback) "
+        grep -qE '^\.PHONY:.* mutants-baseline( |$)' "${REPO_ROOT}/${mf}" || bad="${bad}${mf}(not PHONY) "
+        grep -qE '^CELL_LABEL \?= ' "${REPO_ROOT}/${mf}" || bad="${bad}${mf}(no CELL_LABEL) "
+    done < <(_py_mutants_makefiles)
+    [ "${n}" -eq 8 ]
+    [ -z "${bad}" ] || { printf 'baseline problems: %s\n' "${bad}" >&2; return 1; }
+}
+
+# Behavioural harness: a real copy of fib's rendered Makefile plus stubs on PATH that log
+# their argv to ${CALLS}. python3 stands in for both ../scripts/ helpers; exit codes come from
+# STUB_EXEC_RC, STUB_STATUS_RC and STUB_SHARD_RC. cosmic-ray records the address-space limit it
+# runs under so the memory cap is observed, not read from the text.
+_py_stub_setup() {
+    CALLS="${BATS_TEST_TMPDIR}/calls"
+    : > "${CALLS}"
+    STUBDIR="${BATS_TEST_TMPDIR}/fib"
+    local bin="${BATS_TEST_TMPDIR}/bin"
+    mkdir -p "${STUBDIR}" "${bin}"
+    cp "${REPO_ROOT}/fib/Makefile" "${STUBDIR}/Makefile"
+    cat > "${bin}/cosmic-ray" <<'STUB'
+#!/bin/bash
+printf 'cosmic-ray %s ulimit=%s\n' "$*" "$(ulimit -v)" >> "${CALLS}"
+case "$1" in
+    baseline) exit "${STUB_BASELINE_RC:-0}" ;;
+    exec) exit "${STUB_EXEC_RC:-0}" ;;
+esac
+exit 0
+STUB
+    cat > "${bin}/python3" <<'STUB'
+#!/bin/bash
+printf 'python3 %s ulimit=%s\n' "$*" "$(ulimit -v)" >> "${CALLS}"
+case "$*" in
+    *cosmic_ray_cell_status*) exit "${STUB_STATUS_RC:-0}" ;;
+    *cosmic_ray_shard*) exit "${STUB_SHARD_RC:-0}" ;;
+esac
+exit 0
+STUB
+    cat > "${bin}/cr-report" <<'STUB'
+#!/bin/bash
+printf 'cr-report %s\n' "$*" >> "${CALLS}"
+STUB
+    chmod +x "${bin}/cosmic-ray" "${bin}/python3" "${bin}/cr-report"
+    export CALLS
+    export PATH="${bin}:${PATH}"
+    unset MUTANTS_UNCAPPED MUTANT_SHARD STATUS_OUT SURVIVORS_OUT CELL_LABEL
+}
+
+_py_make() {
+    env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${STUBDIR}" "$@"
+}
+
+# Fails when any calls-file line matches the pattern. A bare `! grep` never fails a bats test.
+_assert_no_call() {
+    if grep -q -- "$1" "${CALLS}"; then
+        printf 'unexpected call matching %s:\n' "$1" >&2
+        cat "${CALLS}" >&2
+        return 1
+    fi
+}
+
+# 1-based line of the first calls-file line matching an ERE, or empty.
+_calls_line() {
+    grep -nE -- "$1" "${CALLS}" | head -1 | cut -d: -f1
+}
+
+@test "python make -n mutants executes nothing" {
+    _py_stub_setup
+    run _py_make -n mutants
+    [ "${status}" -eq 0 ]
+    [ ! -s "${CALLS}" ]
+}
+
+@test "python mutants-baseline runs cosmic-ray baseline under the 8 GiB cap" {
+    _py_stub_setup
+    run _py_make mutants-baseline
+    [ "${status}" -eq 0 ]
+    grep -q '^cosmic-ray baseline cosmic-ray.toml ulimit=8388608$' "${CALLS}"
+}
+
+@test "python mutants-baseline with MUTANTS_UNCAPPED runs uncapped and warns" {
+    _py_stub_setup
+    run env MUTANTS_UNCAPPED=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants-baseline
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"MUTANTS_UNCAPPED set"* ]]
+    grep -q 'ulimit=unlimited' "${CALLS}"
+}
+
+@test "python mutants-baseline fails closed when the cap cannot be applied" {
+    _py_stub_setup
+    # A limit below 8 GiB (soft and hard) makes `ulimit -v 8388608` fail, as on macOS.
+    run bash -c 'ulimit -v 1000000 && env -u MAKEFLAGS -u MAKELEVEL make -C "$1" mutants-baseline' _ "${STUBDIR}"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"cannot enforce a memory cap"* ]]
+    _assert_no_call '^cosmic-ray baseline'
+}
+
+@test "python mutants fails closed on an unenforceable cap before init" {
+    _py_stub_setup
+    run bash -c 'ulimit -v 1000000 && env -u MAKEFLAGS -u MAKELEVEL make -C "$1" mutants' _ "${STUBDIR}"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"cannot enforce a memory cap"* ]]
+    _assert_no_call '^cosmic-ray init'
+}
+
+@test "python mutants failed baseline runs the unittest fallback capped and stops" {
+    _py_stub_setup
+    run env STUB_BASELINE_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
+    [ "${status}" -ne 0 ]
+    grep -q '^python3 -m unittest test_fib ulimit=8388608$' "${CALLS}"
+    _assert_no_call '^cosmic-ray init'
+}
+
+@test "python mutants without MUTANT_SHARD runs baseline, init, exec, report, status in order and never shards" {
+    _py_stub_setup
+    run _py_make mutants
+    [ "${status}" -eq 0 ]
+    _assert_no_call cosmic_ray_shard
+    local b i e r s
+    b="$(_calls_line '^cosmic-ray baseline')"
+    i="$(_calls_line '^cosmic-ray init cosmic-ray.toml cosmic-ray-session.sqlite')"
+    e="$(_calls_line '^cosmic-ray exec cosmic-ray.toml cosmic-ray-session.sqlite')"
+    r="$(_calls_line '^cr-report')"
+    s="$(_calls_line 'cosmic_ray_cell_status')"
+    [ "${b}" -lt "${i}" ] && [ "${i}" -lt "${e}" ] && [ "${e}" -lt "${r}" ] && [ "${r}" -lt "${s}" ]
+    [ "$(wc -l < "${CALLS}")" -eq "${s}" ]
+    grep -q '^cosmic-ray init .* ulimit=8388608$' "${CALLS}"
+}
+
+@test "python mutants with MUTANT_SHARD=2/4 shards between init and exec" {
+    _py_stub_setup
+    run env MUTANT_SHARD=2/4 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
+    [ "${status}" -eq 0 ]
+    local i sh e
+    i="$(_calls_line '^cosmic-ray init')"
+    sh="$(_calls_line '^python3 ../scripts/cosmic_ray_shard.py cosmic-ray-session.sqlite 2 4 ')"
+    e="$(_calls_line '^cosmic-ray exec')"
+    [ -n "${sh}" ]
+    [ "${i}" -lt "${sh}" ] && [ "${sh}" -lt "${e}" ]
+}
+
+@test "python mutants rejects a malformed MUTANT_SHARD without sharding or executing" {
+    local bad
+    for bad in bogus 3 /4 3/ 1/2/3 a/b 1/b; do
+        _py_stub_setup
+        run env MUTANT_SHARD="${bad}" env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
+        [ "${status}" -ne 0 ] || { printf 'accepted %s\n' "${bad}" >&2; return 1; }
+        [[ "${output}" == *"MUTANT_SHARD must be k/n"* ]] || { printf 'no error for %s\n' "${bad}" >&2; return 1; }
+        _assert_no_call cosmic_ray_shard
+        _assert_no_call '^cosmic-ray exec'
+    done
+}
+
+@test "python mutants stops when the shard script fails" {
+    _py_stub_setup
+    run env MUTANT_SHARD=1/2 STUB_SHARD_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
+    [ "${status}" -ne 0 ]
+    _assert_no_call '^cosmic-ray exec'
+}
+
+@test "python mutants exits non-zero and skips status when cosmic-ray exec fails" {
+    _py_stub_setup
+    run env STUB_EXEC_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
+    [ "${status}" -ne 0 ]
+    _assert_no_call cosmic_ray_cell_status
+}
+
+@test "python mutants exits with the cell-status script's failure" {
+    _py_stub_setup
+    run env STUB_STATUS_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
+    [ "${status}" -ne 0 ]
+    grep -q cosmic_ray_cell_status "${CALLS}"
+}
+
+@test "python mutants labels the cell with the directory name by default" {
+    _py_stub_setup
+    run _py_make mutants
+    [ "${status}" -eq 0 ]
+    grep -qE '^python3 \.\./scripts/cosmic_ray_cell_status\.py cosmic-ray-session\.sqlite fib ulimit=' "${CALLS}"
+}
+
+@test "python mutants forwards CELL_LABEL, STATUS_OUT and SURVIVORS_OUT intact" {
+    _py_stub_setup
+    run env CELL_LABEL="fib 'x\$y\"z" env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants STATUS_OUT=out/s.txt SURVIVORS_OUT=out/v.txt
+    [ "${status}" -eq 0 ]
+    grep -qF "cosmic_ray_cell_status.py cosmic-ray-session.sqlite fib 'x\$y\"z --out out/s.txt --survivors out/v.txt " "${CALLS}"
+}

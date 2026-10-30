@@ -71,7 +71,7 @@ make test       # lint, then cargo test
 
 All 11 crates are treated identically (operator rule): each crate's `Makefile`, `rustfmt.toml`, `.config/nextest.toml`, `install_deps.sh`, `<crate>-rs.yml` and `release-<crate>-rs.yml` is rendered from `scripts/crate_templates/` by `scripts/render_crate_files.py`, and so are the 8 Python projects' `Makefile`, `install_deps.sh`, `<project>-py.yml`, `pyrightconfig.json` and `cosmic-ray.toml` (from `scripts/crate_templates/python/`; `@CRATE@` is the directory, `@MODULE@` the module name, the only placeholders); edit the template and run `--write`, never one crate's copy, and `tests/test_crate_uniformity.py` fails on any drift.
 A single `ruff.toml` at the repo root serves all 8 Python sub-projects via ancestor discovery; keep one root `ruff.toml` only and never create per-subproject configs. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
-Every `pip install` in the 8 `*-py.yml` workflows and 8 Python `install_deps.sh` pins `name==X.Y.Z`, one version per package across all sites (`tests/test_tool_pins.py`); bump them together in the templates. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
+Every `pip install` in every workflow and the 8 Python `install_deps.sh` pins `name==X.Y.Z`, one version per package across all sites (`tests/test_tool_pins.py`); bump them together in the templates. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 Root `make lint` runs `ruff check .` plus `ruff format --check` scoped to `git ls-files '*.py'` (never `ruff format --check .`, which rewrites markdown code blocks) alongside `lint-hooks`. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 `lint-python` exits 0 when ruff is missing (so a machine can still commit the fix); `scripts.yml` installs ruff so CI enforces it, and `tests/scripts/makefile.bats` asserts that. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 The two `# noqa: C901` directives in `e/e.py` and `pi/pi.py` are load-bearing: `maintainability-review` runs `ruff check --select C901` on the CLI, which overrides config, so removing one without refactoring reads as a 0 → 21 regression. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
@@ -124,13 +124,18 @@ Modes: all 8 at `standard`, gmpy2 typed by `typings/gmpy2/__init__.pyi` (exact s
 
 Root-scope Python (`tests/`, `scripts/`, `.claude/scripts/`) is gated by a root `pyrightconfig.json` (`standard` mode, `include` `["scripts", "tests", ".claude/scripts"]`) over every tracked root-scope `.py` file (count: `git ls-files 'tests/*.py' 'scripts/*.py' '.claude/scripts/*.py' | wc -l`). → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
 Its `exclude` is pyright's default list minus `**/.*`, and the omission is load-bearing: exclude beats include, and `**/.*` would drop `.claude/scripts`. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
-`pyright==1.1.411` is pinned at all 17 install sites (8 `*-py.yml` workflows, `scripts.yml`, 8 Python `install_deps.sh`), and every `cargo install` in a workflow or `install_deps.sh` carries `--locked --version`, and every `taiki-e/install-action` `tool:` is `name@X.Y.Z` with `fallback: none` at the installers' version; `tests/test_tool_pins.py` requires one version per tool, so bump them together. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
+`pyright==1.1.411` is pinned at all 19 install sites (8 `*-py.yml` workflows, `scripts.yml`, both Python mutation workflows, 8 Python `install_deps.sh`), and every `cargo install` in a workflow or `install_deps.sh` carries `--locked --version`, and every `taiki-e/install-action` `tool:` is `name@X.Y.Z` with `fallback: none` at the installers' version; `tests/test_tool_pins.py` requires one version per tool, so bump them together. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
 `tests/test_root_pyright_scope.py` runs pyright under `make test-python`, which pre-push invokes on pushes touching `scripts/`, `tests/`, `.claude/scripts/` or `pyrightconfig.json`; sub-project pyright stays CI-only. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
 pyright walks up the tree for its config like `ruff.toml`: deleting a sub-project's `pyrightconfig.json` falls through to the root config instead of removing type checking. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
 Run pyright manually with `cd <sub-project> && pyright`; for root scope run `pyright` from the repo root.
 
 
 When adding a new Python sub-project, add `pyrightconfig.json` (copy from any `standard`-mode sub-project) and a `Run pyright` step to the CI workflow. Start with `standard` mode; if a dependency has no stubs, add its names to the shared stub in `typings/` instead of dropping to `basic`.
+
+### Mutation testing (Python)
+
+Python `make mutants` runs a capped `cosmic-ray baseline` first (8 GiB `ulimit -v`, `MUTANTS_UNCAPPED=1` escape, as Rust), then the session, then `scripts/cosmic_ray_cell_status.py`; cosmic-ray stores outcomes uppercase (`SURVIVED`, `KILLED`), and `MUTANT_SHARD=0/10` samples a tenth locally.
+`mutation-testing-python.yml` runs 8 × 10 shards (`scripts/mutation-python-cell.sh`), comments survivor counts on the `mutation-report-python` issue and keeps locations 90 days in artifact `mutants-survivors-python`; `mutation-pr.yml` runs only `mutants-baseline`.
 
 ### Mutation testing (Rust)
 

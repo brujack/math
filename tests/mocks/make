@@ -30,4 +30,12 @@ if [[ -n "${MOCK_MAKE_KILL_DIR:-}" && "${target}" == */"${MOCK_MAKE_KILL_DIR}" ]
     kill -KILL "${PPID}"
     exit 1
 fi
+# Opt-in: emulate a recipe that wrote its cell status file via STATUS_OUT=<path>.
+if [[ -n "${MOCK_MAKE_STATUS_LINE:-}" ]]; then
+    for arg in "$@"; do
+        if [[ "${arg}" == STATUS_OUT=* ]]; then
+            printf '%s\n' "${MOCK_MAKE_STATUS_LINE}" > "${arg#STATUS_OUT=}"
+        fi
+    done
+fi
 exit "${MOCK_MAKE_EXIT:-0}"

@@ -2,7 +2,7 @@ name: mutation-testing-python
 
 # cosmic-ray runs every operator+line mutation against each Python sub-project's
 # unittest suite. Surviving mutants = tests do not detect that behavior change.
-# Slow per sub-project — monthly cron + manual dispatch.
+# Sharded into 8 sub-projects x 10 cells; monthly cron + manual dispatch.
 # Non-blocking: report uploads as artifact, never gates merges.
 
 on:
@@ -20,101 +20,152 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  mutants:
-    name: Python mutation testing
+  setup:
+    name: Validate input and build matrix
     runs-on: ubuntu-latest
-    timeout-minutes: 120
     permissions:
       contents: read
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      units: ${{ steps.plan.outputs.units }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Validate sub-project and build matrix
+        id: plan
+        env:
+          SUBPROJECT: ${{ inputs.subproject }}
+        run: |
+          all_dirs=(amicable collatz e factorial fib perfect-numbers pi sq)
+          if [[ -z "${SUBPROJECT}" ]]; then
+            dirs=("${all_dirs[@]}")
+          else
+            dirs=()
+            for d in "${all_dirs[@]}"; do
+              if [[ "${d}" == "${SUBPROJECT}" ]]; then
+                dirs=("${d}")
+              fi
+            done
+            if [[ "${#dirs[@]}" -eq 0 ]]; then
+              printf "error: unknown sub-project '%s' (expected one of: %s)\n" "${SUBPROJECT}" "${all_dirs[*]}" >&2
+              exit 1
+            fi
+          fi
+          dir_json=""
+          units=""
+          for d in "${dirs[@]}"; do
+            dir_json="${dir_json:+${dir_json},}\"${d}\""
+            for k in 0 1 2 3 4 5 6 7 8 9; do
+              units="${units:+${units} }${d}-${k}"
+            done
+          done
+          printf 'matrix={"dir":[%s],"shard":[0,1,2,3,4,5,6,7,8,9]}\n' "${dir_json}" >> "${GITHUB_OUTPUT}"
+          printf 'units=%s\n' "${units}" >> "${GITHUB_OUTPUT}"
+
+  mutants:
+    name: Mutation ${{ matrix.dir }} shard ${{ matrix.shard }}
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Mark job start
         run: mkdir -p "${GITHUB_WORKSPACE}/marker" && date -u > "${GITHUB_WORKSPACE}/marker/job-began"
 
-      - name: Install cosmic-ray
-        run: pip install cosmic-ray
+      - name: Install GMP and MPFR
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
 
-      - name: Run mutants
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14"
+
+      - name: Install Python dependencies
+        run: pip install mpmath==1.4.1 gmpy2==2.3.2 coverage==7.16.2 cosmic-ray==8.7.0 hypothesis==6.168.5 pytest==9.1.1 pytest-cov==7.1.0 ruff==0.16.4 pyright==1.1.411 pip-audit==2.10.1
+
+      - name: Run mutation cell
         env:
-          TARGET: ${{ github.event.inputs.subproject }}
+          DIR: ${{ matrix.dir }}
+          SHARD: ${{ matrix.shard }}
+        run: scripts/mutation-python-cell.sh "${DIR}" "${SHARD}" 10
+
+      - name: Record unfinished cell
+        if: cancelled()
+        env:
+          DIR: ${{ matrix.dir }}
+          SHARD: ${{ matrix.shard }}
         run: |
-          PYTHON_DIRS=(fib amicable collatz e factorial perfect-numbers pi sq)
-          if [[ -n "${TARGET}" ]]; then
-            dirs=("${TARGET}")
-          else
-            dirs=("${PYTHON_DIRS[@]}")
-          fi
-
-          # An empty dirs array (bad dispatch input, or PYTHON_DIRS list
-          # drift) skips the loop entirely and exits 0 -- reporting green
-          # having tested nothing.
-          if [[ "${#dirs[@]}" -eq 0 ]]; then
-            printf "error: no sub-projects found to test — refusing to report green\n" >&2
-            exit 1
-          fi
-
           mkdir -p "${GITHUB_WORKSPACE}/status"
-          failed=0
-          for dir in "${dirs[@]}"; do
-            printf "\n=== Mutation testing %s ===\n" "${dir}"
-            rc=0
-            make -C "${dir}" mutants || rc=$?
-            sqlite="${dir}/cosmic-ray-session.sqlite"
+          status_file="${GITHUB_WORKSPACE}/status/${DIR}-${SHARD}"
+          if [[ ! -e "${status_file}" ]]; then
+            printf "red: %s-%s — did not finish (cancelled or timed out)\n" "${DIR}" "${SHARD}" > "${status_file}"
+          fi
 
-            if [[ "${rc}" -ne 0 ]]; then
-              status="red: ${dir} — make mutants failed (exit ${rc})"
-              failed=1
-            elif [[ ! -f "${sqlite}" ]]; then
-              status="red: ${dir} — cosmic-ray-session.sqlite missing after a successful run"
-              failed=1
-            else
-              cr_out="$(mktemp)"
-              if cr-report "${sqlite}" > "${cr_out}" 2>&1; then
-                # A zero survivor count is not an error (grep -c returns 1
-                # with no matches) -- only guard the grep, not cr-report
-                # itself, which must still fail the sub-project on error.
-                survivors=$(grep -c 'Outcome.SURVIVED' "${cr_out}" || true)
-                status="green: ${dir} — ${survivors} surviving mutant(s)"
-              else
-                status="red: ${dir} — cr-report failed on ${sqlite}"
-                failed=1
-              fi
-              rm -f "${cr_out}"
-            fi
-
-            printf "%s\n" "${status}" | tee -a "${GITHUB_STEP_SUMMARY}" "${GITHUB_WORKSPACE}/status/${dir}"
-          done
-          exit "${failed}"
-
-      - name: Upload mutants reports
+      - name: Upload cell status
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: mutants-report-python
+          name: mutants-status-python-${{ matrix.dir }}-${{ matrix.shard }}
           path: |
-            **/mutants-report.txt
-            **/cosmic-ray-session.sqlite
             status/
+            survivors/
             marker/
           retention-days: 30
 
+      - name: Upload cell report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: mutants-report-python-${{ matrix.dir }}-${{ matrix.shard }}
+          path: |
+            ${{ matrix.dir }}/cosmic-ray-session.sqlite
+            ${{ matrix.dir }}/mutants-report.txt
+          retention-days: 30
+
   notify:
-    needs: [mutants]
+    needs: [setup, mutants]
     if: always()
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - id: dl
+        if: always()
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         continue-on-error: true
         with:
-          name: mutants-report-python
+          pattern: mutants-status-python-*
+          merge-multiple: true
           path: artifact
           digest-mismatch: error
+      - name: Report surviving mutants
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARTIFACT_DIR: artifact
+          EXPECTED_STATUS_UNITS: ${{ needs.setup.outputs.units }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REF: ${{ github.ref_name }}
+          EVENT: ${{ github.event_name }}
+          OUT_DIR: survivors-out
+        run: scripts/mutation-survivor-report.sh
+      - name: Upload survivors
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: mutants-survivors-python
+          path: survivors-out/survivors/
+          retention-days: 90
       - name: File, comment, or close the tracking issue
+        if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RESULT: ${{ needs.mutants.result }}
@@ -125,4 +176,5 @@ jobs:
           ISSUE_LABEL: mutation-failure-python
           UNIT_NOUN: sub-project
           REPO: ${{ github.repository }}
+          EXPECTED_STATUS_UNITS: ${{ needs.setup.outputs.units }}
         run: scripts/mutation-notify.sh

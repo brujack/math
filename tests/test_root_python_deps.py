@@ -138,10 +138,37 @@ def _top_level_imports(path: Path) -> set[str]:
     return _top_level_imports_from_tree(tree)
 
 
+def _sibling_stems(rel: str, tracked_py: set[str]) -> set[str]:
+    """Stems of tracked .py files in the same directory as `rel`.
+
+    Python resolves a plain `import x` from the importing script's own directory
+    (sys.path[0]), so a tracked sibling `x.py` is first-party by construction. This
+    is what lets fixture tests (e.g. tests/fixtures/cosmic_ray/test_crfix.py) import
+    their sibling module plainly without it reading as a PyPI package.
+    """
+    here = Path(rel).parent
+    return {
+        Path(other).stem
+        for other in tracked_py
+        if Path(other).parent == here and other != rel
+    }
+
+
+def _classify_name(
+    name: str, first_party: set[str], siblings: set[str], stdlib: frozenset[str]
+) -> str:
+    if name in first_party or name in siblings:
+        return "first-party"
+    if name in stdlib:
+        return "stdlib"
+    return "third-party"
+
+
 def _classify_repo() -> dict[str, dict[str, str]]:
     """(file -> {import name -> classification}) for every population file."""
     first_party = _first_party_roots()
     stdlib = sys.stdlib_module_names
+    tracked_py = set(_git_ls_files("*.py"))
     classification: dict[str, dict[str, str]] = {}
     # Paths come from walking the tree, not from subprocess output (Snyk Code flags
     # that as traversal), but git stays the source of truth for the population.
@@ -162,12 +189,9 @@ def _classify_repo() -> dict[str, dict[str, str]]:
         path = walked[rel]
         per_file: dict[str, str] = {}
         for name in sorted(_top_level_imports(path)):
-            if name in first_party:
-                per_file[name] = "first-party"
-            elif name in stdlib:
-                per_file[name] = "stdlib"
-            else:
-                per_file[name] = "third-party"
+            per_file[name] = _classify_name(
+                name, first_party, _sibling_stems(rel, tracked_py), stdlib
+            )
         classification[rel] = per_file
     return classification
 
@@ -216,6 +240,24 @@ class TestGuardedImportClassification(unittest.TestCase):
         source = "try:\n    import somelib\nexcept ValueError:\n    somelib = None\n"
         names = _top_level_imports_from_tree(ast.parse(source))
         self.assertIn("somelib", names)
+
+
+class TestSiblingImportClassification(unittest.TestCase):
+    def test_sibling_module_is_first_party_and_unknown_is_not(self):
+        tracked = {"a/dir/test_x.py", "a/dir/sibling.py", "other/unrelated.py"}
+        siblings = _sibling_stems("a/dir/test_x.py", tracked)
+        self.assertEqual(siblings, {"sibling"})
+        stdlib = sys.stdlib_module_names
+        self.assertEqual(
+            _classify_name("sibling", set(), siblings, stdlib), "first-party"
+        )
+        self.assertEqual(
+            _classify_name("unrelated", set(), siblings, stdlib), "third-party"
+        )
+        self.assertEqual(_classify_name("os", set(), siblings, stdlib), "stdlib")
+
+    def test_importer_is_not_its_own_sibling(self):
+        self.assertEqual(_sibling_stems("d/x.py", {"d/x.py"}), set())
 
 
 class TestRootPythonDeps(unittest.TestCase):
