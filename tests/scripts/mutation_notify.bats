@@ -547,3 +547,125 @@ print("\n".join(out))
     run ! grep -q '<MISSING>' <<< "${_labels}"
     [ "$(printf '%s\n' "${_labels}" | sort -u | wc -l | tr -d ' ')" -eq 2 ]
 }
+
+# EXPECTED_STATUS_UNITS (Python workflow only): a green RESULT is not trusted
+# unless every expected unit wrote a status file. The Rust workflow never sets
+# it, and its behaviour must stay unchanged.
+
+@test "EXPECTED_STATUS_UNITS: success with one missing unit files an issue naming it and exits 1" {
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST=""
+    export EXPECTED_STATUS_UNITS="pi fib amicable"
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'green: pi\n' > "${ARTIFACT_DIR}/status/pi"
+    printf 'green: fib\n' > "${ARTIFACT_DIR}/status/fib"
+
+    run main
+    [ "${status}" -eq 1 ]
+
+    grep -qF -- "gh issue create --repo ${REPO} --title ${ISSUE_TITLE} --label ${ISSUE_LABEL} --body" "${MOCK_CALLS_FILE}"
+    grep -qF -- "Missing crates:" "${MOCK_CALLS_FILE}"
+    grep -qF -- "- amicable" "${MOCK_CALLS_FILE}"
+    grep -qF -- "${RUN_URL}" "${MOCK_CALLS_FILE}"
+    run ! grep -q "gh issue close" "${MOCK_CALLS_FILE}"
+    assert_all_gh_calls_carry_repo
+}
+
+@test "EXPECTED_STATUS_UNITS: set but empty is a failure carrying the empty-list note" {
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST=""
+    export EXPECTED_STATUS_UNITS="   "
+    mkdir -p "${ARTIFACT_DIR}/status"
+
+    run main
+    [ "${status}" -eq 1 ]
+
+    grep -qF -- "gh issue create --repo ${REPO}" "${MOCK_CALLS_FILE}"
+    grep -qF -- "expected list was empty" "${MOCK_CALLS_FILE}"
+}
+
+@test "EXPECTED_STATUS_UNITS: all units present and RESULT=success still closes the open issue" {
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST="98"
+    export EXPECTED_STATUS_UNITS="pi fib"
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'green: pi\n' > "${ARTIFACT_DIR}/status/pi"
+    printf 'green: fib\n' > "${ARTIFACT_DIR}/status/fib"
+
+    run main
+    [ "${status}" -eq 0 ]
+
+    grep -qF -- "gh issue close 98 --repo ${REPO}" "${MOCK_CALLS_FILE}"
+    run ! grep -q "gh issue create" "${MOCK_CALLS_FILE}"
+}
+
+@test "EXPECTED_STATUS_UNITS: one red and one missing unit are both listed in the body" {
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST=""
+    export EXPECTED_STATUS_UNITS="pi fib amicable"
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'red: pi - exit code 2\n' > "${ARTIFACT_DIR}/status/pi"
+    printf 'green: fib\n' > "${ARTIFACT_DIR}/status/fib"
+
+    run main
+    [ "${status}" -eq 1 ]
+
+    grep -qF -- "Missing crates:" "${MOCK_CALLS_FILE}"
+    grep -qF -- "- amicable" "${MOCK_CALLS_FILE}"
+    grep -qF -- "Red crates:" "${MOCK_CALLS_FILE}"
+    grep -qF -- "- pi" "${MOCK_CALLS_FILE}"
+    run ! grep -qF -- "- fib" "${MOCK_CALLS_FILE}"
+}
+
+@test "EXPECTED_STATUS_UNITS: a missing unit with an open issue comments instead of creating" {
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST="98"
+    export EXPECTED_STATUS_UNITS="pi fib"
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'green: pi\n' > "${ARTIFACT_DIR}/status/pi"
+
+    run main
+    [ "${status}" -eq 1 ]
+
+    grep -qF -- "gh issue comment 98 --repo ${REPO}" "${MOCK_CALLS_FILE}"
+    grep -qF -- "- fib" "${MOCK_CALLS_FILE}"
+    run ! grep -q "gh issue create" "${MOCK_CALLS_FILE}"
+    run ! grep -q "gh issue close" "${MOCK_CALLS_FILE}"
+}
+
+@test "EXPECTED_STATUS_UNITS: a failing issue create on the missing path exits 1" {
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST=""
+    export EXPECTED_STATUS_UNITS="pi fib"
+    export MOCK_GH_EXIT_ISSUE_CREATE=1
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'green: pi\n' > "${ARTIFACT_DIR}/status/pi"
+
+    run main
+    [ "${status}" -eq 1 ]
+    grep -q "gh issue create" "${MOCK_CALLS_FILE}"
+}
+
+@test "EXPECTED_STATUS_UNITS: a failing issue comment on the missing path exits 1" {
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST="98"
+    export EXPECTED_STATUS_UNITS="pi fib"
+    export MOCK_GH_EXIT_ISSUE_COMMENT=1
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'green: pi\n' > "${ARTIFACT_DIR}/status/pi"
+
+    run main
+    [ "${status}" -eq 1 ]
+    grep -q "gh issue comment 98" "${MOCK_CALLS_FILE}"
+}
+
+@test "EXPECTED_STATUS_UNITS unset: a green run with units missing on disk still closes (Rust behaviour unchanged)" {
+    unset EXPECTED_STATUS_UNITS
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST="98"
+    mkdir -p "${ARTIFACT_DIR}/status"
+
+    run main
+    [ "${status}" -eq 0 ]
+    grep -qF -- "gh issue close 98 --repo ${REPO}" "${MOCK_CALLS_FILE}"
+}
