@@ -81,7 +81,7 @@ build_body() {
 # Comment on the open tracking issue, or file one (creating the label first).
 # Both branches end in an explicit `|| return 1`; the last-statement position
 # alone would return gh's own exit code, so the expected-units path in main()
-# adds its own `return 1` after calling this and has tests for each failure.
+# returns 2 after calling this when posting failed (1 when it posted), and the tests pin both codes.
 post_issue() {
     local _existing="${1}"
     local _body="${2}"
@@ -95,39 +95,61 @@ post_issue() {
     fi
 }
 
-# Body for the EXPECTED_STATUS_UNITS check: names the units that wrote no
-# status file and the units whose status is red.
+# Units section of the EXPECTED_STATUS_UNITS report: units that wrote no status
+# file, units rejected for containing a slash, and red units with the first
+# line of their status file as the reason.
 build_units_body() {
     local _missing="${1}"
-    local _empty="${2}"
-    local _red _detail
+    local _invalid="${2}"
+    local _empty="${3}"
+    local _red="" _file _line _detail
 
-    _red=$(grep -l '^red' "${ARTIFACT_DIR}"/status/* 2>/dev/null | sed 's|.*/|- |')
+    for _file in "${ARTIFACT_DIR}"/status/*; do
+        [[ -f "${_file}" ]] || continue
+        IFS= read -r _line < "${_file}" || true
+        [[ "${_line}" == red* ]] && _red+="- ${_file##*/}: ${_line}"$'\n'
+    done
+
     if [[ "${_empty}" == "1" ]]; then
         _detail="The expected list was empty, so no ${UNIT_NOUN} could be verified."
     else
-        _detail="Missing ${UNIT_NOUN}s:"$'\n'"${_missing}"
+        _detail="Missing ${UNIT_NOUN}s:"$'\n'"${_missing:-- (none)}"
+    fi
+    if [[ -n "${_invalid}" ]]; then
+        _detail+=$'\n\n'"Invalid ${UNIT_NOUN}s (a name may not contain a slash):"$'\n'"${_invalid}"
     fi
     printf 'Cause: missing-status\n\nThe run reported %s but not every expected %s wrote a verdict.\n\n%s\n\nRed %ss:\n%s\n\nRun: %s\n' \
         "${RESULT}" "${UNIT_NOUN}" "${_detail}" "${UNIT_NOUN}" "${_red:-- (none)}" "${RUN_URL}"
 }
 
-# Returns 0 when every expected unit has a status file, else files or comments
-# on the issue and returns 1. Only called when EXPECTED_STATUS_UNITS is set.
+# Returns 0 when every expected unit has a status file. Otherwise posts a
+# report and returns 1, or 2 when posting itself failed. Only called when
+# EXPECTED_STATUS_UNITS is set. Units are split into an array, never left to
+# word-splitting and globbing, and a name containing a slash is rejected
+# before it can be joined onto ARTIFACT_DIR.
 check_expected_units() {
     local _existing="${1}"
-    local _unit _missing="" _empty=0 _body
+    local -a _units
+    local _unit _missing="" _invalid="" _empty=0 _body _cause
 
-    for _unit in ${EXPECTED_STATUS_UNITS}; do
-        if [[ ! -f "${ARTIFACT_DIR}/status/${_unit}" ]]; then
+    read -ra _units <<< "${EXPECTED_STATUS_UNITS}"
+    [[ ${#_units[@]} -eq 0 ]] && _empty=1
+
+    for _unit in "${_units[@]}"; do
+        if [[ "${_unit}" == */* ]]; then
+            _invalid+="- ${_unit}"$'\n'
+        elif [[ ! -f "${ARTIFACT_DIR}/status/${_unit}" ]]; then
             _missing+="- ${_unit}"$'\n'
         fi
     done
-    [[ -z "${EXPECTED_STATUS_UNITS//[[:space:]]/}" ]] && _empty=1
-    [[ "${_empty}" == "0" && -z "${_missing}" ]] && return 0
+    [[ "${_empty}" == "0" && -z "${_missing}" && -z "${_invalid}" ]] && return 0
 
-    _body=$(build_units_body "${_missing%$'\n'}" "${_empty}") || return 1
-    post_issue "${_existing}" "${_body}" || return 1
+    _body=$(build_units_body "${_missing%$'\n'}" "${_invalid%$'\n'}" "${_empty}") || return 2
+    if [[ "${RESULT}" != "success" ]]; then
+        _cause=$(attribute) || return 2
+        _body="$(build_body "${_cause}")"$'\n\n'"${_body}"
+    fi
+    post_issue "${_existing}" "${_body}" || return 2
     return 1
 }
 
@@ -155,7 +177,7 @@ main() {
         --search "in:title \"${ISSUE_TITLE}\"" --json number --jq '.[0].number // empty') || return 1
 
     if [[ -n "${EXPECTED_STATUS_UNITS+x}" ]]; then
-        check_expected_units "${_existing}" || return 1
+        check_expected_units "${_existing}" || return "$?"
     fi
 
     if [[ "${RESULT}" == "success" ]]; then

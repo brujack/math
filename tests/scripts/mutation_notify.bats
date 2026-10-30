@@ -633,7 +633,7 @@ print("\n".join(out))
     run ! grep -q "gh issue close" "${MOCK_CALLS_FILE}"
 }
 
-@test "EXPECTED_STATUS_UNITS: a failing issue create on the missing path exits 1" {
+@test "EXPECTED_STATUS_UNITS: a failing issue create on the missing path exits 2, distinct from a posted report" {
     export RESULT="success"
     export MOCK_GH_ISSUE_LIST=""
     export EXPECTED_STATUS_UNITS="pi fib"
@@ -642,11 +642,11 @@ print("\n".join(out))
     printf 'green: pi\n' > "${ARTIFACT_DIR}/status/pi"
 
     run main
-    [ "${status}" -eq 1 ]
+    [ "${status}" -eq 2 ]
     grep -q "gh issue create" "${MOCK_CALLS_FILE}"
 }
 
-@test "EXPECTED_STATUS_UNITS: a failing issue comment on the missing path exits 1" {
+@test "EXPECTED_STATUS_UNITS: a failing issue comment on the missing path exits 2 and the comment carried the missing-status body" {
     export RESULT="success"
     export MOCK_GH_ISSUE_LIST="98"
     export EXPECTED_STATUS_UNITS="pi fib"
@@ -655,8 +655,12 @@ print("\n".join(out))
     printf 'green: pi\n' > "${ARTIFACT_DIR}/status/pi"
 
     run main
-    [ "${status}" -eq 1 ]
+    [ "${status}" -eq 2 ]
+    # The success path's "Closing" comment would also hit this mock; the body
+    # marker proves the failing call was the missing-units report.
     grep -q "gh issue comment 98" "${MOCK_CALLS_FILE}"
+    grep -qF -- "missing-status" "${MOCK_CALLS_FILE}"
+    run ! grep -qF -- "Closing" "${MOCK_CALLS_FILE}"
 }
 
 @test "EXPECTED_STATUS_UNITS unset: a green run with units missing on disk still closes (Rust behaviour unchanged)" {
@@ -668,4 +672,75 @@ print("\n".join(out))
     run main
     [ "${status}" -eq 0 ]
     grep -qF -- "gh issue close 98 --repo ${REPO}" "${MOCK_CALLS_FILE}"
+}
+
+@test "EXPECTED_STATUS_UNITS: RESULT=failure with a missing unit carries both the attributed cause and the missing unit" {
+    export RESULT="failure"
+    export MOCK_GH_ISSUE_LIST=""
+    export EXPECTED_STATUS_UNITS="pi fib"
+    mkdir -p "${ARTIFACT_DIR}/marker" "${ARTIFACT_DIR}/status"
+    printf 'green: pi\n' > "${ARTIFACT_DIR}/status/pi"
+
+    run main
+    [ "${status}" -eq 1 ]
+
+    grep -qF -- "Cause: verdicts-present" "${MOCK_CALLS_FILE}"
+    grep -qF -- "Missing crates:" "${MOCK_CALLS_FILE}"
+    grep -qF -- "- fib" "${MOCK_CALLS_FILE}"
+}
+
+@test "EXPECTED_STATUS_UNITS: red units are listed with their first-line reason" {
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST=""
+    export EXPECTED_STATUS_UNITS="pi-3 fib"
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'red: pi-3 -- 2 work items without a result\nsecond line\n' > "${ARTIFACT_DIR}/status/pi-3"
+
+    run main
+    [ "${status}" -eq 1 ]
+
+    grep -qF -- "- pi-3: red: pi-3 -- 2 work items without a result" "${MOCK_CALLS_FILE}"
+    run ! grep -qF -- "second line" "${MOCK_CALLS_FILE}"
+}
+
+@test "EXPECTED_STATUS_UNITS: a glob unit is matched literally, not expanded against the cwd" {
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST=""
+    export EXPECTED_STATUS_UNITS="*"
+    mkdir -p "${ARTIFACT_DIR}/status"
+    cd "${BATS_TEST_TMPDIR}"
+    : > "${BATS_TEST_TMPDIR}/decoy-file"
+
+    run main
+    [ "${status}" -eq 1 ]
+
+    grep -qF -- "- *" "${MOCK_CALLS_FILE}"
+    run ! grep -qF -- "decoy-file" "${MOCK_CALLS_FILE}"
+}
+
+@test "EXPECTED_STATUS_UNITS: a unit containing a slash is rejected by name and the run is red" {
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST=""
+    export EXPECTED_STATUS_UNITS="pi ../x"
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'green: pi\n' > "${ARTIFACT_DIR}/status/pi"
+    : > "${ARTIFACT_DIR}/x"
+
+    run main
+    [ "${status}" -eq 1 ]
+
+    grep -qF -- "../x" "${MOCK_CALLS_FILE}"
+    grep -qF -- "gh issue create" "${MOCK_CALLS_FILE}"
+    run ! grep -q "gh issue close" "${MOCK_CALLS_FILE}"
+}
+
+@test "EXPECTED_STATUS_UNITS: a slash unit with a failing post exits 2" {
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST=""
+    export EXPECTED_STATUS_UNITS="../x"
+    export MOCK_GH_EXIT_ISSUE_CREATE=1
+    mkdir -p "${ARTIFACT_DIR}/status"
+
+    run main
+    [ "${status}" -eq 2 ]
 }
