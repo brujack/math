@@ -211,6 +211,17 @@ class NotifyJobTests(unittest.TestCase):
         self.assertEqual(dl[0]["with"]["pattern"], "mutants-status-python-*")
         self.assertIs(dl[0]["with"]["merge-multiple"], True)
 
+    def test_every_step_after_checkout_runs_always(self):
+        for step in self.job["steps"][1:]:
+            self.assertIn("always()", str(step.get("if", "")), step)
+
+    def test_notify_step_runs_always(self):
+        notify = [
+            s for s in self.job["steps"] if s.get("run") == "scripts/mutation-notify.sh"
+        ]
+        self.assertEqual(len(notify), 1)
+        self.assertEqual(notify[0].get("if"), "always()")
+
     def test_expected_units_wired(self):
         notify = [
             s for s in self.job["steps"] if s.get("run") == "scripts/mutation-notify.sh"

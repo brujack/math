@@ -137,6 +137,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - id: dl
+        if: always()
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         continue-on-error: true
         with:
@@ -164,6 +165,7 @@ jobs:
           path: survivors-out/survivors/
           retention-days: 90
       - name: File, comment, or close the tracking issue
+        if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RESULT: ${{ needs.mutants.result }}
