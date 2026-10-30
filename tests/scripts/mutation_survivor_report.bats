@@ -176,3 +176,25 @@ assert_all_gh_calls_carry_repo() {
     [ "${status}" -eq 0 ]
     grep -q '^gh issue create' "${MOCK_CALLS_FILE}"
 }
+
+@test "issue list failure -> non-zero and no create or comment" {
+    write_all_cells
+    export MOCK_GH_EXIT_ISSUE_LIST=1
+    run bash "${REPO_ROOT}/scripts/mutation-survivor-report.sh" </dev/null
+    [ "${status}" -ne 0 ]
+    grep -q '^gh issue list' "${MOCK_CALLS_FILE}"
+    run grep -E '^gh (issue create|issue comment|label create)' "${MOCK_CALLS_FILE}"
+    [ "${status}" -ne 0 ]
+}
+
+@test "malformed expected units warn on stderr and stay out of the table" {
+    write_all_cells
+    export EXPECTED_STATUS_UNITS="fib-0 fib-1 perfect-numbers-0 perfect-numbers-1 bad/unit-0 nodash"
+    run --separate-stderr bash "${REPO_ROOT}/scripts/mutation-survivor-report.sh" </dev/null
+    [ "${status}" -eq 0 ]
+    [[ "${stderr}" == *"bad/unit-0"* ]]
+    [[ "${stderr}" == *"nodash"* ]]
+    run grep -cE 'bad|nodash' "${GITHUB_STEP_SUMMARY}"
+    [ "${output}" = "0" ]
+    grep -qF '4 of 4' "${GITHUB_STEP_SUMMARY}"
+}

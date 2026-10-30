@@ -54,6 +54,7 @@ write_survivor_files() {
 # Sets TABLE_ROWS and UNITS_REPORTING / UNITS_EXPECTED.
 build_table() {
     local _unit _dir _status _line
+    local -a _units
     local -a _dirs=()
     local -A _expected=() _reporting=() _red=() _jobs=() _surv=() _timed=()
     local _re='^green: .* — ([0-9]+) surviving, ([0-9]+) timed out, ([0-9]+) jobs'
@@ -62,7 +63,10 @@ build_table() {
     UNITS_REPORTING=0
     UNITS_EXPECTED=0
     for _unit in "${_units[@]}"; do
-        [[ "${_unit}" == */* || "${_unit}" != *-* ]] && continue
+        if [[ "${_unit}" == */* || "${_unit}" != *-* ]]; then
+            printf 'mutation-survivor-report: ignoring malformed expected unit "%s" (need <dir>-<k>, no slash)\n' "${_unit}" >&2
+            continue
+        fi
         _dir=$(unit_dir "${_unit}")
         if [[ -z "${_expected[${_dir}]:-}" ]]; then
             _dirs+=("${_dir}")
