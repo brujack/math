@@ -1,7 +1,8 @@
 # Root pyright errors on the push path, and an exact-name ci-gate exclusion
 
 - **Date:** 2026-10-30
-- **Status:** Draft
+- **Status:** Approved
+- **Approved:** 2026-10-30
 - **Related:**
   - Backlog P2 row "Root pyright type errors are caught only in CI";
   - Backlog P2 row "ci-gate excludes any check whose name is a substring of an excluded name";
