@@ -655,3 +655,94 @@ run_test_rust_with_probe() {
     run_test_rust_with_probe 3
     [ "${PROBE_MAX}" -gt 1 ]
 }
+
+# The Python mutants recipe: baseline first, memory cap, optional shard, cell status last.
+# PATH is stripped of tests/mocks for `git ls-files` for the same reason as the Rust test above.
+_py_mutants_makefiles() {
+    local _clean_path mf
+    _clean_path="$(printf '%s' "${PATH}" | tr ':' '\n' | grep -v 'tests/mocks' | tr '\n' ':' | sed 's/:$//')"
+    while IFS= read -r mf; do
+        [[ -z "${mf}" ]] && continue
+        # Rendered copies are one level deep; the template sits under scripts/.
+        [[ "${mf}" == */*/* ]] && continue
+        [[ -f "${REPO_ROOT}/$(dirname "${mf}")/cosmic-ray.toml" ]] && printf '%s\n' "${mf}"
+    done < <(cd "${REPO_ROOT}" && PATH="${_clean_path}" command git ls-files '*/Makefile')
+}
+
+# Prints the mutants recipe (target line plus its tab-indented continuation) of a Makefile.
+_py_mutants_recipe() {
+    awk '/^mutants:/ {on=1; print; next} on && /^\t/ {print; next} on {exit}' "$1"
+}
+
+# Line number of the first recipe line matching an ERE, or empty.
+_py_recipe_line() {
+    printf '%s\n' "$1" | grep -nE -- "$2" | head -1 | cut -d: -f1
+}
+
+@test "exactly 8 Python Makefiles carry a cosmic-ray.toml" {
+    local count
+    count="$(_py_mutants_makefiles | wc -l)"
+    [ "${count}" -eq 8 ]
+}
+
+@test "every Python mutants-baseline falls back to the module's unittest on failure" {
+    local mf mod bad="" n=0
+    while IFS= read -r mf; do
+        n=$((n + 1))
+        mod="$(sed -n 's/^\tpython3 \([a-z_]*\)\.py$/\1/p' "${REPO_ROOT}/${mf}" | head -1)"
+        [ -n "${mod}" ] || { bad="${bad}${mf}(no module) "; continue; }
+        grep -qE '^mutants-baseline:' "${REPO_ROOT}/${mf}" || bad="${bad}${mf}(no mutants-baseline) "
+        grep -qF "cosmic-ray baseline cosmic-ray.toml || { python3 -m unittest test_${mod}; exit 1; }" "${REPO_ROOT}/${mf}" \
+            || bad="${bad}${mf}(no unittest fallback) "
+        grep -qE '^\.PHONY:.* mutants-baseline( |$)' "${REPO_ROOT}/${mf}" || bad="${bad}${mf}(not PHONY) "
+        grep -qE '^CELL_LABEL \?= ' "${REPO_ROOT}/${mf}" || bad="${bad}${mf}(no CELL_LABEL) "
+    done < <(_py_mutants_makefiles)
+    [ "${n}" -eq 8 ]
+    [ -z "${bad}" ] || { printf 'baseline problems: %s\n' "${bad}" >&2; return 1; }
+}
+
+@test "every Python mutants target depends on mutants-baseline and orders init, shard, exec, status" {
+    local mf recipe bad="" n=0 init shard exec_ status last
+    while IFS= read -r mf; do
+        n=$((n + 1))
+        recipe="$(_py_mutants_recipe "${REPO_ROOT}/${mf}")"
+        printf '%s\n' "${recipe}" | head -1 | grep -qE '^mutants: mutants-baseline$' || bad="${bad}${mf}(no baseline dep) "
+        init="$(_py_recipe_line "${recipe}" 'cosmic-ray init')"
+        shard="$(_py_recipe_line "${recipe}" 'cosmic_ray_shard\.py')"
+        exec_="$(_py_recipe_line "${recipe}" 'cosmic-ray exec')"
+        status="$(_py_recipe_line "${recipe}" 'cosmic_ray_cell_status\.py')"
+        [[ -n "${init}" && -n "${shard}" && -n "${exec_}" && -n "${status}" ]] || { bad="${bad}${mf}(missing step) "; continue; }
+        { [ "${init}" -lt "${shard}" ] && [ "${shard}" -lt "${exec_}" ] && [ "${exec_}" -lt "${status}" ]; } \
+            || bad="${bad}${mf}(wrong order) "
+        printf '%s\n' "${recipe}" | sed -n "$((shard - 1)),${shard}p" | grep -q 'MUTANT_SHARD' || bad="${bad}${mf}(shard unguarded) "
+        printf '%s\n' "${recipe}" | grep -qF 'ulimit -v 8388608' || bad="${bad}${mf}(no cap) "
+        printf '%s\n' "${recipe}" | grep -q 'MUTANTS_UNCAPPED' || bad="${bad}${mf}(no uncapped escape) "
+        last="$(printf '%s\n' "${recipe}" | grep -nE 'cosmic_ray_|cosmic-ray |mutants-report' | tail -1 | cut -d: -f1)"
+        [ "${last}" = "${status}" ] || bad="${bad}${mf}(status not last) "
+    done < <(_py_mutants_makefiles)
+    [ "${n}" -eq 8 ]
+    [ -z "${bad}" ] || { printf 'recipe problems: %s\n' "${bad}" >&2; return 1; }
+}
+
+@test "python mutants-baseline runs the module's unittest and fails when cosmic-ray baseline fails" {
+    local d="${BATS_TEST_TMPDIR}/fibdir" bin="${BATS_TEST_TMPDIR}/bin"
+    mkdir -p "${d}" "${bin}"
+    cp "${REPO_ROOT}/fib/Makefile" "${d}/Makefile"
+    printf '#!/bin/sh\nexit 1\n' > "${bin}/cosmic-ray"
+    printf '#!/bin/sh\nprintf "python3 %%s\\n" "$*" >> "%s/calls"\n' "${BATS_TEST_TMPDIR}" > "${bin}/python3"
+    chmod +x "${bin}/cosmic-ray" "${bin}/python3"
+    run env PATH="${bin}:${PATH}" make -C "${d}" mutants-baseline
+    [ "${status}" -ne 0 ]
+    grep -qF 'python3 -m unittest test_fib' "${BATS_TEST_TMPDIR}/calls"
+}
+
+@test "python mutants rejects a malformed MUTANT_SHARD before exec" {
+    local d="${BATS_TEST_TMPDIR}/fibdir" bin="${BATS_TEST_TMPDIR}/bin"
+    mkdir -p "${d}" "${bin}"
+    cp "${REPO_ROOT}/fib/Makefile" "${d}/Makefile"
+    printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/crcalls"\nexit 0\n' "${BATS_TEST_TMPDIR}" > "${bin}/cosmic-ray"
+    chmod +x "${bin}/cosmic-ray"
+    run env PATH="${bin}:${PATH}" MUTANTS_UNCAPPED=1 MUTANT_SHARD=bogus make -C "${d}" mutants
+    [ "${status}" -ne 0 ]
+    ! grep -q '^exec ' "${BATS_TEST_TMPDIR}/crcalls"
+}
