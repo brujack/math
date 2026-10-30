@@ -4,8 +4,9 @@
 # Runs inside a temp copy of fib/; never inside the worktree's sub-project dirs,
 # because cosmic-ray can mutate source in place.
 
-readonly FIXTURE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly REPO_ROOT="$(cd "${FIXTURE_DIR}/../../.." && pwd)"
+FIXTURE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 1
+REPO_ROOT="$(cd "${FIXTURE_DIR}/../../.." && pwd)" || exit 1
+readonly FIXTURE_DIR REPO_ROOT
 
 regen_init_sessions() {
     local venv_bin="${1:-}"

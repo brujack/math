@@ -36,7 +36,7 @@ def run_shard(path: pathlib.Path, k: str, n: str) -> subprocess.CompletedProcess
 
 def keys(path: pathlib.Path) -> set[SpecKey]:
     with sqlite3.connect(path) as conn:
-        return {tuple(r) for r in conn.execute(KEY_SQL)}  # type: ignore[misc]
+        return {tuple(r) for r in conn.execute(KEY_SQL)}
 
 
 def job_ids(path: pathlib.Path) -> tuple[set[str], set[str]]:
