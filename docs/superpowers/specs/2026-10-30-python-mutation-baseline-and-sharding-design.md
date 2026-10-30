@@ -321,6 +321,10 @@ Python PR.
 - **N5.** No use of cosmic-ray's `http` distributor.
 - **N6.** No diff-scoped Python mutation in `mutation-pr.yml`.
 
+## Amendments
+
+- R8 -> `mutation-testing-python.yml` runs one `mutants` job per sub-project and shard (8 × 10 when no input is given) with `fail-fast: false` and `timeout-minutes: 90`; each runs `scripts/mutation-python-cell.sh`, which refuses (exit 2) an unset or empty `GITHUB_WORKSPACE` or a non-regular file at the status path, removes any earlier status and survivor file, runs `make -C <dir> mutants MUTANT_SHARD=<k>/10 CELL_LABEL=<dir>-<k> STATUS_OUT=… SURVIVORS_OUT=…`, writes `red: <dir>-<k> — make mutants failed (exit N)` when no status file exists and exits with make's code, or exits 1 with `(exit 1)` in the line when make exited 0 without writing one; an `if: cancelled()` step writes a `did not finish` red line when no status file exists. — a make that exits 0 without a verdict must not leave a red line on a green job, and a stale or misplaced status file must never stand in for this run's.
+
 ## Multi-Lens Review
 
 Reviewed at commit: `d8e8e94` (Step 7 self-review commit, before Step 8 dispatch)
