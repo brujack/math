@@ -14,15 +14,19 @@ regen_init_sessions() {
         printf 'usage: regen.sh <cosmic-ray-venv-bin-dir>\n' >&2
         return 1
     fi
+    venv_bin="$(cd "${venv_bin}" && pwd)" || return 1
     (
         work="$(mktemp -d)" || exit 1
         trap 'rm -rf "${work}"' EXIT
         cp "${REPO_ROOT}/fib/fib.py" "${REPO_ROOT}/fib/test_fib.py" \
             "${REPO_ROOT}/fib/cosmic-ray.toml" "${work}/" || exit 1
         cd "${work}" || exit 1
-        for local_name in a b; do
-            "${venv_bin}/cosmic-ray" init cosmic-ray.toml "fib-init-${local_name}.sqlite" || exit 1
-            cp "fib-init-${local_name}.sqlite" "${FIXTURE_DIR}/fib-init-${local_name}.sqlite" || exit 1
+        for name in a b; do
+            "${venv_bin}/cosmic-ray" init cosmic-ray.toml "fib-init-${name}.sqlite" || exit 1
+        done
+        # Copy only after both inits succeed so a failure never leaves a mismatched pair.
+        for name in a b; do
+            cp "fib-init-${name}.sqlite" "${FIXTURE_DIR}/fib-init-${name}.sqlite" || exit 1
         done
     ) || return 1
 }

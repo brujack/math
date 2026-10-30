@@ -120,42 +120,114 @@ class TestPartition(ShardTestCase):
 
 
 class TestErrors(ShardTestCase):
-    def assert_fails_unchanged(self, path: pathlib.Path, k: str, n: str) -> None:
+    def assert_fails_unchanged(
+        self, path: pathlib.Path, k: str, n: str, needle: str
+    ) -> None:
         before = path.read_bytes() if path.exists() else None
         r = run_shard(path, k, n)
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertTrue(r.stderr.strip())
+        self.assertIn(needle, r.stderr)
+        self.assertEqual(r.stdout, "")
         after = path.read_bytes() if path.exists() else None
         self.assertEqual(before, after)
 
     def test_missing_file(self) -> None:
         missing = self.tmp / "nope.sqlite"
-        self.assert_fails_unchanged(missing, "0", "10")
+        self.assert_fails_unchanged(missing, "0", "10", "no such session file")
         self.assertFalse(missing.exists())
 
     def test_zero_work_items(self) -> None:
-        p = self.tmp / "empty.sqlite"
-        shutil.copy(FIXTURES / "fib-init-a.sqlite", p)
+        p = self.copy("fib-init-a.sqlite")
         with sqlite3.connect(p) as conn:
             conn.execute("DELETE FROM mutation_specs")
             conn.execute("DELETE FROM work_items")
-        self.assert_fails_unchanged(p, "0", "10")
+        self.assert_fails_unchanged(p, "0", "10", "work_items is empty")
+
+    def test_zero_work_items_with_specs_remaining(self) -> None:
+        p = self.copy("fib-init-a.sqlite")
+        with sqlite3.connect(p) as conn:
+            conn.execute("DELETE FROM work_items")
+        self.assert_fails_unchanged(p, "0", "10", "work_items is empty")
+
+    def test_zero_specs_with_work_items_remaining(self) -> None:
+        p = self.copy("fib-init-a.sqlite")
+        with sqlite3.connect(p) as conn:
+            conn.execute("DELETE FROM mutation_specs")
+        self.assert_fails_unchanged(p, "0", "10", "mutation_specs is empty")
 
     def test_n_below_one(self) -> None:
         p = self.copy("fib-init-a.sqlite")
-        self.assert_fails_unchanged(p, "0", "0")
-        self.assert_fails_unchanged(p, "0", "-1")
+        self.assert_fails_unchanged(p, "0", "0", "n must be >= 1")
 
     def test_k_out_of_range(self) -> None:
         p = self.copy("fib-init-a.sqlite")
-        self.assert_fails_unchanged(p, "10", "10")
-        self.assert_fails_unchanged(p, "-1", "10")
+        self.assert_fails_unchanged(p, "10", "10", "k must be in")
 
-    def test_non_integer_args(self) -> None:
+    def test_non_plain_decimal_args(self) -> None:
         p = self.copy("fib-init-a.sqlite")
-        self.assert_fails_unchanged(p, "x", "10")
-        self.assert_fails_unchanged(p, "0", "ten")
-        self.assert_fails_unchanged(p, "1.5", "10")
+        needle = "plain decimal"
+        for k, n in [
+            ("x", "10"),
+            ("0", "ten"),
+            ("1.5", "10"),
+            ("-1", "10"),
+            ("0", "-1"),
+            ("1_0", "20"),
+            ("+3", "10"),
+            (" 3", "10"),
+            ("01", "10"),
+            ("-0", "10"),
+            ("0", "010"),
+            ("", "10"),
+        ]:
+            with self.subTest(k=k, n=n):
+                self.assert_fails_unchanged(p, k, n, needle)
+
+    def test_wrong_arg_count_usage(self) -> None:
+        p = self.copy("fib-init-a.sqlite")
+        before = p.read_bytes()
+        for argv in ([], [str(p)], [str(p), "0"], [str(p), "0", "10", "extra"]):
+            with self.subTest(argv=argv):
+                r = subprocess.run(
+                    [sys.executable, str(SCRIPT), *argv],
+                    capture_output=True,
+                    text=True,
+                    stdin=subprocess.DEVNULL,
+                    check=False,
+                )
+                self.assertEqual(r.returncode, 1)
+                self.assertIn("usage", r.stderr)
+        self.assertEqual(before, p.read_bytes())
+
+    def test_garbage_file(self) -> None:
+        p = self.tmp / "garbage.sqlite"
+        p.write_bytes(b"this is not a sqlite database, just text\n" * 50)
+        self.assert_fails_unchanged(p, "0", "10", "not a database")
+
+    def test_session_with_results_refused(self) -> None:
+        p = self.copy("fib-init-a.sqlite")
+        with sqlite3.connect(p) as conn:
+            job_id = conn.execute("SELECT job_id FROM work_items LIMIT 1").fetchone()[0]
+            conn.execute(
+                "INSERT INTO work_results (worker_outcome, output, test_outcome, diff, job_id)"
+                " VALUES ('NORMAL', '', 'KILLED', '', ?)",
+                (job_id,),
+            )
+        self.assert_fails_unchanged(p, "0", "10", "work_results")
+
+    def test_duplicate_spec_key_refused(self) -> None:
+        p = self.copy("fib-init-a.sqlite")
+        with sqlite3.connect(p) as conn:
+            conn.execute("INSERT INTO work_items (job_id) VALUES ('dup-job')")
+            conn.execute(
+                "INSERT INTO mutation_specs (module_path, operator_name, operator_args,"
+                " occurrence, start_pos_row, start_pos_col, end_pos_row, end_pos_col,"
+                " definition_name, job_id)"
+                " SELECT module_path, operator_name, operator_args, occurrence,"
+                " start_pos_row, start_pos_col, end_pos_row, end_pos_col,"
+                " definition_name, 'dup-job' FROM mutation_specs LIMIT 1"
+            )
+        self.assert_fails_unchanged(p, "0", "10", "duplicate spec key")
 
 
 if __name__ == "__main__":
