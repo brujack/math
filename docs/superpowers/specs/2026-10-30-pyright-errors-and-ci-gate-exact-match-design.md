@@ -47,9 +47,17 @@ The exact-match form `.name as $n | $excl | any(. == $n) | not` keeps `scan` and
    every other install site pins, so `make install-deps` installs the gate's tool. When
    pyright is absent outside CI the class still skips, but first writes one line to stderr:
    `pyright not found; root type errors are unchecked locally (run: make install-deps)`.
-   When the installed `pyright --version` differs from the pin in `requirements-dev.txt`,
-   the class fails with the same remedy, because a different pyright can report a different
-   error set from CI's.
+   When the `version` field of the repo-root `--outputjson` report differs from the pin in
+   `requirements-dev.txt`, the class fails with the same remedy, because a different pyright
+   can report a different error set from CI's. The report's field is the engine actually run:
+   measured on `claude` it reads `1.1.411` normally and `1.1.400` under
+   `PYRIGHT_PYTHON_FORCE_VERSION=1.1.400`. `pyright --version` is not used, because it prints
+   an upgrade nag on stdout whenever a newer release exists. A report with no `version` field
+   fails with its own message.
+   `requirements-dev.txt` joins the sites `tests/test_tool_pins.py` checks for one pyright
+   version, and the now-duplicate `pyright==1.1.411` is removed from `scripts.yml`'s
+   `pip install -r requirements-dev.txt ...` line. A machine without the venv active still
+   skips; the stderr line makes that visible, and CI still gates.
 3. **Exact-name exclusion in ci-gate.** All three `inside($excl)` filters become
    `.name as $n | $excl | any(. == $n) | not`.
 
@@ -61,8 +69,10 @@ The exact-match form `.name as $n | $excl | any(. == $n) | not` keeps `scan` and
   `scripts/` file whose line 2 assigns a `str` to an `int` variable, and asserts the report
   reader returns exactly one error, rule `reportAssignmentType`, on that line. A stray
   import error would make the count 2 and fail it.
-- pyright version: a test feeds the version check a pin and a different reported version
-  and asserts the failure message names `make install-deps`; a matching pair passes.
+- pyright version: tests feed the version check a captured real `--outputjson` report with
+  its `version` field set to the pin (passes), to a different version (fails naming
+  `make install-deps`), and removed (fails with the missing-version message).
+- pins: `tests/test_tool_pins.py` counts `requirements-dev.txt` among the pyright sites.
 - ci-gate: a `tests/scripts/ci_gate.bats` case where a required check named `scan` fails
   and `snyk-scan` is excluded: the gate exits non-zero and names `scan`. A second case where
   a check named `scan` is still running keeps the gate polling until it times out, asserting
@@ -84,8 +94,11 @@ The exact-match form `.name as $n | $excl | any(. == $n) | not` keeps `scan` and
 - **R6.** `[PR1]` The Backlog loses the two P2 rows this spec closes.
 - **R7.** `[PR1]` Root `CLAUDE.md`'s `test_root_pyright_scope.py` line states that the test fails on any root pyright error.
 - **R8.** `[PR1]` `requirements-dev.txt` pins `pyright==1.1.411`; with pyright absent outside CI the test class writes `pyright not found; root type errors are unchecked locally (run: make install-deps)` to stderr before skipping, and with an installed version different from that pin it fails naming `make install-deps`.
-- **R9.** `[PR1]` Root `CLAUDE.md`'s `requirements-dev.txt` line lists `pyright==1.1.411`.
+- **R9.** `[PR1]` Root `CLAUDE.md`'s `requirements-dev.txt` line lists `pyright==1.1.411`, and its pyright install-site line names `requirements-dev.txt` among the sites.
+- **R10.** `[PR1]` The version check reads the `version` field of the repo-root `--outputjson` report, never `pyright --version`, and a report without that field fails.
+- **R11.** `[PR1]` `tests/test_tool_pins.py` includes `requirements-dev.txt` in the pyright one-version check, and `scripts.yml` no longer pins pyright beside `-r requirements-dev.txt`.
 - **V1.** On the PR, the `scripts` CI job and the auto-merge `ci-gate` job are green.
+- **V2.** On the Mac Studio, `python3 -m venv` plus `pip install -r requirements-dev.txt` gives a pyright whose `--outputjson` report reads `version` 1.1.411.
 - **N1.** No change to `pyrightconfig.json`'s mode, include or exclude.
 - **N2.** No pyright invocation added to `make lint`.
 - **N3.** No change to which check names `ci-gate.sh` excludes.
@@ -124,3 +137,20 @@ error from an import-free file; no-JSON failure stated in R2; polling case asser
 ### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+### Round 2
+
+Reviewed at commit: `77f2fae` (all three lenses re-run: pin and version check were new design)
+
+Findings (all three lenses): `pyright --version` prints an upgrade nag on stdout, so an
+unspecified parse either fails every pinned machine or goes green on an old engine; the new
+`requirements-dev.txt` pin sits outside `test_tool_pins.py`'s one-version scan, so a documented
+bump leaves it stale and conflicts with `scripts.yml:61`. Ergonomics: a PEP 668 machine without
+the venv active still skips. Goal-fit assumption: the pip wrapper needs node on the Mac Studio.
+Disposition: Addressed (operator, 2026-10-30): version from the JSON report's `version` field
+(R10; measured to track `PYRIGHT_PYTHON_FORCE_VERSION`), `requirements-dev.txt` in the pin scan and
+the duplicate `scripts.yml` pin removed (R11), Mac Studio check as V2. Inactive-venv skip Accepted,
+reason: the stderr line makes it visible and CI still gates.
+
+Review stopped after round 2 (operator, 2026-10-30): remaining findings are test-apparatus
+precision, which Phase 2's red tests check better than another prose round.
