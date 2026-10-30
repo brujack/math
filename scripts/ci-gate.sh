@@ -45,7 +45,7 @@ ci_gate() {
             'group_by([($wf[.suite | tostring] // (if .suite == null then "id:\(.id)" else "suite:\(.suite)" end) | tostring), .name])
              | map(([.[] | select(.conclusion != "skipped")] | max_by(.id)) // max_by(.id)) | .[]') || return 1
         non_terminal=$(printf '%s' "${check_runs}" | jq -r --argjson excl "${excluded_json}" \
-            'select([.name] | inside($excl) | not) | select(.status != "completed") | .name')
+            'select(.name as $n | $excl | any(. == $n) | not) | select(.status != "completed") | .name')
         if [[ -z "${non_terminal}" ]]; then
             timed_out=0
             break
@@ -60,7 +60,7 @@ ci_gate() {
 
     local required
     required=$(printf '%s' "${check_runs}" | jq -r --argjson excl "${excluded_json}" \
-        'select([.name] | inside($excl) | not) | .name')
+        'select(.name as $n | $excl | any(. == $n) | not) | .name')
 
     if [[ -z "${required}" ]]; then
         printf "No required checks triggered. Proceeding.\n"
@@ -69,7 +69,7 @@ ci_gate() {
 
     local failures
     failures=$(printf '%s' "${check_runs}" | jq -r --argjson excl "${excluded_json}" \
-        'select([.name] | inside($excl) | not) | select(.conclusion != "success" and .conclusion != "skipped") | .name')
+        'select(.name as $n | $excl | any(. == $n) | not) | select(.conclusion != "success" and .conclusion != "skipped") | .name')
 
     if [[ -n "${failures}" ]]; then
         printf "Required checks failed:\n%s\n" "${failures}" >&2
