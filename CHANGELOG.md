@@ -3,96 +3,114 @@
 
 ## Bug Fixes
 
-- hold every bot PR on is_bot, not the Renovate login (#143)
+- install nextest and machete before tests (#157)
 
-- print CLAUDE.md size on a passing budget check (#147)
+- ignore superseded check runs; record release backlog rows (#158)
+
+- drop rejected CHANGELOG push; make SBOM monitor skips visible (#159)
+
+- stop continue-on-error hiding failures (#160)
+
+- handle closed stdin in fib.py and sq.py (#161)
+
+- hold draft PRs green instead of failing (#162)
+
+- stop building file paths from env and git output (#163)
+
+- pin and checksum the Snyk CLI (#164)
+
+- pin pyright and every cargo install to one version (#165)
+
+- make <crate> only builds; make install to ~/.local/bin (#166)
+
+- make all 11 Makefiles and rustfmt.toml identical (#167)
+
+- render Makefile, rustfmt and release workflows from templates (#168)
+
+- render the 11 CI workflows and nextest config from templates (#169)
+
+- one tested install_deps.sh for all 11 crates (#170)
+
+- keep mpmath precision through the spawn conversion worker (#174)
+
+- stop holding the stderr lock across run() in pi, prime and e (#175)
+
+- wake progress threads when work finishes instead of after a 200 ms sleep (#176)
+
+- scan the crate templates with the github-actions manager (#179)
 
 
 
 ## CI
 
-- enable held lockfile maintenance (#148)
+- prebuilt CI tools, parallel coverage job and parallel bats (#177)
 
 
 
 ## Documentation
 
-- record Step 8 round 3 and the shared upstream cause
+- one CLI contract for all 19 programs, uniform Python files
 
-- spec atomic release publication to remove the sign-after-publish window
+- align math's direct-to-master docs rule with the fleet
 
-- index the release-ordering spec
+- record Step 8 multi-lens review, round 1
 
-- record the syft probe and re-scope the release-ordering spec
+- revision 2 after round-1 review dispositions
 
-- mark SBOM monitor Section 1 superseded by the syft probe
+- revision 3 after round-2 review dispositions
 
-- record round 1 dispositions on the release-ordering spec
+- revision 4 after round-3 risk review
 
-- plan atomic release publication
+- record operator approval of uniform Python CLI spec
 
-- mark the release-ordering plan done
+- uniform Python CLI and project files, 19 tasks
 
-- re-measure the cargo install pinning backlog row
+- collatz N>8 memory peak above its warning
 
-- backlog the missing negative wording assertion
+- claude_md_budget gate takes a revision
 
-- spec the root-scope Python gate holes
+- drop the pi/e closed-stdin row fixed by math#171
 
-- redesign the pyright gate after multi-lens review
+- mark uniform-python-cli Done
 
-- replace the matcher reimplementation with an inequality
+- describe the rendered Python installer in three READMEs
 
-- model the slack the coverage gate was tolerating
+- uniform Rust CLI contract and Cargo.toml shape
 
-- remove the duplicate reintroduced by the round-3 edit
+- Rust spec round-1 revisions and parallel local tests
 
-- record the operator's disposition on round-2 risk finding 5
+- Rust spec round-2 dispositions
 
-- plan the root-scope Python gate holes
+- Rust spec adds system GMP and MPFR (R20)
 
-- document make install-deps in the README setup block
+- Rust spec adds the nextest time bound (R21)
 
-- correct the SBOM-monitor backlog row
+- Rust spec round-2 review record
 
-- two findings from the model-generation-audit
+- Rust spec round 3, drop system GMP, bound coverage job
 
-- two stale facts from the model-generation-audit re-run
+- Rust spec bound sized from CI (15 s x 3)
 
-- 19 shell files unreachable from the push path
+- approve the Rust CLI contract and Cargo.toml spec
 
-- fix double-tilde standards includes in CLAUDE.md
+- uniform Rust CLI contract and Cargo.toml plan, non-goal check
 
-- point audit citations at the real knowledge file
-
-- load python.md and rust.md on demand, not at session start (#142)
-
-- CLAUDE.md budget, one line per rule and a byte ceiling
-
-- CLAUDE.md budget revision 2 after review
-
-- CLAUDE.md budget plan; record spec approval
-
-- mark CLAUDE.md budget done
-
-- record lockFileMaintenance automerge test gap (#151)
+- record math#180 P1 merge and the removed pre-push skip
 
 
 
 ## Features
 
-- sign releases before publishing them (#130)
+- one CLI contract for the 8 Python programs (#171)
 
-- declare and type-check root-scope Python (#131)
+- run every Python project at standard via an exact gmpy2 stub (#172)
 
-- hold Python interpreter updates out of automerge (#145)
-
-- one line per rule, cap CLAUDE.md at 30,000 bytes (#146)
+- one Cargo.toml shape, crate CLAUDE.md, concurrent suites, bounded tests (#180)
 
 
 
-## Testing
+## Refactoring
 
-- pin multi-label automerge-ok matching in bot-hold test (#144)
+- render the 8 Python projects' files from templates (#173)
 
 
