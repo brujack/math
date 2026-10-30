@@ -13,8 +13,11 @@ Two independent assertions, each with a distinct failure mode:
 
 import json
 import os
+import re
 import shutil
 import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -78,8 +81,129 @@ class TestRootPyrightMode(unittest.TestCase):
         self.assertEqual(config.get("exclude"), ["**/node_modules", "**/__pycache__"])
 
 
+def error_lines(report: dict, root: Path) -> list[str]:
+    """One `<repo-relative file>:<line> <rule> <message>` per error diagnostic."""
+    lines = []
+    for diag in report.get("generalDiagnostics", []):
+        if diag.get("severity") != "error":
+            continue
+        try:
+            name = Path(diag["file"]).relative_to(root).as_posix()
+        except ValueError:
+            name = diag["file"]
+        line = diag["range"]["start"]["line"] + 1
+        lines.append(f"{name}:{line} {diag.get('rule', '-')} {diag['message']}")
+    return lines
+
+
+def version_problem(report: dict, pin: str) -> str | None:
+    """None when the engine that ran equals the pin, else a message saying why not."""
+    actual = report.get("version")
+    if not actual:
+        return "pyright report has no version field; cannot verify the engine version"
+    if actual != pin:
+        return (
+            f"pyright engine is {actual} but requirements-dev.txt pins {pin}; "
+            "run `make install-deps` to install the pinned version"
+        )
+    return None
+
+
+def pinned_pyright(requirements_text: str) -> str:
+    """The X.Y.Z of the `pyright==X.Y.Z` line in requirements-dev.txt."""
+    match = re.search(r"^pyright==(\d+\.\d+\.\d+)\s*$", requirements_text, re.MULTILINE)
+    if match is None:
+        raise ValueError("requirements-dev.txt has no pinned pyright==X.Y.Z line")
+    return match.group(1)
+
+
+def _run_pyright(pyright_bin: str, cwd: Path) -> dict:
+    result = subprocess.run(
+        [pyright_bin, "--outputjson"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        # A crash or a bad flag empties stdout; a bare JSONDecodeError would name
+        # neither the return code nor pyright's own diagnosis.
+        raise RuntimeError(
+            f"pyright --outputjson produced no JSON (rc={result.returncode}): "
+            f"{result.stderr[:500]}"
+        ) from None
+
+
+_REAL_REPORT = {
+    "version": "1.1.411",
+    "summary": {"filesAnalyzed": 1, "errorCount": 0},
+    "generalDiagnostics": [],
+}
+
+
+class TestPyrightHelpers(unittest.TestCase):
+    def test_error_lines_formats_one_error_and_skips_warnings(self):
+        report = {
+            "generalDiagnostics": [
+                {
+                    "file": str(REPO_ROOT / "tests" / "a.py"),
+                    "severity": "error",
+                    "rule": "reportAssignmentType",
+                    "message": "bad",
+                    "range": {"start": {"line": 1, "character": 0}},
+                },
+                {
+                    "file": str(REPO_ROOT / "tests" / "b.py"),
+                    "severity": "warning",
+                    "rule": "reportX",
+                    "message": "meh",
+                    "range": {"start": {"line": 4, "character": 0}},
+                },
+            ]
+        }
+        self.assertEqual(
+            error_lines(report, REPO_ROOT),
+            ["tests/a.py:2 reportAssignmentType bad"],
+        )
+
+    def test_error_lines_empty_when_no_diagnostics(self):
+        self.assertEqual(error_lines(_REAL_REPORT, REPO_ROOT), [])
+
+    def test_version_problem_match(self):
+        self.assertIsNone(version_problem(_REAL_REPORT, "1.1.411"))
+
+    def test_version_problem_mismatch_names_install_deps(self):
+        message = version_problem(_REAL_REPORT, "1.1.400")
+        self.assertIsNotNone(message)
+        self.assertIn("make install-deps", message or "")
+        self.assertIn("1.1.411", message or "")
+
+    def test_version_problem_missing_is_distinct(self):
+        for report in ({}, {"version": ""}):
+            message = version_problem(report, "1.1.411")
+            self.assertIn("no version field", message or "")
+            self.assertNotIn("make install-deps", message or "")
+
+    def test_pinned_pyright_reads_line(self):
+        self.assertEqual(pinned_pyright("a==1.0.0\npyright==1.2.3\n"), "1.2.3")
+
+    def test_pinned_pyright_missing_raises(self):
+        with self.assertRaises(ValueError):
+            pinned_pyright("defusedxml==0.7.1\n")
+
+    def test_requirements_dev_pins_pyright(self):
+        text = (REPO_ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
+        self.assertRegex(pinned_pyright(text), r"^\d+\.\d+\.\d+$")
+
+
 class TestRootPyrightCoverage(unittest.TestCase):
-    """Assertion 2: pyright's filesAnalyzed equals tracked + untracked .py files."""
+    """pyright's file count, error count and engine version at the repo root."""
+
+    report: dict | None = None
+    failure: str | None = None
+    pyright_bin: str | None = None
 
     @classmethod
     def setUpClass(cls):
@@ -87,12 +211,31 @@ class TestRootPyrightCoverage(unittest.TestCase):
         # Presence, not truthiness: GitHub Actions sets CI=true, but a set-and-falsy
         # value (CI="", CI=0) must still fail closed rather than silently skip — only
         # a wholly UNSET CI means "not running under a CI runner at all".
-        if cls.pyright_bin is None and "CI" in os.environ:
-            raise RuntimeError("pyright is required in CI but was not found on PATH")
+        if cls.pyright_bin is None:
+            if "CI" in os.environ:
+                raise RuntimeError("pyright is required in CI but was not found on PATH")
+            sys.stderr.write(
+                "SKIP: pyright not found on PATH; root type errors are not checked "
+                "(run `make install-deps`)\n"
+            )
+            return
+        try:
+            cls.report = _run_pyright(cls.pyright_bin, REPO_ROOT)
+        except RuntimeError as exc:
+            # self.fail is unavailable here; store and raise per test.
+            cls.failure = str(exc)
 
     def setUp(self):
         if self.pyright_bin is None:
             self.skipTest("pyright not found on PATH")
+        if self.failure is not None:
+            self.fail(self.failure)
+
+    def _report(self) -> dict:
+        report = self.report
+        if report is None:
+            self.fail("no pyright report")
+        return report
 
     def test_files_analyzed_equals_tracked_plus_untracked(self):
         tracked = _git_ls_files()
@@ -106,28 +249,7 @@ class TestRootPyrightCoverage(unittest.TestCase):
             0,
             "expected at least one tracked .py file under the include roots",
         )
-
-        pyright_bin = self.pyright_bin
-        if pyright_bin is None:
-            self.fail("pyright not found on PATH")  # unreachable: setUp already skipped
-        result = subprocess.run(
-            [pyright_bin, "--outputjson"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        try:
-            report = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            # A crash or a bad flag empties stdout; a bare JSONDecodeError here names
-            # neither the return code nor pyright's own diagnosis, and points a
-            # reader at the file-count denominator when the fault is pyright itself.
-            self.fail(
-                f"pyright --outputjson produced no JSON (rc={result.returncode}): "
-                f"{result.stderr[:500]}"
-            )
-        files_analyzed = report["summary"]["filesAnalyzed"]
+        files_analyzed = self._report()["summary"]["filesAnalyzed"]
 
         self.assertEqual(
             files_analyzed,
@@ -136,6 +258,41 @@ class TestRootPyrightCoverage(unittest.TestCase):
             f"{len(expected_files)} from tracked+untracked {INCLUDE_PATHSPECS}: "
             f"{expected_files}",
         )
+
+    def test_no_pyright_errors(self):
+        report = self._report()
+        self.assertEqual(
+            report["summary"]["errorCount"],
+            0,
+            "pyright errors:\n" + "\n".join(error_lines(report, REPO_ROOT)),
+        )
+
+    def test_engine_version_matches_pin(self):
+        text = (REPO_ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
+        problem = version_problem(self._report(), pinned_pyright(text))
+        self.assertIsNone(problem, problem)
+
+
+class TestSeededPyrightError(unittest.TestCase):
+    """R3: the gate can fail. A seeded type error yields exactly one error."""
+
+    def test_seeded_assignment_error_is_reported(self):
+        pyright_bin = shutil.which("pyright")
+        if pyright_bin is None:
+            if "CI" in os.environ:
+                self.fail("pyright is required in CI but was not found on PATH")
+            self.skipTest("pyright not found on PATH")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copy(CONFIG_PATH, root / "pyrightconfig.json")
+            (root / "scripts").mkdir()
+            (root / "scripts" / "seeded.py").write_text('\nx: int = "s"\n', encoding="utf-8")
+            report = _run_pyright(pyright_bin, root)
+            self.assertEqual(report["summary"]["errorCount"], 1, report)
+            diag = report["generalDiagnostics"][0]
+            self.assertEqual(diag["rule"], "reportAssignmentType")
+            self.assertEqual(diag["range"]["start"]["line"] + 1, 2)
+            self.assertEqual(len(error_lines(report, root.resolve())), 1)
 
 
 if __name__ == "__main__":
