@@ -29,13 +29,16 @@ def steps_of(job):
 
 
 def pip_lines(path):
-    wf = load(path)
+    """Return the `pip install` lines of a workflow or placeholder template.
+
+    The template carries `@CRATE@` placeholders and is not valid YAML, so both
+    files are scanned as text for `run: pip install ...` lines.
+    """
     lines = []
-    for job in wf["jobs"].values():
-        for step in job.get("steps", []):
-            for line in step.get("run", "").splitlines():
-                if "pip install" in line:
-                    lines.append(line.strip())
+    for line in path.read_text().splitlines():
+        stripped = line.strip()
+        if stripped.startswith("run: pip install"):
+            lines.append(stripped)
     return lines
 
 
