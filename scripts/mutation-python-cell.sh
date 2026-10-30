@@ -34,11 +34,11 @@ main() {
     local _out="${GITHUB_WORKSPACE}/status/${_unit}"
     local _surv="${GITHUB_WORKSPACE}/survivors/${_unit}.txt"
     mkdir -p "${GITHUB_WORKSPACE}/status" "${GITHUB_WORKSPACE}/survivors" || return 1
-    rm -f "${_out}" "${_surv}" || return 1
     if [[ -e "${_out}" && ! -f "${_out}" ]]; then
         printf 'mutation-python-cell: %s is not a regular file\n' "${_out}" >&2
         return 2
     fi
+    rm -f "${_out}" "${_surv}" || return 1
 
     local _rc=0
     make -C "${_dir}" mutants MUTANT_SHARD="${_k}/${_n}" CELL_LABEL="${_unit}" \
