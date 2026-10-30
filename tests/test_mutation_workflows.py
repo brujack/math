@@ -264,5 +264,65 @@ class PipLineTests(unittest.TestCase):
         self.assertEqual(lines, pip_lines(TEMPLATE))
 
 
+PR_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "mutation-pr.yml"
+
+
+def pr_steps():
+    return load(PR_WORKFLOW)["jobs"]["mutation-pr"]["steps"]
+
+
+def pr_step(fragment):
+    found = [s for s in pr_steps() if fragment in s.get("run", "")]
+    return found
+
+
+class MutationPrTests(unittest.TestCase):
+    def test_no_cosmic_ray_exec(self):
+        for step in pr_steps():
+            self.assertNotIn("cosmic-ray exec", step.get("run", ""))
+
+    def test_python_step_runs_baseline_per_dir(self):
+        found = pr_step("mutants-baseline")
+        self.assertEqual(len(found), 1)
+        step = found[0]
+        self.assertIn("for dir in ${PY_DIRS}", step["run"])
+        self.assertIn('make -C "${dir}" mutants-baseline || exit 1', step["run"])
+        self.assertNotIn("continue-on-error", step)
+        self.assertEqual(step["if"], "steps.detect.outputs.has_py == 'true'")
+        self.assertEqual(step["env"]["PY_DIRS"], "${{ steps.detect.outputs.py_dirs }}")
+
+    def test_gmp_and_pip_gated_after_detect(self):
+        steps = pr_steps()
+        names = [s.get("name") for s in steps]
+        detect = names.index("Detect changed sub-projects")
+        for fragment in ("libgmp-dev", "pip install"):
+            found = pr_step(fragment)
+            self.assertEqual(len(found), 1, fragment)
+            self.assertEqual(found[0]["if"], "steps.detect.outputs.has_py == 'true'")
+            self.assertGreater(steps.index(found[0]), detect)
+
+    def test_setup_python_is_314(self):
+        found = [s for s in pr_steps() if "setup-python" in s.get("uses", "")]
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["with"]["python-version"], "3.14")
+
+    def test_detect_calls_script(self):
+        found = [s for s in pr_steps() if s.get("id") == "detect"]
+        self.assertEqual(len(found), 1)
+        self.assertIn("scripts/mutation-pr-detect.sh", found[0]["run"])
+        self.assertIn("has_rs", found[0]["run"])
+
+    def test_pip_line_matches_template(self):
+        lines = pip_lines(PR_WORKFLOW)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("hypothesis", lines[0])
+        self.assertEqual(lines, pip_lines(TEMPLATE))
+
+    def test_cargo_mutants_install_unconditional(self):
+        found = pr_step("cargo install cargo-mutants --locked --version 27.1.0")
+        self.assertEqual(len(found), 1)
+        self.assertNotIn("if", found[0])
+
+
 if __name__ == "__main__":
     unittest.main()
