@@ -1,7 +1,8 @@
 # Python Mutation Testing: Fail-Closed Baseline, Real Dependencies, Sharded Monthly Run
 
 - **Date:** 2026-10-30
-- **Status:** Draft
+- **Status:** Approved
+- **Approved:** 2026-10-30
 - **Related:**
   - Backlog P1 row "Python mutation workflows probably mutate nothing";
   - Backlog P2 row "pip installs outside the 16 rendered sites are unpinned";
