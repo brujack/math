@@ -78,6 +78,59 @@ build_body() {
     printf 'Cause: %s\n\n%s\n\nRun: %s\n' "${_token}" "${_detail}" "${RUN_URL}"
 }
 
+# Comment on the open tracking issue, or file one (creating the label first).
+# Both branches end in an explicit `|| return 1`; the last-statement position
+# alone would return gh's own exit code, so the expected-units path in main()
+# adds its own `return 1` after calling this and has tests for each failure.
+post_issue() {
+    local _existing="${1}"
+    local _body="${2}"
+
+    if [[ -n "${_existing}" ]]; then
+        gh issue comment "${_existing}" --repo "${REPO}" --body "${_body}" || return 1
+    else
+        gh label create "${ISSUE_LABEL}" --repo "${REPO}" --color B60205 \
+            --description "Monthly mutation run failed" 2>/dev/null || true
+        gh issue create --repo "${REPO}" --title "${ISSUE_TITLE}" --label "${ISSUE_LABEL}" --body "${_body}" || return 1
+    fi
+}
+
+# Body for the EXPECTED_STATUS_UNITS check: names the units that wrote no
+# status file and the units whose status is red.
+build_units_body() {
+    local _missing="${1}"
+    local _empty="${2}"
+    local _red _detail
+
+    _red=$(grep -l '^red' "${ARTIFACT_DIR}"/status/* 2>/dev/null | sed 's|.*/|- |')
+    if [[ "${_empty}" == "1" ]]; then
+        _detail="The expected list was empty, so no ${UNIT_NOUN} could be verified."
+    else
+        _detail="Missing ${UNIT_NOUN}s:"$'\n'"${_missing}"
+    fi
+    printf 'Cause: missing-status\n\nThe run reported %s but not every expected %s wrote a verdict.\n\n%s\n\nRed %ss:\n%s\n\nRun: %s\n' \
+        "${RESULT}" "${UNIT_NOUN}" "${_detail}" "${UNIT_NOUN}" "${_red:-- (none)}" "${RUN_URL}"
+}
+
+# Returns 0 when every expected unit has a status file, else files or comments
+# on the issue and returns 1. Only called when EXPECTED_STATUS_UNITS is set.
+check_expected_units() {
+    local _existing="${1}"
+    local _unit _missing="" _empty=0 _body
+
+    for _unit in ${EXPECTED_STATUS_UNITS}; do
+        if [[ ! -f "${ARTIFACT_DIR}/status/${_unit}" ]]; then
+            _missing+="- ${_unit}"$'\n'
+        fi
+    done
+    [[ -z "${EXPECTED_STATUS_UNITS//[[:space:]]/}" ]] && _empty=1
+    [[ "${_empty}" == "0" && -z "${_missing}" ]] && return 0
+
+    _body=$(build_units_body "${_missing%$'\n'}" "${_empty}") || return 1
+    post_issue "${_existing}" "${_body}" || return 1
+    return 1
+}
+
 # File, comment, or close the tracking issue. Same decision tree as
 # the notify job's former inline block, which it replaced on 2026-09-01;
 # the workflows now supply only env: -- with two
@@ -101,6 +154,10 @@ main() {
     _existing=$(gh issue list --repo "${REPO}" --state open --label "${ISSUE_LABEL}" \
         --search "in:title \"${ISSUE_TITLE}\"" --json number --jq '.[0].number // empty') || return 1
 
+    if [[ -n "${EXPECTED_STATUS_UNITS+x}" ]]; then
+        check_expected_units "${_existing}" || return 1
+    fi
+
     if [[ "${RESULT}" == "success" ]]; then
         if [[ -n "${_existing}" ]]; then
             gh issue comment "${_existing}" --repo "${REPO}" --body "Green as of ${RUN_URL}. Closing." || return 1
@@ -113,21 +170,7 @@ main() {
     _token=$(attribute) || return 1
     _body=$(build_body "${_token}") || return 1
 
-    # The two `|| return 1` below are decorative BY POSITION, not by construction:
-    # each is the last statement of its branch, and this if/else is the last
-    # statement of main(), so stripping one returns the gh exit code rather than
-    # 1 -- both non-zero, so no `status -ne 0` oracle can discriminate and no test
-    # covers them. Measured: stripping either leaves the suite fully green, while
-    # the three guards above each die to a distinct case. Append ANYTHING after
-    # `gh issue create` and they become load-bearing -- give them a test at that
-    # point.
-    if [[ -n "${_existing}" ]]; then
-        gh issue comment "${_existing}" --repo "${REPO}" --body "${_body}" || return 1
-    else
-        gh label create "${ISSUE_LABEL}" --repo "${REPO}" --color B60205 \
-            --description "Monthly mutation run failed" 2>/dev/null || true
-        gh issue create --repo "${REPO}" --title "${ISSUE_TITLE}" --label "${ISSUE_LABEL}" --body "${_body}" || return 1
-    fi
+    post_issue "${_existing}" "${_body}"
 }
 
 [[ "${BASH_SOURCE[0]}" != "${0}" ]] && return 0
