@@ -1,5 +1,7 @@
 # Python Mutation Baseline and Sharding Implementation Plan
 
+> **Status: DONE** — merged in math#183 (f7669a2), 2026-10-30. V1 full-matrix run 41136722047 green.
+
 spec: docs/superpowers/specs/2026-10-30-python-mutation-baseline-and-sharding-design.md
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
