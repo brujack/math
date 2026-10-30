@@ -86,6 +86,14 @@ block when the cause is an import error (measured on fib in a venv without `hypo
 `python3 -m unittest test_fib` prints the `ImportError`. The re-run command is the same
 `test-command` that `cosmic-ray.toml` holds; both are rendered from `@MODULE@`.
 
+The `mutants` recipe runs under `ulimit -v 8388608` (8 GiB), the same cap and the same
+`MUTANTS_UNCAPPED=1` escape (macOS cannot enforce it; the recipe fails closed otherwise) as the
+Rust recipes. Without it one mutant decides the run: pi's `Mul→Pow` mutant at `pi.py:574`
+reached a 138 GB resident set within its 60 s timeout on `claude` (fib's `Add→LShift` reached
+2.9 GB), against about 16 GB on a GitHub runner, so the cell holding it would lose its runner
+every month. Under the cap the allocation fails inside the test, which records a kill. All 8
+unmutated test runs exit 0 under the cap (measured on `claude`, Python 3.14.8, pinned set).
+
 `mutants` accepts an optional `MUTANT_SHARD=k/n`. When set, it runs
 `python3 ../scripts/cosmic_ray_shard.py cosmic-ray-session.sqlite k n` between `init` and
 `exec`. When unset the recipe behaves as today: full session, serial. `MUTANT_SHARD=0/10` is
@@ -133,8 +141,10 @@ and similar). A slower runner could in principle push a survivor past 60 s, but 
 unmutated test run is 5.6 s (e); a month-over-month jump in T in the survivor report is the
 signal for that. Survivors never make a cell red either (N3).
 
-The local `mutants` recipe ends by running this script with label `@CRATE@`, so a local run
-gets the same verdict line as CI.
+The script takes `--out <file>` and writes its line there as well as to stdout. The `mutants`
+recipe ends by running it with label `CELL_LABEL` (default `@CRATE@`) and `--out` set to
+`STATUS_OUT` when given, so a local run gets the same verdict line as CI and CI never has to
+parse make's output.
 
 ### 4. `mutation-testing-python.yml`: a matrix of sub-project × shard
 
@@ -148,11 +158,13 @@ gets the same verdict line as CI.
   sub-projects (operator rule), though amicable's shards are trivial.
 - Each cell installs GMP and MPFR (`apt-get`), runs `setup-python` 3.14, installs with a
   `pip install` line byte-identical to the `py.yml` template's, runs
-  `make -C <dir> mutants MUTANT_SHARD=<k>/10 CELL_LABEL=<dir>-<k>` (the recipe's final
-  `cosmic_ray_cell_status.py` line goes to `status/<dir>-<k>` and the step summary).
-- An `if: always()` step writes `red: <dir>-<k> — make mutants failed (exit N)` to
-  `status/<dir>-<k>` when `make` failed before printing a verdict line. A baseline failure, the
-  failure this spec exists for, then reaches notify as a named red unit, not as a missing one.
+  `make -C <dir> mutants MUTANT_SHARD=<k>/10 CELL_LABEL=<dir>-<k> STATUS_OUT=<abs>/status/<dir>-<k>`
+  in a step shaped `rc=0; make … || rc=$?; [[ -f "${out}" ]] || printf 'red: %s — make mutants failed (exit %d)\n' "${unit}" "${rc}" > "${out}"; cat "${out}" >> "${GITHUB_STEP_SUMMARY}"; exit "${rc}"`.
+  A baseline failure, the failure this spec exists for, then reaches notify as a named red unit
+  with its exit code, not as a missing one. The step body lives in
+  `scripts/mutation-python-cell.sh` so a bats test can drive it.
+- An `if: cancelled()` step writes `red: <dir>-<k> — did not finish (cancelled or timed out)`
+  when no status file exists: a job-level timeout or cancel has no exit code to report.
 - Each cell uploads two artifacts: `mutants-status-python-<dir>-<k>` (`status/`, `marker/`) and
   `mutants-report-python-<dir>-<k>` (that cell's session and `mutants-report.txt`). Only the
   status artifacts are merged downstream. Status files never share a path; every cell's
@@ -178,7 +190,17 @@ gets the same verdict line as CI.
   expected, and the run URL, so a branch or single-sub-project dispatch is not read as a
   monthly run. It runs whenever any status file was downloaded, success or not, and marks a
   sub-project with missing cells as incomplete. The issue's comment history is the durable
-  month-over-month record. It never fails the run on survivor or timeout counts (N3).
+  month-over-month record. It never fails the run on survivor or timeout counts (N3). It
+  creates the `mutation-report-python` label first if absent, as `mutation-notify.sh` does for
+  its own label, since `gh issue create --label` fails on a missing label.
+- Survivor locations, which is what an operator acts on (math#84 killed survivors by location,
+  not by count): each cell also writes `survivors/<dir>-<k>.txt`, one
+  `<module>:<line> <operator>` line per `SURVIVED` row, into its status artifact. Notify
+  concatenates them into `survivors/<dir>.txt` per sub-project and uploads one
+  `mutants-survivors-python` artifact with `retention-days: 90` (the public-repo maximum); the
+  comment links it and gives each sub-project's line count. About 2,250 lines are expected
+  repo-wide (sample survivor rates times job counts), too many for a comment.
+- When both red and missing units exist, the failure issue body lists both.
 
 The public repo runs about 20 jobs at once, so the estimated wall time is 35-70 min for
 80 cells.
@@ -192,7 +214,10 @@ mutation environment (`scripts/crate_templates/python/**`, any `*-py.yml`, any P
 bump of `hypothesis` or `gmpy2` is the likeliest way to break the mutation environment, and it
 touches no sub-project `.py`. The survivor loop is removed; the monthly workflow
 is the measurement. The job gains the GMP and MPFR step, moves `setup-python` from 3.11 to
-3.14, and installs the same pip line as `py.yml` alongside the pinned `cargo-mutants`.
+3.14, and installs the same pip line as `py.yml` alongside the pinned `cargo-mutants`. The GMP
+and pip steps run only when the detect step sets `has_py` (which the all-8 trigger also sets):
+`mutation-pr` is a required check on every PR, and docs, Rust and Renovate PRs should not pay
+for a Python install they never use.
 
 What this catches that `py.yml` does not: cosmic-ray runs `python3 -m unittest`, `py.yml` runs
 pytest, so a test relying on a pytest-only feature passes `py.yml` and breaks every mutation
@@ -238,6 +263,11 @@ Python PR.
   a table whose survivor and timeout sums equal hand-computed non-zero values; the header
   carries ref, event, units and run URL; an open labelled issue gets a comment; no open issue
   creates one; a missing cell marks its sub-project incomplete.
+- `mutation_python_cell.bats` with a mock `make`: a `make` exiting 2 without a status file
+  leaves `red: fib-0 — make mutants failed (exit 2)` and the step exits 2; a `make` that wrote a
+  green status leaves it untouched and exits 0.
+- Survivor list: the exec fixture's survivor line is pinned exactly; notify's concatenation of
+  two cells gives the summed line count.
 - `mutation-pr.yml` detection: a diff touching only a pip-line source selects all 8; a diff
   touching only `fib/fib.py` selects fib; a docs-only diff selects none.
 - Workflow structure tests read the YAML with `yaml.safe_load`, as `test_release_workflows.py`
@@ -258,26 +288,29 @@ Python PR.
 ## Requirements
 
 - **R1.** `[PR1]` The Python template `Makefile` has a `mutants-baseline` target running `cosmic-ray baseline cosmic-ray.toml` and, when it fails, `python3 -m unittest test_@MODULE@` before exiting non-zero; `mutants` runs it before `cosmic-ray init`, in all 8 rendered copies.
-- **R2.** `[PR1]` `make mutants MUTANT_SHARD=k/n` runs `scripts/cosmic_ray_shard.py` on the session between `init` and `exec`; without `MUTANT_SHARD` no shard script runs; every `make mutants` ends by running `scripts/cosmic_ray_cell_status.py` with label `CELL_LABEL` (default `@CRATE@`).
+- **R2.** `[PR1]` `make mutants MUTANT_SHARD=k/n` runs `scripts/cosmic_ray_shard.py` on the session between `init` and `exec`; without `MUTANT_SHARD` no shard script runs; every `make mutants` ends by running `scripts/cosmic_ray_cell_status.py` with label `CELL_LABEL` (default `@CRATE@`) and `--out` set to `STATUS_OUT` when given.
 - **R3.** `[PR1]` `scripts/cosmic_ray_shard.py <sqlite> <k> <n>` keeps exactly the work items whose index in the spec-key sort order is congruent to `k` mod `n`, deleting the rest from `mutation_specs` and `work_items`.
 - **R4.** `[PR1]` `scripts/cosmic_ray_shard.py` exits non-zero on a missing file, a session with no work items, `n < 1`, `k` outside `[0, n)`, or a non-integer argument.
 - **R5.** `[PR1]` A test against two committed fib `init` sessions shows that for `n = 10` the shards are disjoint, their union is the full set, and both sessions give the same partition.
 - **R6.** `[PR1]` `scripts/cosmic_ray_cell_status.py <sqlite> <label>` prints `green: <label> — S surviving, T timed out, K jobs` and exits 0, counting S as `test_outcome = 'SURVIVED'` and T as `test_outcome = 'KILLED'` with `output = 'timeout'`; it prints `red:` and exits non-zero when `K == 0`, result rows differ from `K`, or any row is not `worker_outcome = 'NORMAL'` with `test_outcome` in `KILLED`, `SURVIVED`; timeout counts never make it red.
 - **R7.** `[PR1]` Tests run the cell-status script against committed sessions written by a real `cosmic-ray exec` (with `regen.sh`), pinning the exact green line with non-zero S and T, and showing red for a deleted result row, no work items, an `INCOMPETENT` row and an `EXCEPTION` row.
-- **R8.** `[PR1]` `mutation-testing-python.yml` runs one `mutants` job per sub-project and shard (8 × 10 when no input is given) with `fail-fast: false` and `timeout-minutes: 90`, each running `make -C <dir> mutants MUTANT_SHARD=<k>/10 CELL_LABEL=<dir>-<k>`, and an `if: always()` step writes `red: <dir>-<k> — make mutants failed (exit N)` to `status/<dir>-<k>` when `make` failed without writing a verdict.
+- **R8.** `[PR1]` `mutation-testing-python.yml` runs one `mutants` job per sub-project and shard (8 × 10 when no input is given) with `fail-fast: false` and `timeout-minutes: 90`; each runs `scripts/mutation-python-cell.sh`, which runs `make -C <dir> mutants MUTANT_SHARD=<k>/10 CELL_LABEL=<dir>-<k> STATUS_OUT=…`, writes `red: <dir>-<k> — make mutants failed (exit N)` when no status file exists and exits with make's code; an `if: cancelled()` step writes a `did not finish` red line when no status file exists.
 - **R9.** `[PR1]` A `setup` job emits the matrix and an `units` output built from the same validated list; a `subproject` input naming no known sub-project fails it.
 - **R10.** `[PR1]` Each matrix cell installs GMP and MPFR, uses `setup-python` 3.14, writes `status/<dir>-<k>`, and uploads `mutants-status-python-<dir>-<k>` and `mutants-report-python-<dir>-<k>` as separate artifacts.
 - **R11.** `[PR1]` `notify` merges only the `mutants-status-python-*` artifacts and passes `needs.setup.outputs.units` as `EXPECTED_STATUS_UNITS`.
-- **R12.** `[PR1]` When `EXPECTED_STATUS_UNITS` is set, `mutation-notify.sh` checks it before the `RESULT == success` return; when it is empty or any unit lacks a status file, it files or comments on the failure issue naming each missing unit and exits 1; when unset, its behaviour is unchanged.
-- **R13.** `[PR1]` `scripts/mutation-survivor-report.sh` writes a per-sub-project table (cells reporting of expected, jobs, survivors, timed out) under a header giving ref, event, units reporting of expected and run URL, to the step summary and as a comment on the open `mutation-report-python` issue, creating the issue when none is open; it never exits non-zero on counts.
+- **R12.** `[PR1]` When `EXPECTED_STATUS_UNITS` is set, `mutation-notify.sh` checks it before the `RESULT == success` return; when it is empty or any unit lacks a status file, it files or comments on the failure issue naming each missing unit and every red unit, and exits 1; when unset, its behaviour is unchanged.
+- **R13.** `[PR1]` `scripts/mutation-survivor-report.sh` creates the `mutation-report-python` label if absent, then writes a per-sub-project table (cells reporting of expected, jobs, survivors, timed out) under a header giving ref, event, units reporting of expected and run URL, to the step summary and as a comment on the open `mutation-report-python` issue, creating the issue when none is open; it never exits non-zero on counts.
 - **R14.** `[PR1]` `mutation-pr.yml`'s Python step runs `make -C <dir> mutants-baseline` for each changed sub-project, and for all 8 when the diff touches `scripts/crate_templates/python/`, a `*-py.yml`, a Python `<dir>/install_deps.sh` or `mutation-pr.yml`; it contains no `cosmic-ray exec` and fails the step on a non-zero exit.
-- **R15.** `[PR1]` `mutation-pr.yml` installs GMP and MPFR and uses `setup-python` 3.14.
+- **R15.** `[PR1]` `mutation-pr.yml` uses `setup-python` 3.14, and its GMP/MPFR and pip install steps run only when the detect step sets `has_py`.
 - **R16.** `[PR1]` A test asserts the Python `pip install` line in both mutation workflows is non-empty, contains `hypothesis`, and equals the `py.yml` template's line.
 - **R17.** `[PR1]` `tests/test_tool_pins.py` checks every `pip install` in every workflow, skipping `-r <file>`, and requires each package as `name==X.Y.Z` with one version per package.
 - **R18.** `[PR1]` `scripts.yml` installs `pip-audit==2.10.1`.
 - **R19.** `[PR1]` The Backlog loses the P1 and P2 rows this spec closes and gains a row for the SIGKILL in-place-mutation hazard that notes the longer local run.
 - **R20.** `[PR1]` Root `CLAUDE.md` states that Python `make mutants` runs `cosmic-ray baseline` first, that the monthly workflow runs 10 shards per sub-project and reports to the `mutation-report-python` issue, that `MUTANT_SHARD=0/10` samples locally, and that every workflow `pip install` is in pin scope.
-- **V1.** Before merge, `gh workflow run mutation-testing-python.yml --ref fix/python-mutation-baseline` for the full matrix: all 80 cells finish inside 90 min and green, pi's summed survivor count is above 0, and the `mutation-report-python` issue gets the table; record the longest cell duration and timeout count per sub-project in the PR body.
+- **R21.** `[PR1]` The Python template `mutants` recipe runs under `ulimit -v 8388608` and fails closed where the cap cannot be set unless `MUTANTS_UNCAPPED=1`.
+- **R22.** `[PR1]` Each cell writes `survivors/<dir>-<k>.txt` (one `<module>:<line> <operator>` line per survivor) and notify uploads the per-sub-project concatenation as artifact `mutants-survivors-python` with `retention-days: 90`, linked from the report comment.
+- **R23.** `[PR1]` A bats test drives `scripts/mutation-python-cell.sh` with a failing mock `make` and asserts the exact red status line and exit code.
+- **V1.** Before merge, `gh workflow run mutation-testing-python.yml --ref fix/python-mutation-baseline` for the full matrix: all 80 cells finish inside 90 min and green, pi's summed survivor count is above 0, the cell holding pi's `Mul→Pow` mutant at `pi.py:574` writes a verdict line, and the `mutation-report-python` issue gets the table; record the longest cell duration and timeout count per sub-project in the PR body.
 - **V2.** Locally, `make -C fib mutants-baseline` in a venv without `hypothesis` exits non-zero and its output contains `ImportError`; with the `py.yml` set it exits 0.
 - **V3.** Locally, the exact `mutation-pr.yml` Python step command for fib, in a fresh venv built from the workflow's pip line, exits 0.
 - **N1.** No change to any `cosmic-ray.toml` `test-command` or `timeout`.
@@ -381,3 +414,34 @@ say the step exits non-zero. Assumption: timeouts are deterministic; settled as 
 Disposition: Addressed (operator, 2026-10-30): per-row outcome check (R6, R7); failure status
 from every cell that reached `make` (R8), so no-status now means the cell never reached it;
 marker collision stated as harmless (Design 4); notify exits 1 on missing units (R12).
+
+### Round 3
+
+Reviewed at commit: `cdba39e` (all three lenses re-run)
+
+Goal-Fit — Finding: counts still change no decision; acting on survivors needs their locations
+(math#84 worked from locations), which sit in 80 per-cell artifacts kept 30 days. V1's non-zero
+pin runs once. Assumption: a pi shard fits 90 min on a runner given its timeout share.
+Disposition: Addressed (operator, 2026-10-30, "Merged list, 90 days"): per-sub-project survivor
+locations in one 90-day artifact linked from the comment (Design 5, R22). The matrix itself was
+kept by the operator in round 1. The runner-time assumption is left to V1.
+
+Ergonomics — Finding: the "final line of make goes to status" wiring is false (make prints its
+directory line after it, and `| tee` without `pipefail` hides the exit code); the failure path
+is never run end to end; `mutation-pr` installs GMP and the pip set on every PR; the report label
+may not exist. Assumption: the slowest pi or e shard fits 90 min; settled by V1.
+Disposition: Addressed (operator, 2026-10-30): `--out` on the cell script and a cell script that
+records make's exit code (Design 4, R2, R8), with a bats test of the failure path (R23); installs
+gated on `has_py` (R15); label created when absent (R13).
+
+Risk — Finding: no memory bound on mutants; pi's `Mul→Pow` mutant at `pi.py:574` reached 138 GB
+resident within 60 s (fib `Add→LShift` 2.9 GB) against about 16 GB on a runner. The missing-unit
+exit cut off the list of red units. No R contradicts an N. Assumption: a memory-blowup mutant is
+recorded as a kill rather than losing the runner; settled by the cap.
+Disposition: Addressed (operator, 2026-10-30): `ulimit -v 8388608` in the recipe with the Rust
+recipe's macOS escape (R21); all 8 unmutated runs measured passing under the cap; failure body
+lists both red and missing units (R12); V1 checks that the cell holding the 138 GB mutant writes
+a verdict.
+
+Review stopped after round 3 (operator, 2026-10-30): the remaining open question, runner time for
+pi's slowest shard, can only be answered by V1's branch dispatch, not by another prose round.
