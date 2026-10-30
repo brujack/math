@@ -75,7 +75,7 @@ assert_all_gh_calls_carry_repo() {
     run bash "${REPO_ROOT}/scripts/mutation-survivor-report.sh" </dev/null
     [ "${status}" -eq 0 ]
     grep -q '^gh issue comment 17 ' "${MOCK_CALLS_FILE}"
-    ! grep -q '^gh issue create' "${MOCK_CALLS_FILE}"
+    run ! grep -q '^gh issue create' "${MOCK_CALLS_FILE}"
     assert_all_gh_calls_carry_repo
 }
 
@@ -99,7 +99,8 @@ assert_all_gh_calls_carry_repo() {
     [ "${status}" -eq 0 ]
     grep -F '| fib |' "${GITHUB_STEP_SUMMARY}" | grep -qF 'incomplete'
     grep -F '| fib |' "${GITHUB_STEP_SUMMARY}" | grep -qF '1/2'
-    ! grep -F '| perfect-numbers |' "${GITHUB_STEP_SUMMARY}" | grep -qF 'incomplete'
+    _row=$(grep -F '| perfect-numbers |' "${GITHUB_STEP_SUMMARY}")
+    [[ "${_row}" != *incomplete* ]]
 }
 
 @test "red cell counts as reporting and is noted, contributing no numbers" {
