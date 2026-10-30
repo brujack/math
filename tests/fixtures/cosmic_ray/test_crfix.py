@@ -1,9 +1,6 @@
-import importlib
 import unittest
 
-# Sibling module resolved from the working directory cosmic-ray runs in; imported
-# dynamically so root-scope import scans do not read it as a third-party package.
-crfix = importlib.import_module("crfix")
+import crfix
 
 
 class TestCrfix(unittest.TestCase):

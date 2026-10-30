@@ -32,7 +32,7 @@ regen_init_sessions() {
             cd crfix || exit 1
             "${venv_bin}/cosmic-ray" init cosmic-ray.toml ../crfix-exec.sqlite || exit 1
             # The exec session runs mutants; cap memory like the real recipe does.
-            ulimit -v 4194304
+            ulimit -v 4194304 || exit 1
             PATH="${venv_bin}:${PATH}" "${venv_bin}/cosmic-ray" exec cosmic-ray.toml \
                 ../crfix-exec.sqlite || exit 1
         ) || exit 1
