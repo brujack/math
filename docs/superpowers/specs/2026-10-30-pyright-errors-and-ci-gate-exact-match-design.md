@@ -79,12 +79,12 @@ The exact-match form `.name as $n | $excl | any(. == $n) | not` keeps `scan` and
 - **R1.** `[PR1]` `tests/test_root_pyright_scope.py` fails when root `pyright --outputjson` reports `summary.errorCount` above 0, and its failure message lists each error as `<file>:<line> <rule> <message>` with repo-relative paths.
 - **R2.** `[PR1]` `test_root_pyright_scope.py` runs pyright over the repo root once per `make test-python`, and that one report feeds both the file-count and error-count assertions; a run with no JSON output fails with the return code and stderr.
 - **R3.** `[PR1]` A test runs pyright in a temporary directory with a copy of the root `pyrightconfig.json` and one import-free `scripts/` file seeded with a type error, and shows the report reader returns exactly one error, rule `reportAssignmentType`, on the seeded line.
-- **R8.** `[PR1]` `requirements-dev.txt` pins `pyright==1.1.411`; with pyright absent outside CI the test class writes `pyright not found; root type errors are unchecked locally (run: make install-deps)` to stderr before skipping, and with an installed version different from that pin it fails naming `make install-deps`.
-- **R9.** `[PR1]` Root `CLAUDE.md`'s `requirements-dev.txt` line lists `pyright==1.1.411`.
 - **R4.** `[PR1]` `scripts/ci-gate.sh` excludes a check only when its name exactly equals an entry in the exclusion list, at all three filter sites.
 - **R5.** `[PR1]` `tests/scripts/ci_gate.bats` has a case where a failing required check named `scan` is reported as failed while `snyk-scan` is excluded, and a case where a running `scan` keeps the gate polling until the `Timeout: checks did not complete` message.
 - **R6.** `[PR1]` The Backlog loses the two P2 rows this spec closes.
 - **R7.** `[PR1]` Root `CLAUDE.md`'s `test_root_pyright_scope.py` line states that the test fails on any root pyright error.
+- **R8.** `[PR1]` `requirements-dev.txt` pins `pyright==1.1.411`; with pyright absent outside CI the test class writes `pyright not found; root type errors are unchecked locally (run: make install-deps)` to stderr before skipping, and with an installed version different from that pin it fails naming `make install-deps`.
+- **R9.** `[PR1]` Root `CLAUDE.md`'s `requirements-dev.txt` line lists `pyright==1.1.411`.
 - **V1.** On the PR, the `scripts` CI job and the auto-merge `ci-gate` job are green.
 - **N1.** No change to `pyrightconfig.json`'s mode, include or exclude.
 - **N2.** No pyright invocation added to `make lint`.
