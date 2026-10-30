@@ -4,7 +4,8 @@
 and a bare `pyright` takes whatever PyPI serves, so a bad upstream release used to
 land on every PR at once. The pins live in workflow `run:` text and the
 `install_deps.sh` installers; this test reads both and requires a single version
-per tool across the repo, so a bump is one decision applied everywhere.
+per tool across the repo, so a bump is one decision applied everywhere. The pip
+scan covers every workflow under `.github/workflows/`, not only the `*-py.yml` ones.
 """
 
 import pathlib
@@ -322,6 +323,71 @@ class TestPythonInstallerPins(unittest.TestCase):
                     if re.match(r"^(ruff|pyright)==", t)
                 )
         self.assertEqual(installer, workflow)
+
+
+_PIP_SPEC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*==\d+\.\d+\.\d+$")
+_PIP_FILE_FLAGS = {"-r", "--requirement", "-c", "--constraint"}
+_SHELL_BREAKS = {"||", "&&", ";", "|", "#"}
+
+
+def pip_arguments(text: str):
+    """Yield every package argument of every `pip install` in `text`.
+
+    Flags are skipped, as is the file argument following -r/-c; the command ends
+    at the first shell control token.
+    """
+    for match in _PIP_INSTALL.finditer(text):
+        skip_next = False
+        for token in match.group("rest").split():
+            if token in _SHELL_BREAKS:
+                break
+            if skip_next:
+                skip_next = False
+            elif token in _PIP_FILE_FLAGS:
+                skip_next = True
+            elif not token.startswith("-"):
+                yield token
+
+
+def workflow_pip_installs():
+    """Yield (file, argument) for every `pip install` argument in every workflow."""
+    for path in WORKFLOWS:
+        for token in pip_arguments(path.read_text()):
+            yield path.relative_to(REPO_ROOT).as_posix(), token
+
+
+class TestEveryWorkflowPipInstallPinned(unittest.TestCase):
+    def test_every_workflow_pip_argument_is_pinned(self):
+        sites = list(workflow_pip_installs())
+        self.assertGreater(len(sites), 50, "scan found too few pip install arguments")
+        for name, token in sites:
+            with self.subTest(file=name, arg=token):
+                self.assertRegex(token, _PIP_SPEC)
+
+    def test_one_version_per_package_across_workflows_and_installers(self):
+        versions = {}
+        sites = [*workflow_pip_installs(), *pip_installs()]
+        for _, token in sites:
+            match = _PIP_SPEC.match(token)
+            if match:
+                name, _, version = token.partition("==")
+                versions.setdefault(name, set()).add(version)
+        split = {p: sorted(v) for p, v in versions.items() if len(v) > 1}
+        self.assertEqual(split, {}, "a package is pinned to more than one version")
+
+    def test_fixture_unpinned_arguments_are_rejected(self):
+        for bad in ("pip-audit", "pkg>=1.0", "pkg==1.0", "pkg~=1.0.0"):
+            text = f"run: pip install {bad}\n"
+            (token,) = pip_arguments(text)
+            self.assertIsNone(_PIP_SPEC.match(token), bad)
+
+    def test_fixture_requirement_file_and_pinned_package_accepted(self):
+        text = "run: pip3 install -r requirements-dev.txt x==1.2.3\n"
+        self.assertEqual(list(pip_arguments(text)), ["x==1.2.3"])
+
+    def test_fixture_constraint_file_and_shell_tail_ignored(self):
+        text = "pip install --constraint c.txt y==2.0.1 || true\n"
+        self.assertEqual(list(pip_arguments(text)), ["y==2.0.1"])
 
 
 if __name__ == "__main__":
