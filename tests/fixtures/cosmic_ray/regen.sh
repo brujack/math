@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Regenerate the committed cosmic-ray init sessions used by tests/test_cosmic_ray_shard.py.
+# Regenerate the committed cosmic-ray sessions: fib init pair (tests/test_cosmic_ray_shard.py)
+# and the executed crfix session (tests/test_cosmic_ray_cell_status.py).
 # Usage: regen.sh <cosmic-ray-venv-bin-dir>
 # Runs inside a temp copy of fib/; never inside the worktree's sub-project dirs,
 # because cosmic-ray can mutate source in place.
@@ -24,10 +25,22 @@ regen_init_sessions() {
         for name in a b; do
             "${venv_bin}/cosmic-ray" init cosmic-ray.toml "fib-init-${name}.sqlite" || exit 1
         done
-        # Copy only after both inits succeed so a failure never leaves a mismatched pair.
+        mkdir crfix || exit 1
+        cp "${FIXTURE_DIR}/crfix.py" "${FIXTURE_DIR}/test_crfix.py" \
+            "${FIXTURE_DIR}/cosmic-ray.toml" crfix/ || exit 1
+        (
+            cd crfix || exit 1
+            "${venv_bin}/cosmic-ray" init cosmic-ray.toml ../crfix-exec.sqlite || exit 1
+            # The exec session runs mutants; cap memory like the real recipe does.
+            ulimit -v 4194304
+            PATH="${venv_bin}:${PATH}" "${venv_bin}/cosmic-ray" exec cosmic-ray.toml \
+                ../crfix-exec.sqlite || exit 1
+        ) || exit 1
+        # Copy only after every step succeeds so a failure never leaves a mismatched set.
         for name in a b; do
             cp "fib-init-${name}.sqlite" "${FIXTURE_DIR}/fib-init-${name}.sqlite" || exit 1
         done
+        cp crfix-exec.sqlite "${FIXTURE_DIR}/crfix-exec.sqlite" || exit 1
     ) || return 1
 }
 

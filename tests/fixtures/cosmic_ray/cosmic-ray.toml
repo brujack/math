@@ -1,0 +1,12 @@
+# Fixture config for tests/fixtures/cosmic_ray/regen.sh; timeout is short so
+# non-terminating mutants end quickly.
+[cosmic-ray]
+module-path = "crfix.py"
+timeout = 2.0
+excluded-modules = []
+test-command = "python3 -m unittest test_crfix"
+
+[cosmic-ray.distributor]
+name = "local"
+
+[cosmic-ray.distributor.local]
