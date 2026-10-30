@@ -106,8 +106,13 @@ build_units_body() {
 
     for _file in "${ARTIFACT_DIR}"/status/*; do
         [[ -f "${_file}" ]] || continue
-        IFS= read -r _line < "${_file}" || true
-        [[ "${_line}" == red* ]] && _red+="- ${_file##*/}: ${_line}"$'\n'
+        # First line starting with red is the reason, wherever it sits.
+        while IFS= read -r _line || [[ -n "${_line}" ]]; do
+            if [[ "${_line}" == red* ]]; then
+                _red+="- ${_file##*/}: ${_line}"$'\n'
+                break
+            fi
+        done < "${_file}"
     done
 
     if [[ "${_empty}" == "1" ]]; then
@@ -132,7 +137,8 @@ check_expected_units() {
     local -a _units
     local _unit _missing="" _invalid="" _empty=0 _body _cause
 
-    read -ra _units <<< "${EXPECTED_STATUS_UNITS}"
+    # read -d '' always returns 1 at EOF, so the || true is not hiding a failure.
+    read -rd '' -a _units <<< "${EXPECTED_STATUS_UNITS}" || true
     [[ ${#_units[@]} -eq 0 ]] && _empty=1
 
     for _unit in "${_units[@]}"; do

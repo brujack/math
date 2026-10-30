@@ -744,3 +744,32 @@ print("\n".join(out))
     run main
     [ "${status}" -eq 2 ]
 }
+
+@test "EXPECTED_STATUS_UNITS: a newline-separated list is fully checked, so a missing third unit is reported" {
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST=""
+    export EXPECTED_STATUS_UNITS=$'pi\nfib\namicable'
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'green: pi\n' > "${ARTIFACT_DIR}/status/pi"
+    printf 'green: fib\n' > "${ARTIFACT_DIR}/status/fib"
+
+    run main
+    [ "${status}" -eq 1 ]
+
+    grep -qF -- "- amicable" "${MOCK_CALLS_FILE}"
+    run ! grep -q "gh issue close" "${MOCK_CALLS_FILE}"
+}
+
+@test "EXPECTED_STATUS_UNITS: a red line that is not the first line is still detected and reported as the reason" {
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST=""
+    export EXPECTED_STATUS_UNITS="pi fib"
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'note: preamble\nred: pi -- late verdict\nred: second red\n' > "${ARTIFACT_DIR}/status/pi"
+
+    run main
+    [ "${status}" -eq 1 ]
+
+    grep -qF -- "- pi: red: pi -- late verdict" "${MOCK_CALLS_FILE}"
+    run ! grep -qF -- "second red" "${MOCK_CALLS_FILE}"
+}
