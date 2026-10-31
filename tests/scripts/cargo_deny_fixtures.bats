@@ -11,7 +11,7 @@ setup() {
         if [[ -n "${CI:-}" ]]; then
             fail "cargo-deny is not installed but CI is set"
         fi
-        skip "cargo-deny not installed (cargo install cargo-deny --locked --version 0.20.2)"
+        skip "cargo-deny not installed (install it with cargo install cargo-deny --locked)"
     fi
 }
 
@@ -36,6 +36,11 @@ run_deny_on_fixture() {
 
 @test "mit fixture is accepted" {
     run_deny_on_fixture mit
+    [ "$status" -eq 0 ]
+}
+
+@test "rug fixture is accepted only through its crate exception" {
+    run_deny_on_fixture rug
     [ "$status" -eq 0 ]
 }
 

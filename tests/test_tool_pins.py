@@ -10,11 +10,16 @@ scan covers every workflow under `.github/workflows/`, not only the `*-py.yml` o
 
 import pathlib
 import re
+import sys
 import unittest
 
 import yaml
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
+
+from scripts import render_crate_files as rcf
+
 WORKFLOWS = sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml"))
 INSTALLERS = sorted(REPO_ROOT.glob("*/install_deps.sh")) + sorted(
     REPO_ROOT.glob("*/*/install_deps.sh")
@@ -166,13 +171,12 @@ class TestInstallActionPins(unittest.TestCase):
 
     def test_scan_finds_the_ci_template_steps(self):
         steps = list(install_action_steps())
-        names = {n for n, _ in steps} - {
-            "scripts.yml"
-        }  # scripts.yml installs cargo-deny
-        self.assertEqual(len(names), 22, "ci and release workflow per Rust crate")
-        self.assertEqual(
-            len([n for n in names if n.startswith("release-")]), 11, sorted(names)
-        )
+        names = {n for n, _ in steps}
+        crate_workflows = {
+            f"{prefix}{c}-rs.yml" for c in rcf.CRATES for prefix in ("", "release-")
+        }
+        # scripts.yml installs cargo-deny; every other step is a crate workflow.
+        self.assertEqual(names, crate_workflows | {"scripts.yml"}, sorted(names))
 
     def test_every_tool_entry_is_name_at_exact_version(self):
         for name, step in install_action_steps():
@@ -259,7 +263,7 @@ class TestInstallActionPins(unittest.TestCase):
             {"cargo-nextest", "cargo-machete", "cargo-tarpaulin", AUDITABLE, DENY},
         )
 
-    def test_release_only_tool_has_one_version(self):
+    def test_ci_only_tool_has_one_version(self):
         for tool in CI_ONLY_TOOLS:
             versions = {
                 _version_of(entry)
