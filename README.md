@@ -390,7 +390,7 @@ and the refusal names the remedy: `python3 -m venv .venv && . .venv/bin/activate
 Without it, `make test` fails at import — `scripts/pre-push` runs the root suite on
 any push touching `scripts/`, `tests/` or `.claude/scripts/`.
 
-`install-hooks` symlinks `scripts/pre-commit` into `.git/hooks/pre-commit`. The hook runs `make lint` on staged sub-projects and scans for secrets with `ggshield` (skipped gracefully if not installed). CI secret-scan via gitleaks is a backstop — local scanning catches secrets before they leave the machine.
+`install-hooks` symlinks `scripts/pre-commit` into `.git/hooks/pre-commit`. The hook runs `make lint` on staged sub-projects, runs root `make lint-python` once when root-scope Python (`scripts/`, `tests/`, `.claude/scripts/`, `typings/`) is staged, and scans for secrets with `ggshield` (skipped gracefully if not installed). CI secret-scan via gitleaks is a backstop — local scanning catches secrets before they leave the machine.
 
 Install ggshield: `brew install gitguardian/tap/ggshield && ggshield auth login`.
 
