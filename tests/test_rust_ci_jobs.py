@@ -130,5 +130,77 @@ class TestRustTimeBounds(unittest.TestCase):
                 )
 
 
+CACHE_ENV = "${{ runner.temp }}/gmp-mpfr-sys"
+CACHE_JOBS = ("test", "coverage", "build")
+
+
+def uses_of(step):
+    return str(step.get("uses", ""))
+
+
+class TestGmpCacheRestore(unittest.TestCase):
+    """Crate jobs restore the GMP/MPFR build cache read-only and fail open."""
+
+    def each_job(self):
+        self.assertEqual(len(CI_WORKFLOWS), 11)
+        for path in CI_WORKFLOWS:
+            for name in CACHE_JOBS:
+                with self.subTest(workflow=path.name, job=name):
+                    yield jobs_of(path)[name]
+
+    def find(self, job, predicate):
+        for index, step in enumerate(job["steps"]):
+            if predicate(step):
+                return index, step
+        self.fail("step not found")
+
+    def key_step(self, job):
+        return self.find(job, lambda s: s.get("id") == "gmpkey")
+
+    def restore_step(self, job):
+        return self.find(job, lambda s: "actions/cache/restore@" in uses_of(s))
+
+    def test_job_env_sets_cache_dir(self):
+        for job in self.each_job():
+            self.assertEqual(job["env"]["GMP_MPFR_SYS_CACHE"], CACHE_ENV)
+
+    def test_key_step_is_fail_open_and_writes_outputs(self):
+        for job in self.each_job():
+            _, step = self.key_step(job)
+            self.assertIn("scripts/gmp-cache-key.sh", step["run"])
+            self.assertIn('>> "$GITHUB_OUTPUT"', step["run"])
+            self.assertNotIn("--strict", step["run"])
+            self.assertEqual(step["working-directory"], "${{ github.workspace }}")
+
+    def test_restore_step_is_guarded_and_keyed(self):
+        for job in self.each_job():
+            _, step = self.restore_step(job)
+            self.assertEqual(step["if"], "steps.gmpkey.outputs.enabled == 'true'")
+            self.assertEqual(step["with"]["key"], "${{ steps.gmpkey.outputs.key }}")
+            self.assertEqual(
+                step["with"]["restore-keys"], "${{ steps.gmpkey.outputs.prefix }}"
+            )
+            self.assertEqual(step["with"]["path"], job["env"]["GMP_MPFR_SYS_CACHE"])
+
+    def test_cache_steps_precede_cargo_and_make(self):
+        for job in self.each_job():
+            key_index, _ = self.key_step(job)
+            restore_index, _ = self.restore_step(job)
+            self.assertLess(key_index, restore_index)
+            build_index, _ = self.find(
+                job,
+                lambda s: (
+                    "cargo" in str(s.get("run", "")) or "make" in str(s.get("run", ""))
+                ),
+            )
+            self.assertLess(restore_index, build_index)
+
+    def test_crate_jobs_never_save(self):
+        for job in self.each_job():
+            for step in job["steps"]:
+                self.assertNotIn("actions/cache@", uses_of(step))
+                self.assertNotIn("actions/cache/save@", uses_of(step))
+
+
 if __name__ == "__main__":
     unittest.main()

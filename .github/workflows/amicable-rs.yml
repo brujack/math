@@ -17,11 +17,26 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      GMP_MPFR_SYS_CACHE: ${{ runner.temp }}/gmp-mpfr-sys
     defaults:
       run:
         working-directory: amicable/amicable-rs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: GMP cache key
+        id: gmpkey
+        working-directory: ${{ github.workspace }}
+        run: scripts/gmp-cache-key.sh >> "$GITHUB_OUTPUT"
+
+      - name: Restore GMP/MPFR build cache
+        if: steps.gmpkey.outputs.enabled == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/gmp-mpfr-sys
+          key: ${{ steps.gmpkey.outputs.key }}
+          restore-keys: ${{ steps.gmpkey.outputs.prefix }}
 
       - name: Install GMP and MPFR
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
@@ -80,11 +95,26 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: write
+    env:
+      GMP_MPFR_SYS_CACHE: ${{ runner.temp }}/gmp-mpfr-sys
     defaults:
       run:
         working-directory: amicable/amicable-rs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: GMP cache key
+        id: gmpkey
+        working-directory: ${{ github.workspace }}
+        run: scripts/gmp-cache-key.sh >> "$GITHUB_OUTPUT"
+
+      - name: Restore GMP/MPFR build cache
+        if: steps.gmpkey.outputs.enabled == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/gmp-mpfr-sys
+          key: ${{ steps.gmpkey.outputs.key }}
+          restore-keys: ${{ steps.gmpkey.outputs.prefix }}
 
       - name: Install GMP and MPFR
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
@@ -136,11 +166,26 @@ jobs:
     name: Build amicable-rs
     runs-on: ubuntu-latest
     needs: [test]
+    env:
+      GMP_MPFR_SYS_CACHE: ${{ runner.temp }}/gmp-mpfr-sys
     defaults:
       run:
         working-directory: amicable/amicable-rs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: GMP cache key
+        id: gmpkey
+        working-directory: ${{ github.workspace }}
+        run: scripts/gmp-cache-key.sh >> "$GITHUB_OUTPUT"
+
+      - name: Restore GMP/MPFR build cache
+        if: steps.gmpkey.outputs.enabled == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/gmp-mpfr-sys
+          key: ${{ steps.gmpkey.outputs.key }}
+          restore-keys: ${{ steps.gmpkey.outputs.prefix }}
 
       - name: Install GMP and MPFR
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
