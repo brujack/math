@@ -1,0 +1,36 @@
+name: cargo-deny
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "deny.toml"
+      - "scripts/cargo-deny-all.sh"
+      - ".github/workflows/cargo-deny.yml"
+  schedule:
+    # Weekly run catches newly-published advisories against existing lockfiles
+    - cron: "0 6 * * 1"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  deny:
+    name: cargo-deny Rust crates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec  # stable
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
+        with:
+          tool: cargo-deny@0.20.2
+          fallback: none
+
+      - name: Run cargo-deny on each Rust crate
+        run: scripts/cargo-deny-all.sh
