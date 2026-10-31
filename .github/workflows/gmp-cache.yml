@@ -29,10 +29,6 @@ jobs:
           path: ${{ runner.temp }}/gmp-mpfr-sys
           key: ${{ steps.gmpkey.outputs.key }}
 
-      - name: Install GMP and MPFR
-        if: steps.restore.outputs.cache-hit != 'true'
-        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
-
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec  # stable
         if: steps.restore.outputs.cache-hit != 'true'
 
