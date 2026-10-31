@@ -421,6 +421,7 @@ Release binaries are signed with [cosign](https://docs.sigstore.dev/cosign/overv
 - `{name}.sha256` — SHA256 checksum
 - `{name}.sbom.spdx.json` — SPDX bill of materials
 - `{name}.bundle` — cosign signature bundle (v4 format; supersedes the separate `.sig`/`.pem` pair)
+- `THIRD-PARTY-NOTICES.txt` — third-party licence notices. For the five binaries that statically link GMP, MPFR and MPC through `rug`/`gmp-mpfr-sys` (`pi`, `e`, `fib`, `factorial`, `perfect-numbers`) it names the LGPL-3.0-or-later components and where their source is, and includes the LGPL-3.0 and GPL-3.0 texts
 
 To verify a release binary (example for `factorial`):
 
@@ -438,3 +439,7 @@ the workflow that requested the signing certificate, not the tag being released.
 cut with this pipeline yet, so treat the identity above as derived from how keyless signing works
 rather than observed — read it back from a real release's own `.bundle` to confirm it before relying
 on it.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE). The binaries that link GMP, MPFR and MPC also carry those libraries' LGPL-3.0-or-later terms; each release's `THIRD-PARTY-NOTICES.txt` lists them. Dependency licences are checked by `cargo deny` against [`deny.toml`](deny.toml) ([ADR-0035](docs/adr/0035-mit-licence-cargo-deny-and-lgpl-notices.md)).
