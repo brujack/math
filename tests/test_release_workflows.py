@@ -36,6 +36,7 @@ import os
 import pathlib
 import re
 import shlex
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -623,6 +624,58 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                     [],
                     f"{path.name} files: must not use globs",
                 )
+
+    def test_notices_step_runs_as_shipped_and_states_lgpl_per_crate(self):
+        # Executes each workflow's notices step verbatim under `bash -e` (GitHub's
+        # default shell) with LICENSES_DIR unset and RUNNER_TEMP lacking notices/,
+        # so the default licences path and the step's own mkdir are both exercised.
+        gmp_crates = {"e", "factorial", "fib", "perfect-numbers", "pi"}
+        lgpl, no_lgpl = set(), set()
+        env_base = {
+            k: v
+            for k, v in os.environ.items()
+            if k
+            not in (
+                "LICENSES_DIR",
+                "GIT_DIR",
+                "GIT_WORK_TREE",
+                "GIT_COMMON_DIR",
+                "GIT_INDEX_FILE",
+            )
+        }
+        for path in self.workflows:
+            with self.subTest(workflow=path.name):
+                crate = binary_name_from_filename(path)
+                steps = release_steps(load_workflow(path))
+                index = require_index(
+                    find_step_index_by_name(steps, "Write third-party notices"),
+                    f"{path.name} missing 'Write third-party notices' step",
+                )
+                runner_temp = tempfile.mkdtemp()
+                self.addCleanup(shutil.rmtree, runner_temp, ignore_errors=True)
+                result = subprocess.run(
+                    ["bash", "-e", "-c", steps[index].get("run") or ""],
+                    cwd=REPO_ROOT,
+                    env={**env_base, "RUNNER_TEMP": runner_temp},
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                notices = (
+                    pathlib.Path(runner_temp) / "notices" / "THIRD-PARTY-NOTICES.txt"
+                )
+                self.assertTrue(notices.is_file(), f"{notices} not written")
+                text = notices.read_text()
+                if "gmp-mpfr-sys" in text and "GNU LESSER GENERAL PUBLIC LICENSE" in [
+                    line.strip() for line in text.splitlines()
+                ]:
+                    lgpl.add(crate)
+                if "links no LGPL components" in text:
+                    no_lgpl.add(crate)
+        self.assertEqual(lgpl, gmp_crates)
+        self.assertEqual(len(no_lgpl), 6)
+        self.assertEqual(lgpl & no_lgpl, set())
 
     def test_no_step_continues_on_error(self):
         # continue-on-error turned a GH006-rejected CHANGELOG push green on all 11

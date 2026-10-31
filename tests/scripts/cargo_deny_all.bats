@@ -32,6 +32,16 @@ make_crates() {
     done < "${MOCK_CARGO_LOG}"
 }
 
+@test "--manifest-path is the absolute path of each crate manifest" {
+    make_crates 11
+    run "${REPO_ROOT}/scripts/cargo-deny-all.sh"
+    [ "$status" -eq 0 ]
+    local i
+    for ((i = 1; i <= 11; i++)); do
+        [ "$(command grep -cF -- "--manifest-path ${REPO_ROOT}/c${i}/c${i}-rs/Cargo.toml " "${MOCK_CARGO_LOG}")" -eq 1 ]
+    done
+}
+
 @test "--config precedes check on every invocation" {
     make_crates 11
     run "${REPO_ROOT}/scripts/cargo-deny-all.sh"

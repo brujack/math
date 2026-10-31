@@ -9,7 +9,8 @@ setup() {
     unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
     if ! command -v cargo-deny >/dev/null 2>&1; then
         if [[ -n "${CI:-}" ]]; then
-            fail "cargo-deny is not installed but CI is set"
+            printf '%s\n' "cargo-deny is not installed but CI is set" >&2
+            return 1
         fi
         skip "cargo-deny not installed (install it with cargo install cargo-deny --locked)"
     fi

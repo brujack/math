@@ -99,10 +99,11 @@ LOCK
 
 @test "multiple locked versions of one component are all listed, sorted" {
     write_gmp_lock
-    printf '\n[[package]]\nname = "rug"\nversion = "1.29.0"\n' >>"${CRATE}/Cargo.lock"
+    sed -i 's/version = "1.30.0"/version = "1.10.0"/' "${CRATE}/Cargo.lock"
+    printf '\n[[package]]\nname = "rug"\nversion = "1.9.0"\n' >>"${CRATE}/Cargo.lock"
     run "${SCRIPT}" "${CRATE}" "${OUT}"
     [ "$status" -eq 0 ]
-    command grep -qF "rug 1.29.0, 1.30.0" "${OUT}/THIRD-PARTY-NOTICES.txt"
+    command grep -qF "rug 1.9.0, 1.10.0" "${OUT}/THIRD-PARTY-NOTICES.txt"
 }
 
 @test "missing Cargo.lock fails naming the lockfile" {
