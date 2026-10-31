@@ -1,5 +1,7 @@
 # GMP Cache and Parallel Bats Implementation Plan
 
+> **Status: DONE** (math#186, merged 15c0c7c)
+
 spec: docs/superpowers/specs/2026-10-31-ci-gmp-cache-and-parallel-bats-design.md
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
