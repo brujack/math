@@ -2,6 +2,8 @@
 
 spec: docs/superpowers/specs/2026-10-31-hook-hardening-design.md
 
+> **Status: DONE** (math#192, 4cb0987)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Lint staged root Python at commit, make ruff detection survive pyenv shims, isolate `pre_push.bats`, and pin the pre-push checker's untested refusal and cleanup branches.
