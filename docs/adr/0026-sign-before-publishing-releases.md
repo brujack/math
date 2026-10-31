@@ -121,8 +121,9 @@ signing ever needs a narrower scope than the release job's.
 requested the token. A reusable workflow had its own ref; a composite action does not, so
 the identity becomes `release-<name>-rs.yml@refs/heads/master` — the calling workflow, at
 the branch the dispatch ran from, not the release tag. `README.md` is updated accordingly,
-and notes that the identity is derived rather than observed, because no release has been
-cut with this pipeline.
+and noted that the identity was derived rather than observed, because no release had been
+cut with this pipeline. Confirmed 2026-10-31: every `v0.1.0` and `v0.2.0` binary verifies
+with this identity under cosign v3.1.4, and the README no longer carries the caveat.
 
 **Eleven files must stay in sync by hand.** `tests/test_release_workflows.py` pins the
 contract structurally — parsing each workflow rather than matching text — and
