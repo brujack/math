@@ -14,24 +14,34 @@ log_error() {
     printf 'third-party-notices: %s\n' "$*" >&2
 }
 
-# lock_versions <lockfile> <crate>: print every locked version of the crate,
+# lock_versions <lock-content> <crate>: print every locked version of the crate,
 # sorted and comma-separated; empty output means the crate is not locked.
 # CR is stripped (CRLF lockfiles) and name/version are buffered per block so
 # field order does not matter.
 lock_versions() {
-    local lockfile="${1}" crate="${2}" found
-    found="$(tr -d '\r' <"${lockfile}" | awk -v want="${crate}" '
+    local content="${1}" crate="${2}" found
+    found="$(printf '%s\n' "${content}" | awk -v want="${crate}" '
         function flush() { if (name == want && version != "") print version }
         /^\[\[package\]\]/ { flush(); name = ""; version = ""; next }
         /^name = / { name = $3; gsub(/"/, "", name); next }
         /^version = / { version = $3; gsub(/"/, "", version); next }
         END { flush() }
     ')" || {
-        log_error "cannot read versions of ${crate} from ${lockfile}"
+        log_error "cannot parse versions of ${crate} from Cargo.lock"
         return 1
     }
     [[ -z "${found}" ]] && return 0
     printf '%s\n' "${found}" | LC_ALL=C sort -V | paste -sd, - | sed 's/,/, /g' || return 1
+}
+
+# declares_rug <toml-content>: succeed if a Cargo.toml declares rug in any
+# form: `rug = ...`, `rug.key = ...`, a [*dependencies.rug] table, or a
+# renamed dependency carrying package = "rug".
+declares_rug() {
+    printf '%s\n' "${1}" | grep -Eq \
+        -e '^[[:space:]]*rug[[:space:]]*(=|\.)' \
+        -e '^[[:space:]]*\[[^]]*dependencies\.rug\][[:space:]]*$' \
+        -e 'package[[:space:]]*=[[:space:]]*"rug"'
 }
 
 # require_text <path>: fail closed on an absent or empty licence text.
@@ -95,12 +105,25 @@ main() {
     repo_root="$(dirname "${script_dir}")"
     licenses_dir="${LICENSES_DIR:-${repo_root}/licenses}"
 
-    local gmp_ver rug_ver
-    gmp_ver="$(lock_versions "${lockfile}" "${GMP_CRATE}")" || return 1
-    rug_ver="$(lock_versions "${lockfile}" "${RUG_CRATE}")" || return 1
-    if [[ -z "${gmp_ver}" && -f "${crate_dir}/Cargo.toml" ]] &&
-        grep -Eq '^[[:space:]]*rug[[:space:]]*(=|\.)' "${crate_dir}/Cargo.toml"; then
+    local lock_content toml_content="" gmp_ver rug_ver
+    lock_content="$(tr -d '\r' <"${lockfile}")" || {
+        log_error "cannot read ${lockfile}"
+        return 1
+    }
+    if [[ -e "${crate_dir}/Cargo.toml" ]]; then
+        toml_content="$(tr -d '\r' <"${crate_dir}/Cargo.toml")" || {
+            log_error "cannot read ${crate_dir}/Cargo.toml"
+            return 1
+        }
+    fi
+    gmp_ver="$(lock_versions "${lock_content}" "${GMP_CRATE}")" || return 1
+    rug_ver="$(lock_versions "${lock_content}" "${RUG_CRATE}")" || return 1
+    if [[ -z "${gmp_ver}" ]] && declares_rug "${toml_content}"; then
         log_error "${crate_dir}/Cargo.toml declares rug but Cargo.lock has no ${GMP_CRATE}"
+        return 1
+    fi
+    if [[ -z "${gmp_ver}" && -n "${rug_ver}" ]]; then
+        log_error "rug is locked but ${GMP_CRATE} is not locked in ${lockfile}"
         return 1
     fi
     if [[ -n "${gmp_ver}" && -z "${rug_ver}" ]]; then

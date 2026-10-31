@@ -194,3 +194,60 @@ LOCK
     [[ "$output" == *"output directory not writable"* ]]
     assert_out_empty
 }
+
+@test "unreadable Cargo.lock fails closed with cannot read" {
+    if [ "$(id -u)" -eq 0 ]; then skip "root ignores file modes"; fi
+    write_gmp_lock
+    printf '[dependencies.rug]\nversion = "1"\n' >"${CRATE}/Cargo.toml"
+    chmod 000 "${CRATE}/Cargo.lock"
+    run "${SCRIPT}" "${CRATE}" "${OUT}"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"cannot read"* ]]
+    [[ "$output" != *"links no LGPL"* ]]
+    assert_out_empty
+}
+
+@test "unreadable Cargo.toml fails closed" {
+    if [ "$(id -u)" -eq 0 ]; then skip "root ignores file modes"; fi
+    printf '[[package]]\nname = "other"\nversion = "0.3.1"\n' >"${CRATE}/Cargo.lock"
+    printf '[dependencies]\n' >"${CRATE}/Cargo.toml"
+    chmod 000 "${CRATE}/Cargo.toml"
+    run "${SCRIPT}" "${CRATE}" "${OUT}"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"cannot read"*"Cargo.toml"* ]]
+    assert_out_empty
+}
+
+@test "table-form [dependencies.rug] without gmp-mpfr-sys in lock fails" {
+    printf '[[package]]\nname = "other"\nversion = "0.3.1"\n' >"${CRATE}/Cargo.lock"
+    printf '[dependencies.rug]\nversion = "1"\n' >"${CRATE}/Cargo.toml"
+    run "${SCRIPT}" "${CRATE}" "${OUT}"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"declares rug"* ]]
+    assert_out_empty
+}
+
+@test "renamed dependency with package = rug without gmp-mpfr-sys in lock fails" {
+    printf '[[package]]\nname = "other"\nversion = "0.3.1"\n' >"${CRATE}/Cargo.lock"
+    printf '[dependencies]\nbig = { package = "rug", version = "1" }\n' >"${CRATE}/Cargo.toml"
+    run "${SCRIPT}" "${CRATE}" "${OUT}"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"declares rug"* ]]
+    assert_out_empty
+}
+
+@test "rug.workspace form without gmp-mpfr-sys in lock fails" {
+    printf '[[package]]\nname = "other"\nversion = "0.3.1"\n' >"${CRATE}/Cargo.lock"
+    printf '[dependencies]\nrug.workspace = true\n' >"${CRATE}/Cargo.toml"
+    run "${SCRIPT}" "${CRATE}" "${OUT}"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"declares rug"* ]]
+}
+
+@test "rug locked but gmp-mpfr-sys not locked fails with its own wording" {
+    printf '[[package]]\nname = "rug"\nversion = "1.30.0"\n' >"${CRATE}/Cargo.lock"
+    run "${SCRIPT}" "${CRATE}" "${OUT}"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"rug is locked but gmp-mpfr-sys is not"* ]]
+    assert_out_empty
+}
