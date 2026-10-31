@@ -139,3 +139,29 @@ a real runner.
 - **N2.** No change to `deny.toml` or `tests/test_deny_policy.py`.
 - **N3.** No new tool, action or package dependency; gitleaks stays at 8.21.2.
 - **N4.** pre-push does not refuse a push because cargo-deny is absent.
+
+## Multi-Lens Review
+
+Reviewed at commit: `65e4a8b` (Step 7 self-review commit, before Step 8 dispatch)
+
+### Goal-Fit
+
+Finding: Item 3's `RUN_CARGO_DENY` stage costs the most and buys the least: `deny.toml` has 2 commits ever, both need operator approval (N2, the policy pin), and `cargo-deny.yml` and `scripts.yml` already run on it in CI. Adding `^deny\.toml$` to the existing `RUN_HOOK_TESTS` regex gets the policy pin and fixture controls locally for one line; `^scripts/` already covers `cargo-deny-all.sh`. The pre-push run also fetches the advisory DB, so an offline push would be refused, which R7/N4 do not cover. Smaller: `--locked` guards the checker, not what ships (`ci.yml` `cargo build --release`, `release.yml` `cargo auditable build --release` lack it); V2's `ldd` cannot tell before from after (static either way), only "the build succeeds" carries signal; the gitleaks version-assertion format was unmeasured.
+Assumption: the pre-push run assumes cargo-deny can check offline against a cached advisory DB. Measured by the author after the lens: with HTTP(S)_PROXY pointed at a dead port, `cargo deny ... check` exits 1 (`failed to fetch advisory database`); `cargo deny --offline ... check` and `--frozen` exit 0 (`advisories ok, bans ok, licenses ok, sources ok`) on pi-rs. `unshare -rn` is not permitted on this host. The assumption as written is false; `--offline` makes it true. `gitleaks version` from the verified 8.21.2 tarball prints exactly `8.21.2`.
+Disposition:
+
+### Ergonomics
+
+Finding: The new pre-push deny check runs on the rarest change and skips the common one `--locked` newly fails: a crate `Cargo.toml` edited without its `Cargo.lock`. Per-crate routing matches only `\.rs$` and `RUN_HOOK_TESTS` has no `Cargo.(toml|lock)`. `git log --format='%an' -- '*/*-rs/Cargo.toml'`: 26 operator commits, 1 renovate[bot]; `8b6cb04` (0.2.0 bump) changed 22 `Cargo.toml`/`Cargo.lock` files and 0 `.rs`, and the hook ran nothing. Fix: add `^[^/]+/[^/]+-rs/Cargo\.(toml|lock)$` to the `RUN_CARGO_DENY` trigger only, plus one bats case.
+Assumption: R5's fixture fails with the `--locked` message offline with a cold cargo cache. Measured by the author after the lens (`CARGO_NET_OFFLINE=true`, fresh `CARGO_HOME`): a path dependency on a sibling fixture crate exits 1 with `because --locked was passed`; a registry dependency (`itoa = "1"`) exits 1 with `no matching package`, the wrong reason. The fixture must use a path dependency.
+Disposition:
+
+### Risk
+
+Finding: Item 4 is safe: `apt-cache depends libgmp-dev libmpfr-dev` names no `m4`; nothing else in those jobs uses the libraries (Python steps install only `defusedxml`; tarpaulin and nextest come from `taiki-e/install-action`; `gmp-cache.yml` checks `.a` files in its cache dir); `release.yml` and `benchmarks.yml` already cold-build without the GMP cache. The weakness is R2: it checks that some `sha256sum -c` precedes the first `tar`/`install`/`mv`, not that it names the downloaded path, so a checksum of another file, `sha256sum -c ... || true`, or `curl ... | sh` all pass; and the `curl` keyword makes any future API call a false positive. Fix: for each `-o`/`-O` target require a `sha256sum -c` naming that path with no `||`, before any later use; assert `>= 1` steps, not `== 4`. Factual error: `rug` keeps default features, so `complex` (MPC) is built too; the Measurements row saying `integer`/`float` only is wrong but harmless.
+Assumption: `gitleaks version` prints exactly `8.21.2`. Measured by the author: it does.
+Disposition:
+
+### Adversarial Spec Review (comparison/judge designs only)
+
+N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
