@@ -45,6 +45,8 @@ def cargo_installs():
 
 INSTALL_ACTION = "taiki-e/install-action@"
 AUDITABLE = "cargo-auditable"
+DENY = "cargo-deny"
+CI_ONLY_TOOLS = (AUDITABLE, DENY)
 RUST_INSTALLERS = sorted(REPO_ROOT.glob("*/*-rs/install_deps.sh"))
 _ACTION_SHA = re.compile(r"^taiki-e/install-action@(?P<sha>[0-9a-f]{40})$")
 _TOOL_SPEC = re.compile(r"^(?P<name>[a-z][a-z0-9_-]*)@(?P<version>\d+\.\d+\.\d+)$")
@@ -164,7 +166,9 @@ class TestInstallActionPins(unittest.TestCase):
 
     def test_scan_finds_the_ci_template_steps(self):
         steps = list(install_action_steps())
-        names = {n for n, _ in steps}
+        names = {n for n, _ in steps} - {
+            "scripts.yml"
+        }  # scripts.yml installs cargo-deny
         self.assertEqual(len(names), 22, "ci and release workflow per Rust crate")
         self.assertEqual(
             len([n for n in names if n.startswith("release-")]), 11, sorted(names)
@@ -246,22 +250,25 @@ class TestInstallActionPins(unittest.TestCase):
                 if not match:
                     continue  # reported by the exact-version test
                 seen.add(match["name"])
-                if match["name"] == AUDITABLE:
-                    continue  # release-only: no local installer to agree with
+                if match["name"] in CI_ONLY_TOOLS:
+                    continue  # CI-only: no local installer to agree with
                 with self.subTest(file=name, tool=entry):
                     self.assertEqual(pins.get(match["name"]), {match["version"]})
         self.assertEqual(
-            seen, {"cargo-nextest", "cargo-machete", "cargo-tarpaulin", AUDITABLE}
+            seen,
+            {"cargo-nextest", "cargo-machete", "cargo-tarpaulin", AUDITABLE, DENY},
         )
 
     def test_release_only_tool_has_one_version(self):
-        versions = {
-            _version_of(entry)
-            for _, step in install_action_steps()
-            for entry in action_tools(step)
-            if entry.startswith(AUDITABLE + "@")
-        }
-        self.assertEqual(len(versions), 1, versions)
+        for tool in CI_ONLY_TOOLS:
+            versions = {
+                _version_of(entry)
+                for _, step in install_action_steps()
+                for entry in action_tools(step)
+                if entry.startswith(tool + "@")
+            }
+            with self.subTest(tool=tool):
+                self.assertEqual(len(versions), 1, versions)
 
 
 class TestPyrightPins(unittest.TestCase):
