@@ -415,15 +415,19 @@ class TestEachCheckHasAFailingMutant(unittest.TestCase):
         failures = self._failures(
             [
                 (
-                    '    with open("out.txt", "w") as handle:\n'
-                    '        handle.write("".join(line + "\\n" for line in lines))\n'
-                    "    if args.show:\n"
-                    '        print("\\n".join(lines))\n',
-                    "    if args.show:\n"
-                    '        print("")\n'
-                    "    else:\n"
-                    '        with open("out.txt", "w") as handle:\n'
-                    '            handle.write("".join(line + "\\n" for line in lines))\n',
+                    (
+                        '    with open("out.txt", "w") as handle:\n'
+                        '        handle.write("".join(line + "\\n" for line in lines))\n'
+                        "    if args.show:\n"
+                        '        print("\\n".join(lines))\n'
+                    ),
+                    (
+                        "    if args.show:\n"
+                        '        print("")\n'
+                        "    else:\n"
+                        '        with open("out.txt", "w") as handle:\n'
+                        '            handle.write("".join(line + "\\n" for line in lines))\n'
+                    ),
                 )
             ]
         )
@@ -446,10 +450,12 @@ class TestEachCheckHasAFailingMutant(unittest.TestCase):
                 ("import sys\n", "import select\nimport sys\n"),
                 (
                     "    if args.show:",
-                    "    if select.select([sys.stdin], [], [], 0.5)[0]:\n"
-                    '        if sys.stdin.readline().strip() == "y":\n'
-                    "            print(lines[0])\n"
-                    "    if args.show:",
+                    (
+                        "    if select.select([sys.stdin], [], [], 0.5)[0]:\n"
+                        '        if sys.stdin.readline().strip() == "y":\n'
+                        "            print(lines[0])\n"
+                        "    if args.show:"
+                    ),
                 ),
             ]
         )

@@ -191,9 +191,9 @@ class TestMain(unittest.TestCase):
                 "collatz.generate_records", side_effect=KeyboardInterrupt
             ),
             redirect_stdout(io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
         ):
-            with self.assertRaises(SystemExit) as cm:
-                main(["1"])
+            main(["1"])
         self.assertEqual(cm.exception.code, 1)
 
     def test_permission_error_exits_1(self):
@@ -202,9 +202,9 @@ class TestMain(unittest.TestCase):
                 "builtins.open", side_effect=PermissionError("Permission denied")
             ),
             redirect_stdout(io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
         ):
-            with self.assertRaises(SystemExit) as cm:
-                main(["1"])
+            main(["1"])
         self.assertEqual(cm.exception.code, 1)
 
     def test_without_show_does_not_echo_records(self):

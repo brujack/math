@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Stub CLI that prints a y/n prompt (breaks the no-prompt rule)."""
 
 import argparse

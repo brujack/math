@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Run the shared CLI contract matrix against one Python program.
 
 Usage: cli_contract.py <module.py>

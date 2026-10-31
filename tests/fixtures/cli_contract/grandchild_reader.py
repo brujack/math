@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Stub CLI that leaves a long-lived grandchild, then silently reads stdin.
 
 The grandchild inherits stdout and stderr, as multiprocessing workers and the

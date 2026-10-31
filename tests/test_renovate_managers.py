@@ -64,7 +64,7 @@ class GithubActionsManagerScopeTest(unittest.TestCase):
         files = [
             f
             for f in TEMPLATE_DIR.rglob("*.yml")
-            if re.search(r"^\s*-?\s*uses:", f.read_text(encoding="utf-8"), re.M)
+            if re.search(r"^\s*-?\s*uses:", f.read_text(encoding="utf-8"), re.MULTILINE)
         ]
         self.assertTrue(files)
         missing = [

@@ -290,7 +290,9 @@ class TestCargoTomlShape(unittest.TestCase):
 
     @staticmethod
     def _release_profile_text(text):
-        match = re.search(r"^\[profile\.release\]\n(.*?)(?=^\[|\Z)", text, re.M | re.S)
+        match = re.search(
+            r"^\[profile\.release\]\n(.*?)(?=^\[|\Z)", text, re.MULTILINE | re.DOTALL
+        )
         return match.group(1).strip() if match else None
 
     def test_every_crate_has_one_bin_named_after_its_directory(self):

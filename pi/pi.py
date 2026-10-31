@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Calculate π to a user-specified number of decimal places.
 
 Uses the Chudnovsky algorithm with gmpy2/GMP (if available) for a 5-50x
@@ -175,9 +174,9 @@ def _calculate_pi_gmpy2(digits):
                 max_workers=n_workers, mp_context=mp_context
             ) as pool:
                 futures = [pool.submit(_bs_chunk_worker, a, b) for a, b in ranges]
-                completed = 0
-                for _ in concurrent.futures.as_completed(futures):
-                    completed += 1
+                for completed, _ in enumerate(
+                    concurrent.futures.as_completed(futures), start=1
+                ):
                     filled = completed * bar_width // n_workers
                     bar = "█" * filled + "░" * (bar_width - filled)
                     print(

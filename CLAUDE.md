@@ -10,7 +10,7 @@ A trailing pointer on a rule means: before acting on that rule's subject, read t
 
 High-performance mathematical computation tools.
 
-Each sub-project's `CLAUDE.md` is the source of truth for its implementation detail (a crate's is `<crate>/<crate>-rs/CLAUDE.md`); keep this file in sync. → ai-config/docs/knowledge/math-overview.md § Sub-project table
+Each sub-project's `CLAUDE.md` is the source of truth for its detail (a crate's is `<crate>/<crate>-rs/CLAUDE.md`); keep this file and those in sync. → ai-config/docs/knowledge/math-overview.md § Sub-project table
 Sub-projects (dir: language): `pi/` Python+Rust, `prime/` Rust, `fib/` Python+Rust, `sq/` Python+Rust, `twin-primes/` Rust, `e/` Python+Rust, `factorial/` Python+Rust, `perfect-numbers/` Python+Rust, `collatz/` Python+Rust, `goldbach/` Rust, `amicable/` Python+Rust. → ai-config/docs/knowledge/math-overview.md § Sub-project table
 Rust crates live at `<project>/<project>-rs/` (all 11 projects, e.g. `pi/pi-rs`, `twin-primes/twin-primes-rs`); the 8 Python sub-projects sit at `<project>/` (pi, fib, sq, e, factorial, perfect-numbers, collatz, amicable).
 
@@ -21,7 +21,7 @@ Write an ADR in `docs/adr/` (index `docs/adr/README.md`) before or alongside any
 ## 10-80-10 Execution Cycle
 
 Follow the 10-80-10 cycle of `ai-config` ADR-0009 (ADR-0010 wave dispatch): Phase 1 Architect (`brainstorming` → `writing-plans`, Opus), Phase 2 Execute (`subagent-driven-development`, Sonnet/Haiku per plan), Phase 3 Review (`finishing-a-development-branch`, Opus); plans use `yaml-task` blocks (`role`, `model`, `tdd`, `acceptance`, `max_retries`, `files_touched`, `depends_on`, `parallel_group`). → ai-config/docs/knowledge/math-overview.md § 10-80-10 cycle
-Run `make validate-plan PLAN=docs/superpowers/plans/<file>.md` before dispatching a plan (validator shared from ai-config). → ai-config/docs/knowledge/math-overview.md § 10-80-10 cycle
+Run `make validate-plan PLAN=docs/superpowers/plans/<file>.md` before dispatching a plan (validator `~/.claude/scripts/validate-plan.py`, shared from ai-config). → ai-config/docs/knowledge/math-overview.md § 10-80-10 cycle
 
 ## Knowledge Directory
 
@@ -43,7 +43,7 @@ make install-hooks   # installs pre-commit and pre-push hooks
 make install-deps    # installs root-scope Python's third-party imports
 ```
 
-`make install-deps` refuses on a PEP 668 externally-managed interpreter; the remedy is `python3 -m venv .venv && . .venv/bin/activate`. → ai-config/docs/knowledge/math-quick-reference.md § Setup
+`make install-deps` refuses on a PEP 668 externally-managed interpreter; remedy: `python3 -m venv .venv && . .venv/bin/activate`. → ai-config/docs/knowledge/math-quick-reference.md § Setup
 
 ### Python (`<project>/`)
 
@@ -59,7 +59,7 @@ make coverage  # pytest --cov, fails under 90%
 
 ### Rust (`<project>/<project>-rs/`)
 
-All 11 projects (pi, prime, fib, sq, twin-primes, e, factorial, perfect-numbers, collatz, goldbach, amicable); the release build target is named after the project (`make pi`, `make twin-primes`, `make perfect-numbers`, ...). → ai-config/docs/knowledge/math-quick-reference.md § Sub-project command blocks
+All 11 projects (pi, prime, fib, sq, twin-primes, e, factorial, perfect-numbers, collatz, goldbach, amicable); the release build target is the project name (`make pi`, `make twin-primes`, ...). → ai-config/docs/knowledge/math-quick-reference.md § Sub-project command blocks
 
 ```bash
 cd <project>/<project>-rs
@@ -70,7 +70,7 @@ make test       # lint, then cargo test
 ```
 
 All 11 crates are treated identically (operator rule): each crate's `Makefile`, `rustfmt.toml`, `.config/nextest.toml`, `install_deps.sh`, `<crate>-rs.yml` and `release-<crate>-rs.yml` is rendered from `scripts/crate_templates/` by `scripts/render_crate_files.py`, and so are the 8 Python projects' `Makefile`, `install_deps.sh`, `<project>-py.yml`, `pyrightconfig.json` and `cosmic-ray.toml` (from `scripts/crate_templates/python/`; `@CRATE@` is the directory, `@MODULE@` the module name, the only placeholders); edit the template and run `--write`, never one crate's copy, and `tests/test_crate_uniformity.py` fails on any drift.
-A single `ruff.toml` at the repo root serves all 8 Python sub-projects via ancestor discovery; keep one root `ruff.toml` only and never create per-subproject configs. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
+A single root `ruff.toml` serves all 8 Python sub-projects via ancestor discovery; keep one and never create per-subproject configs. It uses `extend-select` over ruff's default rule set (pinned by `tests/test_ruff_config.py`); new defaults arrive only with a deliberate ruff pin bump, gated by that PR's `make lint`. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 Every `pip install` in every workflow and the 8 Python `install_deps.sh` pins `name==X.Y.Z`, one version per package across all sites (`tests/test_tool_pins.py`); bump them together in the templates. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 Root `make lint` runs `ruff check .` plus `ruff format --check` scoped to `git ls-files '*.py'` (never `ruff format --check .`, which rewrites markdown code blocks) alongside `lint-hooks`. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 `lint-python` exits 0 when ruff is missing (so a machine can still commit the fix); `scripts.yml` installs ruff so CI enforces it, and `tests/scripts/makefile.bats` asserts that. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
@@ -107,7 +107,7 @@ Every test must cover more than the happy path. Three categories are required fo
 
 Where to add tests:
 
-- Python tests: add to `pi/test_pi.py` (pi), `fib/test_fib.py` (fib), `sq/test_sq.py` (sq), `e/test_e.py` (e), or `factorial/test_factorial.py` (factorial), run with `make test` from the project directory
+- Python tests: add to `pi/test_pi.py`, `fib/test_fib.py`, `sq/test_sq.py`, `e/test_e.py` or `factorial/test_factorial.py`, run with `make test` from the project directory
 - Rust tests: add to the `#[cfg(test)] mod tests` block in `src/main.rs`, run with `make test`
 - Coverage tools: `make coverage` (Python), `cargo tarpaulin` (Rust)
 
@@ -234,25 +234,25 @@ gh pr create --title "..." --body "..."
 
 The pre-push hook runs `make test` for changed sub-projects locally before the push reaches GitHub. GitHub Actions CI runs on PRs only. The `auto-merge` workflow enables GitHub auto-merge when the PR is opened; it merges automatically once all required checks pass.
 
-Auto-merge lands a PR as soon as its required checks pass, so run Phase 3 (`finishing-a-development-branch`) before marking it ready for review; open your own changes as a draft PR.
+Auto-merge lands a PR once its required checks pass, so run Phase 3 (`finishing-a-development-branch`) before marking ready for review; open your changes as a draft PR.
 
 ### Multiprocessing fallback behavior
 
-Python high-precision calculators (`pi`, `e`, `factorial`) must fall back to serial when `ProcessPoolExecutor` fails, print an explicit message that serial mode is active, and tell the user to fix multiprocessing semaphore support. → ai-config/docs/knowledge/math-branch-workflow.md § Multiprocessing fallback
+Python high-precision calculators (`pi`, `e`, `factorial`) must fall back to serial when `ProcessPoolExecutor` fails, print an explicit serial-mode message, and tell the user to fix multiprocessing semaphore support. → ai-config/docs/knowledge/math-branch-workflow.md § Multiprocessing fallback
 
 ## Keeping CLAUDE.md Up To Date
 
-**When making any change to this repository, update the relevant CLAUDE.md file(s) before finishing.** These files are the primary reference for future sessions — stale documentation is worse than none.
+**Any change to this repository must update the relevant CLAUDE.md file(s) before finishing**: stale documentation is worse than none.
 
 Per-change update map (new function, Makefile target, dependency, test class, project, behaviour change, rule change) and the new-project checklist (workflow, badge, CI table, loops in `scripts/pre-commit` and `scripts/pre-push`). → ai-config/docs/knowledge/math-claude-md-maintenance.md § Update map
-Sub-project `CLAUDE.md` files are the source of truth for implementation detail; this file is the entry point and quick reference. → ai-config/docs/knowledge/math-claude-md-maintenance.md § Update map
+Sub-project `CLAUDE.md` files hold implementation detail; this file is the entry point. → ai-config/docs/knowledge/math-claude-md-maintenance.md § Update map
 
 ## Notes
 
 Verify rust-check wrapper changes with unit tests (`python3 scripts/test_rust_check.py`) plus a full online+offline crate matrix before merge. → ai-config/docs/knowledge/math-quick-reference.md § rust-offline-wrapper learnings
 
 - Generated output files (`pi_*_digits.txt`, `e_*_digits.txt`, `factorial_*.txt`, and `<name>_1e*.txt` from primes, twin-primes, fib, sq, amicable, collatz and perfect-numbers) are artifacts — `.gitignore` covers them; do not commit them.
-- See each project's `CLAUDE.md` for implementation guidance, layout and editing rules.
+- See each project's `CLAUDE.md` for guidance, layout and editing rules.
 
 ## Definition of Done
 

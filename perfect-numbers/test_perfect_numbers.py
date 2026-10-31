@@ -390,9 +390,9 @@ class TestMain(unittest.TestCase):
                 "perfect_numbers.lucas_lehmer", side_effect=KeyboardInterrupt
             ),
             redirect_stdout(io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
         ):
-            with self.assertRaises(SystemExit) as cm:
-                main()
+            main()
         self.assertEqual(cm.exception.code, 1)
 
     def test_permission_error_exits_1(self):
@@ -403,9 +403,9 @@ class TestMain(unittest.TestCase):
                 side_effect=PermissionError("Permission denied"),
             ),
             redirect_stdout(io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
         ):
-            with self.assertRaises(SystemExit) as cm:
-                main()
+            main()
         self.assertEqual(cm.exception.code, 1)
 
 

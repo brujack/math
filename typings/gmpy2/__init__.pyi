@@ -7,7 +7,7 @@ still reported. Extend it when a sub-project starts
 using another gmpy2 name; tests/test_gmpy2_stub.py fails until it is added.
 """
 
-from typing import Literal, SupportsIndex, overload
+from typing import Literal, SupportsIndex, TypeAlias, overload
 
 class mpz:
     @overload
@@ -77,9 +77,9 @@ class mpfr:
     def __ge__(self, other: _RealLike) -> bool: ...
     def digits(self, base: int = 10, prec: int = 0, /) -> tuple[str, int, int]: ...
 
-_IntLike = int | mpz
-_SmallExponent = Literal[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
-_RealLike = int | float | mpz | mpfr
+_IntLike: TypeAlias = int | mpz
+_SmallExponent: TypeAlias = Literal[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+_RealLike: TypeAlias = int | float | mpz | mpfr
 
 class context:
     precision: int

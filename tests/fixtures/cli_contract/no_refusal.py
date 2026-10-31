@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Stub CLI that has a threshold but never refuses a large run."""
 
 import argparse

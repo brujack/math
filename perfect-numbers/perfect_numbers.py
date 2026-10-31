@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Find all perfect numbers up to 10^N.
 
 A perfect number equals the sum of its proper divisors. All known even perfect

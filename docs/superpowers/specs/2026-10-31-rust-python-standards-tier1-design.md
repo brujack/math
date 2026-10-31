@@ -213,6 +213,24 @@ Disposition: Addressed (operator, 2026-10-31, after the correction was put to th
 - R3 reviewed: built and merged in PR 1 (math#187, c398814); this branch is PR 2, which implements R4-R9 only — the plan splits the spec into three PRs by design.
 - finding R10 (2026-10-31, reviewer both): NOT-BUILT — The diff has no `ruff.toml` hunk and no `extend-select` text, and nothing in it shows that root `make lint` passes.
 - R10 reviewed: built in PR 3 (Task 8) of the same plan; this branch is PR 2, which implements R4-R9 only — the plan splits the spec into three PRs by design.
+- finding R1 (2026-10-31, reviewer both): NOT-BUILT — Looked for edition = "2024", unsafe_code = "forbid" and rust-version handling in *-rs/Cargo.toml and matching assertions in tests/test_crate_uniformity.py; the only change to that test file is a re.M|re.S -> re.MULTILINE|re.DOTALL rewrite in _release_profile_text, and no Cargo.toml is in the diff (likely delivered by an earlier PR, which this diff cannot show).
+- R1 reviewed: built and merged in PR 1 (math#187, c398814); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design.
+- finding R2 (2026-10-31, reviewer A): NOT-BUILT — No workflow file appears in the diff at all, so there is no evidence either way; the requirement is a negative that this diff trivially does not violate, but nothing in it demonstrates the property.
+- R2 reviewed: built and merged in PR 1 (math#187, c398814); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design.
+- finding R3 (2026-10-31, reviewer both): NOT-BUILT — scripts/crate_templates/rustfmt.toml and every crate rustfmt.toml are absent from the diff; no style_edition = "2024" line found.
+- R3 reviewed: built and merged in PR 1 (math#187, c398814); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design.
+- finding R4 (2026-10-31, reviewer both): NOT-BUILT — No root LICENSE file, no license = "MIT" in any Cargo.toml, and no licence assertion in tests/test_crate_uniformity.py appear in the diff.
+- R4 reviewed: built and merged in PR 2 (math#188, 31aae33); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design.
+- finding R5 (2026-10-31, reviewer both): NOT-BUILT — No deny.toml and no test parsing it appear in the diff.
+- R5 reviewed: built and merged in PR 2 (math#188, 31aae33); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design.
+- finding R6 (2026-10-31, reviewer both): NOT-BUILT — No cargo-deny.yml, removal of cargo-audit.yml, or scripts/cargo-deny-all.sh appears in the diff (docs/superpowers/README.md only adds a backlog row elsewhere referencing those files as existing).
+- R6 reviewed: built and merged in PR 2 (math#188, 31aae33); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design.
+- finding R7 (2026-10-31, reviewer both): NOT-BUILT — No tests/fixtures/cargo-deny/ fixtures, crate-count test, or scripts.yml change appear in the diff.
+- R7 reviewed: built and merged in PR 2 (math#188, 31aae33); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design.
+- finding R8 (2026-10-31, reviewer both): NOT-BUILT — scripts/third-party-notices.sh is not in the diff.
+- R8 reviewed: built and merged in PR 2 (math#188, 31aae33); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design.
+- finding R9 (2026-10-31, reviewer both): NOT-BUILT — No release-*-rs.yml or its template appears in the diff.
+- R9 reviewed: built and merged in PR 2 (math#188, 31aae33); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design.
 
 ## Spec alignment (2026-10-31)
 
@@ -225,9 +243,15 @@ Disposition: Addressed (operator, 2026-10-31, after the correction was put to th
 
 | ID | Reviewer | Verdict | Reason | Amendment |
 | --- | --- | --- | --- | --- |
-| R1 | both | NOT-BUILT | The diff adds no edition, `[lints.rust] unsafe_code = "forbid"` or rust-version change and no rust-version uniformity test. `edition = "2024"` and `test_every_crate_forbids_unsafe_code` show up only as unchanged context lines (Cargo.toml hunks, tests/test_crate_uniformity.py:328), so this diff does not show the forbid declarations or a test that fails on a `rust-version` key. | - R1 reviewed: built and merged in PR 1 (math#187, c398814); this branch is PR 2, which implements R4-R9 only — the plan splits the spec into three PRs by design. |
-| R3 | both | NOT-BUILT | The diff has no hunk for `scripts/crate_templates/rustfmt.toml` and no `style_edition` text anywhere, so it does not show this requirement. | - R3 reviewed: built and merged in PR 1 (math#187, c398814); this branch is PR 2, which implements R4-R9 only — the plan splits the spec into three PRs by design. |
-| R10 | both | NOT-BUILT | The diff has no `ruff.toml` hunk and no `extend-select` text, and nothing in it shows that root `make lint` passes. | - R10 reviewed: built in PR 3 (Task 8) of the same plan; this branch is PR 2, which implements R4-R9 only — the plan splits the spec into three PRs by design. |
+| R1 | both | NOT-BUILT | Looked for edition = "2024", unsafe_code = "forbid" and rust-version handling in *-rs/Cargo.toml and matching assertions in tests/test_crate_uniformity.py; the only change to that test file is a re.M\|re.S -> re.MULTILINE\|re.DOTALL rewrite in _release_profile_text, and no Cargo.toml is in the diff (likely delivered by an earlier PR, which this diff cannot show). | - R1 reviewed: built and merged in PR 1 (math#187, c398814); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design. |
+| R2 | A | NOT-BUILT | No workflow file appears in the diff at all, so there is no evidence either way; the requirement is a negative that this diff trivially does not violate, but nothing in it demonstrates the property. | - R2 reviewed: built and merged in PR 1 (math#187, c398814); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design. |
+| R3 | both | NOT-BUILT | scripts/crate_templates/rustfmt.toml and every crate rustfmt.toml are absent from the diff; no style_edition = "2024" line found. | - R3 reviewed: built and merged in PR 1 (math#187, c398814); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design. |
+| R4 | both | NOT-BUILT | No root LICENSE file, no license = "MIT" in any Cargo.toml, and no licence assertion in tests/test_crate_uniformity.py appear in the diff. | - R4 reviewed: built and merged in PR 2 (math#188, 31aae33); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design. |
+| R5 | both | NOT-BUILT | No deny.toml and no test parsing it appear in the diff. | - R5 reviewed: built and merged in PR 2 (math#188, 31aae33); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design. |
+| R6 | both | NOT-BUILT | No cargo-deny.yml, removal of cargo-audit.yml, or scripts/cargo-deny-all.sh appears in the diff (docs/superpowers/README.md only adds a backlog row elsewhere referencing those files as existing). | - R6 reviewed: built and merged in PR 2 (math#188, 31aae33); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design. |
+| R7 | both | NOT-BUILT | No tests/fixtures/cargo-deny/ fixtures, crate-count test, or scripts.yml change appear in the diff. | - R7 reviewed: built and merged in PR 2 (math#188, 31aae33); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design. |
+| R8 | both | NOT-BUILT | scripts/third-party-notices.sh is not in the diff. | - R8 reviewed: built and merged in PR 2 (math#188, 31aae33); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design. |
+| R9 | both | NOT-BUILT | No release-*-rs.yml or its template appears in the diff. | - R9 reviewed: built and merged in PR 2 (math#188, 31aae33); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design. |
 
 ### Reviewed
 
@@ -241,6 +265,15 @@ Disposition: Addressed (operator, 2026-10-31, after the correction was put to th
 - R1 reviewed: built and merged in PR 1 (math#187, c398814); this branch is PR 2, which implements R4-R9 only — the plan splits the spec into three PRs by design.
 - R3 reviewed: built and merged in PR 1 (math#187, c398814); this branch is PR 2, which implements R4-R9 only — the plan splits the spec into three PRs by design.
 - R10 reviewed: built in PR 3 (Task 8) of the same plan; this branch is PR 2, which implements R4-R9 only — the plan splits the spec into three PRs by design.
+- R1 reviewed: built and merged in PR 1 (math#187, c398814); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design.
+- R2 reviewed: built and merged in PR 1 (math#187, c398814); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design.
+- R3 reviewed: built and merged in PR 1 (math#187, c398814); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design.
+- R4 reviewed: built and merged in PR 2 (math#188, 31aae33); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design.
+- R5 reviewed: built and merged in PR 2 (math#188, 31aae33); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design.
+- R6 reviewed: built and merged in PR 2 (math#188, 31aae33); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design.
+- R7 reviewed: built and merged in PR 2 (math#188, 31aae33); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design.
+- R8 reviewed: built and merged in PR 2 (math#188, 31aae33); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design.
+- R9 reviewed: built and merged in PR 2 (math#188, 31aae33); this branch is PR 3, which implements R10 only — the plan splits the spec into three PRs by design.
 
 ### Verifications
 

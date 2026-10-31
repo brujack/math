@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Stub CLI whose grandchild leaves the process group and holds stdout open.
 
 A group kill cannot reach the grandchild, so the pipes never reach end of file
