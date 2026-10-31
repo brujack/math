@@ -245,6 +245,11 @@ class CheckStepTests(unittest.TestCase):
         code, err = self._run_check({"1.7.1": LIBS})
         self.assertEqual(code, 0, err)
 
+    def test_lock_without_gmp_is_skipped(self) -> None:
+        # 6 of the 11 crates lock no gmp-mpfr-sys; they must not fail the check.
+        code, err = self._run_check({"1.7.1": LIBS}, {"e": "1.7.0", "b": None})
+        self.assertEqual((code, err), (0, ""))
+
     def test_only_older_patch_dir_reports_no_cache_dir(self) -> None:
         code, err = self._run_check({"1.7.0": LIBS})
         self.assertEqual(code, 1)
