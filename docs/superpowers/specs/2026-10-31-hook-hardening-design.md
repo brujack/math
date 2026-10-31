@@ -9,6 +9,8 @@ Date: 2026-10-31. Repo: math. Source: four Backlog rows in `docs/superpowers/REA
 
 The operator chose to ship the four as one spec, one plan and one PR.
 
+- **Approved:** 2026-10-31
+
 ## Problem
 
 1. **pre-commit skips root Python.** `scripts/pre-commit` maps each staged path to the
