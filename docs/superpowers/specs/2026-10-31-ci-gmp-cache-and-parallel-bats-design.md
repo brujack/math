@@ -183,3 +183,28 @@ covered by fail-open plus V2's required cache hit.
 - R2 -> `.github/workflows/gmp-cache.yml` triggers only on `workflow_dispatch` and `schedule`, has `contents: read`, builds `gmp-mpfr-sys` on a key miss with `GMP_MPFR_SYS_CACHE` set to `${RUNNER_TEMP}/gmp-mpfr-sys` through `$GITHUB_ENV` in its key step (the first step after checkout), calls the key script with `--strict`, asserts that for each locked `gmp-mpfr-sys` version some cached directory of the same major.minor at that patch or newer holds `libgmp.a`, `libmpfr.a` and `libmpc.a`, and saves `${{ runner.temp }}/gmp-mpfr-sys` with `actions/cache/save` under the `key` from `scripts/gmp-cache-key.sh`. — checkout must run before the key script exists on disk, so the export sits in the first step after it; "first step" was imprecise.
 - finding R7 (2026-10-31, reviewer both): DIFFERS — The Backlog row is removed, gmp-cache.yml is named at CLAUDE.md:160 and the read-only restore at :163, and the scripts.yml line at :183 says `--jobs 8`, but the other scripts.yml line at :161 (the auto-merge.yml line) still says `scripts.yml` runs `bats --recursive tests/` without `--jobs 8`.
 - R7 reviewed: fixed in 3cff605
+- finding R6 (2026-10-31, reviewer A): NOT-BUILT — The bats suite pins the exact key for the two-version fixture (1.7.0_1.7.1) and the no-gmp, unreadable-lock, empty RUNNER_OS, empty ImageOS and not-a-repo exits, and the Python tests pin R3, R4, R2's triggers and save step, and R5; but no test exercises R1's 'week is empty' error exit, so that one of R1's error exits is unpinned (setting GMP_CACHE_WEEK to empty falls back to `date`, so that path cannot be reached through the environment).
+- R6 -> Tests pin R1's exact key for a two-version fixture and its error exits for no lockfile naming `gmp-mpfr-sys`, an empty `RUNNER_OS` and an empty `ImageOS` (the empty-week exit is defensive: `GMP_CACHE_WEEK` falls back to `date -u`, so it fires only if `date` fails), R3 and R4 across all rendered crate workflows, R2's triggers and save step, and R5. — the empty-week branch is unreachable through the script's inputs; stubbing `date` to reach it would test the stub.
+
+## Spec alignment (2026-10-31)
+
+- spec: docs/superpowers/specs/2026-10-31-ci-gmp-cache-and-parallel-bats-design.md
+- anchor: 81a8ae2111ed8a0d6c7640d09867ba7693c6f008
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+| R6 | A | NOT-BUILT | The bats suite pins the exact key for the two-version fixture (1.7.0_1.7.1) and the no-gmp, unreadable-lock, empty RUNNER_OS, empty ImageOS and not-a-repo exits, and the Python tests pin R3, R4, R2's triggers and save step, and R5; but no test exercises R1's 'week is empty' error exit, so that one of R1's error exits is unpinned (setting GMP_CACHE_WEEK to empty falls back to `date`, so that path cannot be reached through the environment). | - R6 -> Tests pin R1's exact key for a two-version fixture and its error exits for no lockfile naming `gmp-mpfr-sys`, an empty `RUNNER_OS` and an empty `ImageOS` (the empty-week exit is defensive: `GMP_CACHE_WEEK` falls back to `date -u`, so it fires only if `date` fails), R3 and R4 across all rendered crate workflows, R2's triggers and save step, and R5. — the empty-week branch is unreachable through the script's inputs; stubbing `date` to reach it would test the stub. |
+
+### Reviewed
+
+- R7 reviewed: fixed in 3cff605
+
+### Verifications
+
+- V1: no evidence recorded
+- V2: no evidence recorded
+- V3: no evidence recorded
