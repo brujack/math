@@ -6,6 +6,8 @@ Date: 2026-10-31. Repo: math. Source: four Backlog rows in `docs/superpowers/REA
 `libgmp-dev libmpfr-dev` apt step in the Rust CI jobs is unused). The operator chose to ship
 the four as one spec, one plan and one PR.
 
+- **Approved:** 2026-10-31
+
 ## Problem
 
 Four gaps in how CI and the local hooks fetch, verify and check what the repo depends on.
