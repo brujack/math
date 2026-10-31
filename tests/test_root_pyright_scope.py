@@ -1,6 +1,6 @@
-"""Guard the root pyrightconfig.json's mode and file-coverage against silent drift.
+"""Guard root pyright: config mode, file coverage, zero errors and the pinned engine.
 
-Two independent assertions, each with a distinct failure mode:
+Independent assertions, each with a distinct failure mode:
 
 1. Mode — a parse of the JSON config, asserting typeCheckingMode/reportMissingImports
    have not been silently downgraded. A file-count check alone cannot see this.
@@ -9,6 +9,12 @@ Two independent assertions, each with a distinct failure mode:
    include roots. This is deliberately an equality, not `>=` or a Python glob
    reimplementation of pyright's include/exclude semantics — see ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright and the
    design notes for why those alternatives were tried and refuted.
+3. Errors — the same repo-root report's summary.errorCount must be 0; this is the local
+   push-path copy of CI's `Run pyright` step (math#177 pushed three errors past it).
+4. Engine — the report's `version` must equal the `pyright==` pin in requirements-dev.txt,
+   because a different pyright can report a different error set from CI's.
+
+With pyright absent outside CI the class prints SKIP_LINE to stderr and skips; in CI it fails.
 """
 
 import json
