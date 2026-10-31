@@ -2,6 +2,7 @@
 name = "twin-primes"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 description = "Find all twin prime pairs up to 10^N — segmented sieve"
 
 [[bin]]

@@ -319,6 +319,12 @@ class TestCargoTomlShape(unittest.TestCase):
                 _, toml = self._load(crate)
                 self.assertEqual(toml["package"].get("edition"), "2024")
 
+    def test_every_crate_is_mit_licensed(self):
+        for crate in rcf.CRATES:
+            with self.subTest(crate=crate):
+                _, toml = self._load(crate)
+                self.assertEqual(toml["package"].get("license"), "MIT")
+
     def test_every_crate_forbids_unsafe_code(self):
         for crate in rcf.CRATES:
             with self.subTest(crate=crate):

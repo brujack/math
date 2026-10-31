@@ -2,6 +2,7 @@
 name = "collatz"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 description = "Find Collatz chain record-setters up to 10^N"
 
 [[bin]]
