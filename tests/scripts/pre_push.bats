@@ -77,6 +77,23 @@ teardown() {
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
 }
 
+@test "deny.toml-only push runs the root test target" {
+    export MOCK_GIT_DIFF_NAMES="deny.toml"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
+}
+
+@test "crate Cargo.toml-only push runs no make" {
+    # Guard against widening the root-scope regex to every *.toml.
+    export MOCK_GIT_DIFF_NAMES="pi/pi-rs/Cargo.toml"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    assert_no_match "^make"
+}
+
 @test "bats-only change runs the root test target and no sub-project suite" {
     export MOCK_GIT_DIFF_NAMES="tests/scripts/pre_push.bats"
     run bash "${REPO_ROOT}/scripts/pre-push" \
