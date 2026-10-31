@@ -90,6 +90,11 @@ def pyright_installs():
             for token in match.group("rest").split():
                 if re.match(r"^pyright(\W|$)", token):
                     yield path.relative_to(REPO_ROOT).as_posix(), token
+    # requirements-dev.txt has no `pip install` text; its lines are the tokens.
+    requirements = REPO_ROOT / "requirements-dev.txt"
+    for token in requirements.read_text().split():
+        if re.match(r"^pyright(\W|$)", token):
+            yield requirements.relative_to(REPO_ROOT).as_posix(), token
 
 
 PYTHON_INSTALLERS = sorted(REPO_ROOT.glob("*/install_deps.sh"))
@@ -262,7 +267,8 @@ class TestInstallActionPins(unittest.TestCase):
 class TestPyrightPins(unittest.TestCase):
     def test_every_pyright_install_is_pinned_to_one_version(self):
         sites = list(pyright_installs())
-        self.assertEqual(len(sites), 19, sites)  # 11 workflow sites + 8 installers
+        # 10 workflow sites + 8 installers + requirements-dev.txt
+        self.assertEqual(len(sites), 19, sites)
         pins = {token for _, token in sites}
         self.assertEqual(len(pins), 1, f"pyright pinned inconsistently: {sorted(pins)}")
         (pin,) = pins

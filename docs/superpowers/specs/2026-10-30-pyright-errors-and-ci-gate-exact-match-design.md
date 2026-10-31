@@ -155,3 +155,24 @@ reason: the stderr line makes it visible and CI still gates.
 
 Review stopped after round 2 (operator, 2026-10-30): remaining findings are test-apparatus
 precision, which Phase 2's red tests check better than another prose round.
+
+## Spec alignment (2026-10-30)
+
+- spec: docs/superpowers/specs/2026-10-30-pyright-errors-and-ci-gate-exact-match-design.md
+- anchor: 58c58053b11474c1128aae4671282ba82bff8768
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+
+### Reviewed
+
+- none
+
+### Verifications
+
+- V1: Pending: on the PR.
+- V2: Pending: ssh studio after push.
