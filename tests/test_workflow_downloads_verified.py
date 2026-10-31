@@ -11,8 +11,14 @@ canonical shapes are compliant, and anything else is reported.
              `wget ... -O /abs/path ...` and no shell operator
   checksum:  the whole line is `echo "<hash>  /abs/path" | sha256sum -c -`
 
-`check_run` judges one step's `run:` text; the live-tree test applies it to every
-step in `.github/workflows/*.yml` and `.github/actions/**/action.yml`.
+The hash must be pinned (ci-002): a 64-hex literal, or a variable that the same
+step's `env:` sets to 64 hex characters. A hash fetched at run time proves nothing.
+
+Known limit: a use of the download through a glob (`/tmp/*.tgz`) before its
+checksum is not detected; only the path and its basename as whole tokens are.
+
+`check_run` judges one step's `run:` text and `env`; the live-tree test applies it
+to every step in `.github/workflows/*.yml` and `.github/actions/**/action.yml`.
 """
 
 import pathlib
@@ -20,6 +26,7 @@ import posixpath
 import re
 import shlex
 import unittest
+from collections.abc import Mapping
 
 import yaml
 
@@ -34,6 +41,8 @@ CHECKSUM_LINE = re.compile(
     r"\| sha256sum -c -$"
 )
 OPERATOR_CHARS = set("();<>|&")
+HEX64 = re.compile(r"[0-9a-f]{64}")
+VARIABLE = re.compile(r"\$(?:\{(\w+)\}|(\w+))$")
 
 
 def _tokens(line: str) -> list[str]:
@@ -46,32 +55,51 @@ def _is_operator(token: str) -> bool:
     return bool(token) and set(token) <= OPERATOR_CHARS
 
 
-def _mentions(line: str, name: str) -> bool:
-    """True when `name` appears in `line` as a whole path token."""
-    pattern = r"(?<![\w./-])" + re.escape(name) + r"(?![\w./-])"
+def _mentions(line: str, name: str, *, bare: bool = False) -> bool:
+    """True when `name` appears in `line` as a whole path token.
+
+    A `bare` name is a basename, so a preceding `/` is allowed: `./a`, `${D}/a`
+    and `/tmp//a` all end in the component `a`.
+    """
+    before = r"(?<![\w.-])" if bare else r"(?<![\w./-])"
+    pattern = before + re.escape(name) + r"(?![\w./-])"
     return re.search(pattern, line) is not None
 
 
+def _pinned(hash_text: str, env: Mapping[str, str]) -> bool:
+    """A 64-hex literal, or a variable the step env sets to 64 hex characters."""
+    if HEX64.fullmatch(hash_text):
+        return True
+    variable = VARIABLE.match(hash_text)
+    if variable is None:
+        return False
+    name = variable.group(1) or variable.group(2)
+    return HEX64.fullmatch(str(env.get(name, ""))) is not None
+
+
 def _is_jq_query(tokens: list[str]) -> bool:
-    """A curl with no output file whose pipeline ends in jq and writes nowhere."""
-    if "-o" in tokens or "-O" in tokens or "tee" in tokens:
+    """A curl with no output file piped once into jq, with no other operator."""
+    if "-o" in tokens or "-O" in tokens:
         return False
-    if any(">" in token for token in tokens):
+    operators = [token for token in tokens if _is_operator(token)]
+    if operators != ["|"]:
         return False
-    if "|" not in tokens:
-        return False
-    return "jq" in tokens[tokens.index("|") + 1 :]
+    return tokens[tokens.index("|") + 1 :][:1] == ["jq"]
 
 
-def _verify(lines: list[str], start: int, path: str) -> str | None:
-    """Return a problem unless a canonical checksum for `path` precedes any use."""
-    names = (path, posixpath.basename(path))
+def _verify(
+    lines: list[str], start: int, path: str, env: Mapping[str, str]
+) -> str | None:
+    """Return a problem unless a canonical, pinned checksum for `path` comes first."""
+    base = posixpath.basename(path)
     for line in lines[start + 1 :]:
         stripped = line.strip()
         found = CHECKSUM_LINE.match(stripped)
         if found and found.group("path") == path:
-            return None
-        mentioned = any(_mentions(stripped, name) for name in names)
+            if _pinned(found.group("hash"), env):
+                return None
+            return f"hash is not pinned for {path}: {stripped}"
+        mentioned = _mentions(stripped, path) or _mentions(stripped, base, bare=True)
         if mentioned and "sha256sum" in stripped:
             return f"non-canonical checksum line for {path}: {stripped}"
         if mentioned:
@@ -79,7 +107,9 @@ def _verify(lines: list[str], start: int, path: str) -> str | None:
     return f"no sha256sum -c for {path}"
 
 
-def _check_download(lines: list[str], index: int) -> tuple[bool, str | None]:
+def _check_download(
+    lines: list[str], index: int, env: Mapping[str, str]
+) -> tuple[bool, str | None]:
     """Judge one curl/wget line; return (counts as a download, problem)."""
     line = lines[index].strip()
     if re.search(r"\|\s*(sh|bash)\b", line):
@@ -104,18 +134,19 @@ def _check_download(lines: list[str], index: int) -> tuple[bool, str | None]:
     target = tokens[position] if position < len(tokens) else ""
     if not target.startswith("/") or "$" in target:
         return True, f"download target is not a literal absolute path: {line}"
-    return True, _verify(lines, index, target)
+    return True, _verify(lines, index, target, env)
 
 
-def check_run(text: str) -> tuple[int, list[str]]:
-    """Return (download count, problems) for one step's `run:` text."""
+def check_run(text: str, env: Mapping[str, str] | None = None) -> tuple[int, list[str]]:
+    """Return (download count, problems) for one step's `run:` text and `env`."""
+    step_env = env or {}
     lines = text.replace("\\\n", " ").splitlines()
     downloads = 0
     problems: list[str] = []
     for index, line in enumerate(lines):
         if not re.search(r"\b(curl|wget)\b", line):
             continue
-        counted, problem = _check_download(lines, index)
+        counted, problem = _check_download(lines, index, step_env)
         downloads += int(counted)
         if problem is not None:
             problems.append(problem)
@@ -134,22 +165,34 @@ def _steps(document: object, workflow: bool) -> list[tuple[str, dict]]:
     return [("<action>", s) for s in (document.get("runs") or {}).get("steps") or []]
 
 
+def scan_document(
+    label: str, document: object, workflow: bool
+) -> tuple[int, list[str]]:
+    """Check every `run:` step of one parsed YAML file; messages name where."""
+    total = 0
+    problems: list[str] = []
+    for job, step in _steps(document, workflow):
+        run = step.get("run")
+        if not isinstance(run, str):
+            continue
+        env = {str(k): str(v) for k, v in (step.get("env") or {}).items()}
+        count, found = check_run(run, env)
+        total += count
+        where = f"{label} job {job!r} step {step.get('name')!r}"
+        problems.extend(f"{where}: {p}" for p in found)
+    return total, problems
+
+
 def live_tree() -> tuple[int, list[str]]:
     sources = [(p, True) for p in sorted((GITHUB / "workflows").glob("*.yml"))]
     sources += [(p, False) for p in sorted((GITHUB / "actions").glob("**/action.yml"))]
     total = 0
     problems: list[str] = []
     for path, workflow in sources:
-        for job, step in _steps(yaml.safe_load(path.read_text()), workflow):
-            run = step.get("run")
-            if not isinstance(run, str):
-                continue
-            count, found = check_run(run)
-            total += count
-            where = (
-                f"{path.relative_to(REPO_ROOT)} job {job!r} step {step.get('name')!r}"
-            )
-            problems.extend(f"{where}: {p}" for p in found)
+        label = str(path.relative_to(REPO_ROOT))
+        count, found = scan_document(label, yaml.safe_load(path.read_text()), workflow)
+        total += count
+        problems.extend(found)
     return total, problems
 
 
@@ -159,11 +202,12 @@ VERIFIED = (
     "tar -xf /tmp/a\n"
 )
 SHA = "a" * 64
+ENV = {"SUM": SHA}
 
 
 class ProblemTestCase(unittest.TestCase):
     def assert_one_problem(self, text: str, fragment: str) -> None:
-        _, problems = check_run(text)
+        _, problems = check_run(text, ENV)
         self.assertEqual(len(problems), 1, problems)
         self.assertIn(fragment, problems[0])
 
@@ -274,6 +318,77 @@ class TestCheckRunProblems(ProblemTestCase):
             "curl -s https://api | jq . | tee /tmp/s.sh\n", "unrecognised"
         )
 
+    def test_hash_variable_missing_from_env(self):
+        text = VERIFIED.replace("${SUM}", "${OTHER}")
+        self.assert_one_problem(text, "hash is not pinned")
+
+    def test_hash_variable_with_a_malformed_value(self):
+        _, problems = check_run(VERIFIED, {"SUM": "not-a-hash"})
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("hash is not pinned", problems[0])
+
+    def test_hash_variable_with_uppercase_hex(self):
+        _, problems = check_run(VERIFIED, {"SUM": SHA.upper()})
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("hash is not pinned", problems[0])
+
+    def test_hash_assigned_in_the_script_is_not_pinned(self):
+        text = "SUM=abc\n" + VERIFIED
+        _, problems = check_run(text, {})
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("hash is not pinned", problems[0])
+
+    def test_hash_fetched_from_the_same_remote(self):
+        text = (
+            "S=$(curl -s https://x/sum | jq -r .sha)\n"
+            "curl -fsSL -o /tmp/a https://x\n"
+            'echo "${S}  /tmp/a" | sha256sum -c -\n'
+        )
+        _, problems = check_run(text, {})
+        self.assertEqual(len(problems), 2, problems)
+        self.assertIn("unrecognised", problems[0])
+        self.assertIn("hash is not pinned", problems[1])
+
+    def test_jq_query_piped_on_to_a_shell(self):
+        self.assert_one_problem(
+            "curl -s https://x | jq -r .s | sudo sh\n", "unrecognised"
+        )
+
+    def test_jq_query_piped_on_to_an_interpreter(self):
+        self.assert_one_problem(
+            "curl -s https://x | jq -r .s | python3\n", "unrecognised"
+        )
+
+    def test_jq_query_chained_with_and(self):
+        self.assert_one_problem(
+            "curl -s https://x | jq -r .s && sudo sh /tmp/s\n", "unrecognised"
+        )
+
+    def test_use_by_dot_slash_basename(self):
+        text = (
+            "curl -fsSL -o /tmp/a https://x\n"
+            "cd /tmp\n"
+            "tar -xf ./a\n"
+            'echo "${SUM}  /tmp/a" | sha256sum -c -\n'
+        )
+        self.assert_one_problem(text, "used before")
+
+    def test_use_by_variable_directory_prefix(self):
+        text = (
+            "curl -fsSL -o /tmp/a https://x\n"
+            'tar -xf "${D}/a"\n'
+            'echo "${SUM}  /tmp/a" | sha256sum -c -\n'
+        )
+        self.assert_one_problem(text, "used before")
+
+    def test_use_by_doubled_slash_path(self):
+        text = (
+            "curl -fsSL -o /tmp/g.tgz https://x\n"
+            "tar -xf /tmp//g.tgz\n"
+            'echo "${SUM}  /tmp/g.tgz" | sha256sum -c -\n'
+        )
+        self.assert_one_problem(text, "used before")
+
     def test_second_download_is_judged_on_its_own(self):
         text = VERIFIED + "curl -fsSL -o /tmp/b https://y\n"
         self.assert_one_problem(text, "no sha256sum -c for /tmp/b")
@@ -281,39 +396,31 @@ class TestCheckRunProblems(ProblemTestCase):
 
 class TestCheckRunCompliant(unittest.TestCase):
     def test_verified_download(self):
-        self.assertEqual(check_run(VERIFIED), (1, []))
+        self.assertEqual(check_run(VERIFIED, ENV), (1, []))
 
     def test_literal_hash(self):
         text = VERIFIED.replace('"${SUM} ', f'"{SHA} ')
-        self.assertEqual(check_run(text), (1, []))
-
-    def test_braced_variable_hash(self):
-        text = VERIFIED.replace('"${SUM} ', '"${SUM} ')
-        self.assertEqual(check_run(text), (1, []))
+        self.assertEqual(check_run(text, ENV), (1, []))
 
     def test_bare_variable_hash(self):
         text = VERIFIED.replace('"${SUM} ', '"$SUM ')
-        self.assertEqual(check_run(text), (1, []))
-
-    def test_other_variable_in_the_checksum_line_passes_the_shape_check(self):
-        text = VERIFIED.replace('"${SUM} ', '"${OTHER} ')
-        self.assertEqual(check_run(text), (1, []))
+        self.assertEqual(check_run(text, ENV), (1, []))
 
     def test_continuation_lines_are_joined(self):
         text = 'curl -fsSL -o /tmp/a \\\n  https://x\necho "${SUM}  /tmp/a" | sha256sum -c -\n'
-        self.assertEqual(check_run(text), (1, []))
+        self.assertEqual(check_run(text, ENV), (1, []))
 
     def test_quoted_url_with_variable(self):
         text = VERIFIED.replace("https://x", '"https://h/v${VER}/x"')
-        self.assertEqual(check_run(text), (1, []))
+        self.assertEqual(check_run(text, ENV), (1, []))
 
     def test_wget_with_capital_o(self):
         text = 'wget -O /tmp/a https://x\necho "${SUM}  /tmp/a" | sha256sum -c -\n'
-        self.assertEqual(check_run(text), (1, []))
+        self.assertEqual(check_run(text, ENV), (1, []))
 
     def test_two_verified_downloads(self):
         text = VERIFIED + VERIFIED.replace("/tmp/a", "/tmp/b")
-        self.assertEqual(check_run(text), (2, []))
+        self.assertEqual(check_run(text, ENV), (2, []))
 
     def test_api_query_piped_to_jq(self):
         self.assertEqual(check_run("curl -s https://api | jq .x\n"), (0, []))
@@ -323,6 +430,29 @@ class TestCheckRunCompliant(unittest.TestCase):
 
     def test_empty_text(self):
         self.assertEqual(check_run(""), (0, []))
+
+
+class TestMessageFormat(unittest.TestCase):
+    def test_problem_names_file_job_and_step(self):
+        document = {
+            "jobs": {
+                "build": {
+                    "steps": [
+                        {"name": "Fetch", "run": "curl -fsSL -o /tmp/a https://x\n"}
+                    ]
+                }
+            }
+        }
+        total, problems = scan_document("w.yml", document, True)
+        self.assertEqual(total, 1)
+        self.assertEqual(len(problems), 1, problems)
+        for fragment in ("w.yml", "job 'build'", "step 'Fetch'", "/tmp/a"):
+            self.assertIn(fragment, problems[0])
+
+    def test_step_env_reaches_the_hash_check(self):
+        run = VERIFIED
+        document = {"runs": {"steps": [{"name": "Get", "run": run, "env": ENV}]}}
+        self.assertEqual(scan_document("action.yml", document, False), (1, []))
 
 
 class TestLiveTree(unittest.TestCase):
