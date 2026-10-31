@@ -26,9 +26,9 @@ Key difference from the Python version:
 use std::fs::File;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -300,8 +300,8 @@ mod tests {
     use tempfile::tempdir;
 
     use pi::{
-        bs, bs_leaf, bs_merge, format_series_progress, pi_to_string, BS_LEAF_COUNT, CHU_A,
-        CHU_C3_24,
+        BS_LEAF_COUNT, CHU_A, CHU_C3_24, bs, bs_leaf, bs_merge, format_series_progress,
+        pi_to_string,
     };
     use rug::{Float, Integer};
 

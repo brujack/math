@@ -1,6 +1,6 @@
 use std::io;
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use goldbach::{build_sieve, goldbach_pairs};
 use std::hint::black_box;
 

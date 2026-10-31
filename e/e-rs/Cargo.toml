@@ -1,7 +1,7 @@
 [package]
 name = "e"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "High-precision e calculator — Taylor binary splitting + Rayon + GMP"
 
 [[bin]]
@@ -29,6 +29,7 @@ harness = false
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }
 missing_debug_implementations = "warn"
+unsafe_code = "forbid"
 
 [lints.clippy]
 wrong_self_convention = "warn"

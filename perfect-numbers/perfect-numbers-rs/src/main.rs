@@ -10,8 +10,8 @@ use std::io::{self, BufRead, Write};
 use std::path::Path;
 
 use clap::Parser;
-use rug::ops::PowAssign;
 use rug::Integer;
+use rug::ops::PowAssign;
 
 use perfect_numbers::{is_prime, lucas_lehmer, verify_perfect};
 

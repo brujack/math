@@ -190,3 +190,57 @@ Disposition: Addressed (operator, 2026-10-31): licence texts embedded in the sin
 Finding: (1) The spec called `unmaintained = "workspace"` cargo-deny's default; in 0.20.2 the default is `all` (`src/advisories/cfg.rs:281`), so the clean measurement was taken at `all`, and `workspace` emits no diagnostic for a crate reached only through other dependencies, silently dropping transitive notices `cargo audit` shows today. The operator's round-2 choice of `workspace` rested on that wrong claim. (2) The `deny.toml` policy test pinned the allow-list, exceptions and ignores but not `unmaintained`, `[[licenses.clarify]]`, `[licenses.private]`, `bans` or `sources`, so N7 had open allow-paths. Checked clean: `check licenses` on a copied path-only fixture runs offline and gives rc 4 with one `error[rejected]`; embedding the GPL text satisfies LGPL-3.0 §4(b); the exact-path `files:` entry cannot trip `fail_on_unmatched_files`; no R-versus-N contradiction.
 Assumption: No crate in the 11 lockfiles has a RustSec unmaintained or unsound notice today; confirmed by the round-1 measurement at the default (`all`), which printed `advisories ok` in all 11.
 Disposition: Addressed (operator, 2026-10-31, after the correction was put to them): `unmaintained = "all"` with operator-approved `ignore` entries as the remedy; the policy test compares the whole parsed `deny.toml`.
+
+## Amendments
+
+- finding R4 (2026-10-31, reviewer both): NOT-BUILT — No root LICENSE file is added, no Cargo.toml hunk sets license = "MIT", and no uniformity test checks license.
+- R4 reviewed: built in PR 2 (Task 2) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design.
+- finding R5 (2026-10-31, reviewer both): NOT-BUILT — No root deny.toml and no test parsing it appear in the diff.
+- R5 reviewed: built in PR 2 (Task 3) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design.
+- finding R6 (2026-10-31, reviewer both): NOT-BUILT — No cargo-deny.yml, no removal of cargo-audit.yml and no scripts/cargo-deny-all.sh appear in the diff.
+- R6 reviewed: built in PR 2 (Task 4) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design.
+- finding R7 (2026-10-31, reviewer both): NOT-BUILT — No tests/fixtures/cargo-deny/ fixtures, no git ls-files crate-count test, no cargo-deny bats tests and no scripts.yml change appear in the diff.
+- R7 reviewed: built in PR 2 (Task 3) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design.
+- finding R8 (2026-10-31, reviewer both): NOT-BUILT — No scripts/third-party-notices.sh appears in the diff.
+- R8 reviewed: built in PR 2 (Task 5) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design.
+- finding R9 (2026-10-31, reviewer both): NOT-BUILT — No release-*-rs.yml or its template is changed to run a notices script or list THIRD-PARTY-NOTICES.txt.
+- R9 reviewed: built in PR 2 (Task 6) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design.
+- finding R10 (2026-10-31, reviewer both): NOT-BUILT — ruff.toml is not changed in the diff; no extend-select replacement of select is present.
+- R10 reviewed: built in PR 3 (Task 8) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design.
+
+## Spec alignment (2026-10-31)
+
+- spec: docs/superpowers/specs/2026-10-31-rust-python-standards-tier1-design.md
+- anchor: 54305dfad83999dceb9f4baa9c36ad0d927105b2
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8, R9, R10
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+| R4 | both | NOT-BUILT | No root LICENSE file is added, no Cargo.toml hunk sets license = "MIT", and no uniformity test checks license. | - R4 reviewed: built in PR 2 (Task 2) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design. |
+| R5 | both | NOT-BUILT | No root deny.toml and no test parsing it appear in the diff. | - R5 reviewed: built in PR 2 (Task 3) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design. |
+| R6 | both | NOT-BUILT | No cargo-deny.yml, no removal of cargo-audit.yml and no scripts/cargo-deny-all.sh appear in the diff. | - R6 reviewed: built in PR 2 (Task 4) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design. |
+| R7 | both | NOT-BUILT | No tests/fixtures/cargo-deny/ fixtures, no git ls-files crate-count test, no cargo-deny bats tests and no scripts.yml change appear in the diff. | - R7 reviewed: built in PR 2 (Task 3) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design. |
+| R8 | both | NOT-BUILT | No scripts/third-party-notices.sh appears in the diff. | - R8 reviewed: built in PR 2 (Task 5) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design. |
+| R9 | both | NOT-BUILT | No release-*-rs.yml or its template is changed to run a notices script or list THIRD-PARTY-NOTICES.txt. | - R9 reviewed: built in PR 2 (Task 6) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design. |
+| R10 | both | NOT-BUILT | ruff.toml is not changed in the diff; no extend-select replacement of select is present. | - R10 reviewed: built in PR 3 (Task 8) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design. |
+
+### Reviewed
+
+- R4 reviewed: built in PR 2 (Task 2) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design.
+- R5 reviewed: built in PR 2 (Task 3) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design.
+- R6 reviewed: built in PR 2 (Task 4) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design.
+- R7 reviewed: built in PR 2 (Task 3) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design.
+- R8 reviewed: built in PR 2 (Task 5) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design.
+- R9 reviewed: built in PR 2 (Task 6) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design.
+- R10 reviewed: built in PR 3 (Task 8) of the same plan; this branch is PR 1, which implements R1-R3 only — the plan splits the spec into three PRs by design.
+
+### Verifications
+
+- V1: no evidence recorded
+- V2: no evidence recorded
+- V3: no evidence recorded
+- V4: no evidence recorded
+- V5: no evidence recorded

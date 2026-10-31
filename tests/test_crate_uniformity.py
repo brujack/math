@@ -313,6 +313,26 @@ class TestCargoTomlShape(unittest.TestCase):
             with self.subTest(crate=crate):
                 self.assertEqual(shape, reference)
 
+    def test_every_crate_is_edition_2024(self):
+        for crate in rcf.CRATES:
+            with self.subTest(crate=crate):
+                _, toml = self._load(crate)
+                self.assertEqual(toml["package"].get("edition"), "2024")
+
+    def test_every_crate_forbids_unsafe_code(self):
+        for crate in rcf.CRATES:
+            with self.subTest(crate=crate):
+                _, toml = self._load(crate)
+                self.assertEqual(toml["lints"]["rust"].get("unsafe_code"), "forbid")
+
+    def test_no_crate_declares_rust_version(self):
+        # Nothing builds these binaries on an older toolchain, so an MSRV
+        # declaration would be an unverified claim.
+        for crate in rcf.CRATES:
+            with self.subTest(crate=crate):
+                _, toml = self._load(crate)
+                self.assertNotIn("rust-version", toml["package"])
+
     def test_lints_and_dev_dependencies_match(self):
         for table in self.SHARED_TABLES:
             reference = self._load(rcf.CRATES[0])[1].get(table)

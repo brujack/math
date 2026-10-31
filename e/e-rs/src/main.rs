@@ -23,9 +23,9 @@ Algorithm:
 use std::fs::File;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -274,8 +274,8 @@ fn main() {
 mod tests {
     use super::*;
     use e::{
-        bs, bs_leaf, bs_merge, compute_e, e_to_string, format_series_progress,
-        format_write_progress, BS_LEAF_COUNT,
+        BS_LEAF_COUNT, bs, bs_leaf, bs_merge, compute_e, e_to_string, format_series_progress,
+        format_write_progress,
     };
     use proptest::prelude::*;
     use rug::{Float, Integer};

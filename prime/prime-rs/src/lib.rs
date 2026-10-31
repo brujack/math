@@ -1,7 +1,7 @@
 use std::io::{self, Write};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -174,11 +174,7 @@ pub fn find_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
 
         let seg_starts: Vec<u64> = std::iter::successors(Some(block_lo), |&s| {
             let next = s + SEG_SIZE;
-            if next <= block_hi {
-                Some(next)
-            } else {
-                None
-            }
+            if next <= block_hi { Some(next) } else { None }
         })
         .collect();
 

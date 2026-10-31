@@ -34,7 +34,7 @@ Requirements summary:
 | `gmpy2`             | `pi.py` fast path (optional, 5–50× speedup) |
 | `coverage`          | `make coverage`                             |
 | GMP + MPFR (C libs) | `gmpy2`, `pi-rs` via rug                    |
-| Rust 1.85+          | `pi-rs`                                     |
+| Rust (stable)       | `pi-rs`                                     |
 | `cargo-tarpaulin`   | `cargo tarpaulin` (Rust coverage)           |
 
 ## Running The Script
