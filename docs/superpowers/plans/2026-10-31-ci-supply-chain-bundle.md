@@ -2,6 +2,8 @@
 
 spec: docs/superpowers/specs/2026-10-31-ci-supply-chain-bundle-design.md
 
+> **Status: DONE** (math#191, 772e431)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close four CI supply-chain gaps: an unverified gitleaks download, cargo-deny checking a rewritten lockfile, `deny.toml` changes untested on push, and an unused apt step in 24 Rust workflows.
@@ -178,7 +180,7 @@ acceptance:
     exit_code: 0
   - cmd: grep -q 'deny.toml' CLAUDE.md
     exit_code: 0
-  - cmd: grep -c 'local dependency check' docs/superpowers/README.md
+  - cmd: grep -ci 'local dependency check' docs/superpowers/README.md
     exit_code: 0
   - cmd: make lint < /dev/null
     exit_code: 0

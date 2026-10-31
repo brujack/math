@@ -50,7 +50,7 @@ Master status index for all specs and implementation plans in this directory.
 | 2026-10-30 | [pyright-errors-and-ci-gate-exact-match](plans/2026-10-30-pyright-errors-and-ci-gate-exact-match.md) | [spec](specs/2026-10-30-pyright-errors-and-ci-gate-exact-match-design.md) | Done (math#185) |
 | 2026-10-31 | [ci-gmp-cache-and-parallel-bats](plans/2026-10-31-ci-gmp-cache-and-parallel-bats.md) | [spec](specs/2026-10-31-ci-gmp-cache-and-parallel-bats-design.md) | Done (#186) |
 | 2026-10-31 | [rust-python-standards-tier1](plans/2026-10-31-rust-python-standards-tier1.md) | [spec](specs/2026-10-31-rust-python-standards-tier1-design.md) | Done (#187, #188, #189) |
-| 2026-10-31 | [ci-supply-chain-bundle](plans/2026-10-31-ci-supply-chain-bundle.md) | [spec](specs/2026-10-31-ci-supply-chain-bundle-design.md) | In Progress |
+| 2026-10-31 | [ci-supply-chain-bundle](plans/2026-10-31-ci-supply-chain-bundle.md) | [spec](specs/2026-10-31-ci-supply-chain-bundle-design.md) | Done (#191) |
 
 ---
 
