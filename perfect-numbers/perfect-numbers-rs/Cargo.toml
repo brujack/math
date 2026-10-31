@@ -1,6 +1,6 @@
 [package]
 name = "perfect-numbers"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 description = "Find all perfect numbers up to 10^N via Lucas-Lehmer + sigma verification"
