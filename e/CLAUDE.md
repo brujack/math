@@ -44,7 +44,7 @@ Requirements summary:
 | `ruff`              | `make lint`                                |
 | `coverage`          | `make coverage`                            |
 | GMP + MPFR (C libs) | `gmpy2`, `e-rs` via rug                    |
-| Rust 1.85+          | `e-rs`                                     |
+| Rust (stable)       | `e-rs`                                     |
 | `cargo-tarpaulin`   | `cargo tarpaulin` (Rust coverage)          |
 
 ## Running The Script

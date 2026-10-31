@@ -19,7 +19,7 @@ Prime swing identity: `n! = swing(n) × (⌊n/2⌋!)²` (Luschny).
 
 | Component   | Python                        | Rust              |
 | ----------- | ----------------------------- | ----------------- |
-| Runtime     | Python 3.9+                   | Rust 1.85+        |
+| Runtime     | Python 3.9+                   | Rust (stable)     |
 | Math lib    | `gmpy2` (optional, fast path) | `rug` (wraps GMP) |
 | Native libs | GMP + MPFR (for gmpy2)        | GMP + MPFR        |
 

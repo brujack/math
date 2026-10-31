@@ -30,7 +30,7 @@ Supported platforms: macOS (Homebrew), Debian/Ubuntu (apt), RHEL/Fedora (dnf).
 | `mpmath` (Python)   | `pi.py`           | Required fallback path                  |
 | `gmpy2` (Python)    | `pi.py`           | Optional but gives 5–50× speedup        |
 | `coverage` (Python) | `make coverage`   | Line coverage for `test_pi.py`          |
-| Rust 1.85+          | `pi-rs`           | Installed via rustup                    |
+| Rust (stable)       | `pi-rs`           | Installed via rustup                    |
 | `cargo-tarpaulin`   | `cargo tarpaulin` | Rust line coverage tool                 |
 
 ---
@@ -104,7 +104,7 @@ memory with zero IPC cost, giving near-linear scaling across all cores.
 
 ### Build
 
-Requires Rust 1.85+ and GMP + MPFR (run `pi/pi-rs/install_deps.sh` first):
+Requires current stable Rust and GMP + MPFR (run `pi/pi-rs/install_deps.sh` first):
 
 ```bash
 cd pi-rs

@@ -14,7 +14,7 @@ Find every prime number up to 10^N using a **parallel segmented Sieve of Eratost
 
 ## Dependencies
 
-Only Rust is required (no external C libraries). Requires **Rust 1.74+** (driven by clap 4).
+Only Rust is required (no external C libraries). Requires current stable Rust (installed by `install_deps.sh`); the crates declare no minimum version.
 
 Run the installer:
 
