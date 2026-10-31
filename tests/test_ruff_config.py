@@ -20,10 +20,17 @@ EXPECTED_EXTEND_SELECT = [
 class TestRuffConfig(unittest.TestCase):
     def setUp(self) -> None:
         with CONFIG.open("rb") as fh:
-            self.lint = tomllib.load(fh)["lint"]
+            self.config = tomllib.load(fh)
+        self.lint = self.config["lint"]
 
     def test_select_is_absent_so_defaults_stay_on(self) -> None:
         self.assertNotIn("select", self.lint)
+
+    def test_no_deprecated_top_level_rule_selection(self) -> None:
+        # ruff 0.16 still honours a top-level `select`, which would replace the
+        # defaults again (measured: 467 enabled rules down to 233).
+        self.assertNotIn("select", self.config)
+        self.assertNotIn("extend-select", self.config)
 
     def test_extend_select_is_pinned(self) -> None:
         self.assertEqual(self.lint["extend-select"], EXPECTED_EXTEND_SELECT)
