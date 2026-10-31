@@ -14,6 +14,13 @@ canonical shapes are compliant, and anything else is reported.
 The hash must be pinned (ci-002): a 64-hex literal, or a variable that the same
 step's `env:` sets to 64 hex characters. A hash fetched at run time proves nothing.
 
+A variable pinned in `env:` stays pinned only if the script never assigns it
+(`VAR=`, `export`/`readonly`/`declare VAR=`, `read VAR`).
+
+This is a tripwire for core.md ci-002: it catches accidental unpinned or
+unverified downloads in workflows that look like this repo's. It is not a
+sandbox against deliberate evasion.
+
 Known limit: a use of the download through a glob (`/tmp/*.tgz`) before its
 checksum is not detected; only the path and its basename as whole tokens are.
 
@@ -66,14 +73,27 @@ def _mentions(line: str, name: str, *, bare: bool = False) -> bool:
     return re.search(pattern, line) is not None
 
 
-def _pinned(hash_text: str, env: Mapping[str, str]) -> bool:
-    """A 64-hex literal, or a variable the step env sets to 64 hex characters."""
+def _assigns(text: str, name: str) -> bool:
+    """True when the script assigns `name`: `NAME=`, `export NAME=`, `read NAME`."""
+    var = re.escape(name)
+    patterns = (
+        r"(?<![\w$])" + var + "=",
+        r"\b(?:export|readonly|declare|typeset)\s+(?:-\w+\s+)*" + var + "=",
+        r"\bread\b[^\n;|&]*?(?<![\w$])" + var + r"\b",
+    )
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
+def _pinned(hash_text: str, env: Mapping[str, str], text: str) -> bool:
+    """A 64-hex literal, or an env variable of 64 hex characters never reassigned."""
     if HEX64.fullmatch(hash_text):
         return True
     variable = VARIABLE.match(hash_text)
     if variable is None:
         return False
     name = variable.group(1) or variable.group(2)
+    if _assigns(text, name):
+        return False
     return HEX64.fullmatch(str(env.get(name, ""))) is not None
 
 
@@ -96,7 +116,7 @@ def _verify(
         stripped = line.strip()
         found = CHECKSUM_LINE.match(stripped)
         if found and found.group("path") == path:
-            if _pinned(found.group("hash"), env):
+            if _pinned(found.group("hash"), env, "\n".join(lines)):
                 return None
             return f"hash is not pinned for {path}: {stripped}"
         mentioned = _mentions(stripped, path) or _mentions(stripped, base, bare=True)
@@ -337,6 +357,17 @@ class TestCheckRunProblems(ProblemTestCase):
         _, problems = check_run(text, {})
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("hash is not pinned", problems[0])
+
+    def test_env_hash_reassigned_by_plain_assignment(self):
+        self.assert_one_problem("SUM=deadbeef\n" + VERIFIED, "hash is not pinned")
+
+    def test_env_hash_reassigned_by_export(self):
+        text = 'export SUM="$(cat /tmp/remote.sum)"\n' + VERIFIED
+        self.assert_one_problem(text, "hash is not pinned")
+
+    def test_env_hash_reassigned_by_read(self):
+        text = "read -r SUM < /tmp/f\n" + VERIFIED
+        self.assert_one_problem(text, "hash is not pinned")
 
     def test_hash_fetched_from_the_same_remote(self):
         text = (
