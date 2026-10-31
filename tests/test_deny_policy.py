@@ -7,6 +7,7 @@ crate list that `cargo deny` is run over to exactly the 11 rendered crates.
 
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import unittest
@@ -64,13 +65,15 @@ class TestDenyPolicy(unittest.TestCase):
         self.assertEqual(sorted(result.stdout.split()), expected)
 
 
-if __name__ == "__main__":
-    unittest.main()
+_BATS_SUITE = re.compile(r"\bbats\b|\bbash-coverage\b|\btest-hooks\b")
 
 
 def _runs_bats_suite(step):
+    # Matches installing bats (any job that installs it runs the suite), running
+    # it directly, and the root make targets that reach it. A crate's own
+    # `make test` runs cargo or pytest, not bats, so it is not matched.
     run = step.get("run") or ""
-    return "bats " in run or "bash-coverage" in run
+    return bool(_BATS_SUITE.search(run))
 
 
 def _installs_cargo_deny(step):
@@ -101,3 +104,7 @@ class TestBatsJobsInstallCargoDeny(unittest.TestCase):
                         f"{path.name}:{job_name} runs bats but installs no cargo-deny",
                     )
         self.assertGreaterEqual(checked, 2, "expected scripts.yml and auto-merge.yml")
+
+
+if __name__ == "__main__":
+    unittest.main()
