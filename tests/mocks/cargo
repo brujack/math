@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Records each invocation's argv (one line) to MOCK_CARGO_LOG and fails any call whose
+# --manifest-path names a crate directory listed (space-separated) in MOCK_CARGO_FAIL.
+printf "%s\n" "$*" >> "${MOCK_CARGO_LOG:-/tmp/mock_cargo_log}"
+for _name in ${MOCK_CARGO_FAIL:-}; do
+    if [[ "$*" == *"/${_name}/"* ]]; then
+        exit 1
+    fi
+done
+exit 0

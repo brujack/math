@@ -2,6 +2,7 @@
 name = "e"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 description = "High-precision e calculator — Taylor binary splitting + Rayon + GMP"
 
 [[bin]]

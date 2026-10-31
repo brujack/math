@@ -77,6 +77,11 @@ jobs:
           (cd @CRATE@/@CRATE@-rs/target/release && sha256sum @CRATE@) > @CRATE@/@CRATE@-rs/target/release/@CRATE@.sha256
           cat @CRATE@/@CRATE@-rs/target/release/@CRATE@.sha256
 
+      - name: Write third-party notices
+        run: |
+          mkdir -p "${RUNNER_TEMP}/notices"
+          scripts/third-party-notices.sh @CRATE@/@CRATE@-rs "${RUNNER_TEMP}/notices"
+
       - uses: ./.github/actions/sbom-sign
         with:
           binary_path: @CRATE@/@CRATE@-rs/target/release
@@ -102,4 +107,5 @@ jobs:
             @CRATE@/@CRATE@-rs/target/release/@CRATE@.sha256
             @CRATE@/@CRATE@-rs/target/release/@CRATE@.sbom.spdx.json
             @CRATE@/@CRATE@-rs/target/release/@CRATE@.bundle
+            ${{ runner.temp }}/notices/THIRD-PARTY-NOTICES.txt
           fail_on_unmatched_files: true

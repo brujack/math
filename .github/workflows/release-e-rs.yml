@@ -77,6 +77,11 @@ jobs:
           (cd e/e-rs/target/release && sha256sum e) > e/e-rs/target/release/e.sha256
           cat e/e-rs/target/release/e.sha256
 
+      - name: Write third-party notices
+        run: |
+          mkdir -p "${RUNNER_TEMP}/notices"
+          scripts/third-party-notices.sh e/e-rs "${RUNNER_TEMP}/notices"
+
       - uses: ./.github/actions/sbom-sign
         with:
           binary_path: e/e-rs/target/release
@@ -102,4 +107,5 @@ jobs:
             e/e-rs/target/release/e.sha256
             e/e-rs/target/release/e.sbom.spdx.json
             e/e-rs/target/release/e.bundle
+            ${{ runner.temp }}/notices/THIRD-PARTY-NOTICES.txt
           fail_on_unmatched_files: true

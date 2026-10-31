@@ -77,6 +77,11 @@ jobs:
           (cd prime/prime-rs/target/release && sha256sum prime) > prime/prime-rs/target/release/prime.sha256
           cat prime/prime-rs/target/release/prime.sha256
 
+      - name: Write third-party notices
+        run: |
+          mkdir -p "${RUNNER_TEMP}/notices"
+          scripts/third-party-notices.sh prime/prime-rs "${RUNNER_TEMP}/notices"
+
       - uses: ./.github/actions/sbom-sign
         with:
           binary_path: prime/prime-rs/target/release
@@ -102,4 +107,5 @@ jobs:
             prime/prime-rs/target/release/prime.sha256
             prime/prime-rs/target/release/prime.sbom.spdx.json
             prime/prime-rs/target/release/prime.bundle
+            ${{ runner.temp }}/notices/THIRD-PARTY-NOTICES.txt
           fail_on_unmatched_files: true

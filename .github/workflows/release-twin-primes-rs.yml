@@ -77,6 +77,11 @@ jobs:
           (cd twin-primes/twin-primes-rs/target/release && sha256sum twin-primes) > twin-primes/twin-primes-rs/target/release/twin-primes.sha256
           cat twin-primes/twin-primes-rs/target/release/twin-primes.sha256
 
+      - name: Write third-party notices
+        run: |
+          mkdir -p "${RUNNER_TEMP}/notices"
+          scripts/third-party-notices.sh twin-primes/twin-primes-rs "${RUNNER_TEMP}/notices"
+
       - uses: ./.github/actions/sbom-sign
         with:
           binary_path: twin-primes/twin-primes-rs/target/release
@@ -102,4 +107,5 @@ jobs:
             twin-primes/twin-primes-rs/target/release/twin-primes.sha256
             twin-primes/twin-primes-rs/target/release/twin-primes.sbom.spdx.json
             twin-primes/twin-primes-rs/target/release/twin-primes.bundle
+            ${{ runner.temp }}/notices/THIRD-PARTY-NOTICES.txt
           fail_on_unmatched_files: true

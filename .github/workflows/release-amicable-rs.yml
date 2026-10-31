@@ -77,6 +77,11 @@ jobs:
           (cd amicable/amicable-rs/target/release && sha256sum amicable) > amicable/amicable-rs/target/release/amicable.sha256
           cat amicable/amicable-rs/target/release/amicable.sha256
 
+      - name: Write third-party notices
+        run: |
+          mkdir -p "${RUNNER_TEMP}/notices"
+          scripts/third-party-notices.sh amicable/amicable-rs "${RUNNER_TEMP}/notices"
+
       - uses: ./.github/actions/sbom-sign
         with:
           binary_path: amicable/amicable-rs/target/release
@@ -102,4 +107,5 @@ jobs:
             amicable/amicable-rs/target/release/amicable.sha256
             amicable/amicable-rs/target/release/amicable.sbom.spdx.json
             amicable/amicable-rs/target/release/amicable.bundle
+            ${{ runner.temp }}/notices/THIRD-PARTY-NOTICES.txt
           fail_on_unmatched_files: true
