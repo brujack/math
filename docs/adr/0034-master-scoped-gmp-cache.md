@@ -50,4 +50,5 @@ is readable from every PR.
 ## Related
 
 - ADR-0032 (per-project CI files rendered from templates).
-- ADR-0033 (the same weekly-and-dispatch workflow pattern for mutation testing).
+- ADR-0033 (the same schedule-plus-dispatch workflow pattern, monthly, for Python mutation
+  testing).
