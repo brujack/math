@@ -52,16 +52,20 @@ each new PR's first run of a rug crate starts cold. Total cache use is 11.4 GB, 
    the shell variables `RUNNER_OS` and `ImageOS` (the `${{ env.ImageOS }}` expression is
    empty, because the `env` context holds only workflow-set variables), and the week from
    `date -u +%G-W%V`, overridable by `GMP_CACHE_WEEK` for tests. It exits non-zero with a
-   message when no lockfile names `gmp-mpfr-sys` or any part is empty. Both workflows call
-   it, so the writer and the readers cannot disagree on the key.
+   message when no lockfile names `gmp-mpfr-sys` or any part is empty, but only under
+   `--strict`. Without `--strict` (the crate jobs) any such case prints `enabled=false` with a
+   warning and exits 0, so the restore is skipped and the job builds as today; with all parts
+   present it also prints `enabled=true`. Both workflows call it, so the writer and the readers
+   cannot disagree on the key.
 2. **A warm workflow on master.** New `.github/workflows/gmp-cache.yml`, triggered by
    `workflow_dispatch` and a weekly `schedule` (both run on the default branch, so the saved
    cache is readable by every PR). One job: checkout, compute the key, restore the exact key,
    and on a miss run `cargo build -p gmp-mpfr-sys` in each crate whose lockfile names it, with
    `GMP_MPFR_SYS_CACHE` set to `${{ runner.temp }}/gmp-mpfr-sys`, then save that directory under
    the key with `actions/cache/save`. Writer and readers use the same absolute path, which
-   `actions/cache` requires for a restore to match. Before saving it asserts the directory
-   holds `libgmp.a`, `libmpfr.a` and `libmpc.a` (measured: `-p gmp-mpfr-sys` in pi-rs builds
+   `actions/cache` requires for a restore to match. It calls the script with `--strict`. Before saving
+   it asserts that each locked `gmp-mpfr-sys` version's directory holds `libgmp.a`, `libmpfr.a`
+   and `libmpc.a` (measured: `-p gmp-mpfr-sys` in pi-rs builds
    all three, because cargo unifies rug's features). Each week gets a new key, so a fresh
    entry is saved weekly: that keeps the entry young under the 10 GB eviction pressure and
    rebuilds it after a runner-image gcc change, which `gmp-mpfr-sys`'s cache path ignores.
@@ -72,8 +76,9 @@ each new PR's first run of a rug crate starts cold. Total cache use is 11.4 GB, 
    `permissions: contents: read`. It runs nothing else and gates nothing.
 3. **Read-only restore in every crate job.** The rendered `ci.yml` template's `test`,
    `coverage` and `build` jobs set `GMP_MPFR_SYS_CACHE` to `${{ runner.temp }}/gmp-mpfr-sys`.
-   Before the first cargo step they run `scripts/gmp-cache-key.sh` and
-   `actions/cache/restore`, with `restore-keys` set to the script's `prefix`, so a PR in a week the warm
+   Before the first cargo step they run `scripts/gmp-cache-key.sh >> "$GITHUB_OUTPUT"` (no
+   `--strict`) and, only `if: steps.gmpkey.outputs.enabled == 'true'`, `actions/cache/restore`
+   reading `key: ${{ steps.gmpkey.outputs.key }}`, with `restore-keys` set to the script's `prefix`, so a PR in a week the warm
    job has not yet run restores the previous week's entry for the same versions and image. No job saves, so PR runs add nothing to the 10 GB budget. A
    miss builds exactly as today: the change can only make a job faster, never fail it.
    Rendered to all 11 crates; the six without `rug` restore a 3.4 MB entry they never read.
@@ -92,12 +97,15 @@ link GMP dynamically, or CI would test a different GMP from the one shipped. The
   `prefix=gmp-mpfr-sys-1.7.0_1.7.1-Linux-ubuntu26-` and
   `key=gmp-mpfr-sys-1.7.0_1.7.1-Linux-ubuntu26-2026-W44`; duplicate versions collapse; no
   `gmp-mpfr-sys` in any lockfile, an empty `RUNNER_OS` and an empty `ImageOS` each exit
-  non-zero naming the cause. One case runs the script on the real repo and asserts the key
+  non-zero naming the cause under `--strict`, and print `enabled=false` and exit 0 without it.
+  One case runs the script on the real repo and asserts the key
   starts with `gmp-mpfr-sys-1.7.`.
 - `tests/test_rust_ci_jobs.py` (YAML via `yaml.safe_load`): in every rendered
-  `*-rs.yml`, the `test`, `coverage` and `build` jobs set `GMP_MPFR_SYS_CACHE`, call
-  `scripts/gmp-cache-key.sh`, and use `actions/cache/restore` (never `actions/cache` or
-  `actions/cache/save`) before any step running cargo or make; `gmp-cache.yml` has only
+  `*-rs.yml`, the `test`, `coverage` and `build` jobs set `GMP_MPFR_SYS_CACHE`, run
+  `scripts/gmp-cache-key.sh` without `--strict` appending to `$GITHUB_OUTPUT` in a step with an
+  `id`, and use `actions/cache/restore` (never `actions/cache` or `actions/cache/save`) before
+  any step running cargo or make, guarded by that step's `enabled` output and reading its `key`
+  and `prefix` outputs; `gmp-cache.yml` has only
   `workflow_dispatch` and `schedule` triggers and saves with the same key script.
 - A test asserts `scripts.yml` runs bats with `--jobs` and installs `parallel`.
 
@@ -110,9 +118,9 @@ link GMP dynamically, or CI would test a different GMP from the one shipped. The
 
 ## Requirements
 
-- **R1.** `[PR1]` `scripts/gmp-cache-key.sh` prints `prefix=gmp-mpfr-sys-<sorted unique versions joined by _>-${RUNNER_OS}-${ImageOS}-` and `key=<prefix><ISO week, or GMP_CACHE_WEEK>` from the tracked `*/*-rs/Cargo.lock` files, and exits non-zero with a message when none names `gmp-mpfr-sys` or `RUNNER_OS`, `ImageOS` or the week is empty.
-- **R2.** `[PR1]` `.github/workflows/gmp-cache.yml` triggers only on `workflow_dispatch` and `schedule`, has `contents: read`, builds `gmp-mpfr-sys` on a key miss with `GMP_MPFR_SYS_CACHE` set to `${{ runner.temp }}/gmp-mpfr-sys`, asserts `libgmp.a`, `libmpfr.a` and `libmpc.a` are present, and saves that directory with `actions/cache/save` under the `key` from `scripts/gmp-cache-key.sh`.
-- **R3.** `[PR1]` Every rendered `*-rs.yml` `test`, `coverage` and `build` job sets `GMP_MPFR_SYS_CACHE` to `${{ runner.temp }}/gmp-mpfr-sys` and, before any cargo or make step, restores it with `actions/cache/restore` under the `key` from `scripts/gmp-cache-key.sh` with `restore-keys` set to its `prefix`.
+- **R1.** `[PR1]` `scripts/gmp-cache-key.sh` prints `prefix=gmp-mpfr-sys-<sorted unique versions joined by _>-${RUNNER_OS}-${ImageOS}-` and `key=<prefix><ISO week, or GMP_CACHE_WEEK>` from the tracked `*/*-rs/Cargo.lock` files, and `enabled=true`; when no lockfile names `gmp-mpfr-sys` or `RUNNER_OS`, `ImageOS` or the week is empty it exits non-zero with a message under `--strict`, and otherwise prints `enabled=false` and exits 0.
+- **R2.** `[PR1]` `.github/workflows/gmp-cache.yml` triggers only on `workflow_dispatch` and `schedule`, has `contents: read`, builds `gmp-mpfr-sys` on a key miss with `GMP_MPFR_SYS_CACHE` set to `${{ runner.temp }}/gmp-mpfr-sys`, calls the key script with `--strict`, asserts `libgmp.a`, `libmpfr.a` and `libmpc.a` exist for each locked `gmp-mpfr-sys` version, and saves that directory with `actions/cache/save` under the `key` from `scripts/gmp-cache-key.sh`.
+- **R3.** `[PR1]` Every rendered `*-rs.yml` `test`, `coverage` and `build` job sets `GMP_MPFR_SYS_CACHE` to `${{ runner.temp }}/gmp-mpfr-sys` and, before any cargo or make step, restores it with `actions/cache/restore` guarded by the key step's `enabled` output, reading that step's `key` output with `restore-keys` set to its `prefix` output.
 - **R4.** `[PR1]` No crate workflow job saves the GMP cache.
 - **R5.** `[PR1]` `scripts.yml` installs GNU `parallel` and runs `bats --jobs 8 --recursive tests/`.
 - **R6.** `[PR1]` Tests pin R1's exact key for a two-version fixture and its error exits, R3 and R4 across all rendered crate workflows, R2's triggers and save step, and R5.
@@ -148,3 +156,19 @@ backlogged (R8). No push trigger, Accepted, reason: bumps are rare and a cold we
 speed; dispatch-after-bump documented (R8). Warm-failure notification Accepted, reason: failure
 costs only speed and slow PR coverage is the signal.
 Adversarial Spec Review: N/A — no comparison/evaluator/ambiguous-criteria trigger.
+
+### Round 2
+
+Reviewed at commit: `46fc422` (one combined lens covering goal-fit, ergonomics and risk)
+
+Finding: the key script failed closed in all 33 crate jobs, so an empty `ImageOS` or a lost
+`GITHUB_OUTPUT` write would turn every Rust job red, contradicting "can only make a job faster";
+tests checked only that the script is called, not that the restore reads its outputs; the
+`libmpc.a` check passed if only one of two locked versions built. Checked clean: `%G-W%V` year
+boundary, week-boundary fallback, `cache/save` on an existing key warns only, eviction by last
+access. Assumption: `ImageOS` is set in the step shell on `ubuntu-26.04` (runner-images source
+sets it; no math log shows it).
+Disposition: Addressed (pending operator approval of this spec): `--strict` only in the warm
+job, fail-open `enabled=false` in crate jobs with the restore guarded on it (R1, R3); tests pin
+the guard and the output wiring; per-version library assertion (R2). The `ImageOS` assumption is
+covered by fail-open plus V2's required cache hit.
