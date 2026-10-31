@@ -59,9 +59,16 @@ All on Linux `claude`, 2026-10-31, master `ff23b67`.
   pyenv's `ruff: command not found` and `Error 127`. The workstation and Studio have no
   ruff at all and print the skip message. So the detection line becomes
   `RUFF := $(shell ruff --version >/dev/null 2>&1 && command -v ruff)`, which treats an
-  unrunnable shim as absent. A `tests/scripts/makefile.bats` case puts a `ruff` stub
-  that exits 127 first on `PATH` and asserts `make lint-python` prints
-  `ruff not found, skipping` and exits 0.
+  unrunnable shim as absent. Two `tests/scripts/makefile.bats` cases cover it. Both run
+  under `env -u MAKEFLAGS -u MAKELEVEL` with no `RUFF=` override. Every existing ruff case
+  forces `RUFF`, so none of them ever reaches the detection line.
+  - Negative: a `ruff` stub that exits 127 sits first on `PATH`. Real `make lint-python`
+    prints `ruff not found, skipping` and exits 0. With the old line it exits 2 on
+    `Error 127` (measured).
+  - Positive: a `ruff` stub whose `--version` exits 0 sits first on `PATH`.
+    `make -n lint-python` shows `ruff check` and does not show `ruff not found`. This
+    kills a detection line that never finds ruff. Without it, CI's `make lint` would print
+    the skip message and go green while root Python went unlinted.
 - Root shell, Makefile and workflow changes stay out. The pre-push hook already runs
   `lint-hooks` for `.sh` changes.
 - `tests/scripts/pre_commit.bats` gains these cases, using the existing `make`/`git`
@@ -118,7 +125,10 @@ All on Linux `claude`, 2026-10-31, master `ff23b67`.
   sub-projects and root `.py`" (+17 bytes). The file is 29,980 bytes against the 30,000
   ceiling, so nothing longer fits. `ai-config/docs/knowledge/math-ci.md` carries the detail
   (owned by the ai-config session; message it).
-- Backlog: remove the four rows.
+- Backlog: remove the four rows. Add one: the sub-project Python `Makefile` template runs
+  `ruff check .` unguarded, so on a pyenv-shim machine with no ruff behind the shim,
+  committing a staged `pi/*.py` already fails `make lint` with 127 (found by the round-2
+  risk lens; outside N3).
 
 ## Requirements
 
@@ -128,10 +138,10 @@ All on Linux `claude`, 2026-10-31, master `ff23b67`.
 - **R4.** A `pre_push_budget.bats` case pushes a nonexistent local sha with an existing remote sha and asserts rc 1 and `cannot determine a base` on stderr.
 - **R5.** A `pre_push_budget.bats` case with a failing `mktemp` stub asserts rc 1 and `cannot create a temp file for the CLAUDE.md checker` on stderr.
 - **R6.** A `pre_push_budget.bats` case asserts the hook leaves its `TMPDIR` empty after a compliant CLAUDE.md check.
-- **R7.** The root `Makefile` sets `RUFF` only when `ruff --version` succeeds, and a `tests/scripts/makefile.bats` case with a `ruff` stub exiting 127 first on `PATH` asserts `make lint-python` prints `ruff not found, skipping` and exits 0.
+- **R7.** The root `Makefile` sets `RUFF` only when `ruff --version` succeeds. `tests/scripts/makefile.bats` asserts both directions with no `RUFF=` override: a `ruff` stub exiting 127 first on `PATH` gives `ruff not found, skipping` and rc 0; a stub whose `--version` exits 0 gives `ruff check` in `make -n lint-python` and no `ruff not found`.
 - **V1.** `tests/scripts/pre_push.bats` passes in full with `HOME` read-only and `GIT_DIR`, `GIT_WORK_TREE` and `GIT_INDEX_FILE` set to bogus paths.
 - **V2.** Deleting `rm -f "${tmp}"` from `scripts/pre-push` makes the R6 case fail, and making `check_claude_md_budget`'s no-base branch `return` without refusing makes the R4 case fail.
-- **V3.** This PR's CI is green.
+- **V3.** This PR's CI is green, and the `scripts.yml` log for `make lint` shows `ruff check` and not `ruff not found`.
 - **N1.** No change to `scripts/pre-push` behaviour: its diff is empty.
 - **N2.** pre-commit adds no lint for root shell, Makefile or workflow files.
 - **N3.** No change to the root `Makefile` beyond the `RUFF :=` detection line.
@@ -161,3 +171,16 @@ Disposition: Addressed — as Goal-Fit.
 ### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+### Round 2 (scoped Risk)
+
+Reviewed at commit: `72e6ac5`, covering section 1's ruff paragraph, section 3, R4, R5, R7 and N3.
+
+Risk: Finding: R7 checked only the "absent" direction. The mutant `RUFF :=` (always empty) passes R7 and every existing case, because all of them force `RUFF=`. CI's `make lint` would then print `ruff not found, skipping` and go green. Fix: add a positive case. Also verified:
+- The old line fails R7's negative case (rc 2, `Error 127`).
+- R4 with an existing remote sha reaches rc 1 with the refusal and `push refused`, and the V2 mutant is killed.
+- No existing makefile.bats case breaks.
+- CI is unchanged.
+- The probe costs about 0.05 s per root make parse.
+Assumption: none uncertain; V3 now confirms the CI side.
+Disposition: Addressed (fix in text, apparatus-level). R7 and the design now require the positive case, V3 checks the CI log, and a Backlog row records the unguarded sub-project template. Review stops here: the finding sits in the test apparatus, and this round changed nothing in the design.
