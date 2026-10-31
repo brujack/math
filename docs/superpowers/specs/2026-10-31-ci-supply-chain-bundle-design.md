@@ -90,7 +90,11 @@ a real runner.
   invocations (the mock already records argv).
 - A fixture control in `tests/scripts/cargo_deny_fixtures.bats` copies a new fixture pair
   (`tests/fixtures/cargo-deny/stale-lock/` with a path dependency on a sibling fixture
-  crate, its `Cargo.lock` lacking that dependency) to `BATS_TEST_TMPDIR` and runs the real
+  crate) to `BATS_TEST_TMPDIR`. Its stale lock is committed as `Cargo.lock.stale`, lacking
+  that dependency, and the test copies it to `Cargo.lock` in the temp copy. The name keeps
+  the existing `no Cargo.lock is left under the fixtures` test whole: it fails on any
+  `Cargo.lock` under `tests/fixtures/cargo-deny`, which is how a lock leaked by cargo-deny
+  is caught, so it gets no exclusion. The test then runs the real
   cargo-deny with `--locked`, asserting rc ≠ 0 and `cannot update the lock file` in the
   output. A path dependency keeps it offline: measured, a registry dependency fails with
   `no matching package` under a cold offline cache instead, the wrong reason. It fails
@@ -150,7 +154,7 @@ a real runner.
 - **R8.** The apt step is removed through `scripts/crate_templates/` and `render_crate_files.py --write`; `tests/test_crate_uniformity.py` passes.
 - **V1.** This PR's CI is green on every `*-rs.yml`, `cargo-deny.yml`, `scripts.yml` and `auto-merge.yml` job, and the `secret-scan` log shows `gitleaks_8.21.2_linux_x64.tar.gz: OK`.
 - **V2.** The next release dispatch of a GMP crate (e, factorial, fib, perfect-numbers or pi), which builds GMP from source with no GMP cache, succeeds without the apt step.
-- **V3.** A local push of a branch whose range touches `deny.toml` prints `test: hooks and scripts (bats)` in the hook output.
+- **V3.** A local push of a branch whose range touches `deny.toml` prints `test: hooks and scripts (bats)`, and the `cargo_deny_fixtures.bats` lines in that output are `ok` with no `# skip` (cargo-deny is on PATH on `claude`, the 7950X and the Studio, checked 2026-10-31).
 - **N1.** No change to `*-py.yml`, `mutation-pr.yml` or `mutation-testing-python.yml`.
 - **N2.** No change to `deny.toml` or `tests/test_deny_policy.py`.
 - **N3.** No new tool, action or package dependency; gitleaks stays at 8.21.2.
@@ -190,3 +194,10 @@ Goal-Fit — Finding: the round-1 `--offline` fix makes the pre-push stage refus
 Ergonomics — Finding: same defect, measured independently: today `~/.cargo/registry/cache` holds all 150 locked registry packages only because earlier online deny runs warmed it; a cold crate cache gives rc 1, `attempting to make an HTTP request, but --offline was specified`; cargo-deny 0.20.2 has no per-check fetch switch. Assumption: as Goal-Fit.
 Risk — Finding: same defect, plus R10's `--locked` on the release build is a no-op because the same job's unlocked `cargo clippy` rewrites a stale lock first (measured with scratch crates: `--locked` build rc 101 alone, rc 0 after `cargo clippy --offline`); and R2's parser let unrecognised shapes (`wget -qO`, `curl -fsSLo`, `curl -O`, `> file`) pass as "not a download". Assumption: as Goal-Fit.
 Disposition: Addressed — operator chose to descope item 3 to one line (`^deny\.toml$` in `RUN_HOOK_TESTS`, no real-crate local run, Backlog row with the measurements), to drop R10 (the PR-time `cargo-deny --locked` is the guarantee, stated in section 2), and to make R2 fail closed on unrecognised `curl`/`wget` shapes. The design shrank: `RUN_CARGO_DENY`, `CARGO_DENY_OFFLINE`, the two skip paths and R10 were removed, nothing added but the fail-closed parser rule.
+
+### Round 3 (scoped Risk)
+
+Reviewed at commit: `e21942e`, sections 1-3, Docs and R2, R4-R8, V3, N4 only.
+
+Risk — Finding: the stale-lock fixture as written commits `tests/fixtures/cargo-deny/stale-lock/Cargo.lock`, which the existing `no Cargo.lock is left under the fixtures` test forbids, so the first `make test-hooks` goes red, and excluding the directory would weaken that guard. Secondary: V3 passes on the banner alone, even when the fixture tests skip because cargo-deny is not on the hook's PATH. All four live `curl`/`wget` lines use the separate-flag `-o` form with a same-path checksum before use, so the fail-closed parser rejects nothing live. Assumption: pushes touching `deny.toml` come from machines with cargo-deny on PATH. Checked by the author: `command -v cargo-deny` finds it on `claude`, `ssh workstation` (0.20.2) and `ssh studio`.
+Disposition: both findings are apparatus (fixture naming, evidence wording), fixed in text: the lock ships as `Cargo.lock.stale` and is copied to `Cargo.lock` in the temp copy; V3 requires the fixture lines `ok` with no `# skip`. Review stops here: round 3's findings sit in the test apparatus, and the design shrank across rounds 2 and 3.
