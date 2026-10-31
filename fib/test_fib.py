@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Unit tests for fib.py."""
 
 import argparse
@@ -363,9 +362,11 @@ class TestMain(unittest.TestCase):
         self.assertLess(out.index("\n1\n1\n2\n"), out.index("Found "))
 
     def test_interactive_large_x_proceeds_on_yes(self):
-        with patch.object(fib, "generate_fibonacci", return_value=iter([1, 1, 2])):
-            with patch("sys.stdin.isatty", return_value=True):
-                self._run_main([], ["4", "y"])
+        with (
+            patch.object(fib, "generate_fibonacci", return_value=iter([1, 1, 2])),
+            patch("sys.stdin.isatty", return_value=True),
+        ):
+            self._run_main([], ["4", "y"])
         self.assertTrue(os.path.exists("fib_1e4.txt"))
 
     def test_rerun_overwrites_file(self):
@@ -427,9 +428,9 @@ class TestKeyboardInterrupt(unittest.TestCase):
         with (
             patch("fib.generate_fibonacci", side_effect=KeyboardInterrupt),
             redirect_stdout(buf),
+            self.assertRaises(SystemExit) as cm,
         ):
-            with self.assertRaises(SystemExit) as cm:
-                main(["1"])
+            main(["1"])
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("interrupted", buf.getvalue())
 

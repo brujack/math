@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Run Python unittest with per-test timing → normalized test-metrics.json.
 

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Unit tests for e.py.
 
@@ -404,9 +403,11 @@ class TestGetTargetDigits(unittest.TestCase):
     def test_threshold_refused_without_yes(self):
         args = parse_args(["1000001"])
         err = io.StringIO()
-        with unittest.mock.patch("sys.stderr", err):
-            with self.assertRaises(SystemExit) as cm:
-                get_target_digits(args)
+        with (
+            unittest.mock.patch("sys.stderr", err),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            get_target_digits(args)
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("--yes", err.getvalue())
 
@@ -450,18 +451,20 @@ class TestParseArgs(unittest.TestCase):
         self.assertFalse(args.show)
 
     def test_smoke_with_size_exits_2(self):
-        with unittest.mock.patch("sys.stderr", io.StringIO()):
-            with self.assertRaises(SystemExit) as cm:
-                parse_args(["--smoke", "5"])
+        with (
+            unittest.mock.patch("sys.stderr", io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            parse_args(["--smoke", "5"])
         self.assertEqual(cm.exception.code, 2)
 
     def test_bare_non_tty_exits_2(self):
         with (
             unittest.mock.patch("sys.stdin.isatty", return_value=False),
             unittest.mock.patch("sys.stderr", io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
         ):
-            with self.assertRaises(SystemExit) as cm:
-                parse_args([])
+            parse_args([])
         self.assertEqual(cm.exception.code, 2)
 
     def test_invalid_exits(self):
@@ -519,9 +522,8 @@ class TestSaveEToFile(unittest.TestCase):
         cls._e = _quiet_e(50)
 
     def setUp(self):
-        self._tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
-        self._path = self._tmp.name
-        self._tmp.close()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp:
+            self._path = tmp.name
 
     def tearDown(self):
         os.unlink(self._path)
@@ -598,9 +600,11 @@ class TestShowEPreviewNoDecimal(unittest.TestCase):
             pass
 
         # Patch _e_to_str to return a string without '.'
-        with unittest.mock.patch("e._e_to_str", return_value="3"):
-            with redirect_stdout(io.StringIO()) as buf:
-                show_e_preview(FakeE(), 1)
+        with (
+            unittest.mock.patch("e._e_to_str", return_value="3"),
+            redirect_stdout(io.StringIO()) as buf,
+        ):
+            show_e_preview(FakeE(), 1)
         # The "no decimal" branch produces "e = 3." in output.
         self.assertIn("e = 3.", buf.getvalue())
 
@@ -647,9 +651,11 @@ class TestPwriteAllStall(unittest.TestCase):
         from e import _pwrite_all
 
         # Patch os.pwrite to return 0 on first call → triggers stall raise.
-        with unittest.mock.patch("e.os.pwrite", return_value=0):
-            with self.assertRaises(OSError):
-                _pwrite_all(1, b"abc", 0)
+        with (
+            unittest.mock.patch("e.os.pwrite", return_value=0),
+            self.assertRaises(OSError),
+        ):
+            _pwrite_all(1, b"abc", 0)
 
 
 class TestSaveEEstimateAndProgress(unittest.TestCase):
@@ -870,18 +876,22 @@ class TestRequireGmpy2(unittest.TestCase):
     """_require_gmpy2 narrows the optional import and fails loudly without it."""
 
     def test_raises_when_gmpy2_missing(self):
-        with unittest.mock.patch.object(e_module, "_gmpy2", None):
-            with self.assertRaises(RuntimeError):
-                e_module._require_gmpy2()
+        with (
+            unittest.mock.patch.object(e_module, "_gmpy2", None),
+            self.assertRaises(RuntimeError),
+        ):
+            e_module._require_gmpy2()
 
     @unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
     def test_returns_module_when_present(self):
         self.assertIs(e_module._require_gmpy2(), e_module._gmpy2)
 
     def test_gmpy2_only_function_raises_when_missing(self):
-        with unittest.mock.patch.object(e_module, "_gmpy2", None):
-            with self.assertRaises(RuntimeError):
-                e_module._gmpy2_str_from_PQ(1, 1, 10)
+        with (
+            unittest.mock.patch.object(e_module, "_gmpy2", None),
+            self.assertRaises(RuntimeError),
+        ):
+            e_module._gmpy2_str_from_PQ(1, 1, 10)
 
 
 class TestSaveEToFileWithoutGmpy2(unittest.TestCase):
@@ -966,9 +976,9 @@ class TestFileWritePermissionError(unittest.TestCase):
                 ),
             ),
             redirect_stdout(buf),
+            self.assertRaises(SystemExit) as cm,
         ):
-            with self.assertRaises(SystemExit) as cm:
-                main(["10"])
+            main(["10"])
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("Error", buf.getvalue())
 
@@ -1045,9 +1055,9 @@ class TestGetTargetDigitsInteractive(unittest.TestCase):
             unittest.mock.patch("builtins.input", side_effect=EOFError),
             unittest.mock.patch("sys.stderr", err),
             redirect_stdout(io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
         ):
-            with self.assertRaises(SystemExit) as cm:
-                get_target_digits(self._ns(None))
+            get_target_digits(self._ns(None))
         self.assertEqual(cm.exception.code, 1)
         self.assertEqual(
             err.getvalue(),
@@ -1058,9 +1068,9 @@ class TestGetTargetDigitsInteractive(unittest.TestCase):
         with (
             unittest.mock.patch("builtins.input", side_effect=["1000001", EOFError]),
             redirect_stdout(io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
         ):
-            with self.assertRaises(SystemExit) as cm:
-                get_target_digits(self._ns(None))
+            get_target_digits(self._ns(None))
         self.assertEqual(cm.exception.code, 0)
 
 
@@ -1134,9 +1144,9 @@ class TestMain(unittest.TestCase):
             unittest.mock.patch("e.save_e_to_file") as save,
             unittest.mock.patch("sys.stderr", io.StringIO()) as err,
             redirect_stdout(io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
         ):
-            with self.assertRaises(SystemExit) as cm:
-                main([str(_LARGE)])
+            main([str(_LARGE)])
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("--yes", err.getvalue())
         calc.assert_not_called()
@@ -1167,9 +1177,8 @@ class TestMain(unittest.TestCase):
 
     def test_value_error_path(self):
         # digits=0 -> get_target_digits raises ValueError -> handled, exit(1)
-        with redirect_stdout(io.StringIO()) as buf:
-            with self.assertRaises(SystemExit) as cm:
-                main(["0"])
+        with redirect_stdout(io.StringIO()) as buf, self.assertRaises(SystemExit) as cm:
+            main(["0"])
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("Error:", buf.getvalue())
 
@@ -1177,9 +1186,9 @@ class TestMain(unittest.TestCase):
         with (
             unittest.mock.patch("e.calculate_e", side_effect=KeyboardInterrupt),
             redirect_stdout(io.StringIO()) as buf,
+            self.assertRaises(SystemExit) as cm,
         ):
-            with self.assertRaises(SystemExit) as cm:
-                main(["10"])
+            main(["10"])
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("interrupted", buf.getvalue())
 
@@ -1187,9 +1196,9 @@ class TestMain(unittest.TestCase):
         with (
             unittest.mock.patch("e.calculate_e", side_effect=RuntimeError("boom")),
             redirect_stdout(io.StringIO()) as buf,
+            self.assertRaises(SystemExit) as cm,
         ):
-            with self.assertRaises(SystemExit) as cm:
-                main(["10"])
+            main(["10"])
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("Error occurred", buf.getvalue())
 
@@ -1208,9 +1217,11 @@ class TestRefuseLargeRun(unittest.TestCase):
     def test_boundaries(self):
         refuse_large_run(_LARGE - 1, False)
         refuse_large_run(_LARGE, True)
-        with unittest.mock.patch("sys.stderr", io.StringIO()):
-            with self.assertRaises(SystemExit) as cm:
-                refuse_large_run(_LARGE, False)
+        with (
+            unittest.mock.patch("sys.stderr", io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            refuse_large_run(_LARGE, False)
         self.assertEqual(cm.exception.code, 1)
 
 
@@ -1278,7 +1289,7 @@ class TestEProperties(unittest.TestCase):
         e_val = _quiet_e(digits)
         result = _e_to_str(e_val, digits)
         # Result is "2.DDDD..." — strip "2." and check remaining chars >= digits
-        decimal_part = result[2:] if result.startswith("2.") else result
+        decimal_part = result.removeprefix("2.")
         self.assertGreaterEqual(len(decimal_part), digits)
 
 

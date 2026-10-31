@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Unit tests for sq.py."""
 
 import argparse
@@ -308,9 +307,9 @@ class TestFileWritePermissionError(unittest.TestCase):
                 ),
             ),
             redirect_stdout(buf),
+            self.assertRaises(SystemExit) as cm,
         ):
-            with self.assertRaises(SystemExit) as cm:
-                main(["1"])
+            main(["1"])
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("Error", buf.getvalue())
 
@@ -334,9 +333,9 @@ class TestKeyboardInterrupt(unittest.TestCase):
         with (
             patch("sq.generate_squares", side_effect=KeyboardInterrupt),
             redirect_stdout(buf),
+            self.assertRaises(SystemExit) as cm,
         ):
-            with self.assertRaises(SystemExit) as cm:
-                main(["1"])
+            main(["1"])
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("interrupted", buf.getvalue())
 

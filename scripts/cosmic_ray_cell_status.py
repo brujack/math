@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Summarise a finished cosmic-ray session as one verdict line.
 
 Usage: cosmic_ray_cell_status.py <session.sqlite> <label> [--out FILE] [--survivors FILE]

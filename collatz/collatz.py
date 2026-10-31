@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Find Collatz chain record-setters up to 10^N.
 
 Vector memoization: cache[n] = chain_length(n) + 1 (0 = not computed).
@@ -147,8 +146,7 @@ def main(argv: list[str] | None = None) -> None:
 
         filename = f"collatz_1e{n}.txt"
         with open(filename, "w") as f:
-            for num, length in records:
-                f.write(f"{num} {length}\n")
+            f.writelines(f"{num} {length}\n" for num, length in records)
         if args.show:
             for num, length in records:
                 print(f"{num} {length}")

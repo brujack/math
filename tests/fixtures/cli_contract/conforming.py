@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Stub CLI that follows the contract and has a large-run threshold."""
 
 import argparse

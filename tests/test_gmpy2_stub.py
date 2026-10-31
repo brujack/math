@@ -47,11 +47,7 @@ def _module_aliases(tree: ast.Module) -> set[str]:
     """
     aliases = set(BASE_ALIASES)
     for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name == "gmpy2":
-                    aliases.add(alias.asname or alias.name)
-        elif isinstance(node, ast.ImportFrom):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
             for alias in node.names:
                 if alias.name == "gmpy2":
                     aliases.add(alias.asname or alias.name)
@@ -113,15 +109,15 @@ def _any_violations(tree: ast.Module) -> list[int]:
             hits.append(getattr(node, "lineno", 0))
     for annotation, _func, _arg in _annotations(tree):
         for node in _expand_strings(annotation):
-            if isinstance(node, ast.Name) and node.id == "Any":
-                hits.append(annotation.lineno)
-            elif isinstance(node, ast.Attribute) and node.attr == "Any":
+            if (isinstance(node, ast.Name) and node.id == "Any") or (
+                isinstance(node, ast.Attribute) and node.attr == "Any"
+            ):
                 hits.append(annotation.lineno)
     # Non-annotation uses (aliases such as ``_X = Any``).
     for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and node.id == "Any":
-            hits.append(node.lineno)
-        elif isinstance(node, ast.Attribute) and node.attr == "Any":
+        if (isinstance(node, ast.Name) and node.id == "Any") or (
+            isinstance(node, ast.Attribute) and node.attr == "Any"
+        ):
             hits.append(node.lineno)
     return sorted(set(hits))
 

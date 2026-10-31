@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Unit tests for pi.py.
 
@@ -132,9 +131,8 @@ class TestPwriteAll(unittest.TestCase):
     """Tests for _pwrite_all (POSIX pwrite wrapper)."""
 
     def setUp(self):
-        self._tmp = tempfile.NamedTemporaryFile(delete=False)
-        self._path = self._tmp.name
-        self._tmp.close()
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            self._path = tmp.name
 
     def tearDown(self):
         os.unlink(self._path)
@@ -381,9 +379,11 @@ class TestPwriteAllStall(unittest.TestCase):
             fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
             try:
                 os.ftruncate(fd, 10)
-                with unittest.mock.patch("pi.os.pwrite", return_value=0):
-                    with self.assertRaises(OSError):
-                        _pwrite_all(fd, b"hello", 0)
+                with (
+                    unittest.mock.patch("pi.os.pwrite", return_value=0),
+                    self.assertRaises(OSError),
+                ):
+                    _pwrite_all(fd, b"hello", 0)
             finally:
                 os.close(fd)
         finally:
@@ -582,9 +582,8 @@ class TestSavePiToFile(unittest.TestCase):
         cls._pi = _quiet_pi(50)
 
     def setUp(self):
-        self._tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
-        self._path = self._tmp.name
-        self._tmp.close()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp:
+            self._path = tmp.name
 
     def tearDown(self):
         os.unlink(self._path)
@@ -806,9 +805,11 @@ class TestShowPiPreviewNoDecimal(unittest.TestCase):
         class FakePi:
             pass
 
-        with unittest.mock.patch("pi._pi_to_str", return_value="3"):
-            with redirect_stdout(io.StringIO()) as buf:
-                show_pi_preview(FakePi(), 1)
+        with (
+            unittest.mock.patch("pi._pi_to_str", return_value="3"),
+            redirect_stdout(io.StringIO()) as buf,
+        ):
+            show_pi_preview(FakePi(), 1)
         self.assertIn("\u03c0 = 3.", buf.getvalue())
 
 
@@ -1127,18 +1128,22 @@ class TestRequireGmpy2(unittest.TestCase):
     """_require_gmpy2 narrows the optional import and fails loudly without it."""
 
     def test_raises_when_gmpy2_missing(self):
-        with unittest.mock.patch.object(pi_module, "_gmpy2", None):
-            with self.assertRaises(RuntimeError):
-                pi_module._require_gmpy2()
+        with (
+            unittest.mock.patch.object(pi_module, "_gmpy2", None),
+            self.assertRaises(RuntimeError),
+        ):
+            pi_module._require_gmpy2()
 
     @unittest.skipUnless(_HAS_GMPY2, "gmpy2 not installed")
     def test_returns_module_when_present(self):
         self.assertIs(pi_module._require_gmpy2(), pi_module._gmpy2)
 
     def test_gmpy2_only_function_raises_when_missing(self):
-        with unittest.mock.patch.object(pi_module, "_gmpy2", None):
-            with self.assertRaises(RuntimeError):
-                pi_module._gmpy2_str_from_QT(1, 1, 10)
+        with (
+            unittest.mock.patch.object(pi_module, "_gmpy2", None),
+            self.assertRaises(RuntimeError),
+        ):
+            pi_module._gmpy2_str_from_QT(1, 1, 10)
 
 
 class TestSavePiToFileWithoutGmpy2(unittest.TestCase):
@@ -1223,9 +1228,9 @@ class TestFileWritePermissionError(unittest.TestCase):
                 ),
             ),
             redirect_stdout(buf),
+            self.assertRaises(SystemExit) as cm,
         ):
-            with self.assertRaises(SystemExit) as cm:
-                main(["10"])
+            main(["10"])
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("Error", buf.getvalue())
 
@@ -1358,11 +1363,8 @@ class TestMain(unittest.TestCase):
     def test_value_error_path(self):
         from pi import main
 
-        with (
-            redirect_stdout(io.StringIO()) as buf,
-        ):
-            with self.assertRaises(SystemExit) as cm:
-                main(["0"])
+        with redirect_stdout(io.StringIO()) as buf, self.assertRaises(SystemExit) as cm:
+            main(["0"])
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("Error:", buf.getvalue())
 
@@ -1374,9 +1376,9 @@ class TestMain(unittest.TestCase):
                 "pi.calculate_pi_high_precision", side_effect=KeyboardInterrupt
             ),
             redirect_stdout(io.StringIO()) as buf,
+            self.assertRaises(SystemExit) as cm,
         ):
-            with self.assertRaises(SystemExit) as cm:
-                main(["10"])
+            main(["10"])
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("interrupted", buf.getvalue())
 
@@ -1388,9 +1390,9 @@ class TestMain(unittest.TestCase):
                 "pi.calculate_pi_high_precision", side_effect=RuntimeError("boom")
             ),
             redirect_stdout(io.StringIO()) as buf,
+            self.assertRaises(SystemExit) as cm,
         ):
-            with self.assertRaises(SystemExit) as cm:
-                main(["10"])
+            main(["10"])
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("Error occurred", buf.getvalue())
 

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Stub CLI that silently reads stdin after its work (must fail by timeout)."""
 
 import argparse

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Stub CLI with no threshold that rejects --yes as an unknown option."""
 
 import argparse

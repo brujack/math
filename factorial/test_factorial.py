@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Unit tests for factorial.py."""
 
 import argparse
@@ -259,16 +258,17 @@ class TestParseArgs(unittest.TestCase):
         self.assertFalse(args.show)
 
     def test_smoke_with_size_is_usage_error(self):
-        with patch("sys.stderr", io.StringIO()):
-            with self.assertRaises(SystemExit) as cm:
-                parse_args(["--smoke", "5"])
+        with patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit) as cm:
+            parse_args(["--smoke", "5"])
         self.assertEqual(cm.exception.code, 2)
 
     def test_bare_non_tty_is_usage_error(self):
-        with patch("sys.stdin.isatty", return_value=False):
-            with patch("sys.stderr", io.StringIO()):
-                with self.assertRaises(SystemExit) as cm:
-                    parse_args([])
+        with (
+            patch("sys.stdin.isatty", return_value=False),
+            patch("sys.stderr", io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            parse_args([])
         self.assertEqual(cm.exception.code, 2)
 
 
@@ -285,10 +285,12 @@ class TestRefuseLargeRun(unittest.TestCase):
         refuse_large_run(10**9, False)
 
     def test_threshold_refuses_without_yes(self):
-        with patch("factorial.LARGE_RUN_THRESHOLD", 10):
-            with patch("sys.stderr", io.StringIO()) as err:
-                with self.assertRaises(SystemExit) as cm:
-                    refuse_large_run(10, False)
+        with (
+            patch("factorial.LARGE_RUN_THRESHOLD", 10),
+            patch("sys.stderr", io.StringIO()) as err,
+            self.assertRaises(SystemExit) as cm,
+        ):
+            refuse_large_run(10, False)
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("--yes", err.getvalue())
 
@@ -307,10 +309,12 @@ class TestRefuseLargeRun(unittest.TestCase):
             cwd = os.getcwd()
             os.chdir(tmp)
             try:
-                with patch("factorial.LARGE_RUN_THRESHOLD", 5):
-                    with patch("sys.stderr", io.StringIO()):
-                        with self.assertRaises(SystemExit) as cm:
-                            main(["5"])
+                with (
+                    patch("factorial.LARGE_RUN_THRESHOLD", 5),
+                    patch("sys.stderr", io.StringIO()),
+                    self.assertRaises(SystemExit) as cm,
+                ):
+                    main(["5"])
                 self.assertEqual(os.listdir(tmp), [])
             finally:
                 os.chdir(cwd)
@@ -320,10 +324,12 @@ class TestRefuseLargeRun(unittest.TestCase):
 class TestInteractiveEof(unittest.TestCase):
     def test_eof_exits_1_with_message(self):
         args = argparse.Namespace(size=None)
-        with patch("builtins.input", side_effect=EOFError):
-            with patch("sys.stderr", io.StringIO()) as err:
-                with self.assertRaises(SystemExit) as cm:
-                    get_target_n(args)
+        with (
+            patch("builtins.input", side_effect=EOFError),
+            patch("sys.stderr", io.StringIO()) as err,
+            self.assertRaises(SystemExit) as cm,
+        ):
+            get_target_n(args)
         self.assertEqual(cm.exception.code, 1)
         self.assertEqual(
             err.getvalue(),
@@ -333,11 +339,13 @@ class TestInteractiveEof(unittest.TestCase):
 
     def test_eof_ends_the_prompt_line_on_stdout(self):
         args = argparse.Namespace(size=None)
-        with patch("builtins.input", side_effect=EOFError):
-            with patch("sys.stderr", io.StringIO()):
-                with redirect_stdout(io.StringIO()) as out:
-                    with self.assertRaises(SystemExit):
-                        get_target_n(args)
+        with (
+            patch("builtins.input", side_effect=EOFError),
+            patch("sys.stderr", io.StringIO()),
+            redirect_stdout(io.StringIO()) as out,
+            self.assertRaises(SystemExit),
+        ):
+            get_target_n(args)
         self.assertEqual(out.getvalue(), "\n")
 
 
@@ -397,9 +405,8 @@ class TestGetTargetN(unittest.TestCase):
 
     def test_interactive_non_integer_then_valid(self):
         args = argparse.Namespace(size=None)
-        with patch("builtins.input", side_effect=["abc", "5"]):
-            with patch("builtins.print"):
-                self.assertEqual(get_target_n(args), 5)
+        with patch("builtins.input", side_effect=["abc", "5"]), patch("builtins.print"):
+            self.assertEqual(get_target_n(args), 5)
 
 
 class TestOutputFile(unittest.TestCase):
@@ -541,9 +548,9 @@ class TestFileWritePermissionError(unittest.TestCase):
                 ),
             ),
             redirect_stdout(buf),
+            self.assertRaises(SystemExit) as cm,
         ):
-            with self.assertRaises(SystemExit) as cm:
-                main()
+            main()
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("Error", buf.getvalue())
 
@@ -562,9 +569,9 @@ class TestKeyboardInterruptDuringCompute(unittest.TestCase):
                 side_effect=KeyboardInterrupt,
             ),
             redirect_stdout(buf),
+            self.assertRaises(SystemExit) as cm,
         ):
-            with self.assertRaises(SystemExit) as cm:
-                main()
+            main()
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("interrupted", buf.getvalue())
 
@@ -610,10 +617,12 @@ class TestMainErrors(unittest.TestCase):
     def test_negative_size_exits_1_on_stderr(self):
         from factorial import main
 
-        with patch("sys.stderr", io.StringIO()) as err:
-            with redirect_stdout(io.StringIO()):
-                with self.assertRaises(SystemExit) as cm:
-                    main(["--", "-5"])
+        with (
+            patch("sys.stderr", io.StringIO()) as err,
+            redirect_stdout(io.StringIO()),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            main(["--", "-5"])
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("non-negative", err.getvalue())
 

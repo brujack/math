@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Stub CLI that exits 0 but writes no output file."""
 
 import argparse

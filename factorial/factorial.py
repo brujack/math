@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Compute N! (N factorial) to arbitrary precision using the prime swing algorithm.
 
 Algorithm: n! = swing(n) × (floor(n/2)!)²  (Luschny prime swing)

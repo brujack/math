@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Error-path coverage for scripts/test_metrics.py.
 
 scripts/test_metrics.py and scripts/time_tests.py carry a `fetch_historical`
