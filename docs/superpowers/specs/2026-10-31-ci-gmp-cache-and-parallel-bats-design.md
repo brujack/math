@@ -1,7 +1,8 @@
 # A master-scoped GMP/MPFR build cache for the Rust CI, and parallel bats in scripts.yml
 
 - **Date:** 2026-10-31
-- **Status:** Draft
+- **Status:** Approved
+- **Approved:** 2026-10-31
 - **Related:**
   - Backlog P3 row "GMP/MPFR rebuilt from source on every CI rust-cache miss";
   - etch-cli#158 (its job split; math already has the same split from math#177);
@@ -168,7 +169,7 @@ tests checked only that the script is called, not that the restore reads its out
 boundary, week-boundary fallback, `cache/save` on an existing key warns only, eviction by last
 access. Assumption: `ImageOS` is set in the step shell on `ubuntu-26.04` (runner-images source
 sets it; no math log shows it).
-Disposition: Addressed (pending operator approval of this spec): `--strict` only in the warm
+Disposition: Addressed (operator, 2026-10-31): `--strict` only in the warm
 job, fail-open `enabled=false` in crate jobs with the restore guarded on it (R1, R3); tests pin
 the guard and the output wiring; per-version library assertion (R2). The `ImageOS` assumption is
 covered by fail-open plus V2's required cache hit.
