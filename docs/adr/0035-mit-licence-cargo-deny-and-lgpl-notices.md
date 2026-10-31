@@ -17,7 +17,8 @@ notice and text obligations that the release assets did not meet. Supply-chain c
 - **MIT licence.** A root `LICENSE` file and `license = "MIT"` in every crate's
   `Cargo.toml`, pinned by `tests/test_crate_uniformity.py`.
 - **cargo-deny replaces cargo-audit.** One root `deny.toml` covers the same RustSec database
-  plus licences, bans and sources, with `unmaintained = "all"`. `scripts/cargo-deny-all.sh`
+  plus licences, bans and sources, with `unmaintained = "all"` and `unsound = "all"` (cargo-deny
+  0.20.2 defaults `unsound` to `workspace`, which skips transitive crates; added 2026-10-31). `scripts/cargo-deny-all.sh`
   checks all 11 crates and refuses a crate list other than 11. `cargo-deny.yml` runs it, and
   `scripts.yml` runs the fixture controls. `tests/test_deny_policy.py` pins `deny.toml`
   whole, so any change (a licence, an exception, an `[advisories] ignore`) is an
