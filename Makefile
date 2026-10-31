@@ -12,7 +12,7 @@
 # environment (ci.md/shell.md); without it this parse-time assignment can
 # silently resolve against the wrong repository.
 SHELLCHECK := $(shell command -v shellcheck 2>/dev/null)
-RUFF := $(shell command -v ruff 2>/dev/null)
+RUFF := $(shell ruff --version >/dev/null 2>&1 && command -v ruff)
 BATS := $(shell command -v bats 2>/dev/null)
 # Split so the derived half can be checked on its own: appending the three
 # literal hook paths would otherwise mask an empty git ls-files, and lint would

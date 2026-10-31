@@ -33,6 +33,15 @@ while IFS= read -r dir; do
     make -C "${REPO_ROOT}/${dir}" lint
 done < <(printf '%s' "${matched_dirs}" | sort -u)
 
+# Root-scope Python (scripts, tests, .claude/scripts, typings) has no
+# sub-project Makefile, so lint it once from the root. The grep is an `if`
+# condition so its exit 1 on no match cannot trip `set -e`; the make call is
+# bare so a lint failure fails the commit.
+if printf '%s\n' "${staged_files}" | grep -qE '^(scripts|tests|\.claude/scripts|typings)/.*\.pyi?$'; then
+    printf "lint: root python\n"
+    make -C "${REPO_ROOT}" lint-python
+fi
+
 if command -v ggshield &>/dev/null; then
     ggshield secret scan pre-commit
 fi

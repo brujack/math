@@ -15,6 +15,11 @@ assert_no_match() {
 ZEROS="0000000000000000000000000000000000000000"
 
 setup() {
+    # Isolate git and HOME from the caller's environment (core.md tdd-007/009).
+    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
+    mkdir -p "${BATS_TEST_TMPDIR}/home"
+    export HOME="${BATS_TEST_TMPDIR}/home"
+    export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
     REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
     source "${REPO_ROOT}/tests/helpers/common.bash"
     load_mocks

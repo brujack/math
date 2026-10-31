@@ -223,3 +223,32 @@ run_hook() {
     [ "$status" -eq 1 ]
     [[ "${output}" == *"refusing ${two}"* ]]
 }
+
+@test "a sha with no merge-base and no root commit is refused as having no base" {
+    local fake=1234567890123456789012345678901234567890
+    # An existing remote sha, not zeros: with zeros the range code after the
+    # check dies with 128 before the refusal is reported.
+    run_hook "refs/heads/feat ${fake} refs/heads/feat $(head_sha)"
+    [ "$status" -eq 1 ]
+    [[ "${output}" == *"refusing ${fake}: cannot determine a base"* ]]
+}
+
+@test "mktemp failure is refused with its own message" {
+    big_claude_md 29000
+    commit_all "grow"
+    printf '#!/usr/bin/env bash\nexit 1\n' > "${STUBS}/mktemp"
+    chmod +x "${STUBS}/mktemp"
+    run_hook "refs/heads/feat $(head_sha) refs/heads/feat ${ZEROS}"
+    [ "$status" -eq 1 ]
+    [[ "${output}" == *"cannot create a temp file for the CLAUDE.md checker"* ]]
+}
+
+@test "checker temp file is removed after a successful run" {
+    big_claude_md 29000
+    commit_all "grow"
+    mkdir "${BATS_TEST_TMPDIR}/t"
+    TMPDIR="${BATS_TEST_TMPDIR}/t" run_hook "refs/heads/feat $(head_sha) refs/heads/feat ${ZEROS}"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"CLAUDE.md byte ceiling OK"* ]]
+    [ -z "$(find "${BATS_TEST_TMPDIR}/t" -mindepth 1)" ]
+}

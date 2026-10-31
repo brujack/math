@@ -164,6 +164,28 @@ load '../helpers/common'
     [[ "${output}" != *"ruff check"* ]]
 }
 
+@test "lint-python skips when ruff is on PATH but not runnable" {
+    local stub="${BATS_TEST_TMPDIR}/bin"
+    mkdir -p "${stub}"
+    printf '#!/usr/bin/env bash\nexit 127\n' >"${stub}/ruff"
+    chmod +x "${stub}/ruff"
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS PATH="${stub}:${PATH}" make -C "${REPO_ROOT}" lint-python --no-print-directory
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"ruff not found, skipping"* ]]
+    [[ "${output}" != *"Error 127"* ]]
+}
+
+@test "lint-python runs ruff when ruff answers --version" {
+    local stub="${BATS_TEST_TMPDIR}/bin"
+    mkdir -p "${stub}"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"${stub}/ruff"
+    chmod +x "${stub}/ruff"
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS PATH="${stub}:${PATH}" make -C "${REPO_ROOT}" -n lint-python --no-print-directory
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"ruff check"* ]]
+    [[ "${output}" != *"ruff not found"* ]]
+}
+
 @test "the workflow running root lint installs ruff" {
     run grep -E '^[[:space:]]*run: pip install .*ruff==' \
         "${REPO_ROOT}/.github/workflows/scripts.yml"

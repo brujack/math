@@ -103,3 +103,53 @@ teardown() {
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-root/factorial/factorial-rs lint" "${MOCK_CALLS_FILE}"
     [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 2 ]
 }
+
+@test "staged root-scope tests python runs root lint-python once" {
+    export MOCK_GIT_DIFF_NAMES="tests/test_x.py"
+    run bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -eq 0 ]
+    [ "$(grep -c "make -C ${BATS_TEST_TMPDIR}/fake-root lint-python" "${MOCK_CALLS_FILE}")" -eq 1 ]
+}
+
+@test "two staged root-scope python files still run lint-python once" {
+    export MOCK_GIT_DIFF_NAMES=$'scripts/a.py\ntests/b.py'
+    run bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -eq 0 ]
+    [ "$(grep -c "make -C ${BATS_TEST_TMPDIR}/fake-root lint-python" "${MOCK_CALLS_FILE}")" -eq 1 ]
+}
+
+@test "staged typings stub runs root lint-python" {
+    export MOCK_GIT_DIFF_NAMES="typings/gmpy2/__init__.pyi"
+    run bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -eq 0 ]
+    [ "$(grep -c "make -C ${BATS_TEST_TMPDIR}/fake-root lint-python" "${MOCK_CALLS_FILE}")" -eq 1 ]
+}
+
+@test "staged .claude/scripts python runs root lint-python" {
+    export MOCK_GIT_DIFF_NAMES=".claude/scripts/x.py"
+    run bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -eq 0 ]
+    [ "$(grep -c "make -C ${BATS_TEST_TMPDIR}/fake-root lint-python" "${MOCK_CALLS_FILE}")" -eq 1 ]
+}
+
+@test "sub-project python alone does not run root lint-python" {
+    export MOCK_GIT_DIFF_NAMES="pi/pi.py"
+    run bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -eq 0 ]
+    assert_no_match "lint-python"
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-root/pi lint" "${MOCK_CALLS_FILE}"
+}
+
+@test "staged root shell script does not run root lint-python" {
+    export MOCK_GIT_DIFF_NAMES="scripts/x.sh"
+    run bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -eq 0 ]
+    assert_no_match "lint-python"
+}
+
+@test "root lint-python failure exits non-zero" {
+    export MOCK_GIT_DIFF_NAMES="tests/test_x.py"
+    export MOCK_MAKE_FAIL_DIR="fake-root"
+    run bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -ne 0 ]
+}
