@@ -1,0 +1,95 @@
+name: gmp-cache
+# The only job that saves the gmp-mpfr-sys build. Crate jobs restore it read-only.
+# Dispatch after a gmp-mpfr-sys bump on master; the weekly run catches expiry.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * 1"
+permissions:
+  contents: read
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Derive GMP cache key
+        id: gmpkey
+        run: |
+          printf 'GMP_MPFR_SYS_CACHE=%s\n' "${RUNNER_TEMP}/gmp-mpfr-sys" >> "$GITHUB_ENV"
+          scripts/gmp-cache-key.sh --strict >> "$GITHUB_OUTPUT"
+
+      - name: Restore GMP cache
+        id: restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/gmp-mpfr-sys
+          key: ${{ steps.gmpkey.outputs.key }}
+
+      - name: Install GMP and MPFR
+        if: steps.restore.outputs.cache-hit != 'true'
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec  # stable
+        if: steps.restore.outputs.cache-hit != 'true'
+
+      - name: Build gmp-mpfr-sys
+        if: steps.restore.outputs.cache-hit != 'true'
+        run: |
+          while IFS= read -r lock; do
+            if grep -q '^name = "gmp-mpfr-sys"$' "${lock}"; then
+              (cd "$(dirname "${lock}")" && cargo build --locked -p gmp-mpfr-sys) || exit 1
+            fi
+          done < <(git ls-files '*/*-rs/Cargo.lock')
+
+      - name: Check cached libraries
+        if: steps.restore.outputs.cache-hit != 'true'
+        run: |
+          # gmp-mpfr-sys keeps only the newest patch dir per minor, and a crate
+          # locked at 1.7.0 loads 1.7.1, so any same-minor dir with patch >= the
+          # locked patch satisfies the lock.
+          while IFS= read -r lock; do
+            if ! grep -q '^name = "gmp-mpfr-sys"$' "${lock}"; then
+              continue
+            fi
+            v="$(grep -A1 '^name = "gmp-mpfr-sys"$' "${lock}" | sed -n 's/^version = "\(.*\)"$/\1/p')"
+            [[ -n "${v}" ]] || { printf 'no gmp-mpfr-sys version in %s\n' "${lock}" >&2; exit 1; }
+            minor="${v%.*}"
+            patch="${v##*.}"
+            satisfied=""
+            candidates=""
+            report=""
+            for dir in "${GMP_MPFR_SYS_CACHE}/${minor}"/*/*; do
+              [[ -d "${dir}" ]] || continue
+              w="${dir##*/}"
+              [[ "${w%.*}" == "${minor}" && "${w##*.}" =~ ^[0-9]+$ ]] || continue
+              candidates="${candidates} ${w}"
+              (( 10#${w##*.} >= 10#${patch} )) || continue
+              lacking=""
+              for lib in libgmp.a libmpfr.a libmpc.a; do
+                [[ -f "${dir}/${lib}" ]] || lacking="${lacking} ${lib}"
+              done
+              if [[ -z "${lacking}" ]]; then
+                satisfied=1
+                break
+              fi
+              report="missing${lacking} for gmp-mpfr-sys ${v} in ${dir} (${lock})"
+            done
+            [[ -z "${satisfied}" ]] || continue
+            if [[ -z "${report}" ]]; then
+              report="no cache dir for gmp-mpfr-sys ${v} at patch >= ${patch} (found ${candidates# }) (${lock})"
+              [[ -n "${candidates}" ]] || report="no cache dir for gmp-mpfr-sys ${v} at patch >= ${patch} (found none) (${lock})"
+            fi
+            printf '%s\n' "${report}" >&2
+            exit 1
+          done < <(git ls-files '*/*-rs/Cargo.lock')
+
+      - name: Save GMP cache
+        if: steps.restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/gmp-mpfr-sys
+          key: ${{ steps.gmpkey.outputs.key }}

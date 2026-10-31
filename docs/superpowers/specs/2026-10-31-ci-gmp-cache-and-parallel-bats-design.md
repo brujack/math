@@ -173,3 +173,38 @@ Disposition: Addressed (operator, 2026-10-31): `--strict` only in the warm
 job, fail-open `enabled=false` in crate jobs with the restore guarded on it (R1, R3); tests pin
 the guard and the output wiring; per-version library assertion (R2). The `ImageOS` assumption is
 covered by fail-open plus V2's required cache hit.
+
+## Amendments
+
+- R2 -> `.github/workflows/gmp-cache.yml` triggers only on `workflow_dispatch` and `schedule`, has `contents: read`, builds `gmp-mpfr-sys` on a key miss with `GMP_MPFR_SYS_CACHE` set to `${{ runner.temp }}/gmp-mpfr-sys`, calls the key script with `--strict`, asserts that for each locked `gmp-mpfr-sys` version some cached directory of the same major.minor at that patch or newer holds `libgmp.a`, `libmpfr.a` and `libmpc.a`, and saves that directory with `actions/cache/save` under the `key` from `scripts/gmp-cache-key.sh`. — measured 2026-10-31: saving a 1.7.1 build deletes the 1.7.0 directory (`save_cache` in `build.rs`), and a 1.7.0 crate then loads the 1.7.1 entry (0.81 s), so a correct cache holds one directory and failed the per-version check.
+- R2 -> `.github/workflows/gmp-cache.yml` triggers only on `workflow_dispatch` and `schedule`, has `contents: read`, builds `gmp-mpfr-sys` on a key miss with `GMP_MPFR_SYS_CACHE` set to `${RUNNER_TEMP}/gmp-mpfr-sys` through `$GITHUB_ENV` in its first step, calls the key script with `--strict`, asserts that for each locked `gmp-mpfr-sys` version some cached directory of the same major.minor at that patch or newer holds `libgmp.a`, `libmpfr.a` and `libmpc.a`, and saves `${{ runner.temp }}/gmp-mpfr-sys` with `actions/cache/save` under the `key` from `scripts/gmp-cache-key.sh`. — the `runner` context is not available in `jobs.<id>.env`, so GitHub rejects the job-level form (actionlint 1.7.12: `context "runner" is not allowed here`).
+- R3 -> Every rendered `*-rs.yml` `test`, `coverage` and `build` job sets `GMP_MPFR_SYS_CACHE` to `${RUNNER_TEMP}/gmp-mpfr-sys` through `$GITHUB_ENV` in its key step and, before any cargo or make step, restores `${{ runner.temp }}/gmp-mpfr-sys` with `actions/cache/restore` guarded by the key step's `enabled` output, reading that step's `key` output with `restore-keys` set to its `prefix` output. — same `runner`-context restriction as R2; the value is unchanged.
+- finding R2 (2026-10-31, reviewer both): DIFFERS — Everything else matches (triggers workflow_dispatch+schedule only at :4-7, contents: read at :9, --strict at :23, build on cache-hit != 'true', same-minor patch>= check for libgmp.a/libmpfr.a/libmpc.a, actions/cache/save of ${{ runner.temp }}/gmp-mpfr-sys under steps.gmpkey.outputs.key at :91-95), but GMP_MPFR_SYS_CACHE is written to $GITHUB_ENV in the job's second step ('Derive GMP cache key'), not its first step, which is actions/checkout.
+- R2 -> `.github/workflows/gmp-cache.yml` triggers only on `workflow_dispatch` and `schedule`, has `contents: read`, builds `gmp-mpfr-sys` on a key miss with `GMP_MPFR_SYS_CACHE` set to `${RUNNER_TEMP}/gmp-mpfr-sys` through `$GITHUB_ENV` in its key step (the first step after checkout), calls the key script with `--strict`, asserts that for each locked `gmp-mpfr-sys` version some cached directory of the same major.minor at that patch or newer holds `libgmp.a`, `libmpfr.a` and `libmpc.a`, and saves `${{ runner.temp }}/gmp-mpfr-sys` with `actions/cache/save` under the `key` from `scripts/gmp-cache-key.sh`. — checkout must run before the key script exists on disk, so the export sits in the first step after it; "first step" was imprecise.
+- finding R7 (2026-10-31, reviewer both): DIFFERS — The Backlog row is removed, gmp-cache.yml is named at CLAUDE.md:160 and the read-only restore at :163, and the scripts.yml line at :183 says `--jobs 8`, but the other scripts.yml line at :161 (the auto-merge.yml line) still says `scripts.yml` runs `bats --recursive tests/` without `--jobs 8`.
+- R7 reviewed: fixed in 3cff605
+- finding R6 (2026-10-31, reviewer A): NOT-BUILT — The bats suite pins the exact key for the two-version fixture (1.7.0_1.7.1) and the no-gmp, unreadable-lock, empty RUNNER_OS, empty ImageOS and not-a-repo exits, and the Python tests pin R3, R4, R2's triggers and save step, and R5; but no test exercises R1's 'week is empty' error exit, so that one of R1's error exits is unpinned (setting GMP_CACHE_WEEK to empty falls back to `date`, so that path cannot be reached through the environment).
+- R6 -> Tests pin R1's exact key for a two-version fixture and its error exits for no lockfile naming `gmp-mpfr-sys`, an empty `RUNNER_OS` and an empty `ImageOS` (the empty-week exit is defensive: `GMP_CACHE_WEEK` falls back to `date -u`, so it fires only if `date` fails), R3 and R4 across all rendered crate workflows, R2's triggers and save step, and R5. — the empty-week branch is unreachable through the script's inputs; stubbing `date` to reach it would test the stub.
+
+## Spec alignment (2026-10-31)
+
+- spec: docs/superpowers/specs/2026-10-31-ci-gmp-cache-and-parallel-bats-design.md
+- anchor: 81a8ae2111ed8a0d6c7640d09867ba7693c6f008
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+| R6 | A | NOT-BUILT | The bats suite pins the exact key for the two-version fixture (1.7.0_1.7.1) and the no-gmp, unreadable-lock, empty RUNNER_OS, empty ImageOS and not-a-repo exits, and the Python tests pin R3, R4, R2's triggers and save step, and R5; but no test exercises R1's 'week is empty' error exit, so that one of R1's error exits is unpinned (setting GMP_CACHE_WEEK to empty falls back to `date`, so that path cannot be reached through the environment). | - R6 -> Tests pin R1's exact key for a two-version fixture and its error exits for no lockfile naming `gmp-mpfr-sys`, an empty `RUNNER_OS` and an empty `ImageOS` (the empty-week exit is defensive: `GMP_CACHE_WEEK` falls back to `date -u`, so it fires only if `date` fails), R3 and R4 across all rendered crate workflows, R2's triggers and save step, and R5. — the empty-week branch is unreachable through the script's inputs; stubbing `date` to reach it would test the stub. |
+
+### Reviewed
+
+- R7 reviewed: fixed in 3cff605
+
+### Verifications
+
+- V1: no evidence recorded
+- V2: no evidence recorded
+- V3: no evidence recorded
