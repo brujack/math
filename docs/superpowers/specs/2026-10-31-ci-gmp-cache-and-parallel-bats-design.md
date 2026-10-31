@@ -173,3 +173,7 @@ Disposition: Addressed (operator, 2026-10-31): `--strict` only in the warm
 job, fail-open `enabled=false` in crate jobs with the restore guarded on it (R1, R3); tests pin
 the guard and the output wiring; per-version library assertion (R2). The `ImageOS` assumption is
 covered by fail-open plus V2's required cache hit.
+
+## Amendments
+
+- R2 -> `.github/workflows/gmp-cache.yml` triggers only on `workflow_dispatch` and `schedule`, has `contents: read`, builds `gmp-mpfr-sys` on a key miss with `GMP_MPFR_SYS_CACHE` set to `${{ runner.temp }}/gmp-mpfr-sys`, calls the key script with `--strict`, asserts that for each locked `gmp-mpfr-sys` version some cached directory of the same major.minor at that patch or newer holds `libgmp.a`, `libmpfr.a` and `libmpc.a`, and saves that directory with `actions/cache/save` under the `key` from `scripts/gmp-cache-key.sh`. — measured 2026-10-31: saving a 1.7.1 build deletes the 1.7.0 directory (`save_cache` in `build.rs`), and a 1.7.0 crate then loads the 1.7.1 entry (0.81 s), so a correct cache holds one directory and failed the per-version check.
