@@ -18,6 +18,7 @@ exceptions = [
 
 [advisories]
 unmaintained = "all"
+unsound = "all"
 
 [bans]
 multiple-versions = "warn"
