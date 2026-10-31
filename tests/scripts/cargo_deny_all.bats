@@ -35,6 +35,8 @@ make_crates() {
 @test "--config precedes check on every invocation" {
     make_crates 11
     run "${REPO_ROOT}/scripts/cargo-deny-all.sh"
+    [ "$status" -eq 0 ]
+    [ "$(wc -l < "${MOCK_CARGO_LOG}")" -eq 11 ]
     while IFS= read -r line; do
         before_check="${line%% check*}"
         [[ "${before_check}" == "deny --config ${REPO_ROOT}/deny.toml --manifest-path "* ]]
