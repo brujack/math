@@ -29,6 +29,8 @@ notice and text obligations that the release assets did not meet. Supply-chain c
   on a missing or unreadable lockfile or licence text, consistent with ADR-0026 (sign before
   publishing).
 
+2026-10-31: `cargo-deny-all.sh` passes `--locked`; a `deny.toml` push runs root `make test` locally; no local real-crate run (offline cache measurements in the CI supply-chain bundle spec).
+
 ## Consequences
 
 - A new licence, exception or advisory ignore is a deliberate, reviewed change to

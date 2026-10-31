@@ -203,3 +203,25 @@ Reviewed at commit: `e21942e`, sections 1-3, Docs and R2, R4-R8, V3, N4 only.
 
 Risk — Finding: the stale-lock fixture as written commits `tests/fixtures/cargo-deny/stale-lock/Cargo.lock`, which the existing `no Cargo.lock is left under the fixtures` test forbids, so the first `make test-hooks` goes red, and excluding the directory would weaken that guard. Secondary: V3 passes on the banner alone, even when the fixture tests skip because cargo-deny is not on the hook's PATH. All four live `curl`/`wget` lines use the separate-flag `-o` form with a same-path checksum before use, so the fail-closed parser rejects nothing live. Assumption: pushes touching `deny.toml` come from machines with cargo-deny on PATH. Checked by the author: `command -v cargo-deny` finds it on `claude`, `ssh workstation` (0.20.2) and `ssh studio`.
 Disposition: both findings are apparatus (fixture naming, evidence wording), fixed in text: the lock ships as `Cargo.lock.stale` and is copied to `Cargo.lock` in the temp copy; V3 requires the fixture lines `ok` with no `# skip`. Review stops here: round 3's findings sit in the test apparatus, and the design shrank across rounds 2 and 3.
+
+## Spec alignment (2026-10-31)
+
+- spec: docs/superpowers/specs/2026-10-31-ci-supply-chain-bundle-design.md
+- anchor: 4396b0c45b3dfa3366d6deb90ca10d404cdcac41
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+
+### Reviewed
+
+- none
+
+### Verifications
+
+- V1: pending: PR CI not yet run (branch unpushed at verdict time)
+- V2: pending: next GMP-crate release dispatch; container cold build of pi-rs without libgmp-dev succeeded 2026-10-31 (ubuntu:26.04)
+- V3: pending: first push of this branch touches deny.toml? no; branch range does not touch deny.toml, so V3 needs a later deny.toml push; cargo-deny on PATH on claude, workstation, studio (checked 2026-10-31)
