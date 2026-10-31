@@ -2,7 +2,7 @@
 
 - **Date:** 2026-10-31
 - **Backlog row:** "Audit Python and Rust standards against current best practice" (P2, queued by the operator 2026-10-24)
-- **Status:** Approved
+- **Status:** Done (math#187, #188, #189)
 - **Approved:** 2026-10-31
 
 ## Problem

@@ -1,5 +1,7 @@
 # Rust and Python Standards Tier 1 Implementation Plan
 
+> **Status: DONE** (math#187 c398814, math#188 31aae33, math#189 8aae590)
+
 spec: docs/superpowers/specs/2026-10-31-rust-python-standards-tier1-design.md
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
