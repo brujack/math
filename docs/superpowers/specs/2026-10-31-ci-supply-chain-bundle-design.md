@@ -66,28 +66,28 @@ a real runner.
   with a version assertion (`gitleaks version | grep -qx "${GITLEAKS_VER}"`), matching the
   snyk and shellcheck steps.
 - New `tests/test_workflow_downloads_verified.py` parses every `.github/workflows/*.yml` and
-  `.github/actions/**/action.yml` with `yaml.safe_load` and walks every step's `run:` text.
-  A download is a `curl` line with `-o <path>` or a `wget` line with `-O <path>`. For each
-  download it requires a `sha256sum -c` line that names that same `<path>`, carries no `||`,
-  and comes before any later line that uses `<path>` (extract, install, move, chmod, run).
-  Any `curl` or `wget` piped into `sh`/`bash` fails outright. A `curl` that writes no file
-  (an API call into `jq`) is not a download and is ignored. Failures name file, job, step
-  and path.
+  `.github/actions/**/action.yml` with `yaml.safe_load` and walks every step's `run:` text
+  (joining `\` continuations). Every line invoking `curl` or `wget` must be one of two
+  recognised shapes, or the test fails naming file, job and step: a file download
+  (`curl ... -o <path>` or `wget ... -O <path>`, flags separate), or a `curl` whose output is
+  piped into `jq`. For each download it requires a `sha256sum -c` line that names that same
+  `<path>`, carries no `||`, and comes before any later line that uses `<path>` (extract,
+  install, move, chmod, run). Any `curl` or `wget` piped into `sh` or `bash` fails. Combined
+  short flags (`-qO`, `-fsSLo`), remote-name `-O` on `curl`, and `> file` redirects are
+  unrecognised and therefore fail; a workflow uses the separate-flag form instead.
 - The test's own controls (synthetic steps): no checksum fails; checksum after `tar` fails;
   checksum of a different path fails; `sha256sum -c ... || true` fails; `curl ... | sh`
-  fails; checksum of the same path before use passes. Against the live tree it requires at
+  fails; an unrecognised shape (`wget -qO`) fails; checksum of the same path before use passes. Against the live tree it requires at
   least one download step found (a parser that walks nothing cannot pass) and every one
   compliant; the count is not pinned, so the next compliant download stays green.
 
-### 2. cargo-deny hardening and locked builds
+### 2. cargo-deny hardening
 
 - `cargo-deny.yml` gains a workflow-level `permissions: contents: read`.
 - `scripts/cargo-deny-all.sh` passes `--locked` as a global option beside `--config`,
-  before `check`. When `CARGO_DENY_OFFLINE=1` it also passes `--offline` (cached advisory
-  DB and registry index, no fetch); CI never sets it.
+  before `check`.
 - `tests/scripts/cargo_deny_all.bats` asserts `--locked` precedes `check` on all 11
-  invocations (the mock already records argv), and that `--offline` appears on all 11 only
-  when `CARGO_DENY_OFFLINE=1`.
+  invocations (the mock already records argv).
 - A fixture control in `tests/scripts/cargo_deny_fixtures.bats` copies a new fixture pair
   (`tests/fixtures/cargo-deny/stale-lock/` with a path dependency on a sibling fixture
   crate, its `Cargo.lock` lacking that dependency) to `BATS_TEST_TMPDIR` and runs the real
@@ -95,35 +95,28 @@ a real runner.
   output. A path dependency keeps it offline: measured, a registry dependency fails with
   `no matching package` under a cold offline cache instead, the wrong reason. It fails
   closed under `CI` when cargo-deny is missing, like the existing fixtures.
-- The shipped builds lock too: `scripts/crate_templates/ci.yml`'s build job runs
-  `cargo build --release --locked` and `scripts/crate_templates/release.yml` runs
-  `cargo auditable build --release --locked`, rendered to all 22 workflows. A test pins
-  `--locked` on both build lines in every rendered workflow.
+- The shipped builds are not given `--locked`. In `release.yml` the same job runs
+  `make test` first, whose unlocked `cargo clippy` and `cargo nextest` rewrite a stale
+  `Cargo.lock` before the build, so a `--locked` build there is a no-op (measured: a
+  `--locked` build that fails alone passes after an unlocked `cargo clippy`). The guarantee
+  is `cargo-deny.yml`, which runs with `--locked` on every PR touching a `Cargo.toml` or
+  `Cargo.lock`, so master cannot carry a stale lock.
 
-### 3. pre-push runs the deny checks on a dependency change
+### 3. pre-push runs the policy checks on a `deny.toml` change
 
-- `scripts/pre-push`: a push whose diff touches `^deny\.toml$`,
-  `^scripts/cargo-deny-all\.sh$` or `^[^/]+/[^/]+-rs/Cargo\.(toml|lock)$` sets a new
-  `RUN_CARGO_DENY=1`. Only `^deny\.toml$` is added to the `RUN_HOOK_TESTS` regex (policy
-  pin and fixture controls); `^scripts/` already covers the script, and a crate manifest
-  change does not run root `make test`.
-- `RUN_CARGO_DENY=1` runs `CARGO_DENY_OFFLINE=1 scripts/cargo-deny-all.sh < /dev/null`
-  after the hook tests and before the early exits; a non-zero exit refuses the push. Offline
-  is deliberate: measured, with the network blocked `cargo deny check` exits 1
-  (`failed to fetch advisory database`) and `--offline` exits 0 against the cached DB. CI's
-  `cargo-deny.yml` fetches a fresh DB, so a new advisory is still caught before merge.
-- Skip with a remedy line and continue (core.md shell-004), never refuse, when:
-  `cargo deny` is absent
-  (`pre-push: cargo-deny not installed; skipping the dependency check (cargo install cargo-deny --locked --version 0.20.2)`),
-  or no `advisory-db-*` directory exists under `${CARGO_HOME:-$HOME/.cargo}/advisory-dbs/` (the directory also holds a `db.lock` file, so a non-empty test is not enough)
-  (`pre-push: no cached advisory database; skipping the dependency check (run: cargo deny fetch)`).
-  Any other failure refuses the push.
-- `tests/scripts/pre_push.bats` (mocked `cargo`, `make`, `git`; `HOME` and `CARGO_HOME`
-  redirected to fixtures): a `deny.toml`-only push runs root `make test` and the script
-  with `CARGO_DENY_OFFLINE=1`; a crate-`Cargo.toml`-only push runs the script and not root
-  `make test`; a push touching neither runs neither; a failing script refuses with rc 1;
-  missing cargo-deny prints its remedy and exits 0; a missing cached DB prints its remedy
-  and exits 0.
+- `scripts/pre-push`: `^deny\.toml$` is added to the existing `RUN_HOOK_TESTS` regex, so a
+  push touching `deny.toml` runs root `make test`: the whole-file policy pin
+  (`tests/test_deny_policy.py`) and the real-cargo-deny fixture controls.
+- No local real-crate cargo-deny run. Two review rounds showed why: online it refuses an
+  offline push (`failed to fetch advisory database`); with `--offline` it resolves crates
+  from `~/.cargo`, while crate builds cache into `<worktree>/.cache/cargo-home` (deleted
+  before commits), so a dependency-change push fails with `no matching package` or
+  `--offline was specified` (reproduced with an empty `CARGO_HOME`). cargo-deny 0.20.2 has
+  no flag for an offline advisory DB with online crates. CI's `cargo-deny.yml` runs on
+  every `Cargo.toml`, `Cargo.lock` and `deny.toml` change. A Backlog row carries these
+  measurements.
+- `tests/scripts/pre_push.bats`: a `deny.toml`-only push runs root `make test`; a push
+  touching only a crate `Cargo.toml` does not.
 
 ### 4. Remove the apt step from Rust-only workflows
 
@@ -141,28 +134,27 @@ a real runner.
 
 - `CLAUDE.md`: the pre-push paragraph names `deny.toml`; the cargo-deny line says
   `--locked`. Byte budget re-checked (`scripts/claude_md_budget.py`).
-- ADR-0035 gains a dated line for `--locked` and the pre-push check.
-- Backlog: remove the four rows; add the Python apt row.
+- ADR-0035 gains a dated line for `--locked` and the `deny.toml` pre-push route.
+- Backlog: remove the four rows; add the Python apt row and a "local dependency check" row
+  with the offline-cache measurements.
 
 ## Requirements
 
 - **R1.** The `secret-scan` job's gitleaks install step pins `GITLEAKS_VER: "8.21.2"` and `GITLEAKS_SHA256: "5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba"` and runs `sha256sum -c` before `tar`.
-- **R2.** A test fails when any `curl -o`/`wget -O` download in `.github/workflows/*.yml` or `.github/actions/**/action.yml` lacks a `sha256sum -c` line naming the same path, without `||`, before the path's next use; when any `curl`/`wget` is piped to `sh` or `bash`; and when it finds no download step.
+- **R2.** A test fails when any `curl`/`wget` line is neither a separate-flag file download nor a `curl` piped into `jq`; when any `curl -o`/`wget -O` download in `.github/workflows/*.yml` or `.github/actions/**/action.yml` lacks a `sha256sum -c` line naming the same path, without `||`, before the path's next use; when any `curl`/`wget` is piped to `sh` or `bash`; and when it finds no download step.
 - **R3.** `cargo-deny.yml` declares `permissions: contents: read` at workflow level.
-- **R4.** `scripts/cargo-deny-all.sh` passes `--locked` before `check` on every one of the 11 invocations, and `--offline` on every one only when `CARGO_DENY_OFFLINE=1`, asserted by `tests/scripts/cargo_deny_all.bats`.
+- **R4.** `scripts/cargo-deny-all.sh` passes `--locked` before `check` on every one of the 11 invocations, asserted by `tests/scripts/cargo_deny_all.bats`.
 - **R5.** A cargo-deny fixture test shows that `cargo deny --locked` exits non-zero with `cannot update the lock file` on a fixture crate whose `Cargo.lock` lacks a path dependency named in its `Cargo.toml`.
-- **R6.** `scripts/pre-push` runs `CARGO_DENY_OFFLINE=1 scripts/cargo-deny-all.sh` when the pushed range touches `deny.toml`, `scripts/cargo-deny-all.sh` or a crate `Cargo.toml`/`Cargo.lock`, runs root `make test` for `deny.toml`, and runs neither for that reason otherwise.
-- **R7.** When cargo-deny is not installed or no cached advisory DB exists, `scripts/pre-push` prints a remedy line (`cargo install cargo-deny --locked --version 0.20.2` or `cargo deny fetch`) and does not refuse the push for that reason.
-- **R8.** No `*-rs.yml`, `release-*-rs.yml`, `gmp-cache.yml` or `benchmarks.yml` installs `libgmp-dev`, `libmpfr-dev` or `libmpc-dev`, and a test asserts it over exactly those 24 files.
-- **R9.** The apt step is removed through `scripts/crate_templates/` and `render_crate_files.py --write`; `tests/test_crate_uniformity.py` passes.
-- **R10.** The rendered build steps run `cargo build --release --locked` (every `*-rs.yml`) and `cargo auditable build --release --locked` (every `release-*-rs.yml`), pinned by a test.
+- **R6.** `scripts/pre-push` runs root `make test` when the pushed range touches `deny.toml`, asserted by a `pre_push.bats` case, and a crate-`Cargo.toml`-only push does not run it.
+- **R7.** No `*-rs.yml`, `release-*-rs.yml`, `gmp-cache.yml` or `benchmarks.yml` installs `libgmp-dev`, `libmpfr-dev` or `libmpc-dev`, and a test asserts it over exactly those 24 files.
+- **R8.** The apt step is removed through `scripts/crate_templates/` and `render_crate_files.py --write`; `tests/test_crate_uniformity.py` passes.
 - **V1.** This PR's CI is green on every `*-rs.yml`, `cargo-deny.yml`, `scripts.yml` and `auto-merge.yml` job, and the `secret-scan` log shows `gitleaks_8.21.2_linux_x64.tar.gz: OK`.
 - **V2.** The next release dispatch of a GMP crate (e, factorial, fib, perfect-numbers or pi), which builds GMP from source with no GMP cache, succeeds without the apt step.
-- **V3.** A local push of a `deny.toml`-only commit on the branch runs `cargo-deny-all: all 11 crates passed` in the hook output.
+- **V3.** A local push of a branch whose range touches `deny.toml` prints `test: hooks and scripts (bats)` in the hook output.
 - **N1.** No change to `*-py.yml`, `mutation-pr.yml` or `mutation-testing-python.yml`.
 - **N2.** No change to `deny.toml` or `tests/test_deny_policy.py`.
 - **N3.** No new tool, action or package dependency; gitleaks stays at 8.21.2.
-- **N4.** pre-push does not refuse a push because cargo-deny or its cached advisory DB is absent.
+- **N4.** pre-push runs no real-crate `cargo deny` and no `--offline` mode; no build step gains `--locked`.
 
 ## Multi-Lens Review
 
@@ -189,3 +181,12 @@ Disposition: Addressed — operator chose to tighten R2 (path-matched checksum, 
 ### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+### Round 2
+
+Reviewed at commit: `39a5c73` (round-1 revision). All three lenses re-ran (design substance changed).
+
+Goal-Fit — Finding: the round-1 `--offline` fix makes the pre-push stage refuse the dependency-change pushes it was widened for: offline cargo-deny resolves crates from `~/.cargo`, while `scripts/rust-check.sh` builds cache into `<worktree>/.cache/cargo-home`. Reproduced: pi-rs copy, `CARGO_HOME` holding only the advisory DB, `cargo deny --locked --offline ... check` rc 1, `no matching package named 'clap' found`. Every planned check mocks `cargo` or runs on a warm `~/.cargo`. Assumption: `~/.cargo` holds every locked crate at push time; refuted by the probe for any dependency change built only through `make test`.
+Ergonomics — Finding: same defect, measured independently: today `~/.cargo/registry/cache` holds all 150 locked registry packages only because earlier online deny runs warmed it; a cold crate cache gives rc 1, `attempting to make an HTTP request, but --offline was specified`; cargo-deny 0.20.2 has no per-check fetch switch. Assumption: as Goal-Fit.
+Risk — Finding: same defect, plus R10's `--locked` on the release build is a no-op because the same job's unlocked `cargo clippy` rewrites a stale lock first (measured with scratch crates: `--locked` build rc 101 alone, rc 0 after `cargo clippy --offline`); and R2's parser let unrecognised shapes (`wget -qO`, `curl -fsSLo`, `curl -O`, `> file`) pass as "not a download". Assumption: as Goal-Fit.
+Disposition: Addressed — operator chose to descope item 3 to one line (`^deny\.toml$` in `RUN_HOOK_TESTS`, no real-crate local run, Backlog row with the measurements), to drop R10 (the PR-time `cargo-deny --locked` is the guarantee, stated in section 2), and to make R2 fail closed on unrecognised `curl`/`wget` shapes. The design shrank: `RUN_CARGO_DENY`, `CARGO_DENY_OFFLINE`, the two skip paths and R10 were removed, nothing added but the fail-closed parser rule.
