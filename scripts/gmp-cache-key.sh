@@ -12,13 +12,24 @@
 
 readonly USAGE="usage: gmp-cache-key.sh [--strict]"
 
-# Print each tracked crate lockfile's gmp-mpfr-sys version, one per line.
+# Set VERSIONS to the sorted, unique gmp-mpfr-sys versions of every tracked
+# crate lockfile, joined by `_`. Runs in the caller's shell (no command
+# substitution around it) so that bail can exit the script; every read
+# failure is a cause rather than a silently shorter list.
 # The version line is read only inside the gmp-mpfr-sys [[package]] block.
-gmp_versions() {
-    local root="$1"
-    local lock
-    while IFS= read -r -d '' lock; do
-        awk '
+collect_versions() {
+    local strict="$1" root="$2"
+    local listing lock found="" out
+    local -a locks
+    listing="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
+        git -C "${root}" ls-files '*/*-rs/Cargo.lock')" \
+        || bail "${strict}" "could not list the tracked Cargo.lock files"
+    mapfile -t locks <<<"${listing}"
+    for lock in "${locks[@]}"; do
+        [[ -n "${lock}" ]] || continue
+        [[ -r "${root}/${lock}" ]] || bail "${strict}" "cannot read tracked lockfile ${lock}"
+        out="$(awk '
+            { sub(/\r$/, "") }
             /^\[\[package\]\]/ { in_gmp = 0; next }
             /^name = "gmp-mpfr-sys"$/ { in_gmp = 1; next }
             in_gmp && /^version = "/ {
@@ -26,9 +37,10 @@ gmp_versions() {
                 print
                 in_gmp = 0
             }
-        ' "${root}/${lock}" || return 1
-    done < <(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
-        git -C "${root}" ls-files -z '*/*-rs/Cargo.lock')
+        ' "${root}/${lock}")" || bail "${strict}" "cannot parse tracked lockfile ${lock}"
+        [[ -z "${out}" ]] || found+="${out}"$'\n'
+    done
+    VERSIONS="$(printf '%s' "${found}" | sort -u -V | paste -sd_ -)"
 }
 
 # Report an unusable input per mode and exit.
@@ -56,11 +68,11 @@ main() {
 
     local root
     root="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
-        git rev-parse --show-toplevel)" || bail "${strict}" "not inside a git repository"
+        git rev-parse --show-toplevel 2>/dev/null)" \
+        || bail "${strict}" "not inside a git repository"
 
-    local versions
-    versions="$(gmp_versions "${root}" | sort -u -V | paste -sd_ -)" \
-        || bail "${strict}" "could not read the tracked Cargo.lock files"
+    collect_versions "${strict}" "${root}"
+    local versions="${VERSIONS}"
 
     local week="${GMP_CACHE_WEEK:-$(date -u +%G-W%V)}"
 

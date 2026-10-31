@@ -29,17 +29,44 @@ _write_lock() {
         'version = "9.9.9"' >"${FIXTURE}/$1/$1-rs/Cargo.lock"
 }
 
+# _write_lockless <crate>: a tracked-style lockfile with no gmp-mpfr-sys
+_write_lockless() {
+    printf '[[package]]\nname = "other"\nversion = "1.0.0"\n' >"${FIXTURE}/$1/$1-rs/Cargo.lock"
+}
+
 _run_in_fixture() {
     cd "${FIXTURE}" || return 1
-    run "${SCRIPT}" "$@"
+    run --separate-stderr "${SCRIPT}" "$@"
 }
 
 _expected_output() {
     printf 'enabled=true\nprefix=gmp-mpfr-sys-%s-Linux-ubuntu26-\nkey=gmp-mpfr-sys-%s-Linux-ubuntu26-2026-W44' "$1" "$1"
 }
 
+# _assert_fails_closed <cause>: the current fixture must fail under --strict
+# (exit 1, empty stdout, exact stderr) and degrade without it (exit 0,
+# stdout exactly enabled=false, exact warning).
+_assert_fails_closed() {
+    local cause="$1"
+    _run_in_fixture --strict
+    [ "${status}" -eq 1 ]
+    [ -z "${output}" ]
+    [ "${stderr}" = "gmp-cache-key: ${cause}" ]
+    _run_in_fixture
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "enabled=false" ]
+    [ "${stderr}" = "::warning::gmp-cache-key: ${cause}" ]
+}
+
 @test "two lockfiles -> three exact lines, versions sorted, unrelated package absent" {
     _run_in_fixture
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "$(_expected_output 1.7.0_1.7.1)" ]
+    [ -z "${stderr}" ]
+}
+
+@test "--strict with good input prints the same three lines" {
+    _run_in_fixture --strict
     [ "${status}" -eq 0 ]
     [ "${output}" = "$(_expected_output 1.7.0_1.7.1)" ]
 }
@@ -59,65 +86,82 @@ _expected_output() {
     [ "${output}" = "$(_expected_output 1.7.0_1.7.1)" ]
 }
 
-@test "no lockfile names gmp-mpfr-sys, --strict -> exit 1 naming the cause" {
-    printf '[[package]]\nname = "other"\nversion = "1.0.0"\n' >"${FIXTURE}/a/a-rs/Cargo.lock"
-    printf '[[package]]\nname = "other"\nversion = "1.0.0"\n' >"${FIXTURE}/b/b-rs/Cargo.lock"
-    _run_in_fixture --strict
-    [ "${status}" -eq 1 ]
-    [[ "${output}" == "gmp-cache-key: "*"gmp-mpfr-sys"* ]]
-}
-
-@test "no lockfile names gmp-mpfr-sys, lenient -> exit 0, enabled=false on stdout" {
-    printf '[[package]]\nname = "other"\nversion = "1.0.0"\n' >"${FIXTURE}/a/a-rs/Cargo.lock"
-    printf '[[package]]\nname = "other"\nversion = "1.0.0"\n' >"${FIXTURE}/b/b-rs/Cargo.lock"
-    cd "${FIXTURE}"
-    run --separate-stderr "${SCRIPT}"
+@test "versions sort numerically: 1.7.9 before 1.7.10" {
+    _write_lock a 1.7.10
+    _write_lock b 1.7.9
+    _run_in_fixture
     [ "${status}" -eq 0 ]
-    [ "${output}" = "enabled=false" ]
-    [[ "${stderr}" == "::warning::gmp-cache-key: "*"gmp-mpfr-sys"* ]]
+    [ "${output}" = "$(_expected_output 1.7.9_1.7.10)" ]
 }
 
-@test "empty RUNNER_OS, --strict -> exit 1 naming RUNNER_OS" {
+@test "a package named gmp-mpfr-sys-foo is not read as gmp-mpfr-sys" {
+    printf '%s\n' \
+        '[[package]]' \
+        'name = "gmp-mpfr-sys-foo"' \
+        'version = "2.0.0"' \
+        '' \
+        '[[package]]' \
+        'name = "gmp-mpfr-sys"' \
+        'version = "1.7.1"' >"${FIXTURE}/a/a-rs/Cargo.lock"
+    _run_in_fixture
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "$(_expected_output 1.7.0_1.7.1)" ]
+}
+
+@test "a CRLF lockfile is parsed" {
+    printf '[[package]]\r\nname = "gmp-mpfr-sys"\r\nversion = "1.7.1"\r\n' >"${FIXTURE}/a/a-rs/Cargo.lock"
+    _run_in_fixture
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "$(_expected_output 1.7.0_1.7.1)" ]
+}
+
+@test "no lockfile names gmp-mpfr-sys -> fails closed" {
+    _write_lockless a
+    _write_lockless b
+    _assert_fails_closed "no tracked Cargo.lock names gmp-mpfr-sys"
+}
+
+@test "a tracked lockfile missing from disk -> fails closed naming it" {
+    rm "${FIXTURE}/a/a-rs/Cargo.lock"
+    _assert_fails_closed "cannot read tracked lockfile a/a-rs/Cargo.lock"
+}
+
+@test "empty RUNNER_OS -> fails closed" {
     export RUNNER_OS=""
-    _run_in_fixture --strict
-    [ "${status}" -eq 1 ]
-    [[ "${output}" == "gmp-cache-key: "*"RUNNER_OS"* ]]
+    _assert_fails_closed "RUNNER_OS is empty"
 }
 
-@test "empty RUNNER_OS, lenient -> exit 0, enabled=false" {
-    export RUNNER_OS=""
-    cd "${FIXTURE}"
+@test "empty ImageOS -> fails closed" {
+    export ImageOS=""
+    _assert_fails_closed "ImageOS is empty"
+}
+
+@test "run outside a git repository -> fails closed" {
+    mkdir -p "${BATS_TEST_TMPDIR}/norepo"
+    export GIT_CEILING_DIRECTORIES="${BATS_TEST_TMPDIR}"
+    cd "${BATS_TEST_TMPDIR}/norepo"
+    run --separate-stderr "${SCRIPT}" --strict
+    [ "${status}" -eq 1 ]
+    [ -z "${output}" ]
+    [ "${stderr}" = "gmp-cache-key: not inside a git repository" ]
     run --separate-stderr "${SCRIPT}"
     [ "${status}" -eq 0 ]
     [ "${output}" = "enabled=false" ]
-    [[ "${stderr}" == *"RUNNER_OS"* ]]
+    [ "${stderr}" = "::warning::gmp-cache-key: not inside a git repository" ]
 }
 
-@test "empty ImageOS, --strict -> exit 1 naming ImageOS" {
-    export ImageOS=""
-    _run_in_fixture --strict
-    [ "${status}" -eq 1 ]
-    [[ "${output}" == "gmp-cache-key: "*"ImageOS"* ]]
-}
-
-@test "empty ImageOS, lenient -> exit 0, enabled=false" {
-    export ImageOS=""
-    cd "${FIXTURE}"
-    run --separate-stderr "${SCRIPT}"
-    [ "${status}" -eq 0 ]
-    [ "${output}" = "enabled=false" ]
-    [[ "${stderr}" == *"ImageOS"* ]]
-}
-
-@test "unknown argument -> exit 2 with usage" {
+@test "unknown argument -> exit 2 with exact usage" {
     _run_in_fixture --bogus
     [ "${status}" -eq 2 ]
-    [[ "${output}" == *"usage"* ]]
+    [ -z "${output}" ]
+    [ "${stderr}" = "usage: gmp-cache-key.sh [--strict]" ]
 }
 
-@test "extra argument after --strict -> exit 2" {
+@test "extra argument after --strict -> exit 2 with exact usage" {
     _run_in_fixture --strict extra
     [ "${status}" -eq 2 ]
+    [ -z "${output}" ]
+    [ "${stderr}" = "usage: gmp-cache-key.sh [--strict]" ]
 }
 
 @test "real repo: key line carries the lockfile version, OS, image and ISO week" {
@@ -126,5 +170,5 @@ _expected_output() {
     run "${SCRIPT}" --strict
     [ "${status}" -eq 0 ]
     [[ "${output}" =~ (^|$'\n')enabled=true($|$'\n') ]]
-    [[ "${output}" =~ (^|$'\n')key=gmp-mpfr-sys-1\.7\.[0-9]+.*-Linux-ubuntu26-[0-9]{4}-W[0-9]{2}($|$'\n') ]]
+    [[ "${output}" =~ (^|$'\n')key=gmp-mpfr-sys-[0-9]+\.[0-9]+\.[0-9]+.*-Linux-ubuntu26-[0-9]{4}-W[0-9]{2}($|$'\n') ]]
 }
