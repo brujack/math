@@ -77,6 +77,11 @@ jobs:
           (cd perfect-numbers/perfect-numbers-rs/target/release && sha256sum perfect-numbers) > perfect-numbers/perfect-numbers-rs/target/release/perfect-numbers.sha256
           cat perfect-numbers/perfect-numbers-rs/target/release/perfect-numbers.sha256
 
+      - name: Write third-party notices
+        run: |
+          mkdir -p "${RUNNER_TEMP}/notices"
+          scripts/third-party-notices.sh perfect-numbers/perfect-numbers-rs "${RUNNER_TEMP}/notices"
+
       - uses: ./.github/actions/sbom-sign
         with:
           binary_path: perfect-numbers/perfect-numbers-rs/target/release
@@ -102,4 +107,5 @@ jobs:
             perfect-numbers/perfect-numbers-rs/target/release/perfect-numbers.sha256
             perfect-numbers/perfect-numbers-rs/target/release/perfect-numbers.sbom.spdx.json
             perfect-numbers/perfect-numbers-rs/target/release/perfect-numbers.bundle
+            ${{ runner.temp }}/notices/THIRD-PARTY-NOTICES.txt
           fail_on_unmatched_files: true

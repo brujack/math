@@ -579,6 +579,51 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                     "release",
                 )
 
+    def test_third_party_notices_written_before_tag_and_attached(self):
+        # The notices step must run before the tag is pushed (nothing that can fail may
+        # follow the tag) and the softprops files: list must name its output by exact path.
+        for path in self.workflows:
+            with self.subTest(workflow=path.name):
+                crate = binary_name_from_filename(path)
+                steps = release_steps(load_workflow(path))
+                notices_index = require_index(
+                    find_step_index_by_name(steps, "Write third-party notices"),
+                    f"{path.name} missing 'Write third-party notices' step",
+                )
+                run_text = steps[notices_index].get("run") or ""
+                self.assertIn(
+                    f"scripts/third-party-notices.sh {crate}/{crate}-rs "
+                    '"${RUNNER_TEMP}/notices"',
+                    run_text,
+                    f"{path.name} notices step must run the script on its own crate",
+                )
+                tag_index = require_index(
+                    find_step_index_by_name(steps, "Create and push tag"),
+                    f"{path.name} missing 'Create and push tag' step",
+                )
+                self.assertLess(
+                    notices_index,
+                    tag_index,
+                    f"{path.name} must write notices BEFORE the tag is pushed",
+                )
+                release_index = require_index(
+                    find_step_index_by_uses_prefix(
+                        steps, "softprops/action-gh-release"
+                    ),
+                    f"{path.name} missing the softprops/action-gh-release step",
+                )
+                files = files_field_as_list(steps[release_index].get("with") or {})
+                self.assertIn(
+                    "${{ runner.temp }}/notices/THIRD-PARTY-NOTICES.txt",
+                    files,
+                    f"{path.name} files: must list the notices file by exact path",
+                )
+                self.assertEqual(
+                    [f for f in files if "*" in f],
+                    [],
+                    f"{path.name} files: must not use globs",
+                )
+
     def test_no_step_continues_on_error(self):
         # continue-on-error turned a GH006-rejected CHANGELOG push green on all 11
         # first releases (2026-10-24); a release step either works or fails the job.

@@ -77,6 +77,11 @@ jobs:
           (cd sq/sq-rs/target/release && sha256sum sq) > sq/sq-rs/target/release/sq.sha256
           cat sq/sq-rs/target/release/sq.sha256
 
+      - name: Write third-party notices
+        run: |
+          mkdir -p "${RUNNER_TEMP}/notices"
+          scripts/third-party-notices.sh sq/sq-rs "${RUNNER_TEMP}/notices"
+
       - uses: ./.github/actions/sbom-sign
         with:
           binary_path: sq/sq-rs/target/release
@@ -102,4 +107,5 @@ jobs:
             sq/sq-rs/target/release/sq.sha256
             sq/sq-rs/target/release/sq.sbom.spdx.json
             sq/sq-rs/target/release/sq.bundle
+            ${{ runner.temp }}/notices/THIRD-PARTY-NOTICES.txt
           fail_on_unmatched_files: true

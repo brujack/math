@@ -77,6 +77,11 @@ jobs:
           (cd pi/pi-rs/target/release && sha256sum pi) > pi/pi-rs/target/release/pi.sha256
           cat pi/pi-rs/target/release/pi.sha256
 
+      - name: Write third-party notices
+        run: |
+          mkdir -p "${RUNNER_TEMP}/notices"
+          scripts/third-party-notices.sh pi/pi-rs "${RUNNER_TEMP}/notices"
+
       - uses: ./.github/actions/sbom-sign
         with:
           binary_path: pi/pi-rs/target/release
@@ -102,4 +107,5 @@ jobs:
             pi/pi-rs/target/release/pi.sha256
             pi/pi-rs/target/release/pi.sbom.spdx.json
             pi/pi-rs/target/release/pi.bundle
+            ${{ runner.temp }}/notices/THIRD-PARTY-NOTICES.txt
           fail_on_unmatched_files: true

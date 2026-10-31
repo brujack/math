@@ -77,6 +77,11 @@ jobs:
           (cd goldbach/goldbach-rs/target/release && sha256sum goldbach) > goldbach/goldbach-rs/target/release/goldbach.sha256
           cat goldbach/goldbach-rs/target/release/goldbach.sha256
 
+      - name: Write third-party notices
+        run: |
+          mkdir -p "${RUNNER_TEMP}/notices"
+          scripts/third-party-notices.sh goldbach/goldbach-rs "${RUNNER_TEMP}/notices"
+
       - uses: ./.github/actions/sbom-sign
         with:
           binary_path: goldbach/goldbach-rs/target/release
@@ -102,4 +107,5 @@ jobs:
             goldbach/goldbach-rs/target/release/goldbach.sha256
             goldbach/goldbach-rs/target/release/goldbach.sbom.spdx.json
             goldbach/goldbach-rs/target/release/goldbach.bundle
+            ${{ runner.temp }}/notices/THIRD-PARTY-NOTICES.txt
           fail_on_unmatched_files: true

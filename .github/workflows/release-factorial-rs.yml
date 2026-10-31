@@ -77,6 +77,11 @@ jobs:
           (cd factorial/factorial-rs/target/release && sha256sum factorial) > factorial/factorial-rs/target/release/factorial.sha256
           cat factorial/factorial-rs/target/release/factorial.sha256
 
+      - name: Write third-party notices
+        run: |
+          mkdir -p "${RUNNER_TEMP}/notices"
+          scripts/third-party-notices.sh factorial/factorial-rs "${RUNNER_TEMP}/notices"
+
       - uses: ./.github/actions/sbom-sign
         with:
           binary_path: factorial/factorial-rs/target/release
@@ -102,4 +107,5 @@ jobs:
             factorial/factorial-rs/target/release/factorial.sha256
             factorial/factorial-rs/target/release/factorial.sbom.spdx.json
             factorial/factorial-rs/target/release/factorial.bundle
+            ${{ runner.temp }}/notices/THIRD-PARTY-NOTICES.txt
           fail_on_unmatched_files: true
