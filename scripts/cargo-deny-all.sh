@@ -39,6 +39,8 @@ main() {
         crate_dir="$(dirname "${manifest}")"
         printf "=== %s ===\n" "${crate_dir}"
         # --locked and --config are global options: after `check` they exit 2 on cargo-deny 0.20.2.
+        # --locked makes a stale Cargo.lock fail the gate instead of being silently re-resolved,
+        # so the dependencies checked are the ones that ship.
         if ! cargo deny --locked --config "${REPO_ROOT}/deny.toml" \
             --manifest-path "${REPO_ROOT}/${manifest}" check </dev/null; then
             failed+=("${crate_dir}")

@@ -92,7 +92,7 @@ make_crates() {
     [ "$status" -eq 0 ]
     [ "$(wc -l < "${MOCK_CARGO_LOG}")" -eq 11 ]
     while IFS= read -r line; do
-        prefix="${line%% check}"
+        prefix="${line%% check*}"
         [[ "${prefix}" == *"--locked"* ]]
     done < "${MOCK_CARGO_LOG}"
 }

@@ -5,7 +5,9 @@ from pathlib import Path
 
 import yaml
 
-WORKFLOW = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "cargo-deny.yml"
+WORKFLOW = (
+    Path(__file__).resolve().parent.parent / ".github" / "workflows" / "cargo-deny.yml"
+)
 
 
 class CargoDenyWorkflowTest(unittest.TestCase):
