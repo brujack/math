@@ -49,7 +49,7 @@ make_crates() {
     [ "$(wc -l < "${MOCK_CARGO_LOG}")" -eq 11 ]
     while IFS= read -r line; do
         before_check="${line%% check*}"
-        [[ "${before_check}" == "deny --config ${REPO_ROOT}/deny.toml --manifest-path "* ]]
+        [[ "${before_check}" == "deny --locked --config ${REPO_ROOT}/deny.toml --manifest-path "* ]]
     done < "${MOCK_CARGO_LOG}"
 }
 
@@ -84,4 +84,15 @@ make_crates() {
     run "${REPO_ROOT}/scripts/cargo-deny-all.sh"
     [ "$status" -eq 1 ]
     [[ "$output" == *"expected 11 crates, found 12"* ]]
+}
+
+@test "--locked precedes check on every invocation" {
+    make_crates 11
+    run "${REPO_ROOT}/scripts/cargo-deny-all.sh"
+    [ "$status" -eq 0 ]
+    [ "$(wc -l < "${MOCK_CARGO_LOG}")" -eq 11 ]
+    while IFS= read -r line; do
+        prefix="${line%% check}"
+        [[ "${prefix}" == *"--locked"* ]]
+    done < "${MOCK_CARGO_LOG}"
 }

@@ -14,6 +14,9 @@ on:
     # Weekly run catches newly-published advisories against existing lockfiles
     - cron: "0 6 * * 1"
 
+permissions:
+  contents: read
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 

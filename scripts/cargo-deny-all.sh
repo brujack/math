@@ -38,8 +38,8 @@ main() {
     for manifest in "${manifests[@]}"; do
         crate_dir="$(dirname "${manifest}")"
         printf "=== %s ===\n" "${crate_dir}"
-        # --config is a global option: after `check` it exits 2 on cargo-deny 0.20.2.
-        if ! cargo deny --config "${REPO_ROOT}/deny.toml" \
+        # --locked and --config are global options: after `check` they exit 2 on cargo-deny 0.20.2.
+        if ! cargo deny --locked --config "${REPO_ROOT}/deny.toml" \
             --manifest-path "${REPO_ROOT}/${manifest}" check </dev/null; then
             failed+=("${crate_dir}")
         fi
