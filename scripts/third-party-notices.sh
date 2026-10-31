@@ -14,14 +14,24 @@ log_error() {
     printf 'third-party-notices: %s\n' "$*" >&2
 }
 
-# lock_version <lockfile> <crate>: print the version of the named [[package]].
-lock_version() {
-    local lockfile="${1}" crate="${2}"
-    awk -v want="${crate}" '
-        /^\[\[package\]\]/ { name = ""; next }
-        /^name = / { gsub(/"/, "", $3); name = $3; next }
-        /^version = / && name == want { gsub(/"/, "", $3); print $3; exit }
-    ' "${lockfile}" || return 1
+# lock_versions <lockfile> <crate>: print every locked version of the crate,
+# sorted and comma-separated; empty output means the crate is not locked.
+# CR is stripped (CRLF lockfiles) and name/version are buffered per block so
+# field order does not matter.
+lock_versions() {
+    local lockfile="${1}" crate="${2}" found
+    found="$(tr -d '\r' <"${lockfile}" | awk -v want="${crate}" '
+        function flush() { if (name == want && version != "") print version }
+        /^\[\[package\]\]/ { flush(); name = ""; version = ""; next }
+        /^name = / { name = $3; gsub(/"/, "", name); next }
+        /^version = / { version = $3; gsub(/"/, "", version); next }
+        END { flush() }
+    ')" || {
+        log_error "cannot read versions of ${crate} from ${lockfile}"
+        return 1
+    }
+    [[ -z "${found}" ]] && return 0
+    printf '%s\n' "${found}" | LC_ALL=C sort -V | paste -sd, - | sed 's/,/, /g' || return 1
 }
 
 # require_text <path>: fail closed on an absent or empty licence text.
@@ -86,8 +96,17 @@ main() {
     licenses_dir="${LICENSES_DIR:-${repo_root}/licenses}"
 
     local gmp_ver rug_ver
-    gmp_ver="$(lock_version "${lockfile}" "${GMP_CRATE}")" || return 1
-    rug_ver="$(lock_version "${lockfile}" "${RUG_CRATE}")" || return 1
+    gmp_ver="$(lock_versions "${lockfile}" "${GMP_CRATE}")" || return 1
+    rug_ver="$(lock_versions "${lockfile}" "${RUG_CRATE}")" || return 1
+    if [[ -z "${gmp_ver}" && -f "${crate_dir}/Cargo.toml" ]] &&
+        grep -Eq '^[[:space:]]*rug[[:space:]]*(=|\.)' "${crate_dir}/Cargo.toml"; then
+        log_error "${crate_dir}/Cargo.toml declares rug but Cargo.lock has no ${GMP_CRATE}"
+        return 1
+    fi
+    if [[ -n "${gmp_ver}" && -z "${rug_ver}" ]]; then
+        log_error "${GMP_CRATE} is locked but rug is not locked in ${lockfile}"
+        return 1
+    fi
 
     local tmp
     tmp="$(mktemp "${out_dir}/.notices.XXXXXX")" || {
@@ -97,12 +116,17 @@ main() {
     if [[ -n "${gmp_ver}" ]]; then
         if ! require_text "${licenses_dir}/LGPL-3.0.txt" ||
             ! require_text "${licenses_dir}/GPL-3.0.txt" ||
-            ! emit_gmp_notice "${gmp_ver}" "${rug_ver:-unknown}" \
+            ! emit_gmp_notice "${gmp_ver}" "${rug_ver}" \
                 "${licenses_dir}/LGPL-3.0.txt" "${licenses_dir}/GPL-3.0.txt" >"${tmp}"; then
             rm -f "${tmp}"
             return 1
         fi
     elif ! emit_plain_notice >"${tmp}"; then
+        rm -f "${tmp}"
+        return 1
+    fi
+    if ! chmod 0644 "${tmp}"; then
+        log_error "cannot set mode on ${tmp}"
         rm -f "${tmp}"
         return 1
     fi
