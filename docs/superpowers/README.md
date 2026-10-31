@@ -47,7 +47,7 @@ Master status index for all specs and implementation plans in this directory.
 | 2026-10-25 | [uniform-python-cli](plans/2026-10-25-uniform-python-cli.md) | [spec](specs/2026-10-25-uniform-project-cli-and-python-files-design.md) | Done |
 | 2026-10-26 | [uniform-rust-cli-and-cargo](plans/2026-10-26-uniform-rust-cli-and-cargo.md) | [spec](specs/2026-10-25-uniform-rust-cli-and-cargo-design.md) | In Progress (P1, Tasks 1-5, merged in math#180; P2, Tasks 6-23, open) |
 | 2026-10-30 | [python-mutation-baseline-and-sharding](plans/2026-10-30-python-mutation-baseline-and-sharding.md) | [spec](specs/2026-10-30-python-mutation-baseline-and-sharding-design.md) | Done (math#183) |
-| 2026-10-30 | [pyright-errors-and-ci-gate-exact-match](plans/2026-10-30-pyright-errors-and-ci-gate-exact-match.md) | [spec](specs/2026-10-30-pyright-errors-and-ci-gate-exact-match-design.md) | In Progress |
+| 2026-10-30 | [pyright-errors-and-ci-gate-exact-match](plans/2026-10-30-pyright-errors-and-ci-gate-exact-match.md) | [spec](specs/2026-10-30-pyright-errors-and-ci-gate-exact-match-design.md) | Done (math#185) |
 
 ---
 

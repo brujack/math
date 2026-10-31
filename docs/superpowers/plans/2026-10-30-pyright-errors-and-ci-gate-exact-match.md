@@ -1,5 +1,7 @@
 # Pyright Errors and ci-gate Exact Match Implementation Plan
 
+> **Status: DONE** — merged in math#185 (863e514), 2026-10-31.
+
 spec: docs/superpowers/specs/2026-10-30-pyright-errors-and-ci-gate-exact-match-design.md
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
