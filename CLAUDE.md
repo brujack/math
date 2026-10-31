@@ -10,7 +10,7 @@ A trailing pointer on a rule means: before acting on that rule's subject, read t
 
 High-performance mathematical computation tools.
 
-Each sub-project has its own `CLAUDE.md`, the source of truth for its implementation detail (every crate's is `<crate>/<crate>-rs/CLAUDE.md`); keep this file and those in sync. → ai-config/docs/knowledge/math-overview.md § Sub-project table
+Each sub-project's `CLAUDE.md` is the source of truth for its implementation detail (a crate's is `<crate>/<crate>-rs/CLAUDE.md`); keep this file in sync. → ai-config/docs/knowledge/math-overview.md § Sub-project table
 Sub-projects (dir: language): `pi/` Python+Rust, `prime/` Rust, `fib/` Python+Rust, `sq/` Python+Rust, `twin-primes/` Rust, `e/` Python+Rust, `factorial/` Python+Rust, `perfect-numbers/` Python+Rust, `collatz/` Python+Rust, `goldbach/` Rust, `amicable/` Python+Rust. → ai-config/docs/knowledge/math-overview.md § Sub-project table
 Rust crates live at `<project>/<project>-rs/` (all 11 projects, e.g. `pi/pi-rs`, `twin-primes/twin-primes-rs`); the 8 Python sub-projects sit at `<project>/` (pi, fib, sq, e, factorial, perfect-numbers, collatz, amicable).
 
@@ -21,7 +21,7 @@ Write an ADR in `docs/adr/` (index `docs/adr/README.md`) before or alongside any
 ## 10-80-10 Execution Cycle
 
 Follow the 10-80-10 cycle of `ai-config` ADR-0009 (ADR-0010 wave dispatch): Phase 1 Architect (`brainstorming` → `writing-plans`, Opus), Phase 2 Execute (`subagent-driven-development`, Sonnet/Haiku per plan), Phase 3 Review (`finishing-a-development-branch`, Opus); plans use `yaml-task` blocks (`role`, `model`, `tdd`, `acceptance`, `max_retries`, `files_touched`, `depends_on`, `parallel_group`). → ai-config/docs/knowledge/math-overview.md § 10-80-10 cycle
-Run `make validate-plan PLAN=docs/superpowers/plans/<file>.md` before dispatching a plan (validator `~/.claude/scripts/validate-plan.py`, shared from ai-config). → ai-config/docs/knowledge/math-overview.md § 10-80-10 cycle
+Run `make validate-plan PLAN=docs/superpowers/plans/<file>.md` before dispatching a plan (validator shared from ai-config). → ai-config/docs/knowledge/math-overview.md § 10-80-10 cycle
 
 ## Knowledge Directory
 
@@ -30,7 +30,7 @@ Reference material lives in `ai-config/docs/knowledge/math-<topic>.md` (ADR-0020
 ## Dependency Installation
 
 Each sub-project has its own installer: `<project>/install_deps.sh` for Python, `<project>/<project>-rs/install_deps.sh` for Rust (19 total; `goldbach`, `prime` and `twin-primes` have only the nested Rust one). → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
-The 11 Rust installers are identical (rendered from `scripts/crate_templates/install_deps.sh`, tested by `tests/scripts/crate_install_deps.bats`): GMP + MPFR, the rustup toolchain, and `cargo-nextest`, `cargo-machete` and `cargo-tarpaulin` at CI's pinned versions; the 8 Python installers are identical too (rendered from `scripts/crate_templates/python/install_deps.sh`): GMP + MPFR and every pinned package. → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
+The 11 Rust installers are identical (rendered from `scripts/crate_templates/install_deps.sh`, tested by `tests/scripts/crate_install_deps.bats`): GMP + MPFR, the rustup toolchain, and `cargo-nextest`, `cargo-machete` and `cargo-tarpaulin` at CI's pinned versions; the 8 Python installers are identical too (from `scripts/crate_templates/python/install_deps.sh`): GMP + MPFR and every pinned package. → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
 
 Root-scope Python has no `install_deps.sh` by design: `requirements-dev.txt` (`defusedxml==0.7.1`, `pyright==1.1.411`, `pyyaml==6.0.3`) is consumed by `make install-deps`. → ai-config/docs/knowledge/math-dependency-installation.md § Root-scope Python
 
@@ -81,11 +81,11 @@ Root `make test-rust` runs `make test` in all 11 crates concurrently via `script
 ### Rust lint/test wrapper (`scripts/rust-check.sh`)
 
 All Rust crate `make lint` and `make test` go through `scripts/rust-check.sh`; `CARGO_HOME` defaults to `<repo>/.cache/cargo-home` when unset and `RUST_CHECK_OFFLINE=1` adds `--offline`. → ai-config/docs/knowledge/math-quick-reference.md § Rust lint/test wrapper
-Treat `.cache/` as transient local state: remove it (`rm -rf .cache`) before final status checks and commits. → ai-config/docs/knowledge/math-quick-reference.md § Rust lint/test wrapper
+Treat `.cache/` as transient: `rm -rf .cache` before final status checks and commits. → ai-config/docs/knowledge/math-quick-reference.md § Rust lint/test wrapper
 
 ## Language Standards
 
-Neither file below is loaded at session start. Read it before the work it governs:
+Neither file is loaded at session start; read it before the work it governs:
 
 - **Read `~/.claude/standards/python.md` before writing or changing any `.py` file or Python tooling config** (`ruff.toml`, `pyrightconfig.json`, `install_deps.sh`, `requirements-dev.txt`, a `*-py.yml` workflow, mutmut/cosmic-ray setup).
 - **Read `~/.claude/standards/rust.md` before writing or changing any `.rs` file, `Cargo.toml`, `.cargo/mutants.toml`, `rustfmt.toml`, `scripts/rust-check.sh` or a `*-rs.yml` workflow.** The trigger includes source on purpose. → ai-config/docs/knowledge/math-language-standards.md § Language standards triggers
@@ -97,7 +97,7 @@ Do not enable `missing_docs` in these crates (no cross-crate consumers). → ai-
 
 ## Testing Policy
 
-**TDD is required.** Write the failing test first, then write the minimum implementation to make it pass. Never write implementation before the test. Tests must be added in the same commit as the code they cover.
+**TDD is required.** Write the failing test first, then the minimum implementation. Add tests in the same commit as the code.
 
 Every test must cover more than the happy path. Three categories are required for every function:
 
@@ -124,9 +124,9 @@ Its `exclude` is pyright's default list minus `**/.*`, and the omission is load-
 `pyright==1.1.411` is pinned at all 19 install sites (8 `*-py.yml` workflows, both Python mutation workflows, 8 Python `install_deps.sh`, `requirements-dev.txt`, which `scripts.yml` installs), and every `cargo install` in a workflow or `install_deps.sh` carries `--locked --version`, and every `taiki-e/install-action` `tool:` is `name@X.Y.Z` with `fallback: none` at the installers' version; `tests/test_tool_pins.py` requires one version per tool, so bump them together. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
 `tests/test_root_pyright_scope.py` runs pyright under `make test-python`, which pre-push invokes on pushes touching `scripts/`, `tests/`, `.claude/scripts/` or `pyrightconfig.json`; it fails on any root error or an engine other than the `requirements-dev.txt` pin, and prints a skip line when pyright is absent outside CI; sub-project pyright stays CI-only. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
 pyright walks up the tree for its config like `ruff.toml`: deleting a sub-project's `pyrightconfig.json` falls through to the root config instead of removing type checking. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
-Run pyright manually with `cd <sub-project> && pyright`; for root scope run `pyright` from the repo root.
+Run pyright with `cd <sub-project> && pyright`, or `pyright` at the repo root for root scope.
 
-When adding a new Python sub-project, add `pyrightconfig.json` (copy from any `standard`-mode sub-project) and a `Run pyright` step to the CI workflow. Start with `standard` mode; if a dependency has no stubs, add its names to the shared stub in `typings/` instead of dropping to `basic`.
+When adding a new Python sub-project, add `pyrightconfig.json` (copy from any `standard`-mode sub-project) and a `Run pyright` step to the CI workflow. Start with `standard`; if a dependency has no stubs, extend the shared stub in `typings/` rather than dropping to `basic`.
 
 ### Mutation testing (Python)
 
@@ -157,14 +157,16 @@ In prompt tests supplying N via `io::Cursor`, assert the concrete output artifac
 ## CI
 
 Project workflows run on PRs to `master` only; the pre-push hook gates branch pushes locally; a build job depends on its test job (`needs: [test]`). → ai-config/docs/knowledge/math-ci.md § Workflow table
-Workflows are `<project>-py.yml` (job `test`) and `<project>-rs.yml` (`test` → build + artifact), `release-<project>-rs.yml` (manual dispatch), plus `auto-merge.yml`, `mutation-pr.yml`, `mutation-testing.yml`, `mutation-testing-python.yml`, `gmp-cache.yml`, `scripts.yml` (list with `git ls-files .github/workflows/`). → ai-config/docs/knowledge/math-ci.md § Workflow table
+Workflows are `<project>-py.yml` (job `test`) and `<project>-rs.yml` (`test` → build + artifact), `release-<project>-rs.yml` (manual dispatch), plus `auto-merge.yml`, `mutation-pr.yml`, `mutation-testing.yml`, `mutation-testing-python.yml`, `gmp-cache.yml`, `cargo-deny.yml`, `scripts.yml` (`git ls-files .github/workflows/`). → ai-config/docs/knowledge/math-ci.md § Workflow table
 `auto-merge.yml` runs secret-scan, bash-coverage and claude-md-budget (gated), then ci-gate (polls required checks, merges on pass; a draft PR is held green and the `ready_for_review` run merges), then snyk-scan (advisory, not gated); `scripts.yml` runs `bats --jobs 8 --recursive tests/`. → ai-config/docs/knowledge/math-ci.md § Workflow table
 
 Crate jobs restore the GMP/MPFR build (`gmp-mpfr-sys`) read-only from `actions/cache`, failing open to a cold build via `scripts/gmp-cache-key.sh`; only `gmp-cache.yml` saves it (weekly on master), so dispatch it after a `gmp-mpfr-sys` bump on master (ADR-0034).
 
-Every `release-*-rs.yml` builds with `cargo auditable build --release` (a plain build makes the SBOM list 1 package instead of 13). → ai-config/docs/knowledge/math-ci.md § Atomic release publication
+Every `release-*-rs.yml` builds with `cargo auditable build --release` (plain: SBOM lists 1 package, not 13). → ai-config/docs/knowledge/math-ci.md § Atomic release publication
+MIT: root `LICENSE`, `license = "MIT"` per crate; root `deny.toml` is pinned whole by `tests/test_deny_policy.py` (any change needs operator approval); `scripts/cargo-deny-all.sh` checks all 11 crates.
 Sign in the release job via the composite action `.github/actions/sbom-sign`; never reintroduce a separate signing job, and keep the `Create and push tag` step after the sbom-sign step (a failure after the tag leaves an unshippable version: `fatal: tag already exists`). → ai-config/docs/knowledge/math-ci.md § Atomic release publication
 Every `softprops/action-gh-release` call sets `fail_on_unmatched_files: true`; `tests/test_release_workflows.py` pins all three invariants via `yaml.safe_load`. → ai-config/docs/knowledge/math-ci.md § Atomic release publication
+Releases attach `THIRD-PARTY-NOTICES.txt` (`scripts/third-party-notices.sh`; fails before the tag). → ai-config/docs/knowledge/math-ci.md § Atomic release publication
 Release workflows use `workflow_dispatch` with a `version` input (no `v`) and create tag `{subproject}-v{version}` themselves. A `Validate version` step right after checkout runs `scripts/check-release-version.sh <crate-dir> "${VERSION}"` (plain `MAJOR.MINOR.PATCH`, equal to `Cargo.toml`); every later step reads `steps.version.outputs.version`, never `inputs.version` (`tests/test_release_workflows.py` pins both).
 Release and CI jobs run Node.js 24 with `actions/checkout@v7`; Rust builds `needs: [test]` and use `actions/upload-artifact@v7` (7 days); badges use `?event=pull_request`.
 
@@ -250,7 +252,7 @@ Sub-project `CLAUDE.md` files are the source of truth for implementation detail;
 Verify rust-check wrapper changes with unit tests (`python3 scripts/test_rust_check.py`) plus a full online+offline crate matrix before merge. → ai-config/docs/knowledge/math-quick-reference.md § rust-offline-wrapper learnings
 
 - Generated output files (`pi_*_digits.txt`, `e_*_digits.txt`, `factorial_*.txt`, and `<name>_1e*.txt` from primes, twin-primes, fib, sq, amicable, collatz and perfect-numbers) are artifacts — `.gitignore` covers them; do not commit them.
-- See each project's `CLAUDE.md` for detailed implementation guidance, code layout, and editing rules.
+- See each project's `CLAUDE.md` for implementation guidance, layout and editing rules.
 
 ## Definition of Done
 
