@@ -94,6 +94,14 @@ jobs:
           sudo install -m755 "/tmp/shellcheck-v${SC_VER}/shellcheck" /usr/local/bin/shellcheck
           shellcheck --version | grep -q "version: ${SC_VER}"
 
+      # The cargo-deny fixture tests in the bats suite fail closed when CI is
+      # set and cargo-deny is missing; tests/test_deny_policy.py pins this.
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
+        with:
+          tool: cargo-deny@0.20.2
+          fallback: none
+
       # Floor set from CI's own first measurement, not a local run. This job
       # measured 267/1048 = 25% on ubuntu-latest, identical to the local macOS
       # figure including both heuristic disagreements. FLOOR sits one point

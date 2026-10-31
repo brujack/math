@@ -66,3 +66,38 @@ class TestDenyPolicy(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _runs_bats_suite(step):
+    run = step.get("run") or ""
+    return "bats " in run or "bash-coverage" in run
+
+
+def _installs_cargo_deny(step):
+    uses = step.get("uses") or ""
+    tool = str((step.get("with") or {}).get("tool", ""))
+    return uses.startswith("taiki-e/install-action@") and tool.startswith("cargo-deny@")
+
+
+class TestBatsJobsInstallCargoDeny(unittest.TestCase):
+    """The cargo-deny fixture tests fail closed when CI is set and cargo-deny is
+    absent, so every CI job that runs the bats suite must install it. The
+    bash-coverage job in auto-merge.yml ran the suite without it and failed."""
+
+    def test_every_job_running_bats_installs_cargo_deny(self):
+        import yaml
+
+        checked = 0
+        for path in sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml")):
+            doc = yaml.safe_load(path.read_text())
+            for job_name, job in (doc.get("jobs") or {}).items():
+                steps = job.get("steps") or []
+                if not any(_runs_bats_suite(s) for s in steps):
+                    continue
+                checked += 1
+                with self.subTest(workflow=path.name, job=job_name):
+                    self.assertTrue(
+                        any(_installs_cargo_deny(s) for s in steps),
+                        f"{path.name}:{job_name} runs bats but installs no cargo-deny",
+                    )
+        self.assertGreaterEqual(checked, 2, "expected scripts.yml and auto-merge.yml")

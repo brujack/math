@@ -175,9 +175,11 @@ class TestInstallActionPins(unittest.TestCase):
         crate_workflows = {
             f"{prefix}{c}-rs.yml" for c in rcf.CRATES for prefix in ("", "release-")
         }
-        # scripts.yml and cargo-deny.yml install cargo-deny; every other step is a crate workflow.
+        # scripts.yml, cargo-deny.yml and auto-merge.yml install cargo-deny; every other step is a crate workflow.
         self.assertEqual(
-            names, crate_workflows | {"scripts.yml", "cargo-deny.yml"}, sorted(names)
+            names,
+            crate_workflows | {"scripts.yml", "cargo-deny.yml", "auto-merge.yml"},
+            sorted(names),
         )
 
     def test_every_tool_entry_is_name_at_exact_version(self):
