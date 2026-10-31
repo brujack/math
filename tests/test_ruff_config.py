@@ -26,6 +26,23 @@ class TestRuffConfig(unittest.TestCase):
     def test_select_is_absent_so_defaults_stay_on(self) -> None:
         self.assertNotIn("select", self.lint)
 
+    def test_whole_config_is_pinned(self) -> None:
+        # Any other key can switch defaults off (e.g. `extend-ignore = ["F"]`
+        # disabled all 86 default F rules with every other test green), so the
+        # full parsed file is compared; a new key is a deliberate edit here.
+        self.assertEqual(
+            self.config,
+            {
+                "target-version": "py310",
+                "lint": {
+                    "extend-select": EXPECTED_EXTEND_SELECT,
+                    "ignore": ["RUF001", "RUF002", "RUF003"],
+                    "unfixable": ["RUF100"],
+                    "per-file-ignores": {"tests/**": ["E402"]},
+                },
+            },
+        )
+
     def test_no_deprecated_top_level_rule_selection(self) -> None:
         # ruff 0.16 still honours a top-level `select`, which would replace the
         # defaults again (measured: 467 enabled rules down to 233).
