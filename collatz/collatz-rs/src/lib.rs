@@ -1,11 +1,7 @@
 use std::io::{self, Write};
 
 pub fn collatz_next(n: u64) -> u64 {
-    if n.is_multiple_of(2) {
-        n / 2
-    } else {
-        3 * n + 1
-    }
+    if n.is_multiple_of(2) { n / 2 } else { 3 * n + 1 }
 }
 
 pub fn chain_length(n: u64, cache: &mut [u32], limit: u64) -> u32 {

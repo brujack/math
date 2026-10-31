@@ -1,6 +1,6 @@
 use std::io;
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use sq::generate_squares;
 use std::hint::black_box;
 

@@ -1,7 +1,7 @@
 use std::io::{self, Write};
 
-use rug::ops::PowAssign;
 use rug::Integer;
+use rug::ops::PowAssign;
 
 /// Generate all Fibonacci numbers with at most max_digits decimal digits,
 /// writing one number per line to `out`. Returns the total count.

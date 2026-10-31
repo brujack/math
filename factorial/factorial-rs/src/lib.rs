@@ -1,5 +1,5 @@
-use rug::ops::Pow;
 use rug::Integer;
+use rug::ops::Pow;
 
 fn sieve(n: u64) -> Vec<u32> {
     if n < 2 {

@@ -108,11 +108,12 @@ pub fn find_twin_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
 
         // Boundary: check if last prime from the previous segment + 2 equals
         // the first prime of this segment.
-        if let (Some(lp), Some(&fp)) = (last_prime, seg.first()) {
-            if fp == lp + 2 && fp < limit {
-                writeln!(out, "{} | {}", lp, fp)?;
-                count += 1;
-            }
+        if let (Some(lp), Some(&fp)) = (last_prime, seg.first())
+            && fp == lp + 2
+            && fp < limit
+        {
+            writeln!(out, "{} | {}", lp, fp)?;
+            count += 1;
         }
 
         // Twin pairs within this segment.

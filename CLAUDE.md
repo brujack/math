@@ -92,7 +92,7 @@ Neither file below is loaded at session start. Read it before the work it govern
 
 ### API-quality lints (all 11 Rust crates)
 
-Every `*-rs/Cargo.toml` enables `missing_debug_implementations = "warn"` (`[lints.rust]`) and `wrong_self_convention = "warn"` (`[lints.clippy]`); clippy runs `-D warnings`, so a `pub struct` without `#[derive(Debug)]` fails `make lint`. → ai-config/docs/knowledge/math-language-standards.md § API-quality lints in the Rust crates
+Every `*-rs/Cargo.toml` enables `missing_debug_implementations = "warn"` (`[lints.rust]`) and `wrong_self_convention = "warn"` (`[lints.clippy]`); clippy runs `-D warnings`, so a `pub struct` without `#[derive(Debug)]` fails `make lint`. Every crate is edition 2024, sets `[lints.rust] unsafe_code = "forbid"` and declares no `rust-version` (nothing builds these binaries on an older toolchain; `tests/test_crate_uniformity.py` pins all three; see `docs/superpowers/specs/2026-10-31-rust-python-standards-tier1-design.md`). → ai-config/docs/knowledge/math-language-standards.md § API-quality lints in the Rust crates
 Do not enable `missing_docs` in these crates (no cross-crate consumers). → ai-config/docs/knowledge/math-language-standards.md § API-quality lints in the Rust crates
 
 ## Testing Policy
