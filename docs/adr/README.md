@@ -40,3 +40,4 @@ Repo-specific decisions for the `math` repository. Cross-cutting decisions (CI t
 | [0034](0034-master-scoped-gmp-cache.md) | GMP/MPFR build cache is saved only by a master-scoped warm workflow | 2026-10-31 | Accepted               |
 | [0035](0035-mit-licence-cargo-deny-and-lgpl-notices.md) | MIT licence, cargo-deny replaces cargo-audit, LGPL notices for statically linked GMP | 2026-10-31 | Accepted               |
 | [0036](0036-edition-2024-no-msrv-and-ruff-defaults.md) | Edition 2024 with unsafe forbidden and no MSRV; ruff extends its default rules | 2026-10-31 | Accepted               |
+| [0037](0037-ci-supply-chain-guardrails.md) | CI supply-chain guardrails: verified downloads, locked cargo-deny, no system GMP | 2026-10-31 | Accepted               |
