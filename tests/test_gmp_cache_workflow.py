@@ -6,7 +6,10 @@ comment cannot fake a directive) and assert the invariants that keep a bad or
 partial cache from ever being saved.
 """
 
+import os
 import re
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
@@ -104,6 +107,67 @@ class WarmWorkflowTests(unittest.TestCase):
         self.assertTrue(uses)
         for ref in uses:
             self.assertRegex(ref, PINNED)
+
+
+LIBS = ("libgmp.a", "libmpfr.a", "libmpc.a")
+
+
+def _lock_text(version: str) -> str:
+    return f'[[package]]\nname = "gmp-mpfr-sys"\nversion = "{version}"\n'
+
+
+class CheckStepTests(unittest.TestCase):
+    """Execute the check step's shell against fixture cache trees."""
+
+    def _run_check(self, cache_dirs: dict[str, tuple[str, ...]]) -> tuple[int, str]:
+        run = str(_run_step("libmpc.a")["run"])
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            for crate, version in (("e", "1.7.0"), ("f", "1.7.1")):
+                lock = repo / crate / f"{crate}-rs" / "Cargo.lock"
+                lock.parent.mkdir(parents=True)
+                lock.write_text(_lock_text(version))
+            cache = Path(tmp) / "cache"
+            for version, libs in cache_dirs.items():
+                major_minor = version.rsplit(".", 1)[0]
+                lib_dir = cache / major_minor / "x86_64-unknown-linux-gnu" / version
+                lib_dir.mkdir(parents=True)
+                for lib in libs:
+                    (lib_dir / lib).write_text("")
+            env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+            env["GMP_MPFR_SYS_CACHE"] = str(cache)
+            git = ["git", "-c", "user.name=t", "-c", "user.email=t@t"]
+            subprocess.run(["git", "init", "-q"], cwd=repo, env=env, check=True)
+            subprocess.run([*git, "add", "-A"], cwd=repo, env=env, check=True)
+            proc = subprocess.run(
+                ["bash", "-c", run],
+                cwd=repo,
+                env=env,
+                capture_output=True,
+                text=True,
+                stdin=subprocess.DEVNULL,
+                check=False,
+            )
+        return proc.returncode, proc.stderr
+
+    def test_newer_patch_dir_alone_satisfies_older_lock(self) -> None:
+        code, err = self._run_check({"1.7.1": LIBS})
+        self.assertEqual(code, 0, err)
+
+    def test_only_older_patch_dir_fails_naming_newer_version(self) -> None:
+        code, err = self._run_check({"1.7.0": LIBS})
+        self.assertEqual(code, 1)
+        self.assertIn("1.7.1", err)
+
+    def test_missing_library_is_named(self) -> None:
+        code, err = self._run_check({"1.7.1": ("libgmp.a", "libmpfr.a")})
+        self.assertEqual(code, 1)
+        self.assertIn("libmpc.a", err)
+
+    def test_different_minor_does_not_satisfy(self) -> None:
+        code, err = self._run_check({"1.8.0": LIBS})
+        self.assertEqual(code, 1)
+        self.assertIn("1.7", err)
 
 
 class ScriptsWorkflowTests(unittest.TestCase):

@@ -48,22 +48,37 @@ jobs:
       - name: Check cached libraries
         if: steps.restore.outputs.cache-hit != 'true'
         run: |
+          # gmp-mpfr-sys keeps only the newest patch dir per minor, and a crate
+          # locked at 1.7.0 loads 1.7.1, so any same-minor dir with patch >= the
+          # locked patch satisfies the lock.
           while IFS= read -r lock; do
             if ! grep -q '^name = "gmp-mpfr-sys"$' "${lock}"; then
               continue
             fi
             v="$(grep -A1 '^name = "gmp-mpfr-sys"$' "${lock}" | sed -n 's/^version = "\(.*\)"$/\1/p')"
             [[ -n "${v}" ]] || { printf 'no gmp-mpfr-sys version in %s\n' "${lock}" >&2; exit 1; }
-            for lib in libgmp.a libmpfr.a libmpc.a; do
-              found=""
-              for dir in "${GMP_MPFR_SYS_CACHE}"/*/*/"${v}"; do
-                if [[ -n "$(find "${dir}" -name "${lib}" -print -quit 2>/dev/null)" ]]; then
-                  found=1
-                  break
+            minor="${v%.*}"
+            patch="${v##*.}"
+            satisfied=""
+            missing="libgmp.a libmpfr.a libmpc.a"
+            for dir in "${GMP_MPFR_SYS_CACHE}/${minor}"/*/*; do
+              [[ -d "${dir}" ]] || continue
+              w="${dir##*/}"
+              [[ "${w%.*}" == "${minor}" && "${w##*.}" =~ ^[0-9]+$ ]] || continue
+              (( 10#${w##*.} >= 10#${patch} )) || continue
+              lacking=""
+              for lib in libgmp.a libmpfr.a libmpc.a; do
+                if [[ -z "$(find "${dir}" -name "${lib}" -print -quit)" ]]; then
+                  lacking="${lacking} ${lib}"
                 fi
               done
-              [[ -n "${found}" ]] || { printf 'missing %s for gmp-mpfr-sys %s (%s)\n' "${lib}" "${v}" "${lock}" >&2; exit 1; }
+              if [[ -z "${lacking}" ]]; then
+                satisfied=1
+                break
+              fi
+              missing="${lacking# }"
             done
+            [[ -n "${satisfied}" ]] || { printf 'missing %s for gmp-mpfr-sys %s (%s)\n' "${missing}" "${v}" "${lock}" >&2; exit 1; }
           done < <(git ls-files '*/*-rs/Cargo.lock')
 
       - name: Save GMP cache
