@@ -13,14 +13,14 @@ jobs:
   warm:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      GMP_MPFR_SYS_CACHE: ${{ runner.temp }}/gmp-mpfr-sys
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Derive GMP cache key
         id: gmpkey
-        run: scripts/gmp-cache-key.sh --strict >> "$GITHUB_OUTPUT"
+        run: |
+          printf 'GMP_MPFR_SYS_CACHE=%s\n' "${RUNNER_TEMP}/gmp-mpfr-sys" >> "$GITHUB_ENV"
+          scripts/gmp-cache-key.sh --strict >> "$GITHUB_OUTPUT"
 
       - name: Restore GMP cache
         id: restore
@@ -60,25 +60,31 @@ jobs:
             minor="${v%.*}"
             patch="${v##*.}"
             satisfied=""
-            missing="libgmp.a libmpfr.a libmpc.a"
+            candidates=""
+            report=""
             for dir in "${GMP_MPFR_SYS_CACHE}/${minor}"/*/*; do
               [[ -d "${dir}" ]] || continue
               w="${dir##*/}"
               [[ "${w%.*}" == "${minor}" && "${w##*.}" =~ ^[0-9]+$ ]] || continue
+              candidates="${candidates} ${w}"
               (( 10#${w##*.} >= 10#${patch} )) || continue
               lacking=""
               for lib in libgmp.a libmpfr.a libmpc.a; do
-                if [[ -z "$(find "${dir}" -name "${lib}" -print -quit)" ]]; then
-                  lacking="${lacking} ${lib}"
-                fi
+                [[ -f "${dir}/${lib}" ]] || lacking="${lacking} ${lib}"
               done
               if [[ -z "${lacking}" ]]; then
                 satisfied=1
                 break
               fi
-              missing="${lacking# }"
+              report="missing${lacking} for gmp-mpfr-sys ${v} in ${dir} (${lock})"
             done
-            [[ -n "${satisfied}" ]] || { printf 'missing %s for gmp-mpfr-sys %s (%s)\n' "${missing}" "${v}" "${lock}" >&2; exit 1; }
+            [[ -z "${satisfied}" ]] || continue
+            if [[ -z "${report}" ]]; then
+              report="no cache dir for gmp-mpfr-sys ${v} at patch >= ${patch} (found ${candidates# }) (${lock})"
+              [[ -n "${candidates}" ]] || report="no cache dir for gmp-mpfr-sys ${v} at patch >= ${patch} (found none) (${lock})"
+            fi
+            printf '%s\n' "${report}" >&2
+            exit 1
           done < <(git ls-files '*/*-rs/Cargo.lock')
 
       - name: Save GMP cache

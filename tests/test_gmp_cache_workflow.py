@@ -79,11 +79,25 @@ class WarmWorkflowTests(unittest.TestCase):
         self.assertNotIn("restore-keys", step["with"])
         self.assertEqual(set(step["with"]), {"path", "key"})
 
-    def test_save_step_uses_derived_key_and_job_path(self) -> None:
-        job = _load(WARM_PATH)["jobs"]["warm"]
+    def test_save_step_uses_derived_key_and_cache_path(self) -> None:
         save = _uses_step("actions/cache/save@")
         self.assertEqual(save["with"]["key"], "${{ steps.gmpkey.outputs.key }}")
-        self.assertEqual(save["with"]["path"], job["env"]["GMP_MPFR_SYS_CACHE"])
+        self.assertEqual(save["with"]["path"], "${{ runner.temp }}/gmp-mpfr-sys")
+        self.assertEqual(_step_by_id("restore")["with"]["path"], save["with"]["path"])
+
+    def test_no_job_env_references_runner_context(self) -> None:
+        # The runner context is not available at jobs.<id>.env; GitHub rejects it.
+        for name, job in _load(WARM_PATH)["jobs"].items():
+            for key, value in (job.get("env") or {}).items():
+                self.assertNotIn("runner.", str(value), f"{name}.env.{key}")
+
+    def test_key_step_exports_cache_dir_before_key_script(self) -> None:
+        run = str(_step_by_id("gmpkey")["run"])
+        export = "GMP_MPFR_SYS_CACHE=%s"
+        self.assertIn(export, run)
+        self.assertIn('"${RUNNER_TEMP}/gmp-mpfr-sys"', run)
+        self.assertIn('>> "$GITHUB_ENV"', run)
+        self.assertLess(run.index("GITHUB_ENV"), run.index("gmp-cache-key.sh"))
 
     def test_build_check_and_save_gated_on_cache_miss(self) -> None:
         build = _run_step("cargo build --locked -p gmp-mpfr-sys")
@@ -91,11 +105,6 @@ class WarmWorkflowTests(unittest.TestCase):
         save = _uses_step("actions/cache/save@")
         for step in (build, check, save):
             self.assertEqual(step.get("if"), MISS_GATE)
-
-    def test_build_runs_in_each_crate_dir(self) -> None:
-        run = str(_run_step("cargo build --locked -p gmp-mpfr-sys")["run"])
-        self.assertIn("cd ", run)
-        self.assertIn("|| exit 1", run)
 
     def test_check_names_all_three_libraries(self) -> None:
         run = str(_run_step("libmpc.a")["run"])
@@ -112,33 +121,57 @@ class WarmWorkflowTests(unittest.TestCase):
 LIBS = ("libgmp.a", "libmpfr.a", "libmpc.a")
 
 
-def _lock_text(version: str) -> str:
+def _lock_text(version: str | None) -> str:
+    if version is None:
+        return '[[package]]\nname = "other"\nversion = "0.1.0"\n'
     return f'[[package]]\nname = "gmp-mpfr-sys"\nversion = "{version}"\n'
 
 
-class CheckStepTests(unittest.TestCase):
-    """Execute the check step's shell against fixture cache trees."""
+def _clean_env() -> dict[str, str]:
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
 
-    def _run_check(self, cache_dirs: dict[str, tuple[str, ...]]) -> tuple[int, str]:
-        run = str(_run_step("libmpc.a")["run"])
+
+def _make_repo(root: Path, locks: dict[str, str | None]) -> Path:
+    """Fixture git repo with `<crate>/<crate>-rs/Cargo.lock` per entry."""
+    repo = root / "repo"
+    for crate, version in locks.items():
+        lock = repo / crate / f"{crate}-rs" / "Cargo.lock"
+        lock.parent.mkdir(parents=True)
+        lock.write_text(_lock_text(version))
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run(["git", "init", "-q"], cwd=repo, env=_clean_env(), check=True)
+    subprocess.run([*git, "add", "-A"], cwd=repo, env=_clean_env(), check=True)
+    return repo
+
+
+def _make_cache(root: Path, dirs: dict[str, tuple[str, ...]]) -> Path:
+    """Cache tree; file names may carry a subpath such as `c-no-tests/libgmp.a`."""
+    cache = root / "cache"
+    cache.mkdir()
+    for version, files in dirs.items():
+        major_minor = version.rsplit(".", 1)[0]
+        lib_dir = cache / major_minor / "x86_64-unknown-linux-gnu" / version
+        lib_dir.mkdir(parents=True)
+        for name in files:
+            (lib_dir / name).parent.mkdir(parents=True, exist_ok=True)
+            (lib_dir / name).write_text("")
+    return cache
+
+
+class BuildStepTests(unittest.TestCase):
+    def test_cargo_runs_once_in_each_gmp_crate_dir_only(self) -> None:
+        run = str(_run_step("cargo build --locked -p gmp-mpfr-sys")["run"])
         with tempfile.TemporaryDirectory() as tmp:
-            repo = Path(tmp) / "repo"
-            for crate, version in (("e", "1.7.0"), ("f", "1.7.1")):
-                lock = repo / crate / f"{crate}-rs" / "Cargo.lock"
-                lock.parent.mkdir(parents=True)
-                lock.write_text(_lock_text(version))
-            cache = Path(tmp) / "cache"
-            for version, libs in cache_dirs.items():
-                major_minor = version.rsplit(".", 1)[0]
-                lib_dir = cache / major_minor / "x86_64-unknown-linux-gnu" / version
-                lib_dir.mkdir(parents=True)
-                for lib in libs:
-                    (lib_dir / lib).write_text("")
-            env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-            env["GMP_MPFR_SYS_CACHE"] = str(cache)
-            git = ["git", "-c", "user.name=t", "-c", "user.email=t@t"]
-            subprocess.run(["git", "init", "-q"], cwd=repo, env=env, check=True)
-            subprocess.run([*git, "add", "-A"], cwd=repo, env=env, check=True)
+            root = Path(tmp)
+            repo = _make_repo(root, {"a": "1.7.1", "b": None, "c": "1.7.0"})
+            bindir = root / "bin"
+            bindir.mkdir()
+            log = root / "cargo.log"
+            fake = bindir / "cargo"
+            fake.write_text(f'#!/bin/sh\nprintf \'%s|%s\\n\' "$PWD" "$*" >> "{log}"\n')
+            fake.chmod(0o755)
+            env = _clean_env()
+            env["PATH"] = f"{bindir}:{env['PATH']}"
             proc = subprocess.run(
                 ["bash", "-c", run],
                 cwd=repo,
@@ -148,26 +181,111 @@ class CheckStepTests(unittest.TestCase):
                 stdin=subprocess.DEVNULL,
                 check=False,
             )
-        return proc.returncode, proc.stderr
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            calls = sorted(log.read_text().splitlines())
+            repo_real = repo.resolve()
+            self.assertEqual(
+                calls,
+                [
+                    f"{repo_real}/a/a-rs|build --locked -p gmp-mpfr-sys",
+                    f"{repo_real}/c/c-rs|build --locked -p gmp-mpfr-sys",
+                ],
+            )
+
+    def test_cargo_failure_fails_the_step(self) -> None:
+        run = str(_run_step("cargo build --locked -p gmp-mpfr-sys")["run"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = _make_repo(root, {"a": "1.7.1"})
+            bindir = root / "bin"
+            bindir.mkdir()
+            fake = bindir / "cargo"
+            fake.write_text("#!/bin/sh\nexit 7\n")
+            fake.chmod(0o755)
+            env = _clean_env()
+            env["PATH"] = f"{bindir}:{env['PATH']}"
+            proc = subprocess.run(
+                ["bash", "-c", run],
+                cwd=repo,
+                env=env,
+                capture_output=True,
+                text=True,
+                stdin=subprocess.DEVNULL,
+                check=False,
+            )
+        self.assertEqual(proc.returncode, 1)
+
+
+class CheckStepTests(unittest.TestCase):
+    """Execute the check step's shell against fixture cache trees."""
+
+    def _run_check(
+        self,
+        cache_dirs: dict[str, tuple[str, ...]],
+        locks: dict[str, str | None] | None = None,
+    ) -> tuple[int, str]:
+        run = str(_run_step("libmpc.a")["run"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = _make_repo(root, locks or {"e": "1.7.0", "f": "1.7.1"})
+            env = _clean_env()
+            env["GMP_MPFR_SYS_CACHE"] = str(_make_cache(root, cache_dirs))
+            proc = subprocess.run(
+                ["bash", "-c", run],
+                cwd=repo,
+                env=env,
+                capture_output=True,
+                text=True,
+                stdin=subprocess.DEVNULL,
+                check=False,
+            )
+        return proc.returncode, proc.stderr.replace(tmp, "<tmp>")
 
     def test_newer_patch_dir_alone_satisfies_older_lock(self) -> None:
         code, err = self._run_check({"1.7.1": LIBS})
         self.assertEqual(code, 0, err)
 
-    def test_only_older_patch_dir_fails_naming_newer_version(self) -> None:
+    def test_only_older_patch_dir_reports_no_cache_dir(self) -> None:
         code, err = self._run_check({"1.7.0": LIBS})
         self.assertEqual(code, 1)
-        self.assertIn("1.7.1", err)
+        self.assertEqual(
+            err,
+            "no cache dir for gmp-mpfr-sys 1.7.1 at patch >= 1 (found 1.7.0)"
+            " (f/f-rs/Cargo.lock)\n",
+        )
 
     def test_missing_library_is_named(self) -> None:
         code, err = self._run_check({"1.7.1": ("libgmp.a", "libmpfr.a")})
         self.assertEqual(code, 1)
-        self.assertIn("libmpc.a", err)
+        self.assertEqual(
+            err,
+            "missing libmpc.a for gmp-mpfr-sys 1.7.0 in "
+            "<tmp>/cache/1.7/x86_64-unknown-linux-gnu/1.7.1 (e/e-rs/Cargo.lock)\n",
+        )
 
     def test_different_minor_does_not_satisfy(self) -> None:
         code, err = self._run_check({"1.8.0": LIBS})
         self.assertEqual(code, 1)
-        self.assertIn("1.7", err)
+        self.assertEqual(
+            err,
+            "no cache dir for gmp-mpfr-sys 1.7.0 at patch >= 0 (found none)"
+            " (e/e-rs/Cargo.lock)\n",
+        )
+
+    def test_patch_compare_is_numeric_not_lexical(self) -> None:
+        code, err = self._run_check({"1.7.10": LIBS}, {"e": "1.7.9"})
+        self.assertEqual(code, 0, err)
+
+    def test_older_numeric_patch_does_not_satisfy_newer_lock(self) -> None:
+        code, err = self._run_check({"1.7.9": LIBS}, {"e": "1.7.10"})
+        self.assertEqual(code, 1)
+        self.assertIn("no cache dir for gmp-mpfr-sys 1.7.10 at patch >= 10", err)
+
+    def test_library_under_subdirectory_does_not_count(self) -> None:
+        nested = tuple(f"c-no-tests/{lib}" for lib in LIBS)
+        code, err = self._run_check({"1.7.1": nested}, {"e": "1.7.1"})
+        self.assertEqual(code, 1)
+        self.assertIn("missing libgmp.a libmpfr.a libmpc.a", err)
 
 
 class ScriptsWorkflowTests(unittest.TestCase):
