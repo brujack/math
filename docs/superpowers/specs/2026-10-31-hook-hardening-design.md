@@ -186,3 +186,34 @@ Risk: Finding: R7 checked only the "absent" direction. The mutant `RUFF :=` (alw
 - The probe costs about 0.05 s per root make parse.
 Assumption: none uncertain; V3 now confirms the CI side.
 Disposition: Addressed (fix in text, apparatus-level). R7 and the design now require the positive case, V3 checks the CI log, and a Backlog row records the unguarded sub-project template. Review stops here: the finding sits in the test apparatus, and this round changed nothing in the design.
+
+## Amendments
+
+- finding R4 (2026-10-31, reviewer A): DIFFERS — The case at tests/scripts/pre_push_budget.bats:227 pushes a fake local sha against an existing remote sha (head_sha) and asserts rc 1, but checks `cannot determine a base` in bats `${output}` (merged stdout+stderr unless run_hook separates them, which this diff does not show), so it does not assert the message is on stderr as the requirement says.
+- R4 -> A `pre_push_budget.bats` case pushes a nonexistent local sha with an existing remote sha and asserts rc 1 and `cannot determine a base` in the hook's output. — bats `run` merges stdout and stderr, as every case in this file does; the refusal prints to stderr, and the V2 mutation shows the case fails when it is removed.
+- finding R5 (2026-10-31, reviewer A): DIFFERS — The case at tests/scripts/pre_push_budget.bats:236 stubs mktemp to exit 1 and asserts rc 1 and the message text, but against `${output}` rather than stderr, so the stream the requirement names is not asserted.
+- R5 -> A `pre_push_budget.bats` case with a failing `mktemp` stub asserts rc 1 and `cannot create a temp file for the CLAUDE.md checker` in the hook's output. — bats `run` merges stdout and stderr, as every case in this file does; the refusal prints to stderr, and the Task 4 mutation shows the case fails when the guard is removed.
+
+## Spec alignment (2026-10-31)
+
+- spec: docs/superpowers/specs/2026-10-31-hook-hardening-design.md
+- anchor: 05ed27f2a4c8384a7895f5508ce1fa0136ef7696
+- in scope: R1, R2, R3, R4, R5, R6, R7
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+| R4 | A | DIFFERS | The case at tests/scripts/pre_push_budget.bats:227 pushes a fake local sha against an existing remote sha (head_sha) and asserts rc 1, but checks `cannot determine a base` in bats `${output}` (merged stdout+stderr unless run_hook separates them, which this diff does not show), so it does not assert the message is on stderr as the requirement says. | - R4 -> A `pre_push_budget.bats` case pushes a nonexistent local sha with an existing remote sha and asserts rc 1 and `cannot determine a base` in the hook's output. — bats `run` merges stdout and stderr, as every case in this file does; the refusal prints to stderr, and the V2 mutation shows the case fails when it is removed. |
+| R5 | A | DIFFERS | The case at tests/scripts/pre_push_budget.bats:236 stubs mktemp to exit 1 and asserts rc 1 and the message text, but against `${output}` rather than stderr, so the stream the requirement names is not asserted. | - R5 -> A `pre_push_budget.bats` case with a failing `mktemp` stub asserts rc 1 and `cannot create a temp file for the CLAUDE.md checker` in the hook's output. — bats `run` merges stdout and stderr, as every case in this file does; the refusal prints to stderr, and the Task 4 mutation shows the case fails when the guard is removed. |
+
+### Reviewed
+
+- none
+
+### Verifications
+
+- V1: orchestrator ran pre_push.bats with read-only HOME and bogus GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE in a scratchpad dir: rc 0, 47 ok (2026-10-31)
+- V2: scratch-copy mutations: rm -f removal fails test 16 only (orchestrator); no-base return-0 fails 14, mktemp guard removal fails 15 (Task 4 implementer)
+- V3: pending: PR CI
