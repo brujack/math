@@ -435,10 +435,9 @@ cosign verify-blob factorial \
 
 Replace `factorial` with the sub-project name (e.g. `fib`), and `release-factorial-rs.yml` with that
 sub-project's own release workflow filename (e.g. `release-fib-rs.yml`) — the certificate identity is
-the workflow that requested the signing certificate, not the tag being released. No release has been
-cut with this pipeline yet, so treat the identity above as derived from how keyless signing works
-rather than observed — read it back from a real release's own `.bundle` to confirm it before relying
-on it.
+the workflow that requested the signing certificate, not the tag being released. This identity was confirmed against
+real releases on 2026-10-31: every `v0.1.0` and `v0.2.0` binary verifies with it (cosign v3.1.4), and
+the same command fails for another sub-project's workflow identity or a different binary.
 
 ## License
 

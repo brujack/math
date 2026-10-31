@@ -35,7 +35,7 @@ EXPECTED = {
             {"crate": "gmp-mpfr-sys", "allow": ["LGPL-3.0-or-later"]},
         ],
     },
-    "advisories": {"unmaintained": "all"},
+    "advisories": {"unmaintained": "all", "unsound": "all"},
     "bans": {"multiple-versions": "warn"},
     "sources": {"unknown-registry": "deny", "unknown-git": "deny"},
 }
