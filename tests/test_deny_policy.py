@@ -56,12 +56,21 @@ class TestDenyPolicy(unittest.TestCase):
             ],
         )
 
-    def test_one_ignore_list_no_workflow_has_its_own(self):
-        """deny.toml is the only advisory ignore list; no workflow may carry one."""
+    def test_one_ignore_list_no_workflow_or_script_has_its_own(self):
+        """deny.toml is the only advisory ignore list. math runs cargo-deny through
+        scripts/cargo-deny-all.sh, so scripts are scanned as well as workflows."""
         files = sorted((REPO_ROOT / ".github" / "workflows").glob("*.y*ml"))
-        self.assertTrue(files)
-        offenders = [f.name for f in files if "--ignore RUSTSEC" in f.read_text()]
+        files += sorted((REPO_ROOT / "scripts").glob("*.sh"))
+        self.assertTrue(any(f.name == "cargo-deny-all.sh" for f in files))
+        pattern = re.compile(r"--ignore[=\s\\]+RUSTSEC")
+        offenders = [f.name for f in files if pattern.search(f.read_text())]
         self.assertEqual(offenders, [])
+
+    def test_only_the_four_known_sections(self):
+        # A [graph] exclude or targets list would drop crates from every check.
+        self.assertLessEqual(
+            set(self._deny()), {"licenses", "advisories", "bans", "sources"}
+        )
 
     def test_tracked_crate_manifests_are_exactly_the_eleven_crates(self):
         env = {
