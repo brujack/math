@@ -1,10 +1,13 @@
 """deny.toml policy guards for all 11 crates, matching etch-cli.
 
-The policy itself is proven by behaviour, not by pinning its text: the
-tests/fixtures/cargo-deny controls (tests/scripts/cargo_deny_fixtures.bats) show a
-GPL crate rejected and the MIT, LGPL-excepted and rug crates accepted. These tests
-pin the crate list `cargo deny` runs over, keep deny.toml the only advisory ignore
-list, and make every bats job install cargo-deny.
+The licence policy is proven by behaviour, not by pinning the file's text: the
+tests/fixtures/cargo-deny controls (tests/scripts/cargo_deny_fixtures.bats) show GPL
+and un-excepted LGPL crates rejected, and MIT and rug (only through its exception)
+accepted. Fixtures cannot see the settings below, so these tests pin them by key:
+unsound/unmaintained "all" (cargo-deny's "workspace" default hides transitive
+unsound advisories), sources "deny", and the LGPL exception crates the release
+notices cover. They also pin the 11-crate list, keep deny.toml the only advisory
+ignore list, and make every bats job install cargo-deny.
 """
 
 import os
@@ -14,6 +17,8 @@ import subprocess
 import sys
 import unittest
 
+import tomllib
+
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
@@ -21,6 +26,30 @@ from scripts import render_crate_files as rcf
 
 
 class TestDenyPolicy(unittest.TestCase):
+    def _deny(self):
+        with (REPO_ROOT / "deny.toml").open("rb") as handle:
+            return tomllib.load(handle)
+
+    def test_advisories_cover_transitive_crates(self):
+        advisories = self._deny()["advisories"]
+        self.assertEqual(advisories.get("unsound"), "all")
+        self.assertEqual(advisories.get("unmaintained"), "all")
+
+    def test_unknown_sources_are_denied(self):
+        sources = self._deny()["sources"]
+        self.assertEqual(sources.get("unknown-registry"), "deny")
+        self.assertEqual(sources.get("unknown-git"), "deny")
+
+    def test_lgpl_exceptions_are_exactly_rug_and_gmp_mpfr_sys(self):
+        exceptions = self._deny()["licenses"].get("exceptions", [])
+        self.assertEqual(
+            sorted((e["crate"], tuple(e["allow"])) for e in exceptions),
+            [
+                ("gmp-mpfr-sys", ("LGPL-3.0-or-later",)),
+                ("rug", ("LGPL-3.0-or-later",)),
+            ],
+        )
+
     def test_one_ignore_list_no_workflow_has_its_own(self):
         """deny.toml is the only advisory ignore list; no workflow may carry one."""
         files = sorted((REPO_ROOT / ".github" / "workflows").glob("*.y*ml"))

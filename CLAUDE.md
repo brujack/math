@@ -163,7 +163,7 @@ Workflows are `<project>-py.yml` (job `test`) and `<project>-rs.yml` (`test` →
 Crate jobs restore the GMP/MPFR build (`gmp-mpfr-sys`) read-only from `actions/cache`, failing open to a cold build via `scripts/gmp-cache-key.sh`; only `gmp-cache.yml` saves it (weekly on master), so dispatch it after a `gmp-mpfr-sys` bump on master (ADR-0034).
 
 Every `release-*-rs.yml` builds with `cargo auditable build --release` (plain: SBOM lists 1 package, not 13). → ai-config/docs/knowledge/math-ci.md § Atomic release publication
-MIT: root `LICENSE`, `license = "MIT"` per crate; root `deny.toml` is proven by the `tests/fixtures/cargo-deny` controls, as in etch-cli; `scripts/cargo-deny-all.sh` checks all 11 crates (`--locked`).
+MIT: root `LICENSE`, `license = "MIT"` per crate; root `deny.toml` is guarded by `tests/fixtures/cargo-deny` and `tests/test_deny_policy.py`; `scripts/cargo-deny-all.sh` checks all 11 crates (`--locked`).
 Sign in the release job via the composite action `.github/actions/sbom-sign`; never reintroduce a separate signing job, and keep the `Create and push tag` step after the sbom-sign step (a failure after the tag leaves an unshippable version: `fatal: tag already exists`). → ai-config/docs/knowledge/math-ci.md § Atomic release publication
 Every `softprops/action-gh-release` call sets `fail_on_unmatched_files: true`; `tests/test_release_workflows.py` pins all three invariants via `yaml.safe_load`. → ai-config/docs/knowledge/math-ci.md § Atomic release publication
 Releases attach `THIRD-PARTY-NOTICES.txt` (`scripts/third-party-notices.sh`; fails before the tag). → ai-config/docs/knowledge/math-ci.md § Atomic release publication
