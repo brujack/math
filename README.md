@@ -389,7 +389,7 @@ PEP 668 externally-managed interpreter rather than using `--break-system-package
 and the refusal names the remedy: `python3 -m venv .venv && . .venv/bin/activate`.
 Without it, `make test` fails at import — `scripts/pre-push` runs the root suite on
 any push touching `scripts/`, `tests/` or `.claude/scripts/`.
-Pushes to master are also judged by ai-config's shared push-content gate (ADR-0091):
+Pushes to master or main are also judged by ai-config's shared push-content gate (ADR-0091):
 `scripts/pre-push` loads it from GitHub and refuses the push when it cannot load; a
 feature push makes no network call.
 
