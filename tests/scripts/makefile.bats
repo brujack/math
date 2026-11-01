@@ -756,6 +756,9 @@ _py_stub_setup() {
     local bin="${BATS_TEST_TMPDIR}/bin"
     mkdir -p "${STUBDIR}" "${bin}"
     cp "${REPO_ROOT}/fib/Makefile" "${STUBDIR}/Makefile"
+    mkdir -p "${BATS_TEST_TMPDIR}/scripts"
+    : > "${BATS_TEST_TMPDIR}/scripts/cosmic_ray_shard.py"
+    : > "${BATS_TEST_TMPDIR}/scripts/cosmic_ray_cell_status.py"
     printf 'ORIGINAL\n' > "${STUBDIR}/fib.py"
     printf 'TEST\n' > "${STUBDIR}/test_fib.py"
     printf 'CONFIG\n' > "${STUBDIR}/cosmic-ray.toml"
@@ -781,6 +784,11 @@ case "$1" in
             printf 'R' > mutants-report.txt
             ln -s /nonexistent/x "${STUBDIR}/mutants-report.txt"
         fi
+        # A session in scratch whose project-side destination is a dangling symlink: copy-back must fail.
+        if [ -n "${STUB_EXEC_DANGLE_SESSION}" ]; then
+            printf 'S' > cosmic-ray-session.sqlite
+            ln -s /nonexistent/x "${STUBDIR}/cosmic-ray-session.sqlite"
+        fi
         # Hang after writing the session, as a cancelled CI job would find exec.
         if [ -n "${STUB_EXEC_HANG}" ]; then
             printf 'S' > cosmic-ray-session.sqlite
@@ -805,7 +813,10 @@ case "$*" in
             fi
         } >> "${BATS_TEST_TMPDIR}/status-seen"
         exit "${STUB_STATUS_RC:-0}" ;;
-    *cosmic_ray_shard*) exit "${STUB_SHARD_RC:-0}" ;;
+    *cosmic_ray_shard*)
+        # The helper must be reachable from the scratch copy, as the real recipe needs it.
+        [ -f "$1" ] || exit 2
+        exit "${STUB_SHARD_RC:-0}" ;;
 esac
 exit 0
 STUB
@@ -1067,4 +1078,24 @@ _scratch_tmp() {
     [ "${status}" -ne 0 ]
     [ "$(cat "${STUBDIR}/cosmic-ray-session.sqlite")" = "S" ]
     [ -z "$(ls -A "${STUBDIR}/reltmp")" ]
+}
+
+@test "python mutants keeps the scratch copy when the session copy-back fails" {
+    _py_stub_setup
+    _scratch_tmp
+    run env TMPDIR="${SCRATCH_T}" STUB_EXEC_DANGLE_SESSION=1 STUB_EXEC_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"mutants: kept"* ]]
+    [ -n "$(ls -A "${SCRATCH_T}")" ]
+}
+
+@test "every cosmic-ray project has both helper scripts at ../scripts" {
+    local n=0 cfg dir
+    while IFS= read -r cfg; do
+        dir="${REPO_ROOT}/$(dirname "${cfg}")"
+        [ -f "${dir}/../scripts/cosmic_ray_shard.py" ]
+        [ -f "${dir}/../scripts/cosmic_ray_cell_status.py" ]
+        n=$((n + 1))
+    done < <(git -C "${REPO_ROOT}" ls-files ':(glob)*/cosmic-ray.toml')
+    [ "${n}" -eq 8 ]
 }
