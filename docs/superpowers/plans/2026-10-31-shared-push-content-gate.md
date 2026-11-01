@@ -1,5 +1,7 @@
 # Shared Push-Content Gate — PR8 (math) Implementation Plan
 
+> **Status: DONE** — merged as #193 (`1fc135e`). V1 on 2026-10-31 (copied hook, local bare remote, `make` stub): code to master refused `[file rule R2]`, docs to master permitted, feature push permitted. The main checkout's hook is a symlink and runs the merged script.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Spec:** ai-config `docs/superpowers/specs/2026-10-30-shared-push-content-gate-design.md`, which is cross-repo, so this plan has no `spec:` line. R13 (amended 2026-10-31) is copied below. Spec alignment records SKIP for this PR (operator decision, 2026-10-31).

@@ -53,6 +53,7 @@ Master status index for all specs and implementation plans in this directory.
 | 2026-10-31 | [ci-supply-chain-bundle](plans/2026-10-31-ci-supply-chain-bundle.md) | [spec](specs/2026-10-31-ci-supply-chain-bundle-design.md) | Done (#191) |
 | 2026-10-31 | [hook-hardening](plans/2026-10-31-hook-hardening.md) | [spec](specs/2026-10-31-hook-hardening-design.md) | Done (#192) |
 | 2026-10-31 | [python-makefile-template-hardening](plans/2026-10-31-python-makefile-template-hardening.md) | [spec](specs/2026-10-31-python-makefile-template-hardening-design.md) | In Progress |
+| 2026-10-31 | [shared-push-content-gate](plans/2026-10-31-shared-push-content-gate.md) | ai-config `2026-10-30-shared-push-content-gate-design.md` (cross-repo) | Done |
 
 ---
 
