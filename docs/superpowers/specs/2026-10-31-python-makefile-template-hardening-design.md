@@ -37,6 +37,7 @@ All on Linux `claude`, 2026-10-31, master `9b328bc`.
 `init`, the optional shard step, `exec` and the two `cr-report` calls run in a scratch directory that holds only what cosmic-ray reads. The source tree is never mutated.
 
 - The project directory first drops the previous run's outputs: `rm -f cosmic-ray-session.sqlite mutants-report.txt || exit 1`. A failed run then cannot leave stale results that `make mutants-report` or CI would present as current.
+- Before anything else the recipe records `proj="$$(pwd)"`, the absolute project path. The copy-backs and the trap use it after the `cd` into scratch.
 - The scratch directory is set up like this:
   - `work="$$(mktemp -d "$${TMPDIR:-/tmp}/mutants-@CRATE@.XXXXXX")" || exit 1`
   - `mkdir "$$work/@CRATE@"`
@@ -46,12 +47,16 @@ All on Linux `claude`, 2026-10-31, master `9b328bc`.
 - Only those three files are copied, never `.`, because every Python project directory also holds its Rust crate. Measured 2026-10-31 on `claude` with `du -sh`: `fib` is 668M and `pi` 1.8G, almost all of it `<p>-rs/target/`, and `/tmp` is tmpfs with `TMPDIR` unset. The three files total about 116K for fib.
   - Each `test_*.py` imports only its sibling module and resolves files through `Path(__file__).parent`, as two lenses grepped.
   - `typings/` is read by pyright only.
-- An `EXIT` trap does two things:
-  - It copies `cosmic-ray-session.sqlite`, and `mutants-report.txt` if present, from the scratch directory back to the project directory.
-  - It then runs `rm -rf -- "$$work"`.
-- So a normal exit, an error and a TERM or INT all leave the session where CI's `if: always()` upload and `make mutants-report` read it today. A partial session after an interrupt is kept, as it is today.
+- **In-band copy-back.** After `cr-report`, and before the status call, the recipe copies `cosmic-ray-session.sqlite` and `mutants-report.txt` back to `"$$proj"` and runs `cd "$$proj"`. Both steps end in `|| exit 1`.
+- **The EXIT trap covers the failure and interrupt paths:**
+  - When `cosmic-ray-session.sqlite` exists in the scratch directory, it copies `cosmic-ray-session.sqlite*` back to `"$$proj"`. The glob takes any `-journal` with it, so SQLite can roll back an interrupted commit.
+  - It copies `mutants-report.txt` too, when that exists.
+  - It runs `rm -rf -- "$$work"` only when every copy it attempted succeeded. Otherwise it prints `mutants: kept <path> (copy-back failed)` to stderr and leaves the directory, so hours of partial pi results are never deleted.
+  - On success it copies the same bytes a second time, which does no harm.
+  - Its own failure never changes the recipe's exit code: a probe showed that `exit 0`, `exit 3` and fall-through all keep their status.
+- So an error and a TERM or INT both leave the session where CI's `if: always()` upload and `make mutants-report` read it today, partial results included.
 - A KILL skips the trap. The source is still untouched, and only about 116K is left in `TMPDIR`.
-- `cosmic_ray_cell_status.py` runs after the copy-back, in the project directory, with the same relative session path and the same `STATUS_OUT`/`SURVIVORS_OUT` arguments as today. It does **not** use `exec`: `exec` replaces the shell and skips the `EXIT` trap. The status script's exit code becomes the recipe's.
+- `cosmic_ray_cell_status.py` runs after the in-band copy-back, in `"$$proj"`, with the same relative session path and the same `STATUS_OUT`/`SURVIVORS_OUT` arguments as today. It does **not** run under `exec`: `exec` replaces the shell and skips the EXIT trap. The status script's exit code becomes the recipe's.
 - `mutants-baseline` stays in place: `cosmic-ray baseline` runs the unmutated tests and edits nothing.
 - `module_path` in the session is the relative `@MODULE@.py`; `select distinct module_path from mutation_specs` returned `('sq.py',)`. `cr-report --show-diff` reads the diff stored in the db, so the copied-back session reads the same as today.
 
@@ -64,7 +69,15 @@ All on Linux `claude`, 2026-10-31, master `9b328bc`.
 
 ### Tests
 
-All tests go in `tests/scripts/makefile.bats` and use the `_py_stub_setup` harness. It is extended with an opt-in stub behaviour; no new file is needed. The stub `cosmic-ray exec` appends its `$$PWD` to the calls file, so every test can check where the work happened.
+All tests go in `tests/scripts/makefile.bats`. No new file is needed.
+
+**Harness changes (`_py_stub_setup`).** These apply to every Python mutants test, existing and new:
+- It writes `fib.py`, `test_fib.py` and `cosmic-ray.toml` stubs into the project directory beside the copied `Makefile`, so the new `cp` succeeds.
+- The stub `cosmic-ray` appends its `$$PWD` to the calls file and gains a `STUB_INIT_RC` knob.
+- The stub `python3` records, in its `cosmic_ray_cell_status` branch, `test -f cosmic-ray-session.sqlite` and the file's content.
+- The two existing tests that assert only "rc non-zero plus a call absent" also assert that `^cosmic-ray init` ran. A `cp` failure would otherwise pass them:
+  - "exits non-zero and skips status when exec fails"
+  - "stops when the shard script fails"
 
 - **Source untouched on failure.**
   - Set-up: the stub `exec` appends `MUTATED` to `fib.py` in its working directory and exits 1. The harness puts a `fib.py`, `test_fib.py` and `cosmic-ray.toml` in the project directory.
@@ -72,17 +85,21 @@ All tests go in `tests/scripts/makefile.bats` and use the `_py_stub_setup` harne
     - `make mutants` exits non-zero;
     - the stub's recorded `pwd` is under `${BATS_TEST_TMPDIR}/t`, the `TMPDIR` the test sets;
     - the project's `fib.py` is byte-identical to its pre-run copy.
-- **Outputs copied back.** The stub `exec` writes `cosmic-ray-session.sqlite` with the content `S`, and the stub `cr-report` writes its report. After a successful run:
+- **Outputs copied back before status.** The stub `exec` writes `cosmic-ray-session.sqlite` with the content `S`, and the stub `cr-report` writes its report. After a successful run:
+  - the status stub saw the session present, with content `S`;
   - both files are in the project directory with the stub's content;
   - `${BATS_TEST_TMPDIR}/t` is empty;
   - the recorded `pwd` was under it.
-- **Partial session kept on failure.** The stub `exec` writes the session and exits 1. The session is in the project directory afterwards, and `${BATS_TEST_TMPDIR}/t` is empty.
-- **Stale outputs removed.** A pre-existing `mutants-report.txt` with the content `OLD`, plus a failing `init`, leaves no `mutants-report.txt` in the project directory.
+- **Partial session kept on failure.** The stub `exec` writes the session and exits 1. Afterwards:
+  - the stub's recorded `pwd` was under `${BATS_TEST_TMPDIR}/t`;
+  - the session is in the project directory;
+  - `${BATS_TEST_TMPDIR}/t` is empty.
+- **Stale outputs removed.** A pre-existing `mutants-report.txt` with the content `OLD`, plus `STUB_INIT_RC=1`, leaves no `mutants-report.txt` in the project directory.
 - **Only the three files are copied.** A decoy `fib-rs/target/big` in the project directory is absent from the scratch directory. The stub `exec` records `ls -A` of its working directory, which is exactly `cosmic-ray.toml fib.py test_fib.py`.
 - **Mutation control.** In a scratch copy of the template where `init`/`exec` run in place, the "source untouched" case fails.
 - **Lint, both directions.** These run against a rendered project Makefile with no `RUFF=` override, under `env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS`:
   - a `ruff` stub that exits 127, first on `PATH`, gives `ruff not found, skipping` and rc 0 from the real `make lint`;
-  - a `ruff` stub whose `--version` exits 0 makes `make -n lint` show `ruff check`.
+  - a `ruff` stub whose `--version` exits 0 makes `make -n lint` show `ruff check`. This one is a regression pin: it already passes on today's template.
 - The existing python mutants tests must keep passing, including "forwards CELL_LABEL, STATUS_OUT and SURVIVORS_OUT intact".
 
 ### Docs
@@ -93,9 +110,9 @@ All tests go in `tests/scripts/makefile.bats` and use the `_py_stub_setup` harne
 
 ## Requirements
 
-- **R1.** The rendered Python `make mutants` removes the project's `cosmic-ray-session.sqlite` and `mutants-report.txt`, copies only `@MODULE@.py`, `test_@MODULE@.py` and `cosmic-ray.toml` (plus a `scripts` symlink) into a `mktemp -d` under `TMPDIR`, runs `init`, the shard step, `exec` and `cr-report` there, and has an `EXIT` trap that copies the session (and report if present) back and removes the scratch directory; it runs `cosmic_ray_cell_status.py` in the project directory without `exec`.
-- **R2.** `makefile.bats` cases with a recording stub `exec` assert: on a failing `exec` that edits the module, rc non-zero, the stub ran under the test's `TMPDIR`, and the project's module is byte-identical; on a failing `exec` that writes a session, the session is in the project directory and `TMPDIR` is empty.
-- **R3.** `makefile.bats` cases assert that a successful run leaves the stub's session and report in the project directory with `TMPDIR` empty, that a stale report is removed when `init` fails, and that the scratch directory holds exactly `cosmic-ray.toml`, `@MODULE@.py` and `test_@MODULE@.py` while a decoy `<crate>-rs/target` file is not copied.
+- **R1.** The rendered Python `make mutants` removes the project's `cosmic-ray-session.sqlite` and `mutants-report.txt`, copies only `@MODULE@.py`, `test_@MODULE@.py` and `cosmic-ray.toml` (plus a `scripts` symlink) into a `mktemp -d` under `TMPDIR`, runs `init`, the shard step, `exec` and `cr-report` there, copies the session and report back in-band before running `cosmic_ray_cell_status.py` in the project directory without `exec`, and has an `EXIT` trap that copies `cosmic-ray-session.sqlite*` (and the report) back when present and removes the scratch directory only if those copies succeeded.
+- **R2.** `makefile.bats` cases with a recording stub `exec` assert: on a failing `exec` that edits the module, rc non-zero, the stub ran under the test's `TMPDIR`, and the project's module is byte-identical; on a failing `exec` that writes a session, the stub ran under `TMPDIR`, the session is in the project directory and `TMPDIR` is empty.
+- **R3.** `makefile.bats` cases assert that the status step sees the copied-back session, that a successful run leaves the stub's session and report in the project directory with `TMPDIR` empty, that a stale report is removed when `init` fails, and that the scratch directory holds exactly `cosmic-ray.toml`, `@MODULE@.py` and `test_@MODULE@.py` while a decoy `<crate>-rs/target` file is not copied.
 - **R4.** The Python template sets `RUFF` only when `ruff --version` succeeds, and `lint` prints `ruff not found, skipping` and exits 0 when it is unset. Two `makefile.bats` cases assert both directions with no `RUFF=` override.
 - **R5.** The change goes through `scripts/crate_templates/python/Makefile` and `render_crate_files.py --write`; `tests/test_crate_uniformity.py` passes.
 - **V1.** In a scratch copy of the repo, `cd fib && timeout -s TERM 25 make mutants` and `timeout -s KILL 25 make mutants` leave `fib/fib.py` unchanged (`git diff --stat` empty).
@@ -141,3 +158,18 @@ Disposition: Addressed — as Goal-Fit.
 ### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+### Round 2 (scoped Risk)
+
+Reviewed at commit: `76d8295` (Design section 1, Tests, R1–R3).
+
+Risk: Finding: the success path reported red on every run. The revision's only copy-back was the EXIT trap, which fires after the status script, so the status script read a session that had just been deleted (`no such session file` → red in all 80 CI cells). This was shown with a probe. Further findings:
+- `_py_stub_setup` never provided the three files, so 6 existing tests would fail and 2 would pass for the wrong reason.
+- The partial-session test lacked a `pwd` check.
+- The trap removed the scratch directory even when its copy failed.
+- The copy-back omitted a possible `-journal` file.
+The allow-list was confirmed complete across all 8 projects, and MUTANT_SHARD and `mutants-report` are unaffected.
+
+Assumption: copying only the db back after a TERM leaves it readable. That could go either way under rollback-journal mode; settled by copying `cosmic-ray-session.sqlite*`.
+
+Disposition: (pending operator)
