@@ -1,13 +1,19 @@
-"""deny.toml policy guards for all 11 crates, matching etch-cli.
+"""deny.toml policy guards for all 11 crates, matching etch-cli plus key pins.
 
 The licence policy is proven by behaviour, not by pinning the file's text: the
 tests/fixtures/cargo-deny controls (tests/scripts/cargo_deny_fixtures.bats) show GPL
 and un-excepted LGPL crates rejected, and MIT and rug (only through its exception)
 accepted. Fixtures cannot see the settings below, so these tests pin them by key:
-unsound/unmaintained "all" (cargo-deny's "workspace" default hides transitive
-unsound advisories), sources "deny", and the LGPL exception crates the release
-notices cover. They also pin the 11-crate list, keep deny.toml the only advisory
-ignore list, and make every bats job install cargo-deny.
+- only the sections licenses, advisories, bans and sources (a [graph] exclude would
+  drop crates from every check);
+- [advisories] unsound/unmaintained "all" (cargo-deny's "workspace" default hides
+  transitive unsound advisories) and no keys besides those and ignore;
+- [sources] exactly unknown-registry/unknown-git "deny";
+- the LGPL exceptions exactly rug and gmp-mpfr-sys, the crates the release notices
+  cover.
+They also pin the 11-crate list, keep deny.toml the only advisory ignore list (no
+--ignore in any tracked workflow, script or Makefile), and make every bats job
+install cargo-deny.
 """
 
 import os
@@ -58,12 +64,30 @@ class TestDenyPolicy(unittest.TestCase):
 
     def test_one_ignore_list_no_workflow_or_script_has_its_own(self):
         """deny.toml is the only advisory ignore list. math runs cargo-deny through
-        scripts/cargo-deny-all.sh, so scripts are scanned as well as workflows."""
-        files = sorted((REPO_ROOT / ".github" / "workflows").glob("*.y*ml"))
-        files += sorted((REPO_ROOT / "scripts").glob("*.sh"))
-        self.assertTrue(any(f.name == "cargo-deny-all.sh" for f in files))
-        pattern = re.compile(r"--ignore[=\s\\]+RUSTSEC")
-        offenders = [f.name for f in files if pattern.search(f.read_text())]
+        scripts/cargo-deny-all.sh, so every tracked file under .github/ and scripts/
+        and every Makefile is scanned, and any --ignore flag counts, whatever quoting
+        or variable carries the ID (no such flag is in use today)."""
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if k not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
+        }
+        listed = subprocess.run(
+            ["git", "ls-files", ".github", "scripts", "Makefile", "*/Makefile"],
+            cwd=REPO_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split()
+        self.assertIn("scripts/cargo-deny-all.sh", listed)
+        self.assertIn(".github/workflows/cargo-deny.yml", listed)
+        pattern = re.compile(r"--ignore\b")
+        offenders = [
+            name
+            for name in listed
+            if pattern.search((REPO_ROOT / name).read_text(errors="replace"))
+        ]
         self.assertEqual(offenders, [])
 
     def test_only_the_four_known_sections(self):

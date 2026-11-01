@@ -30,7 +30,7 @@ notice and text obligations that the release assets did not meet. Supply-chain c
 
 2026-10-31: `cargo-deny-all.sh` passes `--locked`; a `deny.toml` push runs root `make test` locally; no local real-crate run (offline cache measurements in the CI supply-chain bundle spec).
 
-2026-10-31 (operator, to match etch-cli): the whole-file pin in `tests/test_deny_policy.py` is removed. The licence policy is proven by the `tests/fixtures/cargo-deny` controls (GPL and un-excepted LGPL rejected; MIT and `rug`, only through its exception, accepted). Settings fixtures cannot see are pinned by key: `unsound`/`unmaintained` = "all", `unknown-registry`/`unknown-git` = "deny", and the LGPL exceptions exactly `rug` and `gmp-mpfr-sys`. A test keeps `deny.toml` the only advisory ignore list. Other keys (`[bans]`, the allow list beyond what the fixtures exercise) are reviewed in their PR.
+2026-10-31 (operator, to match etch-cli): the whole-file pin in `tests/test_deny_policy.py` is removed. The licence policy is proven by the `tests/fixtures/cargo-deny` controls (GPL and un-excepted LGPL rejected; MIT and `rug`, only through its exception, accepted). Settings fixtures cannot see are pinned by key: only the four sections `licenses`, `advisories`, `bans` and `sources`; `unsound`/`unmaintained` = "all" with no other `[advisories]` key but `ignore`; `[sources]` exactly `unknown-registry`/`unknown-git` = "deny"; and the LGPL exceptions exactly `rug` and `gmp-mpfr-sys`. A test keeps `deny.toml` the only advisory ignore list: no tracked workflow, script or Makefile passes `--ignore`. Other keys (`[bans]`, the allow list beyond what the fixtures exercise) are reviewed in their PR.
 
 ## Consequences
 

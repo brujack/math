@@ -1,5 +1,6 @@
 # cargo-deny policy for all 11 crates. Licences are proven by the tests/fixtures/cargo-deny
-# controls; advisories, sources and the LGPL exceptions are pinned in tests/test_deny_policy.py.
+# controls; the section set, advisories, sources and the LGPL exceptions are pinned in
+# tests/test_deny_policy.py.
 [licenses]
 allow = [
     "MIT",
