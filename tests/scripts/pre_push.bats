@@ -612,3 +612,163 @@ STUB
     [ "$status" -eq 0 ]
     assert_no_match "^python3 "
 }
+
+# --- Shared push-content gate wiring (spec 2026-10-30, R13) -----------------
+# A push to master or main must load ai-config's gate over the network. These
+# tests force the load to fail (`gh auth token` exits 1) so no test makes a
+# network call: the hook has to refuse before reaching curl or make.
+
+# A ref line needs an existing remote sha; an all-zeros one exits 128 under
+# the git mock.
+WIRING_LOCAL="abc123"
+WIRING_REMOTE="abc456"
+
+# Every wiring test fails the token lookup explicitly, rather than relying on
+# the gh mock's default empty output being rejected by accident.
+wiring_setup() {
+    export MOCK_GH_EXIT_AUTH_TOKEN=1
+}
+
+# gh calls other than `auth token`; the gate must reach for nothing else.
+wiring_other_gh_calls() {
+    local n
+    n="$(grep -c '^gh ' "${MOCK_CALLS_FILE}" 2>/dev/null)" || n=0
+    local tokens
+    tokens="$(grep -c '^gh auth token$' "${MOCK_CALLS_FILE}" 2>/dev/null)" || tokens=0
+    printf '%s\n' "$((n - tokens))"
+}
+
+# Runs a bash body in its own process group under a 30s watchdog that kills the
+# whole group (`set -m`, then `kill -- -PGID`), so a regression that blocks on
+# stdin fails the test instead of hanging the suite or orphaning a child.
+# `timeout` is not on the macOS runners.
+run_in_pgroup() {
+    run bash -c '
+        set -m
+        bash -c "$1" &
+        job=$!
+        ( sleep 30; kill -- -"${job}" 2>/dev/null ) &
+        dog=$!
+        wait "${job}"; rc=$?
+        kill -- -"${dog}" 2>/dev/null
+        exit "${rc}"
+    ' _ "$1"
+}
+
+@test "wiring: a feature-only push makes no gh call" {
+    wiring_setup
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat ${WIRING_LOCAL} refs/heads/feat ${WIRING_REMOTE}"
+    [ "$status" -eq 0 ]
+    assert_no_match "^gh "
+}
+
+@test "wiring: a master push whose gate cannot load is refused before make" {
+    wiring_setup
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/master ${WIRING_LOCAL} refs/heads/master ${WIRING_REMOTE}"
+    [ "$status" -eq 1 ]
+    [[ "${output}" == *"cannot load the push-content gate"* ]]
+    grep -q '^gh auth token$' "${MOCK_CALLS_FILE}"
+    [ "$(wiring_other_gh_calls)" -eq 0 ]
+    assert_no_match "^make"
+}
+
+@test "wiring: a main push whose gate cannot load is refused before make" {
+    wiring_setup
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/main ${WIRING_LOCAL} refs/heads/main ${WIRING_REMOTE}"
+    [ "$status" -eq 1 ]
+    [[ "${output}" == *"cannot load the push-content gate"* ]]
+    grep -q '^gh auth token$' "${MOCK_CALLS_FILE}"
+    [ "$(wiring_other_gh_calls)" -eq 0 ]
+    assert_no_match "^make"
+}
+
+# `git push origin feat:master` hands the hook a feature local ref and a master
+# remote ref; the wiring must key on the remote ref (field 3).
+@test "wiring: a feature branch pushed onto master is judged by the gate" {
+    wiring_setup
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat ${WIRING_LOCAL} refs/heads/master ${WIRING_REMOTE}"
+    [ "$status" -eq 1 ]
+    [[ "${output}" == *"cannot load the push-content gate"* ]]
+    assert_no_match "^make"
+}
+
+@test "wiring: master on a later ref line is still judged" {
+    wiring_setup
+    run bash "${REPO_ROOT}/scripts/pre-push" <<< \
+        "refs/heads/feat ${WIRING_LOCAL} refs/heads/feat ${WIRING_REMOTE}"$'\n'"refs/heads/master ${WIRING_LOCAL} refs/heads/master ${WIRING_REMOTE}"
+    [ "$status" -eq 1 ]
+    [[ "${output}" == *"cannot load the push-content gate"* ]]
+    assert_no_match "^make"
+}
+
+# The wiring decides master/main in bash and reads stdin with a builtin, so
+# neither a PATH awk that says "no match" nor a PATH cat that prints nothing can
+# make a master push look like a feature push.
+@test "wiring: a PATH awk or cat cannot hide a master push from the gate" {
+    wiring_setup
+    local stub name shim="${BATS_TEST_TMPDIR}/shim-bin"
+    mkdir -p "${shim}"
+    for stub in 'awk:exit 1' 'cat:exit 0'; do
+        name="${stub%%:*}"
+        printf '#!/usr/bin/env bash\n%s\n' "${stub#*:}" > "${shim}/${name}"
+        chmod +x "${shim}/${name}"
+        rm -f "${MOCK_CALLS_FILE}"
+        PATH="${shim}:${PATH}" run bash "${REPO_ROOT}/scripts/pre-push" \
+            <<< "refs/heads/master ${WIRING_LOCAL} refs/heads/master ${WIRING_REMOTE}"
+        rm -f "${shim}/${name}"
+        [ "$status" -eq 1 ]
+        [[ "${output}" == *"cannot load the push-content gate"* ]]
+        grep -q '^gh auth token$' "${MOCK_CALLS_FILE}"
+    done
+}
+
+# git always hands pre-push a pipe, but with fd 0 closed the read fails and the
+# hook must refuse rather than read "no refs". A `$(cat)` read blocks on a
+# closed fd 0 instead of failing, so a regression to it is caught by the
+# watchdog rather than by hanging the suite.
+@test "wiring: an unreadable stdin refuses before any gh call" {
+    wiring_setup
+    run_in_pgroup "bash -p '${REPO_ROOT}/scripts/pre-push' <&- 2>&1"
+    [ "$status" -eq 1 ]
+    [[ "${output}" == *"cannot read the pushed refs"* ]]
+    assert_no_match "^gh "
+    assert_no_match "^make"
+}
+
+# `bash -p` makes bash ignore BASH_ENV. Exec the script directly so the shebang
+# is what runs, with BASH_ENV pointing at a file that writes a marker: no marker
+# means the shebang's -p took effect. `env` sets BASH_ENV for the script alone:
+# a wrapping `bash -c` would source it itself and write the marker. The control
+# run as `bash script` (no -p) must write the marker, proving the mechanism can
+# fire; the shebang run that follows must not.
+@test "wiring: the shebang's -p stops BASH_ENV from being sourced" {
+    wiring_setup
+    local marker="${BATS_TEST_TMPDIR}/bash_env.marker" env_file="${BATS_TEST_TMPDIR}/bash_env.sh"
+    # BASH_ENV is inherited by the bash mocks the hook spawns (git, make), which
+    # have no -p; only the hook itself may write the marker, so key on $0.
+    printf 'case "$0" in */scripts/pre-push) printf x > "%s" ;; esac\n' "${marker}" > "${env_file}"
+
+    rm -f "${marker}"
+    run env BASH_ENV="${env_file}" bash "${REPO_ROOT}/scripts/pre-push" < /dev/null
+    [ "$status" -eq 0 ]
+    [ -e "${marker}" ]
+
+    rm -f "${marker}"
+    run env BASH_ENV="${env_file}" "${REPO_ROOT}/scripts/pre-push" < /dev/null
+    [ "$status" -eq 0 ]
+    [ ! -e "${marker}" ]
+}
+
+@test "wiring: the script's first line is the bash -p shebang" {
+    [ "$(head -n 1 "${REPO_ROOT}/scripts/pre-push")" = '#!/usr/bin/env -S bash -p' ]
+}
+
+@test "wiring: the block matches the sha256 pinned to ai-config 34cf3bee" {
+    local hash
+    hash="$(sed -n '/^# >>> push-content-gate wiring$/,/^# <<< push-content-gate wiring$/p' "${REPO_ROOT}/scripts/pre-push" | sha256sum | cut -d' ' -f1)"
+    [ "${hash}" = "d556979bd64b72ca237e4bd3a8d4cf709e0db164ae155c18ab0eea86e39e221f" ]
+}
