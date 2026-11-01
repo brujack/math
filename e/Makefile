@@ -1,11 +1,19 @@
 .PHONY: run lint test coverage mutants mutants-baseline mutants-report mutants-clean clean
 
+# Set only when ruff answers --version, so a ruff that is on PATH but not runnable is skipped, not an Error 127.
+RUFF := $(shell ruff --version >/dev/null 2>&1 && command -v ruff)
+
 run:
 	python3 e.py
 
+ifdef RUFF
 lint:
 	ruff check .
 	ruff format --check .
+else
+lint:
+	@printf "ruff not found, skipping (install: pip install ruff==0.16.4)\n"
+endif
 
 test: lint
 	pytest test_e.py -v
