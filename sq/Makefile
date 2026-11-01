@@ -43,7 +43,25 @@ mutants-baseline:
 
 mutants: mutants-baseline
 	@bash -c '$(MUTANTS_CAP); \
-	  rm -f cosmic-ray-session.sqlite || exit 1; \
+	  proj="$$(pwd)"; \
+	  rm -f cosmic-ray-session.sqlite mutants-report.txt || exit 1; \
+	  work="$$(mktemp -d "$${TMPDIR:-/tmp}/mutants-sq.XXXXXX")" || exit 1; \
+	  cleanup() { \
+	    ok=1; \
+	    if [ -f "$$work/sq/cosmic-ray-session.sqlite" ]; then \
+	      cp -- "$$work/sq"/cosmic-ray-session.sqlite* "$$proj/" || ok=; \
+	    fi; \
+	    if [ -f "$$work/sq/mutants-report.txt" ]; then \
+	      cp -- "$$work/sq/mutants-report.txt" "$$proj/" || ok=; \
+	    fi; \
+	    if [ -n "$$ok" ]; then rm -rf -- "$$work"; \
+	    else printf "mutants: kept %s (copy-back failed)\n" "$$work" >&2; fi; \
+	  }; \
+	  trap cleanup EXIT; \
+	  mkdir "$$work/sq" || exit 1; \
+	  cp -- sq.py test_sq.py cosmic-ray.toml "$$work/sq/" || exit 1; \
+	  ln -s "$$(cd .. && pwd)/scripts" "$$work/scripts" || exit 1; \
+	  cd "$$work/sq" || exit 1; \
 	  cosmic-ray init cosmic-ray.toml cosmic-ray-session.sqlite || exit 1; \
 	  if [ -n "$${MUTANT_SHARD}" ]; then \
 	    case "$${MUTANT_SHARD}" in \
@@ -57,10 +75,12 @@ mutants: mutants-baseline
 	  cosmic-ray exec cosmic-ray.toml cosmic-ray-session.sqlite || exit 1; \
 	  cr-report cosmic-ray-session.sqlite --show-output --show-diff > mutants-report.txt || exit 1; \
 	  cr-report cosmic-ray-session.sqlite | tail -5; \
+	  cp -- cosmic-ray-session.sqlite mutants-report.txt "$$proj/" || exit 1; \
+	  cd "$$proj" || exit 1; \
 	  set -- cosmic-ray-session.sqlite "$${CELL_LABEL}"; \
 	  if [ -n "$${STATUS_OUT}" ]; then set -- "$$@" --out "$${STATUS_OUT}"; fi; \
 	  if [ -n "$${SURVIVORS_OUT}" ]; then set -- "$$@" --survivors "$${SURVIVORS_OUT}"; fi; \
-	  exec python3 ../scripts/cosmic_ray_cell_status.py "$$@"'
+	  python3 ../scripts/cosmic_ray_cell_status.py "$$@"'
 
 mutants-report:
 	@cr-report cosmic-ray-session.sqlite --show-output --show-diff > mutants-report.txt

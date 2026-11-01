@@ -756,12 +756,32 @@ _py_stub_setup() {
     local bin="${BATS_TEST_TMPDIR}/bin"
     mkdir -p "${STUBDIR}" "${bin}"
     cp "${REPO_ROOT}/fib/Makefile" "${STUBDIR}/Makefile"
+    printf 'ORIGINAL\n' > "${STUBDIR}/fib.py"
+    printf 'TEST\n' > "${STUBDIR}/test_fib.py"
+    printf 'CONFIG\n' > "${STUBDIR}/cosmic-ray.toml"
+    # Working directories each stub ran in, kept apart from ${CALLS} so its line shapes stay put.
+    PWDS="${BATS_TEST_TMPDIR}/pwds"
+    : > "${PWDS}"
     cat > "${bin}/cosmic-ray" <<'STUB'
 #!/bin/bash
 printf 'cosmic-ray %s ulimit=%s\n' "$*" "$(ulimit -v)" >> "${CALLS}"
+printf '%s %s\n' "$1" "${PWD}" >> "${PWDS}"
 case "$1" in
     baseline) exit "${STUB_BASELINE_RC:-0}" ;;
-    exec) exit "${STUB_EXEC_RC:-0}" ;;
+    init)
+        # The real init creates the session; later steps and the copy-back depend on it.
+        printf 'I' > cosmic-ray-session.sqlite
+        exit "${STUB_INIT_RC:-0}" ;;
+    exec)
+        [ -n "${STUB_EXEC_MUTATE}" ] && printf 'MUTATED\n' >> fib.py
+        [ -n "${STUB_EXEC_SESSION}" ] && printf 'S' > cosmic-ray-session.sqlite
+        [ -n "${STUB_EXEC_LS}" ] && ls -A | grep -v '^cosmic-ray-session' | tr '\n' ' ' > "${BATS_TEST_TMPDIR}/ls"
+        # A report in scratch whose project-side destination is a dangling symlink: copy-back must fail.
+        if [ -n "${STUB_EXEC_DANGLE}" ]; then
+            printf 'R' > mutants-report.txt
+            ln -s /nonexistent/x "${STUBDIR}/mutants-report.txt"
+        fi
+        exit "${STUB_EXEC_RC:-0}" ;;
 esac
 exit 0
 STUB
@@ -769,7 +789,16 @@ STUB
 #!/bin/bash
 printf 'python3 %s ulimit=%s\n' "$*" "$(ulimit -v)" >> "${CALLS}"
 case "$*" in
-    *cosmic_ray_cell_status*) exit "${STUB_STATUS_RC:-0}" ;;
+    *cosmic_ray_cell_status*)
+        {
+            printf 'pwd=%s\n' "${PWD}"
+            if [ -f cosmic-ray-session.sqlite ]; then
+                printf 'session=present content=%s\n' "$(cat cosmic-ray-session.sqlite)"
+            else
+                printf 'session=absent\n'
+            fi
+        } >> "${BATS_TEST_TMPDIR}/status-seen"
+        exit "${STUB_STATUS_RC:-0}" ;;
     *cosmic_ray_shard*) exit "${STUB_SHARD_RC:-0}" ;;
 esac
 exit 0
@@ -777,9 +806,10 @@ STUB
     cat > "${bin}/cr-report" <<'STUB'
 #!/bin/bash
 printf 'cr-report %s\n' "$*" >> "${CALLS}"
+[ -t 1 ] || printf 'REPORT\n'
 STUB
     chmod +x "${bin}/cosmic-ray" "${bin}/python3" "${bin}/cr-report"
-    export CALLS
+    export CALLS PWDS STUBDIR
     export PATH="${bin}:${PATH}"
     unset MUTANTS_UNCAPPED MUTANT_SHARD STATUS_OUT SURVIVORS_OUT CELL_LABEL
 }
@@ -893,6 +923,7 @@ _calls_line() {
     _py_stub_setup
     run env MUTANT_SHARD=1/2 STUB_SHARD_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
     [ "${status}" -ne 0 ]
+    grep -q '^cosmic-ray init' "${CALLS}"
     _assert_no_call '^cosmic-ray exec'
 }
 
@@ -900,6 +931,7 @@ _calls_line() {
     _py_stub_setup
     run env STUB_EXEC_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
     [ "${status}" -ne 0 ]
+    grep -q '^cosmic-ray init' "${CALLS}"
     _assert_no_call cosmic_ray_cell_status
 }
 
@@ -922,4 +954,72 @@ _calls_line() {
     run env CELL_LABEL="fib 'x\$y\"z" env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants STATUS_OUT=out/s.txt SURVIVORS_OUT=out/v.txt
     [ "${status}" -eq 0 ]
     grep -qF "cosmic_ray_cell_status.py cosmic-ray-session.sqlite fib 'x\$y\"z --out out/s.txt --survivors out/v.txt " "${CALLS}"
+}
+
+# Scratch-copy cases. TMPDIR points at an empty directory so "scratch removed" is observable.
+_scratch_tmp() {
+    SCRATCH_T="${BATS_TEST_TMPDIR}/t"
+    mkdir -p "${SCRATCH_T}"
+}
+
+@test "python mutants leaves the source untouched when exec mutates it and fails" {
+    _py_stub_setup
+    _scratch_tmp
+    cp "${STUBDIR}/fib.py" "${BATS_TEST_TMPDIR}/fib.py.before"
+    run env TMPDIR="${SCRATCH_T}" STUB_EXEC_MUTATE=1 STUB_EXEC_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
+    [ "${status}" -ne 0 ]
+    grep -q "^exec ${SCRATCH_T}/" "${PWDS}"
+    grep -q "^init ${SCRATCH_T}/" "${PWDS}"
+    cmp "${STUBDIR}/fib.py" "${BATS_TEST_TMPDIR}/fib.py.before"
+}
+
+@test "python mutants copies outputs back before the status call and removes scratch" {
+    _py_stub_setup
+    _scratch_tmp
+    run env TMPDIR="${SCRATCH_T}" STUB_EXEC_SESSION=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
+    [ "${status}" -eq 0 ]
+    grep -q "^pwd=${STUBDIR}$" "${BATS_TEST_TMPDIR}/status-seen"
+    grep -q '^session=present content=S$' "${BATS_TEST_TMPDIR}/status-seen"
+    [ "$(cat "${STUBDIR}/cosmic-ray-session.sqlite")" = "S" ]
+    [ "$(cat "${STUBDIR}/mutants-report.txt")" = "REPORT" ]
+    [ -z "$(ls -A "${SCRATCH_T}")" ]
+    grep -q "^exec ${SCRATCH_T}/" "${PWDS}"
+}
+
+@test "python mutants keeps a partial session in the project when exec fails" {
+    _py_stub_setup
+    _scratch_tmp
+    run env TMPDIR="${SCRATCH_T}" STUB_EXEC_SESSION=1 STUB_EXEC_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
+    [ "${status}" -ne 0 ]
+    grep -q "^exec ${SCRATCH_T}/" "${PWDS}"
+    [ "$(cat "${STUBDIR}/cosmic-ray-session.sqlite")" = "S" ]
+    [ -z "$(ls -A "${SCRATCH_T}")" ]
+}
+
+@test "python mutants keeps the scratch copy when a copy-back fails" {
+    _py_stub_setup
+    _scratch_tmp
+    run env TMPDIR="${SCRATCH_T}" STUB_EXEC_SESSION=1 STUB_EXEC_DANGLE=1 STUB_EXEC_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"mutants: kept"* ]]
+    [ -n "$(ls -A "${SCRATCH_T}")" ]
+}
+
+@test "python mutants removes stale outputs from the project first" {
+    _py_stub_setup
+    _scratch_tmp
+    printf 'OLD\n' > "${STUBDIR}/mutants-report.txt"
+    run env TMPDIR="${SCRATCH_T}" STUB_INIT_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
+    [ "${status}" -ne 0 ]
+    [ ! -e "${STUBDIR}/mutants-report.txt" ]
+}
+
+@test "python mutants copies only the module, its test and the config into scratch" {
+    _py_stub_setup
+    _scratch_tmp
+    mkdir -p "${STUBDIR}/fib-rs/target"
+    printf 'x' > "${STUBDIR}/fib-rs/target/big"
+    run env TMPDIR="${SCRATCH_T}" STUB_EXEC_LS=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
+    [ "${status}" -eq 0 ]
+    [ "$(cat "${BATS_TEST_TMPDIR}/ls")" = "cosmic-ray.toml fib.py test_fib.py " ]
 }
