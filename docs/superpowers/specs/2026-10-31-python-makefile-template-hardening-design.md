@@ -48,7 +48,9 @@ All on Linux `claude`, 2026-10-31, master `9b328bc`.
   - Each `test_*.py` imports only its sibling module and resolves files through `Path(__file__).parent`, as two lenses grepped.
   - `typings/` is read by pyright only.
 - **In-band copy-back.** After `cr-report`, and before the status call, the recipe copies `cosmic-ray-session.sqlite` and `mutants-report.txt` back to `"$$proj"` and runs `cd "$$proj"`. Both steps end in `|| exit 1`.
-- **The EXIT trap covers the failure and interrupt paths:**
+- **The EXIT trap covers the failure and interrupt paths.**
+  - It is a `cleanup()` function installed with `trap cleanup EXIT`, defined after `proj` and `work` are assigned. A function body needs only Make's `$$` escaping. A trap string inside the single-quoted `bash -c` would also need `\"` escaping, and would expand early.
+  - It uses absolute `"$$work/@CRATE@/..."` paths. On the success path the trap runs in `"$$proj"`, where a relative source would copy a file onto itself.
   - When `cosmic-ray-session.sqlite` exists in the scratch directory, it copies `cosmic-ray-session.sqlite*` back to `"$$proj"`. The glob takes any `-journal` with it, so SQLite can roll back an interrupted commit.
   - It copies `mutants-report.txt` too, when that exists.
   - It runs `rm -rf -- "$$work"` only when every copy it attempted succeeded. Otherwise it prints `mutants: kept <path> (copy-back failed)` to stderr and leaves the directory, so hours of partial pi results are never deleted.
@@ -74,7 +76,7 @@ All tests go in `tests/scripts/makefile.bats`. No new file is needed.
 **Harness changes (`_py_stub_setup`).** These apply to every Python mutants test, existing and new:
 - It writes `fib.py`, `test_fib.py` and `cosmic-ray.toml` stubs into the project directory beside the copied `Makefile`, so the new `cp` succeeds.
 - The stub `cosmic-ray` appends its `$$PWD` to the calls file and gains a `STUB_INIT_RC` knob.
-- The stub `python3` records, in its `cosmic_ray_cell_status` branch, `test -f cosmic-ray-session.sqlite` and the file's content.
+- The stub `python3` records three things in its `cosmic_ray_cell_status` branch: its `pwd`, `test -f cosmic-ray-session.sqlite`, and the file's content.
 - The two existing tests that assert only "rc non-zero plus a call absent" also assert that `^cosmic-ray init` ran. A `cp` failure would otherwise pass them:
   - "exits non-zero and skips status when exec fails"
   - "stops when the shard script fails"
@@ -86,7 +88,7 @@ All tests go in `tests/scripts/makefile.bats`. No new file is needed.
     - the stub's recorded `pwd` is under `${BATS_TEST_TMPDIR}/t`, the `TMPDIR` the test sets;
     - the project's `fib.py` is byte-identical to its pre-run copy.
 - **Outputs copied back before status.** The stub `exec` writes `cosmic-ray-session.sqlite` with the content `S`, and the stub `cr-report` writes its report. After a successful run:
-  - the status stub saw the session present, with content `S`;
+  - the status stub ran in the project directory and saw the session present, with content `S`;
   - both files are in the project directory with the stub's content;
   - `${BATS_TEST_TMPDIR}/t` is empty;
   - the recorded `pwd` was under it.
@@ -94,6 +96,12 @@ All tests go in `tests/scripts/makefile.bats`. No new file is needed.
   - the stub's recorded `pwd` was under `${BATS_TEST_TMPDIR}/t`;
   - the session is in the project directory;
   - `${BATS_TEST_TMPDIR}/t` is empty.
+- **Scratch kept when a copy-back fails.**
+  - Set-up: the stub `exec` writes the session into scratch, creates a dangling symlink `mutants-report.txt -> /nonexistent/x` in the project directory, and exits 1. GNU and BSD `cp` both refuse to write through it, so the copy-back fails.
+  - Assertions:
+    - rc is non-zero;
+    - the output contains `mutants: kept`;
+    - `${BATS_TEST_TMPDIR}/t` is not empty.
 - **Stale outputs removed.** A pre-existing `mutants-report.txt` with the content `OLD`, plus `STUB_INIT_RC=1`, leaves no `mutants-report.txt` in the project directory.
 - **Only the three files are copied.** A decoy `fib-rs/target/big` in the project directory is absent from the scratch directory. The stub `exec` records `ls -A` of its working directory, which is exactly `cosmic-ray.toml fib.py test_fib.py`.
 - **Mutation control.** In a scratch copy of the template where `init`/`exec` run in place, the "source untouched" case fails.
@@ -111,8 +119,8 @@ All tests go in `tests/scripts/makefile.bats`. No new file is needed.
 ## Requirements
 
 - **R1.** The rendered Python `make mutants` removes the project's `cosmic-ray-session.sqlite` and `mutants-report.txt`, copies only `@MODULE@.py`, `test_@MODULE@.py` and `cosmic-ray.toml` (plus a `scripts` symlink) into a `mktemp -d` under `TMPDIR`, runs `init`, the shard step, `exec` and `cr-report` there, copies the session and report back in-band before running `cosmic_ray_cell_status.py` in the project directory without `exec`, and has an `EXIT` trap that copies `cosmic-ray-session.sqlite*` (and the report) back when present and removes the scratch directory only if those copies succeeded.
-- **R2.** `makefile.bats` cases with a recording stub `exec` assert: on a failing `exec` that edits the module, rc non-zero, the stub ran under the test's `TMPDIR`, and the project's module is byte-identical; on a failing `exec` that writes a session, the stub ran under `TMPDIR`, the session is in the project directory and `TMPDIR` is empty.
-- **R3.** `makefile.bats` cases assert that the status step sees the copied-back session, that a successful run leaves the stub's session and report in the project directory with `TMPDIR` empty, that a stale report is removed when `init` fails, and that the scratch directory holds exactly `cosmic-ray.toml`, `@MODULE@.py` and `test_@MODULE@.py` while a decoy `<crate>-rs/target` file is not copied.
+- **R2.** `makefile.bats` cases with a recording stub `exec` assert: on a failing `exec` that edits the module, rc non-zero, the stub ran under the test's `TMPDIR`, and the project's module is byte-identical; on a failing `exec` that writes a session, the stub ran under `TMPDIR`, the session is in the project directory and `TMPDIR` is empty; and when a copy-back fails (a dangling-symlink target), the output contains `mutants: kept` and `TMPDIR` is not empty.
+- **R3.** `makefile.bats` cases assert that the status step runs in the project directory and sees the copied-back session, that a successful run leaves the stub's session and report in the project directory with `TMPDIR` empty, that a stale report is removed when `init` fails, and that the scratch directory holds exactly `cosmic-ray.toml`, `@MODULE@.py` and `test_@MODULE@.py` while a decoy `<crate>-rs/target` file is not copied.
 - **R4.** The Python template sets `RUFF` only when `ruff --version` succeeds, and `lint` prints `ruff not found, skipping` and exits 0 when it is unset. Two `makefile.bats` cases assert both directions with no `RUFF=` override.
 - **R5.** The change goes through `scripts/crate_templates/python/Makefile` and `render_crate_files.py --write`; `tests/test_crate_uniformity.py` passes.
 - **V1.** In a scratch copy of the repo, `cd fib && timeout -s TERM 25 make mutants` and `timeout -s KILL 25 make mutants` leave `fib/fib.py` unchanged (`git diff --stat` empty).
@@ -172,4 +180,24 @@ The allow-list was confirmed complete across all 8 projects, and MUTANT_SHARD an
 
 Assumption: copying only the db back after a TERM leaves it readable. That could go either way under rollback-journal mode; settled by copying `cosmic-ray-session.sqlite*`.
 
-Disposition: (pending operator)
+Disposition: Addressed — operator chose one more scoped round; the fixes are in 4c80c14.
+
+### Round 3 (scoped Risk)
+
+Reviewed at commit: `4c80c14`: section 1's `proj`, in-band copy-back, trap and status call, plus the harness, Tests and R1–R3.
+
+Risk — Finding: two test gaps, both in the apparatus.
+- No case exercises the trap's "keep scratch when a copy-back fails" branch, so an unconditional `rm -rf` would pass every case. A dangling-symlink target forces it; probed: GNU `cp` refuses, the trap prints `kept`, and the scratch directory survives.
+- The status stub records no `pwd`, so dropping `cd "$proj"` would not be caught.
+
+Also probed and found clean:
+- Control flow under make: success, status exiting 3, and TERM.
+- `$$` escaping, in the `cleanup()` function form.
+- The glob guard.
+- Absolute trap paths.
+- R against N.
+- All 8 projects' `test-command` pass in a three-file scratch directory.
+
+Assumption: none uncertain. Scratch-directory parity was settled by running all 8 suites (rc 0).
+
+Disposition: (pending operator). Both gaps are fixed in text: the copy-back-failure case, the status `pwd`, the `cleanup()` function and absolute paths. Review stops here: the round's findings are in the test apparatus, and the design did not change.
