@@ -1,5 +1,7 @@
 # Python Makefile Template Hardening Implementation Plan
 
+> **Status: DONE** (math#194, a84a57e)
+
 spec: docs/superpowers/specs/2026-10-31-python-makefile-template-hardening-design.md
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
