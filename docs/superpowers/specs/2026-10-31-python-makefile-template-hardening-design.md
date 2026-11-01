@@ -7,6 +7,8 @@ Date: 2026-10-31. Repo: math. Source: two Backlog rows in `docs/superpowers/READ
 
 Both live in `scripts/crate_templates/python/Makefile`, which `scripts/render_crate_files.py` renders to the 8 Python projects. The operator chose to ship them as one spec, one plan and one PR.
 
+- **Approved:** 2026-10-31
+
 ## Problem
 
 1. **An interrupted `make mutants` can leave a mutant in the source file.**
@@ -200,4 +202,4 @@ Also probed and found clean:
 
 Assumption: none uncertain. Scratch-directory parity was settled by running all 8 suites (rc 0).
 
-Disposition: (pending operator). Both gaps are fixed in text: the copy-back-failure case, the status `pwd`, the `cleanup()` function and absolute paths. Review stops here: the round's findings are in the test apparatus, and the design did not change.
+Disposition: Addressed (operator, 2026-10-31). Both gaps are fixed in text: the copy-back-failure case, the status `pwd`, the `cleanup()` function and absolute paths. Review stops here: the round's findings are in the test apparatus, and the design did not change.
