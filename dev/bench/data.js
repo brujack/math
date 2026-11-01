@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790821957969,
+  "lastUpdate": 1793499512337,
   "repoUrl": "https://github.com/brujack/math",
   "entries": {
     "Benchmark": [
@@ -450,6 +450,232 @@ window.BENCHMARK_DATA = {
           {
             "name": "sq/max_digits=3",
             "value": 22,
+            "range": "± 0",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Bruce Jackson",
+            "username": "brujack",
+            "email": "bjackson@pobox.com"
+          },
+          "committer": {
+            "name": "Bruce Jackson",
+            "username": "brujack",
+            "email": "bjackson@pobox.com"
+          },
+          "id": "ea777b3ecdd8f6d93328896fd05a07fee9509b50",
+          "message": "docs: index and close the shared push-content gate plan\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01RMRWKJ7P5L99pNgDqK3B8t",
+          "timestamp": "2026-11-01T02:11:54Z",
+          "url": "https://github.com/brujack/math/commit/ea777b3ecdd8f6d93328896fd05a07fee9509b50"
+        },
+        "date": 1793499511615,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "factorial/n=100",
+            "value": 49683,
+            "range": "± 3666",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "factorial/n=1000",
+            "value": 96865,
+            "range": "± 10839",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "factorial/n=5000",
+            "value": 292024,
+            "range": "± 5959",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pi/digits=100",
+            "value": 124852,
+            "range": "± 26777",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pi/digits=1000",
+            "value": 168863,
+            "range": "± 11813",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pi/digits=5000",
+            "value": 548465,
+            "range": "± 19178",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e/digits=100",
+            "value": 118794,
+            "range": "± 27278",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e/digits=1000",
+            "value": 165957,
+            "range": "± 9446",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e/digits=5000",
+            "value": 415705,
+            "range": "± 19950",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fib/max_digits=100",
+            "value": 11284,
+            "range": "± 64",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fib/max_digits=1000",
+            "value": 133468,
+            "range": "± 674",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fib/max_digits=5000",
+            "value": 1736675,
+            "range": "± 30507",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "collatz/limit=1000",
+            "value": 26379,
+            "range": "± 1702",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "collatz/limit=10000",
+            "value": 276762,
+            "range": "± 1956",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "collatz/limit=100000",
+            "value": 2861280,
+            "range": "± 7176",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "amicable/limit=10000",
+            "value": 39065,
+            "range": "± 678",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "amicable/limit=100000",
+            "value": 678617,
+            "range": "± 5896",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "amicable/limit=1000000",
+            "value": 12614673,
+            "range": "± 44658",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "prime/limit=10000",
+            "value": 102577,
+            "range": "± 3139",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "prime/limit=100000",
+            "value": 315331,
+            "range": "± 8914",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "prime/limit=1000000",
+            "value": 1244336,
+            "range": "± 102557",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "perfect_numbers/limit=10000",
+            "value": 761,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "perfect_numbers/limit=1e19",
+            "value": 6070,
+            "range": "± 86",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "perfect_numbers/limit=1e40",
+            "value": 21606,
+            "range": "± 98",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "twin_primes/limit=1000",
+            "value": 1433,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "twin_primes/limit=10000",
+            "value": 11248,
+            "range": "± 89",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "twin_primes/limit=100000",
+            "value": 165216,
+            "range": "± 1889",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "goldbach/sieve=10000",
+            "value": 6986,
+            "range": "± 23",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "goldbach/sieve=100000",
+            "value": 76514,
+            "range": "± 742",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "goldbach/sieve=1000000",
+            "value": 854288,
+            "range": "± 7432",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "goldbach/pairs=10000",
+            "value": 13812681,
+            "range": "± 452696",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sq/max_digits=1",
+            "value": 2,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sq/max_digits=2",
+            "value": 6,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sq/max_digits=3",
+            "value": 20,
             "range": "± 0",
             "unit": "ns/iter"
           }
