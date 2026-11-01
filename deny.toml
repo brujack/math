@@ -1,5 +1,5 @@
-# cargo-deny policy for all 11 crates. tests/test_deny_policy.py holds the whole
-# file as one expected value, so edit that test in the same change.
+# cargo-deny policy for all 11 crates, proven by the tests/fixtures/cargo-deny
+# controls (tests/scripts/cargo_deny_fixtures.bats), as in etch-cli.
 [licenses]
 allow = [
     "MIT",

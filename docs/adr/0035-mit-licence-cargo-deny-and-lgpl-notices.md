@@ -31,10 +31,12 @@ notice and text obligations that the release assets did not meet. Supply-chain c
 
 2026-10-31: `cargo-deny-all.sh` passes `--locked`; a `deny.toml` push runs root `make test` locally; no local real-crate run (offline cache measurements in the CI supply-chain bundle spec).
 
+2026-10-31 (operator, to match etch-cli): the whole-file pin in `tests/test_deny_policy.py` is removed. The licence policy is proven by the `tests/fixtures/cargo-deny` controls (GPL rejected; MIT, LGPL-excepted and `rug` accepted), and a test keeps `deny.toml` the only advisory ignore list. The `[advisories]`, `[bans]` and `[sources]` keys are no longer pinned by any test; a change to them is reviewed in its PR like any other config.
+
 ## Consequences
 
-- A new licence, exception or advisory ignore is a deliberate, reviewed change to
-  `tests/test_deny_policy.py`, not a quiet edit to `deny.toml`.
+- A new licence, exception or advisory ignore is an edit to `deny.toml` reviewed in its PR;
+  a licence change must keep the fixture controls green (amended 2026-10-31, above).
 - Release jobs fail closed on incomplete notice data, so a bad lockfile blocks a release
   instead of shipping one without notices.
 - The five already-published v0.1.0 releases (2026-10-24) predate the notices step and ship

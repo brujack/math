@@ -1,8 +1,10 @@
-"""deny.toml is the licence, advisory, ban and source policy for all 11 crates.
+"""deny.toml policy guards for all 11 crates, matching etch-cli.
 
-The whole file is compared to one EXPECTED dict, so any added, removed or changed
-key fails here and the policy cannot drift unreviewed. The second test pins the
-crate list that `cargo deny` is run over to exactly the 11 rendered crates.
+The policy itself is proven by behaviour, not by pinning its text: the
+tests/fixtures/cargo-deny controls (tests/scripts/cargo_deny_fixtures.bats) show a
+GPL crate rejected and the MIT, LGPL-excepted and rug crates accepted. These tests
+pin the crate list `cargo deny` runs over, keep deny.toml the only advisory ignore
+list, and make every bats job install cargo-deny.
 """
 
 import os
@@ -12,39 +14,19 @@ import subprocess
 import sys
 import unittest
 
-import tomllib
-
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from scripts import render_crate_files as rcf
 
-EXPECTED = {
-    "licenses": {
-        "allow": [
-            "MIT",
-            "Apache-2.0",
-            "Apache-2.0 WITH LLVM-exception",
-            "BSD-2-Clause",
-            "Unlicense",
-            "Zlib",
-            "Unicode-3.0",
-        ],
-        "exceptions": [
-            {"crate": "rug", "allow": ["LGPL-3.0-or-later"]},
-            {"crate": "gmp-mpfr-sys", "allow": ["LGPL-3.0-or-later"]},
-        ],
-    },
-    "advisories": {"unmaintained": "all", "unsound": "all"},
-    "bans": {"multiple-versions": "warn"},
-    "sources": {"unknown-registry": "deny", "unknown-git": "deny"},
-}
-
 
 class TestDenyPolicy(unittest.TestCase):
-    def test_deny_toml_equals_expected_policy(self):
-        with (REPO_ROOT / "deny.toml").open("rb") as handle:
-            self.assertEqual(tomllib.load(handle), EXPECTED)
+    def test_one_ignore_list_no_workflow_has_its_own(self):
+        """deny.toml is the only advisory ignore list; no workflow may carry one."""
+        files = sorted((REPO_ROOT / ".github" / "workflows").glob("*.y*ml"))
+        self.assertTrue(files)
+        offenders = [f.name for f in files if "--ignore RUSTSEC" in f.read_text()]
+        self.assertEqual(offenders, [])
 
     def test_tracked_crate_manifests_are_exactly_the_eleven_crates(self):
         env = {
