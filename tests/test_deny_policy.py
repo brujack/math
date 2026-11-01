@@ -1,8 +1,20 @@
-"""deny.toml is the licence, advisory, ban and source policy for all 11 crates.
+"""deny.toml policy guards for all 11 crates, matching etch-cli plus key pins.
 
-The whole file is compared to one EXPECTED dict, so any added, removed or changed
-key fails here and the policy cannot drift unreviewed. The second test pins the
-crate list that `cargo deny` is run over to exactly the 11 rendered crates.
+The licence policy is proven by behaviour, not by pinning the file's text: the
+tests/fixtures/cargo-deny controls (tests/scripts/cargo_deny_fixtures.bats) show GPL
+and un-excepted LGPL crates rejected, and MIT and rug (only through its exception)
+accepted. Fixtures cannot see the settings below, so these tests pin them by key:
+- only the sections licenses, advisories, bans and sources (a [graph] exclude would
+  drop crates from every check);
+- [advisories] unsound/unmaintained "all" (cargo-deny's "workspace" default hides
+  transitive unsound advisories) and no keys besides those and ignore;
+- [sources] exactly unknown-registry/unknown-git "deny";
+- [licenses] only allow and exceptions (a clarify entry could relabel a GPL crate);
+- the LGPL exceptions exactly rug and gmp-mpfr-sys, the crates the release notices
+  cover.
+They also pin the 11-crate list, pin the one cargo-deny call (scripts/cargo-deny-all.sh)
+to an unnarrowed `check` so deny.toml stays the only place advisories are accepted,
+and make every bats job install cargo-deny.
 """
 
 import os
@@ -19,32 +31,74 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from scripts import render_crate_files as rcf
 
-EXPECTED = {
-    "licenses": {
-        "allow": [
-            "MIT",
-            "Apache-2.0",
-            "Apache-2.0 WITH LLVM-exception",
-            "BSD-2-Clause",
-            "Unlicense",
-            "Zlib",
-            "Unicode-3.0",
-        ],
-        "exceptions": [
-            {"crate": "rug", "allow": ["LGPL-3.0-or-later"]},
-            {"crate": "gmp-mpfr-sys", "allow": ["LGPL-3.0-or-later"]},
-        ],
-    },
-    "advisories": {"unmaintained": "all", "unsound": "all"},
-    "bans": {"multiple-versions": "warn"},
-    "sources": {"unknown-registry": "deny", "unknown-git": "deny"},
-}
-
 
 class TestDenyPolicy(unittest.TestCase):
-    def test_deny_toml_equals_expected_policy(self):
+    def _deny(self):
         with (REPO_ROOT / "deny.toml").open("rb") as handle:
-            self.assertEqual(tomllib.load(handle), EXPECTED)
+            return tomllib.load(handle)
+
+    def test_advisories_cover_transitive_crates(self):
+        advisories = self._deny()["advisories"]
+        self.assertEqual(advisories.get("unsound"), "all")
+        self.assertEqual(advisories.get("unmaintained"), "all")
+        # An `ignore` list is the reviewed way to accept an advisory; any other key
+        # (yanked, db-urls, ...) could quietly narrow what is checked.
+        self.assertLessEqual(set(advisories), {"unsound", "unmaintained", "ignore"})
+
+    def test_unknown_sources_are_denied(self):
+        # Exactly these keys: an allow-registry or allow-git list would whitelist
+        # a source past the deny settings.
+        self.assertEqual(
+            self._deny()["sources"],
+            {"unknown-registry": "deny", "unknown-git": "deny"},
+        )
+
+    def test_lgpl_exceptions_are_exactly_rug_and_gmp_mpfr_sys(self):
+        exceptions = self._deny()["licenses"].get("exceptions", [])
+        self.assertEqual(
+            sorted((e["crate"], tuple(e["allow"])) for e in exceptions),
+            [
+                ("gmp-mpfr-sys", ("LGPL-3.0-or-later",)),
+                ("rug", ("LGPL-3.0-or-later",)),
+            ],
+        )
+
+    def test_cargo_deny_runs_only_through_the_unnarrowed_script_call(self):
+        """cargo-deny 0.20.2 has no --ignore flag; what narrows a run is a WHICH
+        subset after `check`, -A/--allow, -W/--warn, --exclude*, -t/--target or
+        feature flags. The one real call (scripts/cargo-deny-all.sh) is pinned to
+        `--locked --config <root deny.toml> --manifest-path <m> check`, and no
+        workflow calls cargo-deny except through that script."""
+        script = (REPO_ROOT / "scripts" / "cargo-deny-all.sh").read_text()
+        joined = re.sub(r"\\\n\s*", " ", script)
+        calls = [
+            " ".join(line.split())
+            for line in joined.splitlines()
+            if re.search(r"\bcargo deny\b", line) and not line.lstrip().startswith("#")
+        ]
+        self.assertEqual(
+            calls,
+            [
+                (
+                    'if ! cargo deny --locked --config "${REPO_ROOT}/deny.toml" '
+                    '--manifest-path "${REPO_ROOT}/${manifest}" check </dev/null; then'
+                )
+            ],
+        )
+        for path in sorted((REPO_ROOT / ".github" / "workflows").glob("*.y*ml")):
+            with self.subTest(workflow=path.name):
+                self.assertNotRegex(path.read_text(), r"\bcargo[ -]deny\s+(--|check\b)")
+
+    def test_licenses_hold_only_allow_and_exceptions(self):
+        # A [[licenses.clarify]] entry can relabel any crate (GPL as MIT, say) past
+        # the fixtures; private/confidence keys can loosen matching.
+        self.assertLessEqual(set(self._deny()["licenses"]), {"allow", "exceptions"})
+
+    def test_only_the_four_known_sections(self):
+        # A [graph] exclude or targets list would drop crates from every check.
+        self.assertLessEqual(
+            set(self._deny()), {"licenses", "advisories", "bans", "sources"}
+        )
 
     def test_tracked_crate_manifests_are_exactly_the_eleven_crates(self):
         env = {

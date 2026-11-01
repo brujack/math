@@ -47,8 +47,8 @@ Three review rounds on the spec rejected two alternatives:
 
 - **`scripts/cargo-deny-all.sh` passes `--locked` before `check`,** so a stale or missing
   `Cargo.lock` fails the gate. `cargo-deny.yml` declares `permissions: contents: read`.
-- **pre-push runs root `make test` on a `deny.toml` change.** That covers the policy pin
-  and the real-cargo-deny fixture controls. Real-crate cargo-deny stays in CI
+- **pre-push runs root `make test` on a `deny.toml` change.** That covers the key-level
+  policy tests (`tests/test_deny_policy.py`) and the real-cargo-deny fixture controls. Real-crate cargo-deny stays in CI
   (`cargo-deny.yml` runs on every `Cargo.toml`, `Cargo.lock` and `deny.toml` change).
 - **Rust-only workflows install no system GMP, MPFR or MPC.** This covers the 22 rendered
   crate workflows, `gmp-cache.yml` and `benchmarks.yml`.

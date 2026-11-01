@@ -1,5 +1,6 @@
-# cargo-deny policy for all 11 crates. tests/test_deny_policy.py holds the whole
-# file as one expected value, so edit that test in the same change.
+# cargo-deny policy for all 11 crates. Licences are proven by the tests/fixtures/cargo-deny
+# controls; the section set, advisories, sources and the LGPL exceptions are pinned in
+# tests/test_deny_policy.py.
 [licenses]
 allow = [
     "MIT",

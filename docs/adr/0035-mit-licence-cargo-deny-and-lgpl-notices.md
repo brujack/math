@@ -20,9 +20,8 @@ notice and text obligations that the release assets did not meet. Supply-chain c
   plus licences, bans and sources, with `unmaintained = "all"` and `unsound = "all"` (cargo-deny
   0.20.2 defaults `unsound` to `workspace`, which skips transitive crates; added 2026-10-31). `scripts/cargo-deny-all.sh`
   checks all 11 crates and refuses a crate list other than 11. `cargo-deny.yml` runs it, and
-  `scripts.yml` runs the fixture controls. `tests/test_deny_policy.py` pins `deny.toml`
-  whole, so any change (a licence, an exception, an `[advisories] ignore`) is an
-  operator-approved edit to that test.
+  `scripts.yml` runs the fixture controls, which prove the licence policy (whole-file pin
+  removed 2026-10-31; see the amendment below).
 - **LGPL compliance by embedded notices.** Every release attaches `THIRD-PARTY-NOTICES.txt`,
   built by `scripts/third-party-notices.sh`. For crates whose lockfile contains
   `gmp-mpfr-sys` it embeds the LGPL-3.0 and GPL-3.0 texts. It fails before the tag is pushed
@@ -31,10 +30,13 @@ notice and text obligations that the release assets did not meet. Supply-chain c
 
 2026-10-31: `cargo-deny-all.sh` passes `--locked`; a `deny.toml` push runs root `make test` locally; no local real-crate run (offline cache measurements in the CI supply-chain bundle spec).
 
+2026-10-31 (operator, to match etch-cli): the whole-file pin in `tests/test_deny_policy.py` is removed. The licence policy is proven by the `tests/fixtures/cargo-deny` controls (GPL and un-excepted LGPL rejected; MIT and `rug`, only through its exception, accepted). Settings fixtures cannot see are pinned by key: only the four sections `licenses`, `advisories`, `bans` and `sources`; `unsound`/`unmaintained` = "all" with no other `[advisories]` key but `ignore`; `[sources]` exactly `unknown-registry`/`unknown-git` = "deny"; `[licenses]` only `allow` and `exceptions` (a `clarify` entry could relabel a crate past the fixtures); and the LGPL exceptions exactly `rug` and `gmp-mpfr-sys`. `deny.toml` stays the only place advisories are accepted: the one `cargo deny` call, in `scripts/cargo-deny-all.sh`, is pinned to an unnarrowed `check` (no WHICH subset, `-A`, `--exclude` or `-t`; cargo-deny 0.20.2 has no `--ignore`), and no workflow calls cargo-deny directly. `[bans]` and the allow list beyond what the fixtures exercise are reviewed in their PR.
+
 ## Consequences
 
-- A new licence, exception or advisory ignore is a deliberate, reviewed change to
-  `tests/test_deny_policy.py`, not a quiet edit to `deny.toml`.
+- A new licence or advisory ignore is an edit to `deny.toml` reviewed in its PR and must keep
+  the fixture controls green; a new LGPL exception also changes `tests/test_deny_policy.py`
+  (amended 2026-10-31, above).
 - Release jobs fail closed on incomplete notice data, so a bad lockfile blocks a release
   instead of shipping one without notices.
 - The five already-published v0.1.0 releases (2026-10-24) predate the notices step and ship
