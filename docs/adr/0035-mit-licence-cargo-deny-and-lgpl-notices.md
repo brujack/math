@@ -20,9 +20,8 @@ notice and text obligations that the release assets did not meet. Supply-chain c
   plus licences, bans and sources, with `unmaintained = "all"` and `unsound = "all"` (cargo-deny
   0.20.2 defaults `unsound` to `workspace`, which skips transitive crates; added 2026-10-31). `scripts/cargo-deny-all.sh`
   checks all 11 crates and refuses a crate list other than 11. `cargo-deny.yml` runs it, and
-  `scripts.yml` runs the fixture controls. `tests/test_deny_policy.py` pins `deny.toml`
-  whole, so any change (a licence, an exception, an `[advisories] ignore`) is an
-  operator-approved edit to that test.
+  `scripts.yml` runs the fixture controls, which prove the licence policy (whole-file pin
+  removed 2026-10-31; see the amendment below).
 - **LGPL compliance by embedded notices.** Every release attaches `THIRD-PARTY-NOTICES.txt`,
   built by `scripts/third-party-notices.sh`. For crates whose lockfile contains
   `gmp-mpfr-sys` it embeds the LGPL-3.0 and GPL-3.0 texts. It fails before the tag is pushed
