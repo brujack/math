@@ -34,11 +34,17 @@ class TestDenyPolicy(unittest.TestCase):
         advisories = self._deny()["advisories"]
         self.assertEqual(advisories.get("unsound"), "all")
         self.assertEqual(advisories.get("unmaintained"), "all")
+        # An `ignore` list is the reviewed way to accept an advisory; any other key
+        # (yanked, db-urls, ...) could quietly narrow what is checked.
+        self.assertLessEqual(set(advisories), {"unsound", "unmaintained", "ignore"})
 
     def test_unknown_sources_are_denied(self):
-        sources = self._deny()["sources"]
-        self.assertEqual(sources.get("unknown-registry"), "deny")
-        self.assertEqual(sources.get("unknown-git"), "deny")
+        # Exactly these keys: an allow-registry or allow-git list would whitelist
+        # a source past the deny settings.
+        self.assertEqual(
+            self._deny()["sources"],
+            {"unknown-registry": "deny", "unknown-git": "deny"},
+        )
 
     def test_lgpl_exceptions_are_exactly_rug_and_gmp_mpfr_sys(self):
         exceptions = self._deny()["licenses"].get("exceptions", [])
