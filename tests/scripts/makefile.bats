@@ -1044,6 +1044,17 @@ _scratch_tmp() {
     [ ! -e "${STUBDIR}/mutants-report.txt" ]
 }
 
+# A hot journal left by an interrupted run would be rolled back into the next
+# run's fresh session by SQLite, so it goes with the stale session.
+@test "python mutants removes a stale session journal from the project first" {
+    _py_stub_setup
+    _scratch_tmp
+    printf 'J\n' > "${STUBDIR}/cosmic-ray-session.sqlite-journal"
+    run env TMPDIR="${SCRATCH_T}" STUB_INIT_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
+    [ "${status}" -ne 0 ]
+    [ ! -e "${STUBDIR}/cosmic-ray-session.sqlite-journal" ]
+}
+
 @test "python mutants copies only the module, its test and the config into scratch" {
     _py_stub_setup
     _scratch_tmp

@@ -41,10 +41,12 @@ mutants-baseline:
 	@bash -c '$(MUTANTS_CAP); \
 	  cosmic-ray baseline cosmic-ray.toml || { python3 -m unittest test_amicable; exit 1; }'
 
+# Runs in a scratch copy of the module, its test and the config only: the project
+# directory also holds <crate>-rs/target (up to ~1.8 GB), and /tmp may be tmpfs.
 mutants: mutants-baseline
 	@bash -c '$(MUTANTS_CAP); \
 	  proj="$$(pwd)"; \
-	  rm -f cosmic-ray-session.sqlite mutants-report.txt || exit 1; \
+	  rm -f cosmic-ray-session.sqlite cosmic-ray-session.sqlite-journal mutants-report.txt || exit 1; \
 	  work="$$(mktemp -d "$${TMPDIR:-/tmp}/mutants-amicable.XXXXXX")" || exit 1; \
 	  work="$$(CDPATH="" cd -- "$$work" >/dev/null && pwd)" || exit 1; \
 	  cleanup() { \
@@ -89,7 +91,7 @@ mutants-report:
 	@cr-report cosmic-ray-session.sqlite | tail -5
 
 mutants-clean:
-	rm -f cosmic-ray-session.sqlite mutants-report.txt
+	rm -f cosmic-ray-session.sqlite cosmic-ray-session.sqlite-journal mutants-report.txt
 
 clean: mutants-clean
 	rm -rf __pycache__ .coverage amicable_*.txt
