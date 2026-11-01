@@ -1,11 +1,19 @@
 .PHONY: run lint test coverage mutants mutants-baseline mutants-report mutants-clean clean
 
+# Set only when ruff answers --version, so a ruff that is on PATH but not runnable is skipped, not an Error 127.
+RUFF := $(shell ruff --version >/dev/null 2>&1 && command -v ruff)
+
 run:
 	python3 sq.py
 
+ifdef RUFF
 lint:
 	ruff check .
 	ruff format --check .
+else
+lint:
+	@printf "ruff not found, skipping (install: pip install ruff==0.16.4)\n"
+endif
 
 test: lint
 	pytest test_sq.py -v
@@ -33,9 +41,31 @@ mutants-baseline:
 	@bash -c '$(MUTANTS_CAP); \
 	  cosmic-ray baseline cosmic-ray.toml || { python3 -m unittest test_sq; exit 1; }'
 
+# Runs in a scratch copy of the module, its test and the config only: the project
+# directory also holds <crate>-rs/target (up to ~1.8 GB), and /tmp may be tmpfs.
 mutants: mutants-baseline
 	@bash -c '$(MUTANTS_CAP); \
-	  rm -f cosmic-ray-session.sqlite || exit 1; \
+	  proj="$$(pwd)"; \
+	  rm -f cosmic-ray-session.sqlite cosmic-ray-session.sqlite-journal mutants-report.txt || exit 1; \
+	  work="$$(mktemp -d "$${TMPDIR:-/tmp}/mutants-sq.XXXXXX")" || exit 1; \
+	  work="$$(CDPATH="" cd -- "$$work" >/dev/null && pwd)" || exit 1; \
+	  cleanup() { \
+	    trap "" TERM HUP INT; \
+	    ok=1; \
+	    if [ -f "$$work/sq/cosmic-ray-session.sqlite" ]; then \
+	      cp -- "$$work/sq"/cosmic-ray-session.sqlite* "$$proj/" || ok=; \
+	    fi; \
+	    if [ -f "$$work/sq/mutants-report.txt" ]; then \
+	      cp -- "$$work/sq/mutants-report.txt" "$$proj/" || ok=; \
+	    fi; \
+	    if [ -n "$$ok" ]; then rm -rf -- "$$work"; \
+	    else printf "mutants: kept %s (copy-back failed)\n" "$$work" >&2; fi; \
+	  }; \
+	  trap cleanup EXIT; trap "exit 143" TERM; trap "exit 129" HUP; \
+	  mkdir "$$work/sq" || exit 1; \
+	  cp -- sq.py test_sq.py cosmic-ray.toml "$$work/sq/" || exit 1; \
+	  ln -s "$$(cd .. && pwd)/scripts" "$$work/scripts" || exit 1; \
+	  cd "$$work/sq" || exit 1; \
 	  cosmic-ray init cosmic-ray.toml cosmic-ray-session.sqlite || exit 1; \
 	  if [ -n "$${MUTANT_SHARD}" ]; then \
 	    case "$${MUTANT_SHARD}" in \
@@ -49,17 +79,19 @@ mutants: mutants-baseline
 	  cosmic-ray exec cosmic-ray.toml cosmic-ray-session.sqlite || exit 1; \
 	  cr-report cosmic-ray-session.sqlite --show-output --show-diff > mutants-report.txt || exit 1; \
 	  cr-report cosmic-ray-session.sqlite | tail -5; \
+	  cp -- cosmic-ray-session.sqlite mutants-report.txt "$$proj/" || exit 1; \
+	  cd "$$proj" || exit 1; \
 	  set -- cosmic-ray-session.sqlite "$${CELL_LABEL}"; \
 	  if [ -n "$${STATUS_OUT}" ]; then set -- "$$@" --out "$${STATUS_OUT}"; fi; \
 	  if [ -n "$${SURVIVORS_OUT}" ]; then set -- "$$@" --survivors "$${SURVIVORS_OUT}"; fi; \
-	  exec python3 ../scripts/cosmic_ray_cell_status.py "$$@"'
+	  python3 ../scripts/cosmic_ray_cell_status.py "$$@"'
 
 mutants-report:
 	@cr-report cosmic-ray-session.sqlite --show-output --show-diff > mutants-report.txt
 	@cr-report cosmic-ray-session.sqlite | tail -5
 
 mutants-clean:
-	rm -f cosmic-ray-session.sqlite mutants-report.txt
+	rm -f cosmic-ray-session.sqlite cosmic-ray-session.sqlite-journal mutants-report.txt
 
 clean: mutants-clean
 	rm -rf __pycache__ .coverage sq_*.txt

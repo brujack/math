@@ -132,6 +132,10 @@ All tests go in `tests/scripts/makefile.bats`. No new file is needed.
 - **N2.** No change to the Rust template or any Rust crate.
 - **N3.** No change to `CLAUDE.md`.
 
+## Amendments
+
+- R1 -> The rendered Python `make mutants` removes the project's `cosmic-ray-session.sqlite`, `cosmic-ray-session.sqlite-journal` and `mutants-report.txt`, copies only `@MODULE@.py`, `test_@MODULE@.py` and `cosmic-ray.toml` (plus a `scripts` symlink) into a `mktemp -d` under `TMPDIR`, runs `init`, the shard step, `exec` and `cr-report` there, copies the session and report back in-band before running `cosmic_ray_cell_status.py` in the project directory without `exec`, and has an `EXIT` trap that copies `cosmic-ray-session.sqlite*` (and the report) back when present and removes the scratch directory only if those copies succeeded. — pr-review found that a hot journal left by an interrupted run is rolled back into the next run's fresh session; the purge now removes it too (f4c8be7).
+
 ## Multi-Lens Review
 
 Reviewed at commit: `7e69755` (Step 7 self-review commit, before Step 8 dispatch)
@@ -203,3 +207,25 @@ Also probed and found clean:
 Assumption: none uncertain. Scratch-directory parity was settled by running all 8 suites (rc 0).
 
 Disposition: Addressed (operator, 2026-10-31). Both gaps are fixed in text: the copy-back-failure case, the status `pwd`, the `cleanup()` function and absolute paths. Review stops here: the round's findings are in the test apparatus, and the design did not change.
+
+## Spec alignment (2026-10-31)
+
+- spec: docs/superpowers/specs/2026-10-31-python-makefile-template-hardening-design.md
+- anchor: 0cefb8298e5998c12f23556ea302366220b4f99e
+- in scope: R1, R2, R3, R4, R5
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+
+### Reviewed
+
+- none
+
+### Verifications
+
+- V1: Measured 2026-10-31 on claude at 080f71c in a git-initialised scratch copy: `timeout -s TERM 25 make mutants` rc 124 and `timeout -s KILL 25 make mutants` rc 137 both left `git diff --stat -- fib/fib.py` empty. Phase 3 then found that a whole-process-group SIGTERM skipped the copy-back (fixed in c2c8c0f/db4610b: TERM/HUP traps, cleanup ignores TERM/HUP/INT); bug-scan re-measured real group TERM/INT/HUP runs at e202c98, all copy the session back and remove scratch. Deleting `trap "exit 143" TERM` is caught by the group-SIGTERM bats case only 6 of 10 runs (test-quality-review, accepted by the operator, skip_ledger + Backlog row). After f4c8be7 (journal purge), bug-scan re-ran a group-TERM interrupt then a second run on fib: integrity_check ok, 24/24, green, no journal left; the pre-f4c8be7 rm line on the same seed gave a malformed db.
+- V2: Pending: PR CI not yet run.
+- V3: Pending: next scheduled mutation-testing-python.yml run after merge.
