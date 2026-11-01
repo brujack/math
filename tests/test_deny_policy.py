@@ -9,11 +9,12 @@ accepted. Fixtures cannot see the settings below, so these tests pin them by key
 - [advisories] unsound/unmaintained "all" (cargo-deny's "workspace" default hides
   transitive unsound advisories) and no keys besides those and ignore;
 - [sources] exactly unknown-registry/unknown-git "deny";
+- [licenses] only allow and exceptions (a clarify entry could relabel a GPL crate);
 - the LGPL exceptions exactly rug and gmp-mpfr-sys, the crates the release notices
   cover.
-They also pin the 11-crate list, keep deny.toml the only advisory ignore list (no
---ignore in any tracked workflow, script or Makefile), and make every bats job
-install cargo-deny.
+They also pin the 11-crate list, pin the one cargo-deny call (scripts/cargo-deny-all.sh)
+to an unnarrowed `check` so deny.toml stays the only place advisories are accepted,
+and make every bats job install cargo-deny.
 """
 
 import os
@@ -62,33 +63,36 @@ class TestDenyPolicy(unittest.TestCase):
             ],
         )
 
-    def test_one_ignore_list_no_workflow_or_script_has_its_own(self):
-        """deny.toml is the only advisory ignore list. math runs cargo-deny through
-        scripts/cargo-deny-all.sh, so every tracked file under .github/ and scripts/
-        and every Makefile is scanned, and any --ignore flag counts, whatever quoting
-        or variable carries the ID (no such flag is in use today)."""
-        env = {
-            k: v
-            for k, v in os.environ.items()
-            if k not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
-        }
-        listed = subprocess.run(
-            ["git", "ls-files", ".github", "scripts", "Makefile", "*/Makefile"],
-            cwd=REPO_ROOT,
-            env=env,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.split()
-        self.assertIn("scripts/cargo-deny-all.sh", listed)
-        self.assertIn(".github/workflows/cargo-deny.yml", listed)
-        pattern = re.compile(r"--ignore\b")
-        offenders = [
-            name
-            for name in listed
-            if pattern.search((REPO_ROOT / name).read_text(errors="replace"))
+    def test_cargo_deny_runs_only_through_the_unnarrowed_script_call(self):
+        """cargo-deny 0.20.2 has no --ignore flag; what narrows a run is a WHICH
+        subset after `check`, -A/--allow, -W/--warn, --exclude*, -t/--target or
+        feature flags. The one real call (scripts/cargo-deny-all.sh) is pinned to
+        `--locked --config <root deny.toml> --manifest-path <m> check`, and no
+        workflow calls cargo-deny except through that script."""
+        script = (REPO_ROOT / "scripts" / "cargo-deny-all.sh").read_text()
+        joined = re.sub(r"\\\n\s*", " ", script)
+        calls = [
+            " ".join(line.split())
+            for line in joined.splitlines()
+            if re.search(r"\bcargo deny\b", line) and not line.lstrip().startswith("#")
         ]
-        self.assertEqual(offenders, [])
+        self.assertEqual(
+            calls,
+            [
+                (
+                    'if ! cargo deny --locked --config "${REPO_ROOT}/deny.toml" '
+                    '--manifest-path "${REPO_ROOT}/${manifest}" check </dev/null; then'
+                )
+            ],
+        )
+        for path in sorted((REPO_ROOT / ".github" / "workflows").glob("*.y*ml")):
+            with self.subTest(workflow=path.name):
+                self.assertNotRegex(path.read_text(), r"\bcargo[ -]deny\s+(--|check\b)")
+
+    def test_licenses_hold_only_allow_and_exceptions(self):
+        # A [[licenses.clarify]] entry can relabel any crate (GPL as MIT, say) past
+        # the fixtures; private/confidence keys can loosen matching.
+        self.assertLessEqual(set(self._deny()["licenses"]), {"allow", "exceptions"})
 
     def test_only_the_four_known_sections(self):
         # A [graph] exclude or targets list would drop crates from every check.
