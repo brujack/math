@@ -132,6 +132,10 @@ All tests go in `tests/scripts/makefile.bats`. No new file is needed.
 - **N2.** No change to the Rust template or any Rust crate.
 - **N3.** No change to `CLAUDE.md`.
 
+## Amendments
+
+- R1 -> The rendered Python `make mutants` removes the project's `cosmic-ray-session.sqlite`, `cosmic-ray-session.sqlite-journal` and `mutants-report.txt`, copies only `@MODULE@.py`, `test_@MODULE@.py` and `cosmic-ray.toml` (plus a `scripts` symlink) into a `mktemp -d` under `TMPDIR`, runs `init`, the shard step, `exec` and `cr-report` there, copies the session and report back in-band before running `cosmic_ray_cell_status.py` in the project directory without `exec`, and has an `EXIT` trap that copies `cosmic-ray-session.sqlite*` (and the report) back when present and removes the scratch directory only if those copies succeeded. — pr-review found that a hot journal left by an interrupted run is rolled back into the next run's fresh session; the purge now removes it too (f4c8be7).
+
 ## Multi-Lens Review
 
 Reviewed at commit: `7e69755` (Step 7 self-review commit, before Step 8 dispatch)
