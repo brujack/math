@@ -3,6 +3,8 @@
 **Date:** 2026-04-21
 **Status:** Accepted
 
+> **Amended 2026-10-31:** pushes to master or main are also judged by ai-config's shared push-content gate (ai-config ADR-0091), which `scripts/pre-push` loads from GitHub before its own checks. A docs-only master push is now network-judged, and a gate that cannot load refuses the push. Feature pushes are unchanged and make no network call.
+
 ## Context
 
 Early CI ran on every push to any branch via `push:` triggers. Problems: every commit to a feature branch triggered a full CI run on GitHub, consuming Actions minutes for work-in-progress commits. The feedback loop was slow (2–5 minutes waiting for GitHub) even for small changes.

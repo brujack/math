@@ -1,5 +1,8 @@
-#!/usr/bin/env bash
+#!/usr/bin/env -S bash -p
 # Pre-push hook: runs tests for changed sub-projects before push reaches GitHub.
+# A push to master or main first loads the shared push-content gate from
+# ai-config (the wiring block below); it reads stdin once, into _pcg_refs, which
+# the ref loop then reads again. `bash -p` keeps BASH_ENV out of the hook.
 # Permanent: provides fast local feedback and conserves GitHub Actions minutes.
 # GitHub Actions is the final merge gate on PRs.
 set -e
@@ -37,6 +40,39 @@ RUN_CLI_CONTRACT=0
 # SHAs refused by the CLAUDE.md byte-ceiling check; acted on after the ref loop
 # so every pushed ref is examined and the refusal precedes all early exits.
 budget_refusals=()
+
+# >>> push-content-gate wiring
+# >>> _pcg_fetch
+_pcg_fetch() { # <api path>; prints the raw file. curl reads no user-writable configuration; the token comes from gh's own store.
+  local tok ca
+  tok="$(gh auth token 2>/dev/null)" || return 1
+  case "${tok}" in '' | *[!A-Za-z0-9_]*) return 1 ;; esac
+  for ca in /etc/ssl/certs/ca-certificates.crt /etc/ssl/cert.pem ''; do [[ -r "${ca}" ]] && break; done
+  [[ -n "${ca}" ]] || return 1
+  printf 'header = "Authorization: Bearer %s"\n' "${tok}" \
+    | env -i /usr/bin/curl -q --silent --show-error --fail --proto '=https' --noproxy '*' \
+        --cacert "${ca}" --max-time 20 -K - -H 'Accept: application/vnd.github.raw' \
+        "https://api.github.com/${1}"
+}
+# <<< _pcg_fetch
+_pcg_refs="$(</dev/stdin)" || { printf 'pre-push: cannot read the pushed refs\n' >&2; exit 1; }
+_pcg_hit=1
+while read -r _ _ _pcg_rref _; do
+  case "${_pcg_rref}" in refs/heads/master | refs/heads/main) _pcg_hit=0 ;; esac
+done <<< "${_pcg_refs}"
+if [[ "${_pcg_hit}" -eq 0 ]]; then
+  # shellcheck disable=SC1090 # the library is fetched at runtime; there is no file to follow
+  if _pcg_src="$(_pcg_fetch 'repos/brujack/ai-config/contents/.claude/hooks/push-content-gate.sh?ref=master')" \
+    && source <(printf '%s\n' "${_pcg_src}") \
+    && declare -F push_content_gate_refs >/dev/null; then
+    push_content_gate_refs "${_pcg_refs}" "${2}" || exit 1
+  else
+    printf 'pre-push: cannot load the push-content gate from GitHub (brujack/ai-config master); refusing a push to master/main.\n' >&2
+    printf 'Check the network and gh auth status, then retry.\n' >&2
+    exit 1
+  fi
+fi
+# <<< push-content-gate wiring
 
 # Enforces the CLAUDE.md byte ceiling for one pushed commit. The change test
 # diffs against merge-base(sha, origin/master), not the remote ref's old SHA, so
@@ -103,6 +139,9 @@ check_claude_md_budget() {
     rm -f "${tmp}"
 }
 
+# The wiring block already consumed stdin into _pcg_refs, so the loop reads that
+# copy; an empty copy (a bare run, no refs) skips the loop as the old empty read did.
+if [[ -n "${_pcg_refs}" ]]; then
 # local_ref and remote_ref are unused, but git's pre-push protocol writes all
 # four fields per line in this order — they are positional placeholders, not
 # dead variables (SC2034).
@@ -151,7 +190,8 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     if git diff --no-renames --name-only "${range}" | grep -qE '^scripts/cli_contract\.py$'; then
         RUN_CLI_CONTRACT=1
     fi
-done
+done <<< "${_pcg_refs}"
+fi
 
 if [[ "${#budget_refusals[@]}" -gt 0 ]]; then
     printf "pre-push: push refused: CLAUDE.md byte ceiling (ADR-0028) failed for %s\n" "${budget_refusals[*]}" >&2
