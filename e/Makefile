@@ -46,6 +46,7 @@ mutants: mutants-baseline
 	  proj="$$(pwd)"; \
 	  rm -f cosmic-ray-session.sqlite mutants-report.txt || exit 1; \
 	  work="$$(mktemp -d "$${TMPDIR:-/tmp}/mutants-e.XXXXXX")" || exit 1; \
+	  work="$$(cd "$$work" && pwd)" || exit 1; \
 	  cleanup() { \
 	    ok=1; \
 	    if [ -f "$$work/e/cosmic-ray-session.sqlite" ]; then \
@@ -57,7 +58,7 @@ mutants: mutants-baseline
 	    if [ -n "$$ok" ]; then rm -rf -- "$$work"; \
 	    else printf "mutants: kept %s (copy-back failed)\n" "$$work" >&2; fi; \
 	  }; \
-	  trap cleanup EXIT; \
+	  trap cleanup EXIT; trap "exit 143" TERM; trap "exit 129" HUP; \
 	  mkdir "$$work/e" || exit 1; \
 	  cp -- e.py test_e.py cosmic-ray.toml "$$work/e/" || exit 1; \
 	  ln -s "$$(cd .. && pwd)/scripts" "$$work/scripts" || exit 1; \

@@ -781,6 +781,12 @@ case "$1" in
             printf 'R' > mutants-report.txt
             ln -s /nonexistent/x "${STUBDIR}/mutants-report.txt"
         fi
+        # Hang after writing the session, as a cancelled CI job would find exec.
+        if [ -n "${STUB_EXEC_HANG}" ]; then
+            printf 'S' > cosmic-ray-session.sqlite
+            : > "${BATS_TEST_TMPDIR}/exec-ready"
+            sleep 30
+        fi
         exit "${STUB_EXEC_RC:-0}" ;;
 esac
 exit 0
@@ -1022,4 +1028,43 @@ _scratch_tmp() {
     run env TMPDIR="${SCRATCH_T}" STUB_EXEC_LS=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
     [ "${status}" -eq 0 ]
     [ "$(cat "${BATS_TEST_TMPDIR}/ls")" = "cosmic-ray.toml fib.py test_fib.py " ]
+}
+
+@test "python mutants copies the session back when the whole process group gets SIGTERM" {
+    _py_stub_setup
+    _scratch_tmp
+    rm -f "${BATS_TEST_TMPDIR}/exec-ready"
+    TMPDIR="${SCRATCH_T}" STUB_EXEC_HANG=1 setsid env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants >/dev/null 2>&1 </dev/null &
+    local pid=$! i
+    for i in $(seq 1 100); do
+        [ -e "${BATS_TEST_TMPDIR}/exec-ready" ] && break
+        sleep 0.1
+    done
+    if [ ! -e "${BATS_TEST_TMPDIR}/exec-ready" ]; then
+        kill -KILL -- "-${pid}" 2>/dev/null
+        wait "${pid}" 2>/dev/null || true
+        return 1
+    fi
+    kill -TERM -- "-${pid}"
+    for i in $(seq 1 100); do
+        kill -0 "${pid}" 2>/dev/null || break
+        sleep 0.1
+    done
+    if kill -0 "${pid}" 2>/dev/null; then
+        kill -KILL -- "-${pid}" 2>/dev/null
+        wait "${pid}" 2>/dev/null || true
+        return 1
+    fi
+    wait "${pid}" 2>/dev/null || true
+    [ "$(cat "${STUBDIR}/cosmic-ray-session.sqlite")" = "S" ]
+    [ -z "$(ls -A "${SCRATCH_T}")" ]
+}
+
+@test "python mutants cleans up on the failure path with a relative TMPDIR" {
+    _py_stub_setup
+    mkdir -p "${STUBDIR}/reltmp"
+    run env TMPDIR=reltmp STUB_EXEC_SESSION=1 STUB_EXEC_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
+    [ "${status}" -ne 0 ]
+    [ "$(cat "${STUBDIR}/cosmic-ray-session.sqlite")" = "S" ]
+    [ -z "$(ls -A "${STUBDIR}/reltmp")" ]
 }
