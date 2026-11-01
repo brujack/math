@@ -203,3 +203,25 @@ Also probed and found clean:
 Assumption: none uncertain. Scratch-directory parity was settled by running all 8 suites (rc 0).
 
 Disposition: Addressed (operator, 2026-10-31). Both gaps are fixed in text: the copy-back-failure case, the status `pwd`, the `cleanup()` function and absolute paths. Review stops here: the round's findings are in the test apparatus, and the design did not change.
+
+## Spec alignment (2026-10-31)
+
+- spec: docs/superpowers/specs/2026-10-31-python-makefile-template-hardening-design.md
+- anchor: 0cefb8298e5998c12f23556ea302366220b4f99e
+- in scope: R1, R2, R3, R4, R5
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+
+### Reviewed
+
+- none
+
+### Verifications
+
+- V1: Measured 2026-10-31 on claude at 080f71c in a git-initialised scratch copy: `timeout -s TERM 25 make mutants` rc 124 and `timeout -s KILL 25 make mutants` rc 137 both left `git diff --stat -- fib/fib.py` empty. Phase 3 then found that a whole-process-group SIGTERM skipped the copy-back (fixed in c2c8c0f/db4610b: TERM/HUP traps, cleanup ignores TERM/HUP/INT); bug-scan re-measured real group TERM/INT/HUP runs at e202c98, all copy the session back and remove scratch. Deleting `trap "exit 143" TERM` is caught by the group-SIGTERM bats case only 6 of 10 runs (test-quality-review, accepted by the operator, skip_ledger + Backlog row).
+- V2: Pending: PR CI not yet run.
+- V3: Pending: next scheduled mutation-testing-python.yml run after merge.
