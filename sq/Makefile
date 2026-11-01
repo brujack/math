@@ -46,8 +46,9 @@ mutants: mutants-baseline
 	  proj="$$(pwd)"; \
 	  rm -f cosmic-ray-session.sqlite mutants-report.txt || exit 1; \
 	  work="$$(mktemp -d "$${TMPDIR:-/tmp}/mutants-sq.XXXXXX")" || exit 1; \
-	  work="$$(cd "$$work" && pwd)" || exit 1; \
+	  work="$$(CDPATH= cd -- "$$work" >/dev/null && pwd)" || exit 1; \
 	  cleanup() { \
+	    trap "" TERM HUP INT; \
 	    ok=1; \
 	    if [ -f "$$work/sq/cosmic-ray-session.sqlite" ]; then \
 	      cp -- "$$work/sq"/cosmic-ray-session.sqlite* "$$proj/" || ok=; \

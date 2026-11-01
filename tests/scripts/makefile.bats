@@ -825,7 +825,20 @@ STUB
 printf 'cr-report %s\n' "$*" >> "${CALLS}"
 [ -t 1 ] || printf 'REPORT\n'
 STUB
-    chmod +x "${bin}/cosmic-ray" "${bin}/python3" "${bin}/cr-report"
+    # cp that stalls on the session file when STUB_CP_SLOW is set, so a signal sent once the
+    # copy-back has begun lands inside the cleanup trap every time.
+    cat > "${bin}/cp" <<'STUB'
+#!/bin/bash
+case "$*" in
+    *cosmic-ray-session*)
+        if [ -n "${STUB_CP_SLOW}" ]; then
+            : > "${BATS_TEST_TMPDIR}/cp-started"
+            sleep 1
+        fi ;;
+esac
+exec /bin/cp "$@"
+STUB
+    chmod +x "${bin}/cosmic-ray" "${bin}/python3" "${bin}/cr-report" "${bin}/cp"
     export CALLS PWDS STUBDIR
     export PATH="${bin}:${PATH}"
     unset MUTANTS_UNCAPPED MUTANT_SHARD STATUS_OUT SURVIVORS_OUT CELL_LABEL
@@ -1044,8 +1057,8 @@ _scratch_tmp() {
 @test "python mutants copies the session back when the whole process group gets SIGTERM" {
     _py_stub_setup
     _scratch_tmp
-    rm -f "${BATS_TEST_TMPDIR}/exec-ready"
-    TMPDIR="${SCRATCH_T}" STUB_EXEC_HANG=1 setsid env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants >/dev/null 2>&1 </dev/null &
+    rm -f "${BATS_TEST_TMPDIR}/exec-ready" "${BATS_TEST_TMPDIR}/cp-started"
+    TMPDIR="${SCRATCH_T}" STUB_EXEC_HANG=1 STUB_CP_SLOW=1 setsid env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants >/dev/null 2>&1 </dev/null &
     local pid=$! i
     for i in $(seq 1 100); do
         [ -e "${BATS_TEST_TMPDIR}/exec-ready" ] && break
@@ -1057,6 +1070,18 @@ _scratch_tmp() {
         return 1
     fi
     kill -TERM -- "-${pid}"
+    # Once cleanup is inside its (stalled) copy-back, a second TERM must not abort it.
+    for i in $(seq 1 100); do
+        [ -e "${BATS_TEST_TMPDIR}/cp-started" ] && break
+        sleep 0.05
+    done
+    # GNU make ignores a repeated TERM, so also signal its recipe shell, which is what make's
+    # own forwarded TERM reaches.
+    local child
+    kill -TERM "${pid}" 2>/dev/null
+    for child in $(pgrep -P "${pid}"); do
+        kill -TERM "${child}" 2>/dev/null
+    done
     for i in $(seq 1 100); do
         kill -0 "${pid}" 2>/dev/null || break
         sleep 0.1
@@ -1075,6 +1100,15 @@ _scratch_tmp() {
     _py_stub_setup
     mkdir -p "${STUBDIR}/reltmp"
     run env TMPDIR=reltmp STUB_EXEC_SESSION=1 STUB_EXEC_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
+    [ "${status}" -ne 0 ]
+    [ "$(cat "${STUBDIR}/cosmic-ray-session.sqlite")" = "S" ]
+    [ -z "$(ls -A "${STUBDIR}/reltmp")" ]
+}
+
+@test "python mutants cleans up on the failure path with CDPATH set and a relative TMPDIR" {
+    _py_stub_setup
+    mkdir -p "${STUBDIR}/reltmp"
+    run env CDPATH=.: TMPDIR=reltmp STUB_EXEC_SESSION=1 STUB_EXEC_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
     [ "${status}" -ne 0 ]
     [ "$(cat "${STUBDIR}/cosmic-ray-session.sqlite")" = "S" ]
     [ -z "$(ls -A "${STUBDIR}/reltmp")" ]
