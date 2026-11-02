@@ -201,7 +201,13 @@ def _solve_ssa(
         angles = {
             angle_name: angle,
             _OPPOSITE[y_name]: math.atan2(y * math.sin(angle), root),
-            _OPPOSITE[z_name]: _opposite_angle(z, y, angle),
+            # y - z cos(angle) is y sin^2(angle) - root cos(angle); written
+            # from root, it does not inherit the rounding of z, which cancels
+            # against y when x is much shorter than y.
+            _OPPOSITE[z_name]: math.atan2(
+                z * math.sin(angle),
+                y * math.sin(angle) ** 2 - root * math.cos(angle),
+            ),
         }
         sides = {x_name: x, y_name: y, z_name: z}
         solutions.append(_build(sides, angles, 0.5 * y * z * math.sin(angle)))
@@ -308,6 +314,10 @@ def _scale_sides(values: dict[str, float]) -> tuple[dict[str, float], int]:
     scaled = {
         n: math.ldexp(v, -exponent) if n in _SIDES else v for n, v in values.items()
     }
+    if min(scaled[n] for n in _SIDES if n in scaled) < sys.float_info.min:
+        raise TriangleInputError(
+            "the sides differ by more than a double can carry in one triangle"
+        )
     return scaled, exponent
 
 
@@ -324,7 +334,7 @@ def _unscale(t: Triangle, exponent: int) -> Triangle:
         )
     except OverflowError:
         raise TriangleInputError(f"{_RANGE_ERROR} exceeds the largest double") from None
-    if not all(v > 0 for v in (u.a, u.b, u.c, u.area)):
+    if not all(v >= sys.float_info.min for v in (u.a, u.b, u.c, u.area)):
         raise TriangleInputError(f"{_RANGE_ERROR} is too small for a double")
     return u
 

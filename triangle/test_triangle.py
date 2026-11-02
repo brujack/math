@@ -141,6 +141,33 @@ class TestNearFlat(unittest.TestCase):
         self.assertLessEqual(_rel(t.C, 4.363323131157195843853231e-8), 1e-12)
         self.assertLessEqual(_rel(t.area, 4.363323131157194459327986e-8), 1e-12)
 
+    def test_ssa_tiny_opposite_side_two_solutions(self):
+        # z ~ y here, so an angle taken from the rounded z cancels.
+        s = solve({"A": 0.002976492691072458, "a": 5.699411820883214e-05, "b": 1})
+        self.assertEqual(len(s.solutions), 2)
+        t1, t2 = s.solutions
+        self.assertLessEqual(_rel(t1.c, 1.000023441534825125265789), 1e-14)
+        self.assertLessEqual(_rel(t1.B, 1.146893337921280259438125), 1e-14)
+        self.assertLessEqual(_rel(t1.C, 1.994647366070892218203381), 1e-14)
+        self.assertLessEqual(_rel(t2.c, 0.9999765557664141823821949), 1e-14)
+        self.assertLessEqual(_rel(t2.B, 1.994699315668512979024518), 1e-14)
+        self.assertLessEqual(_rel(t2.C, 1.146841388323659498616988), 1e-14)
+
+    def test_bounded_ssa_tiny_opposite_side_property(self):
+        rng = random.Random(7)
+        for _ in range(2000):
+            y = 10 ** rng.uniform(-3, 3)
+            angle = 10 ** rng.uniform(-4, 1)
+            h = y * math.sin(math.radians(angle))
+            x = h * (1 + 10 ** rng.uniform(-6, 2))
+            if x >= y:
+                continue
+            with self.subTest(a=x, b=y, A=angle):
+                for t in solve({"a": x, "b": y, "A": angle}).solutions:
+                    self.assertLessEqual(
+                        _rel(t.c / math.sin(t.C), x / math.sin(t.A)), 1e-9
+                    )
+
     def test_cli_near_flat_exits_0(self):
         rc, out, err, _ = _run(["-a", "1", "-b", "1", "-C", "179.999999", "--no-draw"])
         self.assertEqual((rc, err), (0, ""))
@@ -199,6 +226,12 @@ class TestFloatRange(unittest.TestCase):
             solve({"a": 1e-200, "b": 1e-200, "c": 1e-200})
         self.assertIn("floating-point range", str(cm.exception))
 
+    def test_subnormal_area_is_an_input_error(self):
+        # 1e-160 sides give an area near 4e-321: subnormal, so imprecise.
+        with self.assertRaises(TriangleInputError) as cm:
+            solve({"a": 1e-160, "b": 1e-160, "c": 1e-160})
+        self.assertIn("too small", str(cm.exception))
+
     def test_perimeter_overflow_is_an_input_error(self):
         # Every side is finite, the sum is not.
         with self.assertRaises(TriangleInputError):
@@ -207,6 +240,26 @@ class TestFloatRange(unittest.TestCase):
     def test_side_overflow_from_law_of_sines_is_an_input_error(self):
         with self.assertRaises(TriangleInputError):
             solve({"c": 1e308, "A": 89.9999, "B": 89.9999})
+
+    def test_side_ratio_beyond_a_double_is_an_input_error(self):
+        cases: list[dict[str, float]] = [
+            {"a": 1e300, "b": 1e-300, "C": 90},
+            {"a": 1e170, "b": 1e-170, "C": 60},
+            {"a": 1e300, "b": 1e-300, "A": 90},
+            {"a": 1e160, "b": 1e-160, "C": 90},
+        ]
+        for values in cases:
+            with (
+                self.subTest(values=values),
+                self.assertRaises(TriangleInputError) as cm,
+            ):
+                solve(values)
+            self.assertIn("differ by more than", str(cm.exception))
+
+    def test_wide_but_representable_side_ratio_solves(self):
+        t = solve({"a": 1, "b": 1e-300, "C": 90}).solutions[0]
+        self.assertEqual(t.b, 1e-300)
+        self.assertLessEqual(_rel(t.area, 5e-301), 1e-15)
 
     def test_largest_double_does_not_crash_the_cli(self):
         rc, out, err, _ = _run(["-a", "1.7e308", "-b", "1.7e308", "-c", "1.7e308"])
