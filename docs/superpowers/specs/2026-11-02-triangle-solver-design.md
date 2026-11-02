@@ -14,7 +14,7 @@ The repo's shared machinery assumes the size-N shape in two places:
 The operator chose these, in conversation on 2026-11-02:
 
 - **Structure:** Python-only, rendered from the existing Python templates as the ninth Python project. No Rust crate, mirroring the Rust-only goldbach, prime and twin-primes.
-- **Drawing:** a Unicode braille canvas. It works in macOS Terminal.app, which cannot show inline images, as well as in iTerm2 and over ssh.
+- **Drawing:** a Unicode braille canvas. It works in macOS Terminal.app, which cannot show inline images, as well as in iTerm2 and over ssh. The operator ran a probe in Terminal.app on 2026-11-02: `⣿`×30, `#`×30, and `⠁`+28 blanks+`⠈`. All three lines end in the same column and the dots show at both ends, so the fallback font draws braille exactly one cell wide.
 - **Input:** flags, plus interactive prompts when run bare in a terminal.
 - **Ambiguous and invalid input:** solve every case that has an answer and explain the rest. The full rules are in Design §2.
 
@@ -52,29 +52,51 @@ It is one file because the Python template's `make mutants` copies only `@MODULE
 
 The template `install_deps.sh` installs GMP and gmpy2, which triangle does not need. They are installed anyway, because the operator rule is to treat every project identically.
 
-There is no `triangle-rs/`. Every place that enumerates Python projects must include triangle. Every place that assumes a Python project has a paired crate must skip it, or must not assume a crate exists.
+There is no `triangle-rs/`. The template `install_deps.sh` tells the reader to "run `@CRATE@/@CRATE@-rs/install_deps.sh` instead". For triangle that names a file that does not exist, so the line changes to wording that names no crate.
+
+Every place that enumerates Python projects must include triangle. The Risk lens checked these and found no pairing assumption:
+- `mutation-pr-detect.sh`, `mutation-python-cell.sh`, `mutation-testing-python.yml`, `pre-push` and `pre-commit` all list Python directories on their own.
+- `crate_build_target.bats`, `test_deny_policy.py` and the release monitors iterate `CRATES` only.
+
+Hard-coded counts do break:
+- `test_crate_uniformity.py` (8);
+- `test_tool_pins.py` (19 sites, which becomes 21);
+- `test_mutation_workflows.py` (80 units, which becomes 90);
+- `test_python_workflow_paths.py` (eight workflows). Every place that assumes a Python project has a paired crate must skip it, or must not assume a crate exists.
 
 ### 2. Solver
 
 Sides are `a`, `b`, `c`. Angles are `A`, `B`, `C`, each opposite the side of the same letter. Angles are in degrees unless `--radians` is given. Every computation happens in radians internally.
 
-**Normalisation.** When exactly two angles are known, the third is set to 180° minus their sum. When three are given, their sum must be within 1e-9 relative of 180°.
+**Normalisation.** When exactly two angles are known, the third is set to 180° minus their sum. When three are given, they must sum to 180° within the input tolerance of the three (defined below).
+
+**Input tolerance.** Each given value keeps the text it was typed as. Its tolerance is half a unit in its last typed digit: `53.1301` → `±0.00005`, `53.13` → `±0.005`, `90` → `±0.5`, `1.5e-3` → `±0.00005`. The tolerance of a sum is the sum of the members' tolerances. A floor of `1e-9` relative applies, so exact input still absorbs floating-point noise. The tolerance is only ever used to accept an extra value or an angle sum. It never changes the solution, which is computed from the determining three values exactly as typed.
 
 **Case dispatch**, on the known values after normalisation:
 
 | Known                              | Method                                                                     | Solutions                                                                                                           |
 | ---------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| 3 sides (SSS)                      | Law of cosines for each angle                                              | 1, or an error if the triangle inequality fails: `a + b <= c` for any ordering, which includes degenerate triangles |
-| 2 sides + included angle (SAS)     | Law of cosines for the third side, then the angles from the law of cosines | 1                                                                                                                   |
+| 3 sides (SSS) | Each angle from the sides by Kahan's stable form (`2·atan2` of the half-angle tangent), not `acos`, which loses digits on thin triangles | 1, or an error if the triangle inequality fails: `a + b <= c` for any ordering, which includes degenerate triangles |
+| 2 sides + included angle (SAS) | Law of cosines for the third side, then the other angles as in SSS | 1 |
 | 1 side + 2 angles (ASA/AAS)        | Third angle from the sum, then the law of sines                            | 1                                                                                                                   |
-| 2 sides + non-included angle (SSA) | Law of sines for the second angle                                          | 0, 1 or 2                                                                                                           |
+| 2 sides + non-included angle (SSA) | Law of sines for the second angle, counted by the ordered rule below | 0, 1 or 2 |
 | 3 angles, no side (AAA)            | none                                                                       | error: "need at least one side"                                                                                     |
 
-The angles in SAS use the law of cosines rather than the law of sines, because the law of sines cannot tell an obtuse angle from its supplement.
+The SAS angles come from the side lengths, as in SSS, rather than from the law of sines, because the law of sines cannot tell an obtuse angle from its supplement.
 
-**SSA counts as 2** when the known angle is acute, the side opposite it is shorter than the other known side, and the height `other_side * sin(angle)` is less than the opposite side. The second solution uses the supplementary angle. **It counts as 1** when the height equals the opposite side (a right triangle, within tolerance) or when the opposite side is at least the other side. **It counts as 0** when the opposite side is shorter than the height; this exits 1 with "no triangle: side X is shorter than the height H".
+**SSA solution count.** Let the known angle be `X`, the side opposite it `x`, and the other known side `y`. The cases are tested in this order:
+1. **`X ≥ 90°`:** 1 solution if `x > y`, otherwise 0. The height does not enter. A second obtuse angle is impossible, and `x ≤ y` cannot close the triangle.
+2. **`X < 90°`, with `h = y·sin X`:**
+   - `x ≥ y`: 1 solution. The second candidate angle is too large.
+   - `|x − h| ≤ 1e-9·max(x, h)`: 1 solution, with a right angle opposite `y`. This is tested before the strict comparison, because `4, 8, 30°` gives `h = 3.9999999999999996` in floats.
+   - `x < h`: 0 solutions.
+   - otherwise: 2 solutions. The second uses the supplement of the first candidate angle.
 
-**Overdetermined input** (more than three values): pick three values that determine the triangle uniquely, preferring all sides, then SAS, then ASA/AAS. If the only determining set is SSA, pick it, and report both solutions only when both are consistent with every given value. Every other given value must match the solution within relative tolerance `1e-9`. On a mismatch, exit 1 and name the value, for example "B = 50 conflicts: solution gives B = 36.8699".
+Every solution is checked before it is returned: all three angles positive and summing to 180°, and all sides positive. A failed check is a bug. It raises an exception and is never printed as a triangle.
+
+A zero-solution SSA exits 1 with "no triangle: side X is shorter than the height H". For an obtuse `X` the message is "no triangle: side x must be longer than y opposite an angle of 90° or more".
+
+**Overdetermined input** (more than three values): pick three values that determine the triangle uniquely, preferring all sides, then SAS, then ASA/AAS. If the only determining set is SSA, pick it, and report both solutions only when both are consistent with every given value. Every other given value must match the solution within that value's input tolerance. On a mismatch, exit 1 and name the value. The message gives the solution to two more digits than the given value, so the two numbers always differ visibly. For example: "B = 50 conflicts: solution gives B = 36.869898".
 
 **Area** uses Heron's formula in Kahan's numerically stable form: sort so `a >= b >= c`, then `0.25 * sqrt((a+(b+c))(c-(a-b))(c+(a-b))(a+(b-c)))`. **Perimeter** is `a + b + c`.
 
@@ -108,18 +130,23 @@ In the two-solution SSA case, both solutions are printed and drawn, headed `Solu
 
 ### 5. CLI contract: a second program kind
 
-`cli_contract.py` gains a closed-form kind. A program declares `CONTRACT_ARGS: list[str]` in place of `SMOKE_SIZE` and `LARGE_RUN_THRESHOLD`. For that kind, `load_constants` returns the args and `_build_cases` builds four cases:
+`cli_contract.py` gains a closed-form kind. Such a program declares `CONTRACT_ARGS: list[str]` and `CONTRACT_EXPECT: str` in place of `SMOKE_SIZE` and `LARGE_RUN_THRESHOLD`.
 
-1. `CONTRACT_ARGS` runs quietly and exits 0.
-2. `--smoke` exits 0.
-3. `CONTRACT_ARGS` with `y\n` on stdin exits 0, so stdin is never read.
-4. No arguments exits 2 with usage.
+The size-N `_common_problems` cannot be reused. It fails a run that writes no output file, and its only check on content is the output-file comparison. The closed-form kind therefore gets its own check function, `_closed_form_problems`, which checks:
+- not timed out;
+- exit 0;
+- no `?` on stdout;
+- **`CONTRACT_EXPECT` appears on stdout**;
+- no file written.
 
-Every case keeps the common checks: no `?` on stdout, no files written, and the open-stdin timeout.
+There are three cases:
+1. `CONTRACT_ARGS` with the open, empty stdin pipe. This catches a stdin reader by timeout, and the expected-output check proves the program solved.
+2. `--smoke` passes the same checks.
+3. No arguments exits 2 with usage.
 
-A program that declares both kinds, or neither, is a `ContractConfigError` (exit 2). The size-N kind is unchanged, and so are its six cases for the existing eight programs.
+A program that declares both kinds, or neither, or only one of `CONTRACT_ARGS`/`CONTRACT_EXPECT`, is a `ContractConfigError` (exit 2). The size-N kind is unchanged, and so are its six cases for the existing eight programs. A program that runs but prints nothing, or prints the wrong area, fails case 1. The harness's tests pin that with a stub of each kind.
 
-triangle's `CONTRACT_ARGS` is `["-a", "3", "-b", "4", "-c", "5"]`. The pre-push loop and `scripts/cli_contract.py`'s callers gain `triangle:triangle`.
+triangle's `CONTRACT_ARGS` is `["-a", "3", "-b", "4", "-c", "5"]` and its `CONTRACT_EXPECT` is `"6.0000"`, the area at the default precision. The pre-push loop and `scripts/cli_contract.py`'s callers gain `triangle:triangle`.
 
 ### 6. Tests
 
@@ -128,12 +155,22 @@ Everything lives in `test_triangle.py` and, for the contract change, in `tests/`
 - **SSS:** 3-4-5, equilateral, and a needle triangle `1, 1, 1.9999999` (the area stays positive and finite). The triangle inequality fails on equality and on violation.
 - **SAS:** an acute and an obtuse included angle, with the third angle checked against the law-of-cosines value, not the law-of-sines one.
 - **ASA and AAS:** both orderings. Third-angle normalisation, including a given third angle that conflicts.
-- **SSA:** 0, 1 (right angle, and opposite side ≥ other side) and 2 solutions. The two-solution case is `a = 6, b = 8, A = 30°`, which gives `B ≈ 41.81°` or `138.19°`.
+- **SSA:**
+  - 0, 1 and 2 solutions. The 1-solution cases are the right angle `4, 8, 30°` and an opposite side at least as long as the other side. The 2-solution case is `a = 6, b = 8, A = 30°`, giving `B ≈ 41.8103°` or `138.1897°`.
+  - Obtuse or right known angle with `a < b`, `a = b` and `a > b`: `7, 8, 120°` → 0, `8, 8, 120°` → 0, `8, 8, 90°` → 0, `9, 8, 120°` → 1.
+  - No returned solution has a non-positive angle.
 - **AAA:** refused, both with consistent and with inconsistent sums.
-- **Overdetermined:** a consistent fourth value passes. An inconsistent one exits 1 and names the value.
+- **Overdetermined and tolerance:**
+  - Read-back: every value the table prints, fed back as a fourth value at the printed precision, exits 0. Checked on 3-4-5 and on the SSA example.
+  - `-a 3 -b 4 -c 5 -B 53.13` exits 0. `-B 53.2` exits 1, with a message whose two numbers differ.
+  - The angle sum `60.01 + 59.99 + 60.00` passes, and `60.1 + 60 + 60` fails.
+  - An exact extra angle on the thin triangle `1e-4, 1, 1.00009` passes. This is where acos would have failed.
 - **Invalid values:** zero, negative, NaN and infinite values, and angles ≥ 180° or summing to ≥ 180°. Each exits 2 with its message.
 - **Units:** degrees and radians give the same triangle.
-- **Area and perimeter:** checked against known values. The Kahan form is checked against a high-precision reference on the needle triangle.
+- **Area and perimeter:** checked against known values.
+- **Numerical accuracy:**
+  - The Kahan area is checked against a precomputed high-precision reference on `1e5, 99999.99979, 0.00029`, where naive Heron is off by 2.7e-8.
+  - Angles on `1e-4, 1, 1.00009` are checked against references to within 1e-12 relative.
 - **Renderer:** a fixed 20×10 canvas of the 3-4-5 triangle produces an exact expected string. The vertex labels sit in their expected cells. A degenerate-looking needle still draws three edges.
 - **CLI:**
   - prompt parsing with empty answers;
@@ -143,6 +180,7 @@ Everything lives in `test_triangle.py` and, for the contract change, in `tests/`
   - two-solution output headed `Solution 1`/`Solution 2`.
 - **cli_contract:**
   - the closed-form kind passes on triangle;
+  - a stub that exits 0 but prints nothing fails case 1, and so does one that prints a wrong area;
   - a program declaring both kinds, or neither, is a config error;
   - a closed-form stub that reads stdin fails on timeout;
   - the existing eight programs still pass.
@@ -156,23 +194,83 @@ Coverage is held at ≥ 90% (`make coverage`). `make mutants` runs through the t
 - Root `CLAUDE.md` changes, kept under the 30,000-byte cap:
   - Add triangle to the sub-project list.
   - Replace restated counts ("8 Python", "19 install sites") with count-free wording. A restated count is fixed by deleting the number.
+  - "All 11 projects" (lines 15 and 62) is about the Rust crates. It becomes "all 11 crates", or loses the count, because there are now 12 projects.
   - Pay for any added line with an equal deletion.
 - `ai-config/docs/knowledge/math-*.md` belongs to the ai-config session, so changes there go to that session by message.
 
 ## Requirements
 
-- **R1.** The solver section of `triangle/triangle.py` solves SSS, SAS, ASA, AAS and SSA input given as any three of `a b c A B C`. It returns every valid solution: 0, 1 or 2 for SSA and exactly 1 for the others. Each solution carries all six values, the area (Kahan-stable Heron) and the perimeter.
-- **R2.** `triangle.py` exits 2 with a message on fewer than three values, AAA, a non-finite, zero or negative value, an angle of 180° or more, or two angles summing to 180° or more. It exits 1 on an SSA case with no solution and on an overdetermined input whose extra value disagrees beyond `1e-9` relative. That message names the conflicting value.
+- **R1.** The solver section of `triangle/triangle.py` solves SSS, SAS, ASA, AAS and SSA input given as any three of `a b c A B C`. It returns every valid solution: 0, 1 or 2 for SSA, counted by the ordered rule in Design §2 (obtuse or right known angle first), and exactly 1 for the others. Angles are derived from sides by Kahan's `atan2` form, never `acos`. Each solution carries all six values, the area (Kahan-stable Heron) and the perimeter, and has only positive angles and sides.
+- **R2.** `triangle.py` exits 2 with a message on fewer than three values, AAA, a non-finite, zero or negative value, an angle of 180° or more, or two angles summing to 180° or more. It exits 1 on an SSA case with no solution, and on an overdetermined input whose extra value disagrees by more than that value's input tolerance: half a unit in its last typed digit, with a floor of `1e-9` relative. The message names the conflicting value and prints the solution to two more digits than the given value. Every value the table prints, fed back as an extra value, is accepted.
 - **R3.** The renderer section of `triangle/triangle.py` renders a solved triangle onto a braille canvas of a given width and height, with vertex labels `A`, `B` and `C`. For the 3-4-5 triangle on a 20×10 canvas, `test_triangle.py` pins its output as an exact string.
 - **R4.** `triangle.py` accepts `-a -b -c -A -B -C --radians --precision N --no-draw --smoke`. A bare run prompts for each value when stdin is a TTY, and exits 2 with usage when it is not. In the two-solution SSA case it prints and draws both solutions, headed `Solution 1` and `Solution 2`.
 - **R5.** `"triangle"` is in `PYTHON_PROJECTS`. Its `Makefile`, `install_deps.sh`, `triangle-py.yml`, `pyrightconfig.json` and `cosmic-ray.toml` are rendered by `render_crate_files.py --write`. `tests/test_crate_uniformity.py` passes with the new count. No `triangle/triangle-rs/` exists.
-- **R6.** `scripts/cli_contract.py` accepts a program that defines `CONTRACT_ARGS` and runs the four closed-form cases on it. A program defining both kinds, or neither, exits 2 as a config error. The six size-N cases are unchanged for the existing programs.
+- **R6.** `scripts/cli_contract.py` accepts a program that defines `CONTRACT_ARGS` and `CONTRACT_EXPECT` and runs the three closed-form cases on it. Case 1 fails a run whose stdout lacks `CONTRACT_EXPECT`. A program that defines both kinds, neither, or only one of the two closed-form constants exits 2 as a config error. The six size-N cases are unchanged for the existing programs.
 - **R7.** Every script, workflow and test that enumerates the Python projects (re-derived by the plan, not taken from the Measurements count) includes triangle. Every one that pairs a Python project with a Rust crate does not require `triangle/triangle-rs`.
 - **R8.** `triangle/test_triangle.py` covers every case listed in Design §6. `make coverage` in `triangle/` reports ≥ 90%.
-- **R9.** Root `CLAUDE.md` names triangle among the sub-projects and contains no restated Python-project count. `wc -c CLAUDE.md` is ≤ 30,000.
+- **R9.** Root `CLAUDE.md` names triangle among the sub-projects. It contains no restated Python-project count and no "all 11 projects". `wc -c CLAUDE.md` is ≤ 30,000.
 - **V1.** On macOS Terminal.app, `python3 triangle/triangle.py -a 3 -b 4 -c 5` and the SSA two-solution example draw legible triangles with correct vertex labels.
 - **V2.** This PR's CI is green, including `triangle-py.yml` and `scripts.yml`.
 - **V3.** `make mutants` in `triangle/` completes with a non-zero `caught` count.
 - **N1.** No third-party runtime dependency in `triangle/`: standard library only.
 - **N2.** No Rust crate for triangle, and no change to any Rust crate or Rust template.
 - **N3.** No change to the six size-N contract cases or their checks for the existing eight programs.
+
+## Multi-Lens Review
+
+Reviewed at commit: `e48dcac` (Step 7 self-review commit, before Step 8 dispatch)
+
+### Goal-Fit
+
+**Finding.** As specified, the closed-form contract kind would pass a program that solves nothing.
+- `_common_problems` (`cli_contract.py:179-194`) fails any run that writes no output file. That is the opposite of the spec's "no files written" claim, and it was the contract's only content check.
+- Without it, a stub `sys.exit(2 if len(sys.argv) == 1 else 0)` passes all four proposed cases.
+- Case 3 (`y\n` on stdin) duplicated case 1.
+
+The single-module premise and the size-shaped contract were both confirmed from the code.
+
+**Assumption.** Braille renders legibly in Terminal.app. This was settled by the operator's probe (see Problem).
+
+**Disposition.** Addressed. The operator chose to fix as proposed: `CONTRACT_EXPECT` on stdout, its own check function, and 3 cases.
+
+### Ergonomics
+
+**Finding.** The tool rejects its own printed output. The 1e-9 tolerance against 4-dp output means `-a 3 -b 4 -c 5 -B 53.1301` exits 1 with two identical numbers in the message, and rounded textbook angle sums are rejected too. Checked and fine:
+- argparse keeps `-a` and `-A` distinct;
+- degrees are the default.
+
+Minor points left to the plan:
+- a re-prompt on bad interactive input;
+- a two-solution layout.
+
+**Assumption.** That the overdetermined path is for checking rounded answers, so the operator's choice of tolerance settles it.
+
+**Disposition.** Addressed. The operator chose a tolerance set by input precision: half a unit in the last typed digit, plus a read-back test.
+
+### Risk
+
+**Findings.**
+- The SSA rule was wrong for an obtuse or right known angle. `8, 8, 120°` and `8, 8, 90°` were counted 1 instead of 0. `7, 8, 120°` matched no rule and would have printed `C = −21.8°`.
+- The float ordering problem at `4, 8, 30°`.
+- 1e-9 is tighter than acos's own error, measured against mpmath: 1.1e-9 on the needle and 7.3e-8 on `1e-4, 1, 1.00009`.
+- The contract stub problem, the same as Goal-Fit's.
+
+Checked and clean:
+- No Python-crate pairing assumption anywhere; only the hard-coded counts break.
+- The template `install_deps.sh` points at a `-rs` installer that will not exist.
+- "All 11 projects" in CLAUDE.md.
+- The SSA example values and the Kahan-Heron formula are correct.
+
+**Assumption.** Braille cell alignment in Terminal.app. Settled by the operator's probe.
+
+**Disposition.** Addressed. The operator accepted the proposed fixes:
+- ordered SSA rule;
+- obtuse tests;
+- Kahan atan2 angles;
+- the precision-based tolerance;
+- count-free docs;
+- crate-agnostic `install_deps.sh` wording.
+
+### Adversarial Spec Review (comparison/judge designs only)
+
+N/A — the spec has no comparison, evaluator or ambiguous-criteria trigger.
