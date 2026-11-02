@@ -2,7 +2,10 @@
 
 Usage: cli_contract.py <module.py>
 
-The program must define SMOKE_SIZE (int) and LARGE_RUN_THRESHOLD (int or None).
+The program must define SMOKE_SIZE (int) and LARGE_RUN_THRESHOLD (int or None),
+or, for a closed-form program with no size, CONTRACT_ARGS (non-empty list of str)
+and CONTRACT_EXPECT (non-empty str) instead. Declaring both kinds, neither, or
+half of the closed-form pair is a usage error.
 Each case runs the program as a subprocess in a fresh temporary directory with
 an open, never-closed stdin pipe, so a program that reads stdin blocks and fails
 on the timeout instead of reading end of input as "no".
@@ -18,10 +21,12 @@ import dataclasses
 import importlib.util
 import os
 import pathlib
+import re
 import signal
 import subprocess
 import sys
 import tempfile
+import types
 from collections.abc import Callable
 
 # Module-level so tests can lower them; a silent stdin reader fails only by timeout.
@@ -49,8 +54,7 @@ class CaseResult:
     timed_out: bool
 
 
-def load_constants(path: pathlib.Path) -> tuple[int, int | None]:
-    """Import the program and return (SMOKE_SIZE, LARGE_RUN_THRESHOLD)."""
+def _import_program(path: pathlib.Path) -> types.ModuleType:
     spec = importlib.util.spec_from_file_location("cli_contract_target", path)
     if spec is None or spec.loader is None:
         raise ContractConfigError(f"cannot import {path}")
@@ -62,6 +66,12 @@ def load_constants(path: pathlib.Path) -> tuple[int, int | None]:
             f"{path.name}: importing to read SMOKE_SIZE/LARGE_RUN_THRESHOLD "
             f"failed: {error!r}"
         ) from error
+    return module
+
+
+def _size_constants(
+    path: pathlib.Path, module: types.ModuleType
+) -> tuple[int, int | None]:
     smoke = getattr(module, "SMOKE_SIZE", None)
     if not isinstance(smoke, int) or isinstance(smoke, bool):
         raise ContractConfigError(f"{path.name}: SMOKE_SIZE must be an int")
@@ -75,6 +85,68 @@ def load_constants(path: pathlib.Path) -> tuple[int, int | None]:
             f"{path.name}: LARGE_RUN_THRESHOLD must be an int or None"
         )
     return smoke, threshold
+
+
+def load_constants(path: pathlib.Path) -> tuple[int, int | None]:
+    """Import the program and return (SMOKE_SIZE, LARGE_RUN_THRESHOLD)."""
+    return _size_constants(path, _import_program(path))
+
+
+@dataclasses.dataclass(frozen=True)
+class SizeContract:
+    smoke: int
+    threshold: int | None
+
+
+@dataclasses.dataclass(frozen=True)
+class ClosedFormContract:
+    args: list[str]
+    expect: str
+
+
+def load_contract(path: pathlib.Path) -> SizeContract | ClosedFormContract:
+    """Import the program and return whichever contract kind it declares."""
+    module = _import_program(path)
+    size_declared = any(
+        hasattr(module, name) for name in ("SMOKE_SIZE", "LARGE_RUN_THRESHOLD")
+    )
+    closed_declared = any(
+        hasattr(module, name) for name in ("CONTRACT_ARGS", "CONTRACT_EXPECT")
+    )
+    if size_declared and closed_declared:
+        raise ContractConfigError(
+            f"{path.name}: declares both the size kind (SMOKE_SIZE/"
+            "LARGE_RUN_THRESHOLD) and the closed-form kind "
+            "(CONTRACT_ARGS/CONTRACT_EXPECT); declare one"
+        )
+    if closed_declared:
+        return _closed_form_contract(path, module)
+    smoke, threshold = _size_constants(path, module)
+    return SizeContract(smoke, threshold)
+
+
+def _closed_form_contract(
+    path: pathlib.Path, module: types.ModuleType
+) -> ClosedFormContract:
+    if not (hasattr(module, "CONTRACT_ARGS") and hasattr(module, "CONTRACT_EXPECT")):
+        raise ContractConfigError(
+            f"{path.name}: CONTRACT_ARGS and CONTRACT_EXPECT must be declared together"
+        )
+    args = module.CONTRACT_ARGS
+    expect = module.CONTRACT_EXPECT
+    if (
+        not isinstance(args, list)
+        or not args
+        or not all(isinstance(item, str) for item in args)
+    ):
+        raise ContractConfigError(
+            f"{path.name}: CONTRACT_ARGS must be a non-empty list of str"
+        )
+    if not isinstance(expect, str) or not expect:
+        raise ContractConfigError(
+            f"{path.name}: CONTRACT_EXPECT must be a non-empty str"
+        )
+    return ClosedFormContract(list(args), expect)
 
 
 def _read_files(directory: pathlib.Path) -> dict[str, str]:
@@ -233,6 +305,24 @@ def _check_usage(result: CaseResult) -> list[str]:
     return []
 
 
+def _closed_form_problems(result: CaseResult, expect: str) -> list[str]:
+    """Checks for a closed-form case: it must solve, print the answer, write nothing."""
+    if result.timed_out:
+        return ["timed out (a program reading stdin blocks on the open pipe)"]
+    problems: list[str] = []
+    if result.returncode != 0:
+        problems.append(f"exit {result.returncode}, expected 0")
+    if "?" in result.stdout:
+        problems.append("stdout contains a '?', which looks like a prompt")
+    # Whole numeric token: "6.0000" must not match inside "36.0000" or "16.00001".
+    pattern = r"(?<![\d.])" + re.escape(expect) + r"(?![\d.])"
+    if not re.search(pattern, result.stdout):
+        problems.append(f"stdout does not contain {expect!r} as a whole number")
+    if result.files:
+        problems.append(f"wrote files: {sorted(result.files)}")
+    return problems
+
+
 @dataclasses.dataclass
 class _Case:
     number: int
@@ -270,10 +360,24 @@ def _build_cases(smoke: int, threshold: int | None) -> list[_Case]:
     return cases
 
 
+def _build_closed_form_cases(args: list[str], expect: str = "") -> list[_Case]:
+    def check(result: CaseResult) -> list[str]:
+        return _closed_form_problems(result, expect)
+
+    return [
+        _Case(1, "CONTRACT_ARGS", list(args), "", CASE_TIMEOUT, check),
+        _Case(2, "--smoke", ["--smoke"], "", CASE_TIMEOUT, check),
+        _Case(3, "no arguments", [], "", CASE_TIMEOUT, _check_usage),
+    ]
+
+
 def run_matrix(path: pathlib.Path) -> list[str]:
-    """Run all six cases; return failure messages (empty when conforming)."""
-    smoke, threshold = load_constants(path)
-    cases = _build_cases(smoke, threshold)
+    """Run every case of the declared kind; return failures (empty when conforming)."""
+    contract = load_contract(path)
+    if isinstance(contract, ClosedFormContract):
+        cases = _build_closed_form_cases(contract.args, contract.expect)
+    else:
+        cases = _build_cases(contract.smoke, contract.threshold)
 
     def execute(case: _Case) -> CaseResult:
         return run_case(path, case.args, case.stdin_text, case.timeout)
