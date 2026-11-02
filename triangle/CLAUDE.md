@@ -79,7 +79,7 @@ perimeter          16.4561
 - **Extras are reported, not judged:** a value given beyond the determining set is never replaced or rejected; it prints `extra <name> given <x> solved <y> diff <d>`.
 - **Exit codes:** 0 solved, 1 no triangle fits, 2 unusable input or bare non-TTY run.
 - **Closed-form CLI contract:** `CONTRACT_ARGS = ["-a", "3", "-b", "4", "-c", "5"]` and `CONTRACT_EXPECT = "6.0000"` (the area); `make test` runs `python3 ../scripts/cli_contract.py triangle.py` after pytest. A closed-form program declares these instead of `SMOKE_SIZE`.
-- **Numerics:** angles and area use Kahan's stable formulas. `solve` first scales the sides by a power of two so the longest lies in [0.5, 1); the scale is exact, so ordinary results are bit-identical and only the final sides, area and perimeter can leave the double range. A result a double cannot hold exits 2 (`values out of floating-point range ...`).
+- **Numerics:** SSS uses Kahan's stable angle and Heron formulas. SAS, SSA and AAS never re-derive an angle from computed sides, which can round onto a + b for a near-flat triangle: their angles come from `atan2` forms that do not cancel, and their area is half the product of two sides and the included angle. `solve` first scales the sides by a power of two so the longest lies in [0.5, 1); the scale is exact, so ordinary results are bit-identical and only the final sides, area and perimeter can leave the double range. A result a double cannot hold exits 2 (`values out of floating-point range ...`).
 
 ## Testing
 

@@ -66,11 +66,11 @@ def _kahan_area(a: float, b: float, c: float) -> float:
 
 
 def _from_sides(a: float, b: float, c: float) -> Triangle:
-    """Build a Triangle from three sides, every angle by Kahan's formula.
+    """SSS: every angle by Kahan's formula, the area by Kahan's Heron.
 
-    No inequality check: the SSA and SAS paths guarantee a triangle by
-    construction, and a float sum such as 7.9999999999 + 1e-10 can round
-    to exactly 8 although the triangle is valid.
+    Only for three given sides, which the caller has checked against the
+    triangle inequality.  A computed side may round onto a + b for a valid
+    near-flat triangle, so the other paths never come through here.
     """
     return Triangle(
         a=a,
@@ -98,6 +98,14 @@ def _from_angles_and_side(
     k = side / math.sin(angles[_OPPOSITE[side_name]])
     sides = {n: k * math.sin(angles[_OPPOSITE[n]]) for n in _SIDES}
     sides[side_name] = side
+    other, third = (n for n in _SIDES if n != side_name)
+    # Half the product of two sides and their included angle: Heron on the
+    # rounded law-of-sines sides cancels for a sliver angle.
+    area = 0.5 * side * sides[other] * math.sin(angles[_OPPOSITE[third]])
+    return _build(sides, angles, area)
+
+
+def _build(sides: dict[str, float], angles: dict[str, float], area: float) -> Triangle:
     a, b, c = sides["a"], sides["b"], sides["c"]
     return Triangle(
         a=a,
@@ -106,9 +114,19 @@ def _from_angles_and_side(
         A=angles["A"],
         B=angles["B"],
         C=angles["C"],
-        area=_kahan_area(a, b, c),
+        area=area,
         perimeter=a + b + c,
     )
+
+
+def _opposite_angle(p: float, q: float, between: float) -> float:
+    """The angle opposite p, from sides p and q and the angle between them.
+
+    tan = p sin(between) / (q - p cos(between)), with q - p cos written as
+    (q - p) + 2p sin^2(between/2) so it does not cancel for a small angle.
+    """
+    half = math.sin(between / 2.0)
+    return math.atan2(p * math.sin(between), (q - p) + 2.0 * p * half * half)
 
 
 def _from_two_sides_and_included(
@@ -117,10 +135,11 @@ def _from_two_sides_and_included(
     """SAS: the third side and the sides in order (x, y, z).
 
     Law of cosines in the form (x - y)^2 + 4xy sin^2(C/2), which equals
-    x^2 + y^2 - 2xy cos C but does not cancel when C is small.
+    x^2 + y^2 - 2xy cos C but does not cancel when C is small; hypot keeps
+    sin^2(C/2) from underflowing to zero for a tiny C.
     """
     half = math.sin(included / 2.0)
-    z = math.sqrt((x - y) ** 2 + 4.0 * x * y * half * half)
+    z = math.hypot(x - y, 2.0 * math.sqrt(x * y) * half)
     return x, y, z
 
 
@@ -130,12 +149,15 @@ def _to_unit(value: float, radians: bool) -> float:
 
 def _ssa_third_sides(
     angle: float, x: float, y: float, x_name: str, y_name: str, exponent: int
-) -> list[float]:
+) -> list[tuple[float, float]]:
     """Third sides for SSA, longest first: 0 (raises), 1 or 2 of them.
 
-    angle is opposite x; y is the other known side.  The third side is
-    computed directly, never from angle differences, which cancel when x is
-    near y.  The sides arrive scaled by 2**-exponent; messages unscale them.
+    angle is opposite x; y is the other known side.  Each entry is (z, r)
+    with r = z - y cos(angle), which is the signed square-root term, so the
+    angle opposite y is atan2(y sin(angle), r) without any cancellation.
+    The third side is computed directly, never from angle differences,
+    which cancel when x is near y.  The sides arrive scaled by
+    2**-exponent; messages unscale them.
     """
     cos_x = math.cos(angle)
     if angle >= math.pi / 2:
@@ -147,21 +169,23 @@ def _ssa_third_sides(
         root = math.sqrt((x - y * math.sin(angle)) * (x + y * math.sin(angle)))
         # y*cos(angle) <= 0 here, so the sum cancels when x is near y; the
         # roots multiply to y^2 - x^2, which gives the same value without it.
-        return [(x - y) * (x + y) / (root - y * cos_x)]
+        return [((x - y) * (x + y) / (root - y * cos_x), root)]
     h = y * math.sin(angle)
     if x >= y:
-        return [y * cos_x + math.sqrt((x - h) * (x + h))]
+        root = math.sqrt((x - h) * (x + h))
+        return [(y * cos_x + root, root)]
     if abs(x - h) <= 4.0 * sys.float_info.epsilon * max(x, h):
         # Tangent: the right angle is opposite y.  The square root would
         # amplify the 1-ulp error in h into a visibly non-right angle.
-        return [y * cos_x]
+        return [(y * cos_x, 0.0)]
     if x < h:
         height = math.ldexp(h, exponent)
         raise NoTriangle(
             f"no triangle: side {x_name} is shorter than the height {height:g}"
         )
-    z1 = y * cos_x + math.sqrt((x - h) * (x + h))
-    return [z1, (y - x) * (y + x) / z1]
+    root = math.sqrt((x - h) * (x + h))
+    z1 = y * cos_x + root
+    return [(z1, root), ((y - x) * (y + x) / z1, -root)]
 
 
 def _solve_ssa(
@@ -171,13 +195,16 @@ def _solve_ssa(
     x_name = _OPPOSITE[angle_name]
     y_name = next(n for n in names if n in _SIDES and n != x_name)
     z_name = next(n for n in _SIDES if n not in (x_name, y_name))
-    zs = _ssa_third_sides(
-        values[angle_name], values[x_name], values[y_name], x_name, y_name, exponent
-    )
+    angle, x, y = values[angle_name], values[x_name], values[y_name]
     solutions = []
-    for z in zs:
-        sides = {x_name: values[x_name], y_name: values[y_name], z_name: z}
-        solutions.append(_from_sides(sides["a"], sides["b"], sides["c"]))
+    for z, root in _ssa_third_sides(angle, x, y, x_name, y_name, exponent):
+        angles = {
+            angle_name: angle,
+            _OPPOSITE[y_name]: math.atan2(y * math.sin(angle), root),
+            _OPPOSITE[z_name]: _opposite_angle(z, y, angle),
+        }
+        sides = {x_name: x, y_name: y, z_name: z}
+        solutions.append(_build(sides, angles, 0.5 * y * z * math.sin(angle)))
     return solutions
 
 
@@ -200,9 +227,14 @@ def _solve_determined(
                 values[s1], values[s2], values[included]
             )
             third = next(n for n in _SIDES if n not in (s1, s2))
-            built = {s1: x, s2: y, third: z}
-            t = _from_sides(built["a"], built["b"], built["c"])
-            return [t], {s1, s2, included}
+            angle = values[included]
+            angles = {
+                included: angle,
+                _OPPOSITE[s1]: _opposite_angle(x, y, angle),
+                _OPPOSITE[s2]: _opposite_angle(y, x, angle),
+            }
+            area = 0.5 * x * y * math.sin(angle)
+            return [_build({s1: x, s2: y, third: z}, angles, area)], {s1, s2, included}
     if sides and len(angles) >= 2:
         first, second = angles[0], angles[1]
         angle_set = {first: values[first], second: values[second]}

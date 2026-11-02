@@ -4,6 +4,7 @@ import contextlib
 import io
 import math
 import pathlib
+import random
 import re
 import subprocess
 import sys
@@ -64,6 +65,8 @@ class TestSSS(unittest.TestCase):
             {"a": 1, "b": 1, "c": 5},
             {"a": 5, "b": 1, "c": 1},
             {"a": 1, "b": 5, "c": 1},
+            {"a": 1, "b": 3, "c": 2},
+            {"a": 3, "b": 1, "c": 2},
         ]
         for sides in cases:
             with self.assertRaises(NoTriangle):
@@ -100,6 +103,75 @@ class TestNumericalAccuracy(unittest.TestCase):
     def test_thin_triangle_area(self):
         t = solve({"a": 1e-4, "b": 1, "c": 1.00009}).solutions[0]
         self.assertLessEqual(_rel(t.area, 0.00002179547544280278274504), 1e-12)
+
+
+class TestNearFlat(unittest.TestCase):
+    """Triangles within a hair of flat.  References: mpmath at 60 digits from
+    the solver's own radian doubles (math.radians of the input, and pi - (A + B)
+    for a third angle), pasted as literals."""
+
+    def test_sas_near_180(self):
+        t = solve({"a": 1, "b": 1, "C": 179.999999}).solutions[0]
+        self.assertLessEqual(_rel(t.c, 1.999999999999999923845643), 1e-15)
+        self.assertLessEqual(_rel(t.A, 8.726646355709176331455384e-9), 1e-12)
+        self.assertLessEqual(_rel(t.B, 8.726646355709176331455384e-9), 1e-12)
+        self.assertLessEqual(_rel(t.area, 8.726646355709175888407291e-9), 1e-12)
+
+    def test_sas_near_0(self):
+        t = solve({"a": 1, "b": 1, "C": 1e-300}).solutions[0]
+        self.assertLessEqual(_rel(t.c, 1.745329251994329541674244e-302), 1e-12)
+        self.assertLessEqual(_rel(t.area, 8.726646259971647708371221e-303), 1e-12)
+
+    def test_aas_sliver_area(self):
+        # Heron's formula on the rounded law-of-sines sides printed 8.8412 here.
+        t = solve({"b": 10, "A": 179.99, "B": 1e-5}).solutions[0]
+        self.assertLessEqual(_rel(t.area, 8.717919525294126408248203), 1e-12)
+        self.assertLessEqual(_rel(t.c, 9989.99994939336330924282), 1e-12)
+
+    def test_aas_near_180(self):
+        t = solve({"a": 1, "A": 179.9999999, "B": 0.00000005}).solutions[0]
+        self.assertLessEqual(_rel(t.b, 0.4999999756616717356928688), 1e-12)
+        self.assertLessEqual(_rel(t.c, 0.4999999649164552152657486), 1e-12)
+        self.assertLessEqual(_rel(t.area, 2.181661411912069483346102e-10), 1e-12)
+
+    def test_ssa_near_180(self):
+        t = solve({"a": 2, "b": 1, "A": 179.999995}).solutions[0]
+        self.assertLessEqual(_rel(t.c, 1.000000000000001903858875), 1e-12)
+        self.assertLessEqual(_rel(t.B, 4.363323131157187536701764e-8), 1e-12)
+        self.assertLessEqual(_rel(t.C, 4.363323131157195843853231e-8), 1e-12)
+        self.assertLessEqual(_rel(t.area, 4.363323131157194459327986e-8), 1e-12)
+
+    def test_cli_near_flat_exits_0(self):
+        rc, out, err, _ = _run(["-a", "1", "-b", "1", "-C", "179.999999", "--no-draw"])
+        self.assertEqual((rc, err), (0, ""))
+        self.assertRegex(out, r"\nc\s+2\.0000\s+derived")
+
+    def test_bounded_near_flat_property(self):
+        """Valid near-flat inputs solve, and every solution obeys the law of sines."""
+        rng = random.Random(20261102)
+        for _ in range(3000):
+            d = 10 ** rng.uniform(-9, -2)
+            x = round(rng.uniform(1, 20), 1)
+            y = round(rng.uniform(1, 20), 1)
+            cases = (
+                {"a": x, "b": y, "C": 180 - d},
+                {"a": x, "b": y, "C": d},
+                {"a": x, "A": 180 - d, "B": d * rng.uniform(0.01, 0.99)},
+                {"a": x + y, "b": y, "A": 180 - d},
+            )
+            for values in cases:
+                with self.subTest(values=values):
+                    t = solve(values).solutions[0]
+                    # The sine of an angle near 180 degrees carries the
+                    # rounding of pi, so check only the two smaller angles.
+                    (p, small), (q, other), (r, _) = sorted(
+                        ((t.a, t.A), (t.b, t.B), (t.c, t.C)), key=lambda e: e[1]
+                    )
+                    k = p / math.sin(small)
+                    self.assertLessEqual(_rel(q / math.sin(other), k), 1e-9)
+                    self.assertLessEqual(
+                        _rel(t.area, 0.5 * q * r * math.sin(small)), 1e-9
+                    )
 
 
 class TestFloatRange(unittest.TestCase):
@@ -330,6 +402,19 @@ class TestSSA(unittest.TestCase):
         self.assertEqual(len(s.solutions), 2)
         self.assertLessEqual(_rel(s.solutions[1].c, 100.00000001523087099), 1e-12)
 
+    def test_tangency_band_catches_h_just_above_x(self):
+        # Computed h lands 1-4 ulps above x: inside the band, so tangent.
+        x = math.nextafter(math.nextafter(2 * math.sin(math.radians(15)), 0), 0)
+        s = solve({"a": x, "b": 2, "A": 15})
+        self.assertEqual(len(s.solutions), 1)
+        self.assertAlmostEqual(math.degrees(s.solutions[0].B), 90.0, places=12)
+
+    def test_tangency_band_upper_edge(self):
+        # 8 ulps above the tangent is outside the 4-ulp band: two solutions.
+        x = 8 * math.sin(math.radians(30)) * (1 + 8 * sys.float_info.epsilon)
+        s = solve({"a": x, "b": 8, "A": 30})
+        self.assertEqual(len(s.solutions), 2)
+
     def test_boundary_near_tangency_two_distinct(self):
         x = 4 * (1 + 5e-10)
         s = solve({"a": x, "b": 8, "A": 30})
@@ -457,10 +542,21 @@ class TestPostCheck(unittest.TestCase):
             replace(good, a=0.0),
             replace(good, C=-1.0),
             replace(good, b=float("nan")),
+            replace(good, a=math.inf),
             replace(good, A=good.A + 1e-6),
         ):
             with self.assertRaises(RuntimeError):
                 _check(bad)
+
+    def test_solve_runs_the_post_check(self):
+        good = solve({"a": 3, "b": 4, "c": 5}).solutions[0]
+        bad = replace(good, A=good.A + 1e-6)
+        result = ([bad], {"a", "b", "c"})
+        with (
+            mock.patch("triangle._solve_determined", return_value=result),
+            self.assertRaises(RuntimeError),
+        ):
+            solve({"a": 3, "b": 4, "c": 5})
 
     def test_angle_sum_tolerance_accepts_rounding(self):
         good = solve({"a": 3, "b": 4, "c": 5}).solutions[0]
@@ -505,6 +601,11 @@ class TestRender(unittest.TestCase):
 
     def test_3_4_5_exact_drawing(self):
         self.assertEqual(render(self._t345(), 20, 10), EXPECTED_345)
+
+    def test_label_uses_the_cell_aspect(self):
+        # Vertex A of 6-6-3 has |dy|/4 <= |dx|/2 < |dy|/2 from the centroid.
+        out = render(solve({"a": 6, "b": 6, "c": 3}).solutions[0], 20, 10)
+        self.assertEqual(out[8][4], "A")
 
     def test_every_line_has_width_and_height_rows(self):
         for w, h in ((20, 10), (6, 3), (40, 5), (7, 20)):

@@ -487,13 +487,20 @@ class TestClosedFormKind(unittest.TestCase):
         self.assertTrue(_failures_naming(failures, 1), failures)
 
     def test_expected_value_inside_a_longer_number_fails(self):
-        for printed in ("16.00001", "area 6.0000.5", "6.00001"):
+        for printed in ("16.00001", "area 6.0000.5", "6.00001", "area 1.6.0000"):
             with self.subTest(printed=printed):
                 with tempfile.TemporaryDirectory() as tmp:
                     source = (FIXTURES / "closed_form_ok.py").read_text()
                     stub = self._stub(tmp, source.replace("area 6.0000", printed))
                     failures = cli_contract.run_matrix(stub)
                 self.assertTrue(_failures_naming(failures, 1), failures)
+
+    def test_expected_dot_is_literal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = (FIXTURES / "closed_form_ok.py").read_text()
+            stub = self._stub(tmp, source.replace("area 6.0000", "area 6x0000"))
+            failures = cli_contract.run_matrix(stub)
+        self.assertTrue(_failures_naming(failures, 1), failures)
 
     def test_expected_value_delimited_by_text_passes(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -609,6 +616,15 @@ class TestClosedFormKind(unittest.TestCase):
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 stub = self._stub(tmp, source)
                 with self.assertRaises(cli_contract.ContractConfigError):
+                    cli_contract.run_matrix(stub)
+
+    def test_half_declared_pair_names_the_pair(self):
+        for source in ('CONTRACT_ARGS = ["-a", "1"]\n', 'CONTRACT_EXPECT = "6.0000"\n'):
+            with self.subTest(source), tempfile.TemporaryDirectory() as tmp:
+                stub = self._stub(tmp, source)
+                with self.assertRaisesRegex(
+                    cli_contract.ContractConfigError, "declared together"
+                ):
                     cli_contract.run_matrix(stub)
 
     def test_main_reports_config_error_as_usage(self):
