@@ -8,7 +8,7 @@ import argparse
 import math
 import shutil
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 class TriangleInputError(ValueError):
@@ -129,13 +129,13 @@ def _to_unit(value: float, radians: bool) -> float:
 
 
 def _ssa_third_sides(
-    angle: float, x: float, y: float, x_name: str, y_name: str
+    angle: float, x: float, y: float, x_name: str, y_name: str, exponent: int
 ) -> list[float]:
     """Third sides for SSA, longest first: 0 (raises), 1 or 2 of them.
 
     angle is opposite x; y is the other known side.  The third side is
     computed directly, never from angle differences, which cancel when x is
-    near y.
+    near y.  The sides arrive scaled by 2**-exponent; messages unscale them.
     """
     cos_x = math.cos(angle)
     if angle >= math.pi / 2:
@@ -156,18 +156,23 @@ def _ssa_third_sides(
         # amplify the 1-ulp error in h into a visibly non-right angle.
         return [y * cos_x]
     if x < h:
-        raise NoTriangle(f"no triangle: side {x_name} is shorter than the height {h:g}")
+        height = math.ldexp(h, exponent)
+        raise NoTriangle(
+            f"no triangle: side {x_name} is shorter than the height {height:g}"
+        )
     z1 = y * cos_x + math.sqrt((x - h) * (x + h))
     return [z1, (y - x) * (y + x) / z1]
 
 
-def _solve_ssa(values: dict[str, float], names: tuple[str, ...]) -> list[Triangle]:
+def _solve_ssa(
+    values: dict[str, float], names: tuple[str, ...], exponent: int
+) -> list[Triangle]:
     angle_name = next(n for n in names if n in _ANGLES)
     x_name = _OPPOSITE[angle_name]
     y_name = next(n for n in names if n in _SIDES and n != x_name)
     z_name = next(n for n in _SIDES if n not in (x_name, y_name))
     zs = _ssa_third_sides(
-        values[angle_name], values[x_name], values[y_name], x_name, y_name
+        values[angle_name], values[x_name], values[y_name], x_name, y_name, exponent
     )
     solutions = []
     for z in zs:
@@ -177,7 +182,7 @@ def _solve_ssa(values: dict[str, float], names: tuple[str, ...]) -> list[Triangl
 
 
 def _solve_determined(
-    values: dict[str, float],
+    values: dict[str, float], exponent: int
 ) -> tuple[list[Triangle], set[str]]:
     """Pick the determining set, solve it, and return the names it used."""
     sides = [n for n in _SIDES if n in values]
@@ -206,7 +211,7 @@ def _solve_determined(
         t = _from_angles_and_side(sides[0], values[sides[0]], angle_set)
         return [t], {sides[0], first, second}
     used = tuple(sides + angles)
-    return _solve_ssa(values, used), set(used)
+    return _solve_ssa(values, used, exponent), set(used)
 
 
 def _check_each_value(values: dict[str, float], limit: float, limit_text: str) -> None:
@@ -257,6 +262,41 @@ def _check(t: Triangle) -> None:
         raise RuntimeError(f"solver produced angles that do not sum to pi: {t}")
 
 
+_RANGE_ERROR = "values out of floating-point range: a side, the area or the perimeter"
+
+
+def _scale_sides(values: dict[str, float]) -> tuple[dict[str, float], int]:
+    """Scale every side by a power of two so the longest lies in [0.5, 1).
+
+    Every formula is homogeneous in the sides and a power-of-two scale is
+    exact, so the results are bit-identical to unscaled ones wherever those
+    do not overflow or underflow.
+    """
+    exponent = math.frexp(max(values[n] for n in _SIDES if n in values))[1]
+    scaled = {
+        n: math.ldexp(v, -exponent) if n in _SIDES else v for n, v in values.items()
+    }
+    return scaled, exponent
+
+
+def _unscale(t: Triangle, exponent: int) -> Triangle:
+    """Undo _scale_sides; a result a double cannot hold is an input error."""
+    try:
+        u = replace(
+            t,
+            a=math.ldexp(t.a, exponent),
+            b=math.ldexp(t.b, exponent),
+            c=math.ldexp(t.c, exponent),
+            area=math.ldexp(t.area, 2 * exponent),
+            perimeter=math.ldexp(t.perimeter, exponent),
+        )
+    except OverflowError:
+        raise TriangleInputError(f"{_RANGE_ERROR} exceeds the largest double") from None
+    if not all(v > 0 for v in (u.a, u.b, u.c, u.area)):
+        raise TriangleInputError(f"{_RANGE_ERROR} is too small for a double")
+    return u
+
+
 def solve(values: dict[str, float], radians: bool = False) -> Solved:
     """Solve a triangle from any three or more of a b c A B C.
 
@@ -264,10 +304,11 @@ def solve(values: dict[str, float], radians: bool = False) -> Solved:
     replaced: values outside the determining set come back as extras, in
     the input unit.
     """
-    internal = _validate(values, radians)
-    solutions, used = _solve_determined(internal)
+    internal, exponent = _scale_sides(_validate(values, radians))
+    solutions, used = _solve_determined(internal, exponent)
     for t in solutions:
         _check(t)
+    solutions = [_unscale(t, exponent) for t in solutions]
     extras = [
         Extra(
             name,

@@ -102,6 +102,47 @@ class TestNumericalAccuracy(unittest.TestCase):
         self.assertLessEqual(_rel(t.area, 0.00002179547544280278274504), 1e-12)
 
 
+class TestFloatRange(unittest.TestCase):
+    """Sides far from 1 must not overflow or underflow the intermediate products."""
+
+    def test_huge_sides_keep_exact_angles(self):
+        t = solve({"a": 1e154, "b": 1e154, "c": 1e154}).solutions[0]
+        for angle in (t.A, t.B, t.C):
+            self.assertLessEqual(_rel(angle, math.pi / 3), 1e-15)
+        self.assertLessEqual(_rel(t.area, math.sqrt(3) / 4 * 1e308), 1e-15)
+
+    def test_tiny_sides_keep_exact_angles(self):
+        t = solve({"a": 1e-150, "b": 1e-150, "c": 1e-150}).solutions[0]
+        for angle in (t.A, t.B, t.C):
+            self.assertLessEqual(_rel(angle, math.pi / 3), 1e-15)
+        self.assertLessEqual(_rel(t.area, math.sqrt(3) / 4 * 1e-300), 1e-15)
+
+    def test_area_too_large_is_an_input_error(self):
+        with self.assertRaises(TriangleInputError) as cm:
+            solve({"a": 1e200, "b": 1e200, "c": 1e200})
+        self.assertIn("floating-point range", str(cm.exception))
+
+    def test_area_too_small_is_an_input_error(self):
+        with self.assertRaises(TriangleInputError) as cm:
+            solve({"a": 1e-200, "b": 1e-200, "c": 1e-200})
+        self.assertIn("floating-point range", str(cm.exception))
+
+    def test_perimeter_overflow_is_an_input_error(self):
+        # Every side is finite, the sum is not.
+        with self.assertRaises(TriangleInputError):
+            solve({"a": 1e308, "b": 1e308, "A": 60})
+
+    def test_side_overflow_from_law_of_sines_is_an_input_error(self):
+        with self.assertRaises(TriangleInputError):
+            solve({"c": 1e308, "A": 89.9999, "B": 89.9999})
+
+    def test_largest_double_does_not_crash_the_cli(self):
+        rc, out, err, _ = _run(["-a", "1.7e308", "-b", "1.7e308", "-c", "1.7e308"])
+        self.assertEqual(rc, 2)
+        self.assertEqual(out, "")
+        self.assertIn("floating-point range", err)
+
+
 class TestSAS(unittest.TestCase):
     def test_acute_included_angle(self):
         t = solve({"a": 3, "b": 4, "C": 90}).solutions[0]

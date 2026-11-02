@@ -13,7 +13,8 @@ on the timeout instead of reading end of input as "no".
 Exit 0: every case passes; one line goes to stdout.
 Exit 1: at least one case fails; each failure is printed, naming its case.
 Exit 2: usage error (wrong argument count, missing file, or a program whose
-        SMOKE_SIZE/LARGE_RUN_THRESHOLD cannot be read).
+        SMOKE_SIZE/LARGE_RUN_THRESHOLD or CONTRACT_ARGS/CONTRACT_EXPECT
+        cannot be read).
 """
 
 import concurrent.futures
@@ -383,7 +384,7 @@ def run_matrix(path: pathlib.Path) -> list[str]:
         return run_case(path, case.args, case.stdin_text, case.timeout)
 
     # Cases are independent subprocesses; running them together keeps a program
-    # that times out on every case from costing six timeouts in a row.
+    # that times out on every case from costing one timeout per case in a row.
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(cases)) as pool:
         results = list(pool.map(execute, cases))
     return [

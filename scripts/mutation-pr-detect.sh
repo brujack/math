@@ -3,7 +3,7 @@
 #
 # Prints `py_dirs=<sorted dirs>` and `has_py=true|false` for GITHUB_OUTPUT.
 # A change to shared Python tooling (templates, *-py.yml, a Python
-# install_deps.sh, mutation-pr.yml) selects all eight; otherwise each
+# install_deps.sh, mutation-pr.yml) selects every Python dir; otherwise each
 # `<dir>/*.py` directly under a Python dir selects that dir. The nested
 # <dir>/<dir>-rs/ tree is Rust and never matches.
 

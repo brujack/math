@@ -80,7 +80,7 @@ TRACE_FIFO="${OUTPUT_DIR}/bash_trace.fifo"
 # in the lint output for exactly this reason. This tracer's predicate is
 # derived the same way, so it cannot repeat that specific failure.
 #
-# The predicate deliberately includes the 19 install_deps.sh scripts even
+# The predicate deliberately includes every install_deps.sh script even
 # though NOTHING under tests/ executes any of them — see the FORBIDDEN note
 # in the port's task spec and ai-config/docs/knowledge/math-ci.md § Bash coverage predicate for why:
 # excluding an untested majority to raise the percentage is precisely the

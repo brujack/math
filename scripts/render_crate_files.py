@@ -7,7 +7,7 @@ Each template in scripts/crate_templates/ is the single source for one file kind
 @CRATE@ is replaced with the project's directory name and nothing else varies,
 except that templates under python/ may also use @MODULE@ (the directory name with
 "-" replaced by "_", the Python module and test file stem).
-Operator rule (2026-10-24): all 11 crates and all 8 Python projects are treated the
+Operator rule (2026-10-24): all 11 crates and every Python project are treated the
 same, all of the time, so a per-project difference is a template change applied to
 every project.
 

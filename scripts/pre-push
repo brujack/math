@@ -33,8 +33,8 @@ RUN_HOOK_TESTS=0
 # an installer reached no shellcheck at all. Any pushed `.sh` path runs the root
 # lint-hooks target, which lints every tracked shell file and spawns no Python.
 RUN_SHELL_LINT=0
-# Set when the shared CLI harness itself changed. The harness checks all 8
-# Python CLIs, so it runs alone over them (no pytest) regardless of which
+# Set when the shared CLI harness itself changed. The harness checks every
+# Python CLI, so it runs alone over them (no pytest) regardless of which
 # sub-project suites the push selects.
 RUN_CLI_CONTRACT=0
 # SHAs refused by the CLAUDE.md byte-ceiling check; acted on after the ref loop
