@@ -43,6 +43,7 @@ for _project in (
     "perfect-numbers",
     "pi",
     "sq",
+    "triangle",
 ):
     ALLOWED[(f"{_project}-py.yml", "test", "Generate test metrics")] = (
         "informational timing metrics with if: always(); they gate nothing"
@@ -163,7 +164,7 @@ class TestPipAuditRunsThroughTheAdvisoryWrapper(unittest.TestCase):
                 audit_steps.append((label, job_id, step.get("name"), run.strip()))
         self.assertEqual(
             len(audit_steps),
-            9,
+            10,
             f"{audit_steps}"
             "; when adding a Python sub-project, update this count with its workflow",
         )
@@ -224,7 +225,7 @@ class TestPipAuditAuditsAProjectInterpreter(unittest.TestCase):
                     )
         self.assertEqual(
             checked,
-            9,
+            10,
             "when adding a Python sub-project, update this count with its workflow",
         )
 

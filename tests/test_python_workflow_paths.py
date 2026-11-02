@@ -1,6 +1,6 @@
 """Pin the shared inputs every Python CLI workflow must watch (spec R16).
 
-The 8 `*-py.yml` workflows each run the shared harness `scripts/cli_contract.py`
+The 9 `*-py.yml` workflows each run the shared harness `scripts/cli_contract.py`
 against their own program and type-check against the vendored `typings/` stubs,
 so a change to either must trigger every one of them. Parsed with
 `yaml.safe_load`, not text search, so a comment or a mis-indented line cannot
@@ -22,6 +22,7 @@ PROJECTS = (
     "perfect-numbers",
     "pi",
     "sq",
+    "triangle",
 )
 SHARED_PATHS = ("scripts/cli_contract.py", "typings/**")
 
@@ -48,7 +49,7 @@ class PythonWorkflowPathsTest(unittest.TestCase):
                 self.assertIn(f"{project}/*.py", paths)
                 self.assertIn(f".github/workflows/{project}-py.yml", paths)
 
-    def test_there_are_eight_python_workflows(self) -> None:
+    def test_there_are_nine_python_workflows(self) -> None:
         found = sorted(
             p.name for p in (REPO_ROOT / ".github" / "workflows").glob("*-py.yml")
         )

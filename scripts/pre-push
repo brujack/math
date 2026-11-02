@@ -159,7 +159,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         range="${remote_sha}..${local_sha}"
     fi
 
-    for dir in pi pi/pi-rs prime/prime-rs fib fib/fib-rs sq sq/sq-rs twin-primes/twin-primes-rs e e/e-rs factorial factorial/factorial-rs perfect-numbers perfect-numbers/perfect-numbers-rs collatz collatz/collatz-rs goldbach/goldbach-rs amicable amicable/amicable-rs; do
+    for dir in pi pi/pi-rs prime/prime-rs fib fib/fib-rs sq sq/sq-rs twin-primes/twin-primes-rs e e/e-rs factorial factorial/factorial-rs perfect-numbers perfect-numbers/perfect-numbers-rs collatz collatz/collatz-rs goldbach/goldbach-rs amicable amicable/amicable-rs triangle; do
         # Only trigger tests when Python or Rust source changed, not Makefiles
         # or workflow files. Makefile/CI changes don't affect test outcomes.
         #
@@ -216,7 +216,7 @@ fi
 # Each project is (directory, program file); the harness runs from the project
 # directory because it resolves the program relative to the working directory.
 if [[ "${RUN_CLI_CONTRACT}" -eq 1 ]]; then
-    for _entry in amicable:amicable collatz:collatz e:e factorial:factorial fib:fib perfect-numbers:perfect_numbers pi:pi sq:sq; do
+    for _entry in amicable:amicable collatz:collatz e:e factorial:factorial fib:fib perfect-numbers:perfect_numbers pi:pi sq:sq triangle:triangle; do
         _dir="${_entry%%:*}"
         _module="${_entry##*:}"
         printf "cli-contract: %s\n" "${_dir}"

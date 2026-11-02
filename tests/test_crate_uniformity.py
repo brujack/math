@@ -92,7 +92,7 @@ class TestPythonKinds(unittest.TestCase):
             self.assertEqual(rcf.check(root, {}, _PY_KINDS), [])
             text = (root / "perfect-numbers" / "Makefile").read_text()
         self.assertEqual(text, "test perfect-numbers perfect_numbers\n")
-        self.assertEqual(len(first), 8)
+        self.assertEqual(len(first), 9)
         self.assertEqual(second, [])
 
     def test_rust_kind_with_module_placeholder_is_an_error(self):
@@ -235,7 +235,7 @@ class TestRepoCratesMatchTemplates(unittest.TestCase):
             for d in {pathlib.PurePosixPath(f).parts[0] for f in out}
             if f"{d}/{d.replace('-', '_')}.py" in out
         )
-        self.assertEqual(len(rcf.PYTHON_PROJECTS), 8)
+        self.assertEqual(len(rcf.PYTHON_PROJECTS), 9)
         self.assertEqual(sorted(rcf.PYTHON_PROJECTS), derived)
 
     def test_scripts_workflow_runs_on_every_rendered_file(self):

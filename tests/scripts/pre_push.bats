@@ -497,7 +497,7 @@ teardown() {
 # on PATH; MOCK_PYTHON_EXIT makes one invocation fail. The stub is created in
 # the per-test tmpdir, so nothing real is executed and nothing outside it is
 # touched.
-HARNESS_PROJECTS="amicable collatz e factorial fib perfect-numbers pi sq"
+HARNESS_PROJECTS="amicable collatz e factorial fib perfect-numbers pi sq triangle"
 
 setup_harness_stub() {
     local d
@@ -520,7 +520,7 @@ STUB
 # The python3 stub accepts any module name, so a typo in the entry table
 # (collatz:collatzz) passes every stubbed case. Check the table against the
 # tracked set instead, with a clean PATH so the git mock is not consulted.
-@test "every harness entry names a tracked <dir>/<module>.py and there are 8" {
+@test "every harness entry names a tracked <dir>/<module>.py and there are 9" {
     local line entries entry dir module count=0 clean_path
     clean_path="$(printf '%s' "${PATH}" | tr ':' '\n' | grep -v 'tests/mocks' | tr '\n' ':' | sed 's/:$//')"
     line="$(command grep -m1 'for _entry in ' "${REPO_ROOT}/scripts/pre-push")"
@@ -533,16 +533,16 @@ STUB
         PATH="${clean_path}" git -C "${REPO_ROOT}" ls-files --error-unmatch -- "${dir}/${module}.py" >/dev/null
         count=$((count + 1))
     done
-    [ "${count}" -eq 8 ]
+    [ "${count}" -eq 9 ]
 }
 
-@test "harness-only push runs the harness over all 8 CLIs and no project suite" {
+@test "harness-only push runs the harness over all 9 CLIs and no project suite" {
     setup_harness_stub
     export MOCK_GIT_DIFF_NAMES="scripts/cli_contract.py"
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
-    [ "$(grep -c '^python3 ' "${MOCK_CALLS_FILE}")" -eq 8 ]
+    [ "$(grep -c '^python3 ' "${MOCK_CALLS_FILE}")" -eq 9 ]
     grep -qxF "python3 cwd=amicable args=../scripts/cli_contract.py amicable.py" "${MOCK_CALLS_FILE}"
     grep -qxF "python3 cwd=perfect-numbers args=../scripts/cli_contract.py perfect_numbers.py" "${MOCK_CALLS_FILE}"
     grep -qxF "python3 cwd=pi args=../scripts/cli_contract.py pi.py" "${MOCK_CALLS_FILE}"
@@ -556,7 +556,7 @@ STUB
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     [[ "${output}" != *"skipping local tests"* ]]
-    [ "$(grep -c '^python3 ' "${MOCK_CALLS_FILE}")" -eq 8 ]
+    [ "$(grep -c '^python3 ' "${MOCK_CALLS_FILE}")" -eq 9 ]
     # 7 sub-project suites plus the root target that scripts/cli_contract.py triggers.
     [ "$(grep -c '^make' "${MOCK_CALLS_FILE}")" -eq 8 ]
 }
@@ -601,7 +601,7 @@ STUB
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
-    [ "$(grep -c '^python3 ' "${MOCK_CALLS_FILE}")" -eq 8 ]
+    [ "$(grep -c '^python3 ' "${MOCK_CALLS_FILE}")" -eq 9 ]
 }
 
 @test "paths merely resembling the harness do not trigger it" {
@@ -771,4 +771,13 @@ run_in_pgroup() {
     local hash
     hash="$(sed -n '/^# >>> push-content-gate wiring$/,/^# <<< push-content-gate wiring$/p' "${REPO_ROOT}/scripts/pre-push" | sha256sum | cut -d' ' -f1)"
     [ "${hash}" = "554c1385d10d77fac177df1a7aefdf6238e12ba009218689b7c5242fa24d4102" ]
+}
+
+@test "harness runs triangle's CLI contract" {
+    setup_harness_stub
+    export MOCK_GIT_DIFF_NAMES="scripts/cli_contract.py"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -qxF "python3 cwd=triangle args=../scripts/cli_contract.py triangle.py" "${MOCK_CALLS_FILE}"
 }

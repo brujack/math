@@ -6,7 +6,7 @@
 # (init, exec or report failure), a red line is written in its place so the
 # merge job always has a verdict for every cell.
 
-readonly PYTHON_DIRS="amicable collatz e factorial fib perfect-numbers pi sq"
+readonly PYTHON_DIRS="amicable collatz e factorial fib perfect-numbers pi sq triangle"
 
 usage_error() {
     printf 'mutation-python-cell: %s\n' "$1" >&2

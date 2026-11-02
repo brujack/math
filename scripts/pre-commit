@@ -11,7 +11,7 @@ fi
 # attributed to its longest (most specific) matching dir prefix only — e.g.
 # pi/pi-rs/Makefile matches both "pi" and "pi/pi-rs"; only "pi/pi-rs" (the
 # longer match) is linted, not the sibling Python project "pi".
-dirs=(pi pi/pi-rs prime/prime-rs fib fib/fib-rs sq sq/sq-rs twin-primes/twin-primes-rs e e/e-rs factorial factorial/factorial-rs perfect-numbers perfect-numbers/perfect-numbers-rs collatz collatz/collatz-rs goldbach/goldbach-rs amicable amicable/amicable-rs)
+dirs=(pi pi/pi-rs prime/prime-rs fib fib/fib-rs sq sq/sq-rs twin-primes/twin-primes-rs e e/e-rs factorial factorial/factorial-rs perfect-numbers perfect-numbers/perfect-numbers-rs collatz collatz/collatz-rs goldbach/goldbach-rs amicable amicable/amicable-rs triangle)
 
 staged_files="$(git diff --cached --name-only)"
 

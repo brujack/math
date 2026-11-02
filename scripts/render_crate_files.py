@@ -34,7 +34,7 @@ CRATES = [
     "twin-primes",
 ]
 
-# The 8 Python sub-projects; each directory holds <module>.py.
+# The Python sub-projects; each directory holds <module>.py.
 PYTHON_PROJECTS = [
     "amicable",
     "collatz",
@@ -44,6 +44,7 @@ PYTHON_PROJECTS = [
     "perfect-numbers",
     "pi",
     "sq",
+    "triangle",
 ]
 
 # Template path under scripts/crate_templates/ (python/<name>) -> per-project output

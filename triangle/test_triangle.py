@@ -1,10 +1,5 @@
 """Unit tests for triangle.py (solver, renderer and CLI sections)."""
 
-# Run from the repo root, pyright resolves `triangle` to the sub-project
-# directory (a namespace package), not to triangle.py.  Run inside triangle/
-# the imports are checked normally; this only quiets the root-invocation case.
-# pyright: reportAttributeAccessIssue=false
-
 import contextlib
 import io
 import math
@@ -65,11 +60,12 @@ class TestSSS(unittest.TestCase):
             solve({"a": 1, "b": 2, "c": 3})
 
     def test_inequality_fails_on_violation_any_order(self):
-        for sides in (
+        cases: list[dict[str, float]] = [
             {"a": 1, "b": 1, "c": 5},
             {"a": 5, "b": 1, "c": 1},
             {"a": 1, "b": 5, "c": 1},
-        ):
+        ]
+        for sides in cases:
             with self.assertRaises(NoTriangle):
                 solve(sides)
 

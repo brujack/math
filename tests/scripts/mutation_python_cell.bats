@@ -98,3 +98,9 @@ setup() {
     [[ "${output}" == *"is not a regular file"* ]]
     [ ! -e "${MOCK_CALLS_FILE}" ]
 }
+
+@test "triangle is an accepted directory" {
+    export MOCK_MAKE_STATUS_LINE="green: x"
+    run -0 bash "${SCRIPT}" triangle 2 10
+    [[ "$(cat "${MOCK_CALLS_FILE}")" == "make -C triangle mutants MUTANT_SHARD=2/10 CELL_LABEL=triangle-2 "* ]]
+}

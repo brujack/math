@@ -7,7 +7,7 @@
 # `<dir>/*.py` directly under a Python dir selects that dir. The nested
 # <dir>/<dir>-rs/ tree is Rust and never matches.
 
-readonly PYTHON_DIRS="amicable collatz e factorial fib perfect-numbers pi sq"
+readonly PYTHON_DIRS="amicable collatz e factorial fib perfect-numbers pi sq triangle"
 
 detect() {
     local _path _d _all=0
