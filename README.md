@@ -147,7 +147,7 @@ See [`perfect-numbers/README.md`](perfect-numbers/README.md) for full details.
 
 ### Python CLI contract
 
-All eight Python programs share one command line (`<module>` is pi, fib, sq, e, factorial, perfect_numbers, collatz or amicable):
+The size-N Python programs share one command line (`<module>` is pi, fib, sq, e, factorial, perfect_numbers, collatz or amicable); triangle has its own flags (see its section):
 
 ```bash
 python3 <module>.py SIZE [--show] [--yes]   # never reads stdin; always writes the output file, --show also prints
