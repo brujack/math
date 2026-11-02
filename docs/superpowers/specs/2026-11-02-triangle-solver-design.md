@@ -244,6 +244,10 @@ Coverage is held at ≥ 90% (`make coverage`). `make mutants` runs through the t
 - **N2.** No Rust crate for triangle, and no change to any Rust crate or Rust template.
 - **N3.** No change to the six size-N contract cases or their checks for the existing eight programs.
 
+## Amendments
+
+- N1 -> No third-party import in `triangle/triangle.py`: the program uses the standard library only at runtime. The shared template `install_deps.sh` is exempt; it installs GMP and the pinned packages because every Python project is rendered identically (Design §1). — the plan's non-goal check found the template installer ambiguous under the original wording.
+
 ## Multi-Lens Review
 
 Reviewed at commit: `e48dcac` (Step 7 self-review commit, before Step 8 dispatch)
