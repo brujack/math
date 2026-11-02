@@ -278,3 +278,97 @@ def solve(values: dict[str, float], radians: bool = False) -> Solved:
         if name in values and name not in used
     ]
     return Solved(solutions, extras)
+
+
+# ---------------------------------------------------------------------------
+# Renderer
+# ---------------------------------------------------------------------------
+
+# One cell is 2 dots wide and 4 dots tall, and is drawn twice as tall as it is
+# wide, so a unit of length is the same number of dots in x and in y.
+_MIN_WIDTH = 6
+_MIN_HEIGHT = 3
+_BRAILLE_BASE = 0x2800
+# Dot bits by (column within the cell, row within the cell).
+_DOT_BITS = (
+    (0x01, 0x02, 0x04, 0x40),
+    (0x08, 0x10, 0x20, 0x80),
+)
+
+
+def _project(t: Triangle, width: int, height: int) -> list[tuple[int, int]]:
+    """Dot coordinates (x, y) of vertices A, B, C; y grows downward.
+
+    A is the origin, B is on the x-axis and C is above it.  One cell is kept
+    free on every side so a label always fits beside its vertex.
+    """
+    corners = [(0.0, 0.0), (t.c, 0.0), (t.b * math.cos(t.A), t.b * math.sin(t.A))]
+    x_min = min(x for x, _ in corners)
+    x_span = max(x for x, _ in corners) - x_min
+    y_span = corners[2][1]
+    area_w = 2 * width - 5  # dots between the first and last usable column
+    area_h = 4 * height - 9
+    scale = min(area_w / x_span, area_h / y_span)
+    left = 2 + (area_w - x_span * scale) / 2
+    top = 4 + (area_h - y_span * scale) / 2
+    return [
+        (round(left + (x - x_min) * scale), round(top + (y_span - y) * scale))
+        for x, y in corners
+    ]
+
+
+def _bresenham(x0: int, y0: int, x1: int, y1: int) -> list[tuple[int, int]]:
+    """Integer points on the line between two dots, ends included."""
+    dx, dy = abs(x1 - x0), -abs(y1 - y0)
+    step_x = 1 if x0 < x1 else -1
+    step_y = 1 if y0 < y1 else -1
+    err = dx + dy
+    points = []
+    while True:
+        points.append((x0, y0))
+        if (x0, y0) == (x1, y1):
+            return points
+        doubled = 2 * err
+        if doubled >= dy:
+            err += dy
+            x0 += step_x
+        if doubled <= dx:
+            err += dx
+            y0 += step_y
+
+
+def _label_cell(
+    vertex: tuple[int, int], centre: tuple[float, float]
+) -> tuple[int, int]:
+    """(row, col) of the cell just outside a vertex, away from the centroid."""
+    dx, dy = vertex[0] - centre[0], vertex[1] - centre[1]
+    row, col = vertex[1] // 4, vertex[0] // 2
+    # Compare in cells: a cell is 2 dots wide and 4 dots tall.
+    if abs(dx) / 2 >= abs(dy) / 4:
+        return row, col + (1 if dx >= 0 else -1)
+    return row + (1 if dy >= 0 else -1), col
+
+
+def render(t: Triangle, width: int, height: int) -> list[str]:
+    """Draw the triangle as braille text, width x height character cells.
+
+    Vertices A, B and C are labelled in the cell just outside each corner.
+    Raises ValueError when the canvas is too small to hold the drawing.
+    """
+    if width < _MIN_WIDTH or height < _MIN_HEIGHT:
+        raise ValueError(
+            f"canvas {width}x{height} is too small, need at least "
+            f"{_MIN_WIDTH}x{_MIN_HEIGHT}"
+        )
+    cells = [[0] * width for _ in range(height)]
+    pts = _project(t, width, height)
+    for i in range(3):
+        (x0, y0), (x1, y1) = pts[i], pts[(i + 1) % 3]
+        for x, y in _bresenham(x0, y0, x1, y1):
+            cells[y // 4][x // 2] |= _DOT_BITS[x % 2][y % 4]
+    rows = [[chr(_BRAILLE_BASE + bits) for bits in row] for row in cells]
+    centre = (sum(p[0] for p in pts) / 3, sum(p[1] for p in pts) / 3)
+    for label, vertex in zip("ABC", pts, strict=True):
+        row, col = _label_cell(vertex, centre)
+        rows[row][col] = label
+    return ["".join(row) for row in rows]

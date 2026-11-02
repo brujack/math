@@ -1,4 +1,4 @@
-"""Unit tests for triangle.py (solver section)."""
+"""Unit tests for triangle.py (solver and renderer sections)."""
 
 # Run from the repo root, pyright resolves `triangle` to the sub-project
 # directory (a namespace package), not to triangle.py.  Run inside triangle/
@@ -9,7 +9,16 @@ import math
 import unittest
 from dataclasses import replace
 
-from triangle import NoTriangle, Solved, Triangle, TriangleInputError, _check, solve
+from triangle import (
+    NoTriangle,
+    Solved,
+    Triangle,
+    TriangleInputError,
+    _check,
+    _project,
+    render,
+    solve,
+)
 
 
 def _rel(got: float, want: float) -> float:
@@ -425,6 +434,103 @@ class TestAreaPerimeter(unittest.TestCase):
     def test_area_from_sas(self):
         t = solve({"a": 6, "b": 7, "C": 30}).solutions[0]
         self.assertAlmostEqual(t.area, 0.5 * 6 * 7 * 0.5, places=12)
+
+
+_BLANK = "\u2800"
+
+
+def _midpoint_column_has_dots(
+    out: list[str], p: tuple[int, int], q: tuple[int, int]
+) -> bool:
+    """True if a dot is set in the edge's midpoint column, in a row it spans.
+
+    The exact midpoint can sit on a cell boundary of a near-flat edge, so
+    both rows the edge covers at that column are accepted.
+    """
+    col = (p[0] + q[0]) // 4
+    rows = range(min(p[1], q[1]) // 4, max(p[1], q[1]) // 4 + 1)
+    return any(out[r][col] not in (_BLANK, "A", "B", "C") for r in rows)
+
+
+class TestRender(unittest.TestCase):
+    def _t345(self) -> Triangle:
+        return solve({"a": 3, "b": 4, "c": 5}).solutions[0]
+
+    def test_3_4_5_exact_drawing(self):
+        self.assertEqual(render(self._t345(), 20, 10), EXPECTED_345)
+
+    def test_every_line_has_width_and_height_rows(self):
+        for w, h in ((20, 10), (6, 3), (40, 5), (7, 20)):
+            out = render(self._t345(), w, h)
+            self.assertEqual(len(out), h)
+            for line in out:
+                self.assertEqual(len(line), w)
+
+    def test_labels_in_expected_cells(self):
+        out = render(self._t345(), 20, 10)
+        for label, (row, col) in EXPECTED_LABELS.items():
+            self.assertEqual(out[row][col], label)
+        self.assertEqual(sum(ch in "ABC" for line in out for ch in line), 3)
+
+    def test_label_cells_are_next_to_their_vertices(self):
+        t = self._t345()
+        pts = _project(t, 20, 10)
+        out = render(t, 20, 10)
+        for label, (px, py) in zip("ABC", pts, strict=True):
+            row, col = next(
+                (r, line.index(label)) for r, line in enumerate(out) if label in line
+            )
+            self.assertLessEqual(abs(col - px // 2) + abs(row - py // 4), 1)
+
+    def test_right_angle_at_c_long_side_at_bottom(self):
+        out = render(self._t345(), 20, 10)
+        a_row = next(r for r, line in enumerate(out) if "A" in line)
+        b_row = next(r for r, line in enumerate(out) if "B" in line)
+        c_row = next(r for r, line in enumerate(out) if "C" in line)
+        self.assertEqual(a_row, b_row)
+        self.assertLess(c_row, a_row)
+
+    def test_needle_has_dots_along_every_edge(self):
+        t = solve({"a": 1, "b": 1, "c": 1.9999999}).solutions[0]
+        out = render(t, 40, 10)
+        pts = _project(t, 40, 10)
+        for i in range(3):
+            (x0, y0), (x1, y1) = pts[i], pts[(i + 1) % 3]
+            self.assertTrue(_midpoint_column_has_dots(out, (x0, y0), (x1, y1)))
+
+    def test_too_small_canvas_raises(self):
+        t = self._t345()
+        for w, h in ((0, 0), (0, 10), (20, 0), (5, 3), (6, 2), (-1, 10)):
+            with self.assertRaises(ValueError):
+                render(t, w, h)
+
+    def test_minimum_canvas_renders(self):
+        out = render(self._t345(), 6, 3)
+        self.assertEqual([len(line) for line in out], [6, 6, 6])
+
+    def test_pure_and_repeatable(self):
+        t = self._t345()
+        self.assertEqual(render(t, 20, 10), render(t, 20, 10))
+
+    def test_only_braille_and_labels(self):
+        for line in render(self._t345(), 20, 10):
+            for ch in line:
+                self.assertTrue("\u2800" <= ch <= "\u28ff" or ch in "ABC")
+
+
+EXPECTED_345: list[str] = [
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800C\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u2814\u280a\u2808\u2886\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2860\u280a\u2801\u2800\u2800\u2800\u2800\u2831\u2840\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2800\u28c0\u2814\u2809\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2808\u2886\u2800\u2800\u2800",
+    "\u2800\u2880\u2824\u280a\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2831\u2840\u2800",
+    "A\u2809\u2809\u2809\u2809\u2809\u2809\u2809\u2809\u2809\u2809\u2809\u2809\u2809\u2809\u2809\u2809\u2809\u2809B",
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
+]
+EXPECTED_LABELS: dict[str, tuple[int, int]] = {"A": (7, 0), "B": (7, 19), "C": (1, 12)}
 
 
 if __name__ == "__main__":
