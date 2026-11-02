@@ -68,7 +68,7 @@ Hard-coded counts do break:
 
 Sides are `a`, `b`, `c`. Angles are `A`, `B`, `C`, each opposite the side of the same letter. Angles are in degrees unless `--radians` is given. Every computation happens in radians internally.
 
-**Normalisation.** When exactly two angles are given, the third is 180° minus their sum. When all three are given, the first two in `A, B, C` order determine the third, and the given third is treated as an extra value (see below).
+**Normalisation.** Given values are never replaced. When exactly two angles are given, the third is derived as 180° minus their sum. When all three are given, all three stay as typed. The determining set then uses a typed angle wherever one is needed: the typed included angle for SAS, and the first two typed angles in `A, B, C` order for ASA/AAS. Any typed angle not in the set is reported as an extra value.
 
 **Case dispatch**, on the known values after normalisation:
 
@@ -94,26 +94,26 @@ The parentheses are part of the formula and must be kept as written. Worked chec
    - `x ≥ y`: 1 solution.
    - `|x − h| ≤ 4ε·max(x, h)`: 1 solution, with a right angle opposite `y`. This catches `4, 8, 30°`, where `h = 3.9999999999999996` is 1 ulp low. It is deliberately no wider: near tangency the angle error grows like the square root of the side error, so a 1e-9 band would merge two distinct solutions that differ at the default precision.
    - `x < h`: 0 solutions.
-   - otherwise: 2 candidates. The second uses the supplement of the first candidate angle. It is kept only when its third angle exceeds `1e-12` rad, because when `x` is just below `y` that angle rounds to 0 and would crash the post-check.
+   - otherwise: 2 candidates. The second uses `Y2 = π − Y1`, where `Y1` is the first candidate angle opposite `y`. Its third angle is computed directly as `Z2 = Y1 − X`, not as `π − X − Y2`, which cancels to 0 when `x` is near `y`. The second candidate is kept whenever `Z2 > 0`, however thin the triangle: at `7.9999999999e12, 8e12, 0.001°` the second triangle's third side is 100.
 
-Every returned solution is checked: all three angles are positive and sum to 180°, and all sides are positive. A failed check raises an exception (a bug); it is never printed.
+Every returned solution is checked: all sides and all angles are positive, and the angles sum to π within `1e-12` relative. The three angles are computed independently, so about one triangle in five misses an exact sum by up to 9e-16. A failed check raises an exception (a bug) and is never printed.
 
 A zero-solution SSA exits 1. The message is "no triangle: side X is shorter than the height H", or for an obtuse `X`, "no triangle: side x must be longer than y opposite an angle of 90° or more".
 
 **Extra values: reported, not judged.** With more than three values, the solver picks the determining set in this order: all sides, then SAS, then ASA/AAS. With four or more values and at least one side, one of these always exists. Every other given value is printed beside its solved value with the difference, for example:
 
 ```
-extra  B  given 53.13  solved 53.130102  diff +0.000102
+extra B given 53.13 solved 53.130102 diff +0.000102
 ```
 
-The run always exits 0. There is no tolerance, so there is no pass/fail rule to get wrong; the reader decides whether 37 against 36.8699 counts as a match. The solved value prints at `--precision + 2` decimals, so a non-zero difference is always visible.
+The run always exits 0. There is no tolerance, so there is no pass/fail rule to get wrong; the reader decides whether 37 against 36.8699 counts as a match. The solved value prints at `--precision + 2` decimals. The difference prints with `{:+.6g}`, so a small non-zero difference shows as, for example, `-4.6e-08` instead of rounding away.
 
 **Area** uses Heron's formula in Kahan's numerically stable form: sort so `a >= b >= c`, then `0.25 * sqrt((a+(b+c))(c-(a-b))(c+(a-b))(a+(b-c)))`. **Perimeter** is `a + b + c`.
 
 **Input errors exit 2** with a message. Every test asserts the exact text. They are:
+- three angles and no side (AAA): "need at least one side";
 
 - fewer than three values;
-- fewer than three values after normalisation that still determine nothing, such as one side and one angle;
 - any value that is non-finite, zero or negative;
 - an angle of 180° or more;
 - two angles that sum to 180° or more.
@@ -164,7 +164,7 @@ Everything lives in `test_triangle.py` and, for the contract change, in `tests/`
 
 - **SSS:** 3-4-5, equilateral, and a needle triangle `1, 1, 1.9999999` (the area stays positive and finite). The triangle inequality fails on equality and on violation.
 - **SAS:** an acute and an obtuse included angle, with the third angle checked against the law-of-cosines value, not the law-of-sines one.
-- **ASA and AAS:** both orderings. Third-angle normalisation, including a given third angle that conflicts.
+- **ASA and AAS:** both orderings. Third-angle derivation from two typed angles, and three typed angles with a side, where the third typed angle is reported as an extra.
 - **SSA:**
   - Solution counts:
     - 0 solutions.
@@ -176,7 +176,7 @@ Everything lives in `test_triangle.py` and, for the contract change, in `tests/`
     - `8, 8, 90°` → 0
     - `9, 8, 120°` → 1
   - Boundaries:
-    - `x = 7.9999999999, y = 8, A = 0.001°` returns 1 solution and does not raise.
+    - `x = 7.9999999999, y = 8, A = 0.001°` returns 2 solutions and does not raise. The same holds at `7.9999999999e12, 8e12, 0.001°`, where the second solution's third side is 100.0011.
     - `x = 4·(1 + 5e-10), y = 8, A = 30°` returns 2 distinct solutions.
   - Property: for each case, first assert that the returned list is non-empty, then that every angle in it is positive.
 - **AAA:** refused, both with consistent and with inconsistent sums.
@@ -188,7 +188,7 @@ Everything lives in `test_triangle.py` and, for the contract change, in `tests/`
 - **Invalid values:** zero, negative, NaN and infinite values, and angles ≥ 180° or summing to ≥ 180°. Each exits 2. The test asserts the exact message.
 - **Units:** degrees and radians give the same triangle. With `--radians`, the table prints angles in radians.
 - **Area and perimeter:** checked against known values.
-- **Numerical accuracy:** checked against precomputed high-precision references.
+- **Numerical accuracy:** checked against high-precision references computed from the binary double inputs (`mpmath.mpf(float_value)`), not from the decimal strings. The decimal strings differ from the doubles by up to 1.1e-8 on the needle, which is more than the bound under test.
   - Kahan area on `1e5, 99999.99979, 0.00029`, where naive Heron is off by 2.7e-8.
   - Kahan angles within 1e-12 relative on `1e-4, 1, 1.00009` and on the `1e5` needle. On the needle the naive half-angle form is off by 2.7e-8, and `acos` loses the angle entirely.
 - **Renderer:** a fixed 20×10 canvas of the 3-4-5 triangle produces an exact expected string. The vertex labels sit in their expected cells. A degenerate-looking needle still draws three edges.
@@ -335,3 +335,36 @@ Disposition: Addressed (operator, 2026-11-02). Extra values are reported, not ju
 - exact message text in reject tests;
 - non-empty-first property assertions;
 - a re-prompt on bad interactive input.
+
+### Round 3 (scoped Risk)
+
+Reviewed at commit `40e8dd0`. Scope: §2, §4, §5, §6 and R1, R2 and R6.
+
+**Confirmed correct against mpmath:**
+- Kahan's formula for every labelling and both μ branches, worst error 1.2e-16;
+- the SSA counts and both boundary cases;
+- the Kahan-Heron area;
+- the extra-line arithmetic;
+- the regex cases as stated.
+
+**Found:**
+- **SSA second-solution guard.** It computed the third angle as `π − X − Y2`, which cancels to 0, and applied a fixed `1e-12` rad cut. Together these dropped real triangles: at 1e12 scale the dropped one has a third side of 100. The §6 test pinned the wrong count.
+- **Accuracy references.** References built from decimal strings differ by 1.1e-8 from the double inputs, which is more than the 1e-12 bound.
+- **Angle-sum post-check.** It had no tolerance, and 19% of random triangles miss an exact sum by up to 8.9e-16.
+- **Typed angles.** Normalisation replaced a typed included angle with a derived one.
+- **Small differences.** "Always visible" was false at precision+2.
+- **Tidy-ups.**
+  - The spacing in the extra line was inconsistent.
+  - The input-error bullet could never fire.
+  - AAA had no exit code in §2.
+  - A leftover "conflicts" remained.
+
+**Assumption.** That a near-degenerate second SSA triangle counts as a solution.
+
+**Disposition.** Addressed (operator, 2026-11-02): "fix all as listed".
+- The guard is now `Z2 = Y1 − X > 0`, and the boundary test now expects 2 solutions.
+- Accuracy references are built from the doubles.
+- The post-check has a `1e-12` relative tolerance.
+- Typed values are never replaced.
+- Differences print as `{:+.6g}`.
+- All the tidy-ups are applied.
