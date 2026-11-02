@@ -589,10 +589,13 @@ class TestCLI(unittest.TestCase):
         )
         self.assertIn("6.00", out)
         self.assertNotIn("6.0000", out)
+        self.assertRegex(out, r"perimeter\s+12\.00\n")
+        self.assertRegex(out, r"\nc\s+5\.00\s+given")
         _, out0, _, _ = _run(
             ["-a", "3", "-b", "4", "-c", "5", "--no-draw", "--precision", "0"]
         )
         self.assertRegex(out0, r"area\s+6\n")
+        self.assertRegex(out0, r"perimeter\s+12\n")
 
     def test_precision_rejects_negative_and_text(self):
         for bad in ("-1", "x"):
