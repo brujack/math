@@ -767,8 +767,8 @@ run_in_pgroup() {
     [ "$(head -n 1 "${REPO_ROOT}/scripts/pre-push")" = '#!/usr/bin/env -S bash -p' ]
 }
 
-@test "wiring: the block matches the sha256 pinned to ai-config 34cf3bee" {
+@test "wiring: the block matches the sha256 pinned to ai-config e6c3fecc" {
     local hash
     hash="$(sed -n '/^# >>> push-content-gate wiring$/,/^# <<< push-content-gate wiring$/p' "${REPO_ROOT}/scripts/pre-push" | sha256sum | cut -d' ' -f1)"
-    [ "${hash}" = "d556979bd64b72ca237e4bd3a8d4cf709e0db164ae155c18ab0eea86e39e221f" ]
+    [ "${hash}" = "554c1385d10d77fac177df1a7aefdf6238e12ba009218689b7c5242fa24d4102" ]
 }
