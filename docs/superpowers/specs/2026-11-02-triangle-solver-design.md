@@ -2,6 +2,8 @@
 
 A new Python sub-project, `triangle/`. Give it any combination of side lengths and angles. It derives the missing sides and angles, the area and the perimeter, and draws the triangle in the terminal.
 
+- **Approved:** 2026-11-02
+
 ## Problem
 
 math has eleven sub-projects, and every one of them generates N items of growing size. A triangle solver is the first closed-form tool: the input is a handful of numbers, not a size.
@@ -394,7 +396,7 @@ The following hold and were confirmed against 60-digit references:
 
 Assumption: no uncertain assumption remains. The tangency band was checked over 1.1M inputs of the only typable exact-tangency family (30°, by Niven).
 
-Disposition: fixed as proposed, within the operator's round-3 "fix all as listed" (2026-11-02). The orchestrator verified that `6, 8, 30°` still gives 41.8103 / 138.1897.
+Disposition: Addressed. These were fixed as proposed and are recorded with the operator's approval of the spec (2026-11-02, "spec approved"). The orchestrator verified that `6, 8, 30°` still gives 41.8103 / 138.1897.
 - The third side is computed directly: `z1 = y cos X + sqrt((x−h)(x+h))` and `z2 = (y−x)(y+x)/z1`. Angles then come from Kahan's formula, which gives 100.0000000152 and 1.0000000829e-10, both matching the references.
 - The determining-set order is explicit, with worked examples.
 - The diff is defined as `solved − given`, and the example is corrected.
