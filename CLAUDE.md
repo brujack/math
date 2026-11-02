@@ -11,8 +11,8 @@ A trailing pointer on a rule means: before acting on that rule's subject, read t
 High-performance mathematical computation tools.
 
 Each sub-project's `CLAUDE.md` is the source of truth for its detail (a crate's is `<crate>/<crate>-rs/CLAUDE.md`); keep this file and those in sync. → ai-config/docs/knowledge/math-overview.md § Sub-project table
-Sub-projects (dir: language): `pi/` Python+Rust, `prime/` Rust, `fib/` Python+Rust, `sq/` Python+Rust, `twin-primes/` Rust, `e/` Python+Rust, `factorial/` Python+Rust, `perfect-numbers/` Python+Rust, `collatz/` Python+Rust, `goldbach/` Rust, `amicable/` Python+Rust. → ai-config/docs/knowledge/math-overview.md § Sub-project table
-Rust crates live at `<project>/<project>-rs/` (all 11 projects, e.g. `pi/pi-rs`, `twin-primes/twin-primes-rs`); the 8 Python sub-projects sit at `<project>/` (pi, fib, sq, e, factorial, perfect-numbers, collatz, amicable).
+Sub-projects (dir: language): `pi/` Python+Rust, `prime/` Rust, `fib/` Python+Rust, `sq/` Python+Rust, `twin-primes/` Rust, `e/` Python+Rust, `factorial/` Python+Rust, `perfect-numbers/` Python+Rust, `collatz/` Python+Rust, `goldbach/` Rust, `amicable/` Python+Rust, `triangle/` Python. → ai-config/docs/knowledge/math-overview.md § Sub-project table
+Rust crates live at `<project>/<project>-rs/` (all 11 crates, e.g. `pi/pi-rs`); the Python sub-projects sit at `<project>/` (pi, fib, sq, e, factorial, perfect-numbers, collatz, amicable, triangle).
 
 ## Architectural Decision Records
 
@@ -29,8 +29,8 @@ Reference material lives in `ai-config/docs/knowledge/math-<topic>.md` (ADR-0020
 
 ## Dependency Installation
 
-Each sub-project has its own installer: `<project>/install_deps.sh` for Python, `<project>/<project>-rs/install_deps.sh` for Rust (19 total; `goldbach`, `prime` and `twin-primes` have only the nested Rust one). → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
-The 11 Rust installers are identical (rendered from `scripts/crate_templates/install_deps.sh`, tested by `tests/scripts/crate_install_deps.bats`): GMP + MPFR, the rustup toolchain, and `cargo-nextest`, `cargo-machete` and `cargo-tarpaulin` at CI's pinned versions; the 8 Python installers are identical too (from `scripts/crate_templates/python/install_deps.sh`): GMP + MPFR and every pinned package. → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
+Each sub-project has its own installer: `<project>/install_deps.sh` for Python, `<project>/<project>-rs/install_deps.sh` for Rust (`goldbach`, `prime` and `twin-primes` have only the nested Rust one). → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
+The 11 Rust installers are identical (rendered from `scripts/crate_templates/install_deps.sh`, tested by `tests/scripts/crate_install_deps.bats`): GMP + MPFR, the rustup toolchain, and `cargo-nextest`, `cargo-machete` and `cargo-tarpaulin` at CI's pinned versions; the Python installers are identical too (from `scripts/crate_templates/python/install_deps.sh`): GMP + MPFR and every pinned package. → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
 
 Root-scope Python has no `install_deps.sh` by design: `requirements-dev.txt` (`defusedxml==0.7.1`, `pyright==1.1.411`, `pyyaml==6.0.3`) is consumed by `make install-deps`. → ai-config/docs/knowledge/math-dependency-installation.md § Root-scope Python
 
@@ -47,7 +47,7 @@ make install-deps    # installs root-scope Python's third-party imports
 
 ### Python (`<project>/`)
 
-Run from `<project>/`; `<name>` is the module and test file stem: pi, fib, sq, e, factorial, `perfect_numbers` (dir `perfect-numbers`), collatz, amicable (so `make run` runs `python3 <name>.py`, `make test` runs `pytest test_<name>.py -v`).
+Run from `<project>/`; `<name>` is the module and test file stem: pi, fib, sq, e, factorial, `perfect_numbers` (dir `perfect-numbers`), collatz, amicable, triangle (so `make run` runs `python3 <name>.py`, `make test` runs `pytest test_<name>.py -v`).
 
 ```bash
 cd <project>
@@ -59,7 +59,7 @@ make coverage  # pytest --cov, fails under 90%
 
 ### Rust (`<project>/<project>-rs/`)
 
-All 11 projects (pi, prime, fib, sq, twin-primes, e, factorial, perfect-numbers, collatz, goldbach, amicable); the release build target is the project name (`make pi`, `make twin-primes`, ...). → ai-config/docs/knowledge/math-quick-reference.md § Sub-project command blocks
+All 11 crates (pi, prime, fib, sq, twin-primes, e, factorial, perfect-numbers, collatz, goldbach, amicable); the release build target is the project name (`make pi`, `make twin-primes`, ...). → ai-config/docs/knowledge/math-quick-reference.md § Sub-project command blocks
 
 ```bash
 cd <project>/<project>-rs
@@ -69,9 +69,9 @@ make lint       # cargo fmt --check, then cargo clippy --all-targets -- -D warni
 make test       # lint, then cargo test
 ```
 
-All 11 crates are treated identically (operator rule): each crate's `Makefile`, `rustfmt.toml`, `.config/nextest.toml`, `install_deps.sh`, `<crate>-rs.yml` and `release-<crate>-rs.yml` is rendered from `scripts/crate_templates/` by `scripts/render_crate_files.py`, and so are the 8 Python projects' `Makefile`, `install_deps.sh`, `<project>-py.yml`, `pyrightconfig.json` and `cosmic-ray.toml` (from `scripts/crate_templates/python/`; `@CRATE@` is the directory, `@MODULE@` the module name, the only placeholders); edit the template and run `--write`, never one crate's copy, and `tests/test_crate_uniformity.py` fails on any drift.
-A single root `ruff.toml` serves all 8 Python sub-projects via ancestor discovery; keep one and never create per-subproject configs. It uses `extend-select` over ruff's default rule set (pinned by `tests/test_ruff_config.py`); new defaults arrive only with a deliberate ruff pin bump, gated by that PR's `make lint`. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
-Every `pip install` in every workflow and the 8 Python `install_deps.sh` pins `name==X.Y.Z`, one version per package across all sites (`tests/test_tool_pins.py`); bump them together in the templates. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
+All 11 crates are treated identically (operator rule): each crate's `Makefile`, `rustfmt.toml`, `.config/nextest.toml`, `install_deps.sh`, `<crate>-rs.yml` and `release-<crate>-rs.yml` is rendered from `scripts/crate_templates/` by `scripts/render_crate_files.py`, and so are the Python projects' `Makefile`, `install_deps.sh`, `<project>-py.yml`, `pyrightconfig.json` and `cosmic-ray.toml` (from `scripts/crate_templates/python/`; `@CRATE@` is the directory, `@MODULE@` the module name, the only placeholders); edit the template and run `--write`, never one crate's copy, and `tests/test_crate_uniformity.py` fails on any drift.
+A single root `ruff.toml` serves every Python sub-project via ancestor discovery; keep one and never create per-subproject configs. It uses `extend-select` over ruff's default rule set (pinned by `tests/test_ruff_config.py`); new defaults arrive only with a deliberate ruff pin bump, gated by that PR's `make lint`. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
+Every `pip install` in every workflow and every Python `install_deps.sh` pins `name==X.Y.Z`, one version per package across all sites (`tests/test_tool_pins.py`); bump them together in the templates. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 Root `make lint` runs `ruff check .` plus `ruff format --check` scoped to `git ls-files '*.py'` (never `ruff format --check .`, which rewrites markdown code blocks) alongside `lint-hooks`. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 `lint-python` exits 0 when ruff is missing (so a machine can still commit the fix); `scripts.yml` installs ruff so CI enforces it, and `tests/scripts/makefile.bats` asserts that. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 The two `# noqa: C901` directives in `e/e.py` and `pi/pi.py` are load-bearing: `maintainability-review` runs `ruff check --select C901` on the CLI, which overrides config, so removing one without refactoring reads as a 0 → 21 regression. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
@@ -117,11 +117,11 @@ Coverage floor: 90% for Python and Rust per sub-project, never lowered.
 
 Every Python sub-project has a `pyrightconfig.json` and a `Run pyright` step in its CI workflow.
 
-Modes: all 8 at `standard`, gmpy2 typed by `typings/gmpy2/__init__.pyi` (exact stub, no `Any`, guarded by `tests/test_gmpy2_stub.py`), every config sets `stubPath: ../typings`. → ai-config/docs/knowledge/math-testing-policy.md § Pyright modes
+Modes: all at `standard`, gmpy2 typed by `typings/gmpy2/__init__.pyi` (exact stub, no `Any`, guarded by `tests/test_gmpy2_stub.py`), every config sets `stubPath: ../typings`. → ai-config/docs/knowledge/math-testing-policy.md § Pyright modes
 
 Root-scope Python (`tests/`, `scripts/`, `.claude/scripts/`) is gated by a root `pyrightconfig.json` (`standard` mode, `include` `["scripts", "tests", ".claude/scripts"]`) over every tracked root-scope `.py` file (count: `git ls-files 'tests/*.py' 'scripts/*.py' '.claude/scripts/*.py' | wc -l`). → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
 Its `exclude` is pyright's default list minus `**/.*`, and the omission is load-bearing: exclude beats include, and `**/.*` would drop `.claude/scripts`. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
-`pyright==1.1.411` is pinned at all 19 install sites (8 `*-py.yml` workflows, both Python mutation workflows, 8 Python `install_deps.sh`, `requirements-dev.txt`, which `scripts.yml` installs), and every `cargo install` in a workflow or `install_deps.sh` carries `--locked --version`, and every `taiki-e/install-action` `tool:` is `name@X.Y.Z` with `fallback: none` at the installers' version; `tests/test_tool_pins.py` requires one version per tool, so bump them together. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
+`pyright==1.1.411` is pinned at every install site (each `*-py.yml` workflow, both Python mutation workflows, each Python `install_deps.sh`, `requirements-dev.txt`, which `scripts.yml` installs), and every `cargo install` in a workflow or `install_deps.sh` carries `--locked --version`, and every `taiki-e/install-action` `tool:` is `name@X.Y.Z` with `fallback: none` at the installers' version; `tests/test_tool_pins.py` requires one version per tool, so bump them together. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
 `tests/test_root_pyright_scope.py` runs pyright under `make test-python`, which pre-push invokes on pushes touching `scripts/`, `tests/`, `.claude/scripts/` or `pyrightconfig.json`; it fails on any root error or an engine other than the `requirements-dev.txt` pin, and prints a skip line when pyright is absent outside CI; sub-project pyright stays CI-only. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
 pyright walks up the tree for its config like `ruff.toml`: deleting a sub-project's `pyrightconfig.json` falls through to the root config instead of removing type checking. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
 Run pyright with `cd <sub-project> && pyright`, or `pyright` at the repo root for root scope.
@@ -131,7 +131,7 @@ When adding a new Python sub-project, add `pyrightconfig.json` (copy from any `s
 ### Mutation testing (Python)
 
 Python `make mutants` runs a capped `cosmic-ray baseline` first (8 GiB `ulimit -v`, `MUTANTS_UNCAPPED=1` escape, as Rust), then the session, then `scripts/cosmic_ray_cell_status.py`; cosmic-ray stores outcomes uppercase (`SURVIVED`, `KILLED`), and `MUTANT_SHARD=0/10` samples a tenth locally.
-`mutation-testing-python.yml` runs 8 × 10 shards (`scripts/mutation-python-cell.sh`), comments survivor counts on the `mutation-report-python` issue and keeps locations 90 days in artifact `mutants-survivors-python`; `mutation-pr.yml` runs only `mutants-baseline`.
+`mutation-testing-python.yml` runs 10 shards per project (`scripts/mutation-python-cell.sh`), comments survivor counts on the `mutation-report-python` issue and keeps locations 90 days in artifact `mutants-survivors-python`; `mutation-pr.yml` runs only `mutants-baseline`.
 
 ### Mutation testing (Rust)
 
@@ -172,7 +172,7 @@ Release and CI jobs run Node.js 24 with `actions/checkout@v7`; Rust builds `need
 
 Pre-commit: `scripts/pre-commit` (installed by `make install-hooks`) runs `make lint` on staged sub-projects and root `.py` and `ggshield secret scan pre-commit` (skipped if absent); install ggshield locally. → ai-config/docs/knowledge/math-ci.md § Pre-commit hook
 
-Pre-push: `scripts/pre-push` (installed by `make install-hooks`) runs `make test` concurrently (`scripts/parallel-make-test.sh`, `PRE_PUSH_JOBS` default 8, one log and status file per sub-project, no skip at any count) for sub-projects with `.py`/`.rs` source changes, and the root `make test` (`lint test-hooks test-python`) when the push touches `scripts/`, `tests/`, `typings/`, `deny.toml` or the root `Makefile`, else root `make lint-hooks` when it touches any `.sh` (e.g. an `install_deps.sh`), and `scripts/cli_contract.py` alone over the 8 Python CLIs when the push touches it, and refuses a pushed commit that changes `CLAUDE.md` past the 30000-byte ceiling; it skips branch deletions and is permanent. → ai-config/docs/knowledge/math-ci.md § Pre-push hook
+Pre-push: `scripts/pre-push` (installed by `make install-hooks`) runs `make test` concurrently (`scripts/parallel-make-test.sh`, `PRE_PUSH_JOBS` default 8, one log and status file per sub-project, no skip at any count) for sub-projects with `.py`/`.rs` source changes, and the root `make test` (`lint test-hooks test-python`) when the push touches `scripts/`, `tests/`, `typings/`, `deny.toml` or the root `Makefile`, else root `make lint-hooks` when it touches any `.sh` (e.g. an `install_deps.sh`), and `scripts/cli_contract.py` alone over the Python CLIs when the push touches it, and refuses a pushed commit that changes `CLAUDE.md` past the 30000-byte ceiling; it skips branch deletions and is permanent. → ai-config/docs/knowledge/math-ci.md § Pre-push hook
 math's hooks bypass root `test:`, so fix the hooks (not the root target) when lint or test coverage on push is wrong. → ai-config/docs/knowledge/math-ci.md § Pre-push hook
 
 Trigger pre-push tests on `.py`/`.rs` source changes only; Makefile, workflow and doc changes must not run the suites, and run each `make test < /dev/null` (the `resource_tracker` hang; measured not to recur concurrently, so there is no sub-project-count skip). → ai-config/docs/knowledge/math-ci.md § resource_tracker gotcha
@@ -196,7 +196,7 @@ Test helpers: `tests/helpers/common.bash` (REPO_ROOT, `load_mocks()`), PATH-inje
 
 `make bash-coverage` runs the PS4 tracer over the bats suite (skipped if `bats` is missing; not in `make test` or `make lint`); inspect with `bash scripts/run-bash-coverage.sh --list-sources`, `--count-coverable <file>`, `--file-coverage <file> <trace>`; predicate tests in `tests/scripts/bash_coverage.bats`. → ai-config/docs/knowledge/math-ci.md § Bash Coverage
 
-The instrumented set is derived from `git ls-files 'scripts/*.sh' '*/install_deps.sh' '*/*/install_deps.sh' scripts/pre-push scripts/pre-commit scripts/commit-msg` minus `scripts/bash-tracer.sh`; keep the 19 `install_deps.sh` in the denominator (untested, not uncoverable). → ai-config/docs/knowledge/math-ci.md § Bash coverage predicate
+The instrumented set is derived from `git ls-files 'scripts/*.sh' '*/install_deps.sh' '*/*/install_deps.sh' scripts/pre-push scripts/pre-commit scripts/commit-msg` minus `scripts/bash-tracer.sh`; keep every `install_deps.sh` in the denominator (untested, not uncoverable). → ai-config/docs/knowledge/math-ci.md § Bash coverage predicate
 
 The `bash-coverage` job in `auto-merge.yml` gates at `FLOOR=24`, defined once in that step and set from CI's own measurement on `ubuntu-latest`, never a local run. → ai-config/docs/knowledge/math-ci.md § Bash coverage floor
 The floor is a regression ratchet over the reachable quarter of the denominator, not a quality bar for the repo's shell. → ai-config/docs/knowledge/math-ci.md § Bash coverage floor
