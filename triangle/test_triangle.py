@@ -1,21 +1,31 @@
-"""Unit tests for triangle.py (solver and renderer sections)."""
+"""Unit tests for triangle.py (solver, renderer and CLI sections)."""
 
 # Run from the repo root, pyright resolves `triangle` to the sub-project
 # directory (a namespace package), not to triangle.py.  Run inside triangle/
 # the imports are checked normally; this only quiets the root-invocation case.
 # pyright: reportAttributeAccessIssue=false
 
+import contextlib
+import io
 import math
+import pathlib
+import re
+import subprocess
+import sys
 import unittest
 from dataclasses import replace
+from unittest import mock
 
 from triangle import (
+    CONTRACT_ARGS,
+    CONTRACT_EXPECT,
     NoTriangle,
     Solved,
     Triangle,
     TriangleInputError,
     _check,
     _project,
+    main,
     render,
     solve,
 )
@@ -531,6 +541,222 @@ EXPECTED_345: list[str] = [
     "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
 ]
 EXPECTED_LABELS: dict[str, tuple[int, int]] = {"A": (7, 0), "B": (7, 19), "C": (1, 12)}
+
+
+_BRAILLE = re.compile("[\u2800-\u28ff]")
+
+
+def _run(argv, stdin_tty=False, stdout_tty=False, answers=()):
+    out, err = io.StringIO(), io.StringIO()
+    with (
+        contextlib.redirect_stdout(out),
+        contextlib.redirect_stderr(err),
+        mock.patch("sys.stdin.isatty", return_value=stdin_tty),
+        mock.patch("sys.stdout.isatty", return_value=stdout_tty),
+        mock.patch("builtins.input", side_effect=list(answers)) as fake_input,
+    ):
+        rc = main(argv)
+    return rc, out.getvalue(), err.getvalue(), fake_input
+
+
+class TestCLI(unittest.TestCase):
+    def test_contract_constants(self):
+        rc, out, _, _ = _run(CONTRACT_ARGS)
+        self.assertEqual(rc, 0)
+        self.assertIn(CONTRACT_EXPECT, out)
+
+    def test_table_marks_given_and_derived(self):
+        rc, out, _, _ = _run(["-a", "3", "-b", "4", "-c", "5", "--no-draw"])
+        self.assertEqual(rc, 0)
+        lines = {ln.split()[0]: ln for ln in out.splitlines() if ln.split()}
+        self.assertTrue(lines["a"].endswith("given"))
+        self.assertTrue(lines["A"].endswith("derived"))
+        self.assertIn("36.8699", lines["A"])
+        self.assertIn("6.0000", lines["area"])
+        self.assertIn("12.0000", lines["perimeter"])
+
+    def test_no_draw_prints_no_braille(self):
+        _, out, _, _ = _run(["-a", "3", "-b", "4", "-c", "5", "--no-draw"])
+        self.assertIsNone(_BRAILLE.search(out))
+
+    def test_draw_prints_braille(self):
+        _, out, _, _ = _run(["-a", "3", "-b", "4", "-c", "5"])
+        self.assertIsNotNone(_BRAILLE.search(out))
+
+    def test_precision(self):
+        _, out, _, _ = _run(
+            ["-a", "3", "-b", "4", "-c", "5", "--no-draw", "--precision", "2"]
+        )
+        self.assertIn("6.00", out)
+        self.assertNotIn("6.0000", out)
+        _, out0, _, _ = _run(
+            ["-a", "3", "-b", "4", "-c", "5", "--no-draw", "--precision", "0"]
+        )
+        self.assertRegex(out0, r"area\s+6\n")
+
+    def test_precision_rejects_negative_and_text(self):
+        for bad in ("-1", "x"):
+            with (
+                contextlib.redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit) as cm,
+            ):
+                main(["-a", "3", "-b", "4", "-c", "5", "--precision", bad])
+            self.assertEqual(cm.exception.code, 2)
+
+    def test_two_solutions_headed(self):
+        rc, out, _, _ = _run(["-a", "6", "-b", "8", "-A", "30", "--no-draw"])
+        self.assertEqual(rc, 0)
+        self.assertLess(out.index("Solution 1"), out.index("Solution 2"))
+        self.assertEqual(out.count("Solution"), 2)
+
+    def test_two_solutions_each_drawn(self):
+        _, out, _, _ = _run(["-a", "6", "-b", "8", "-A", "30"])
+        self.assertEqual(out.count("Solution"), 2)
+        first, second = out.split("Solution 2")
+        self.assertIsNotNone(_BRAILLE.search(first))
+        self.assertIsNotNone(_BRAILLE.search(second))
+
+    def test_single_solution_has_no_heading(self):
+        _, out, _, _ = _run(["-a", "3", "-b", "4", "-c", "5", "--no-draw"])
+        self.assertNotIn("Solution", out)
+
+    def test_extra_line_exact(self):
+        rc, out, _, _ = _run(
+            ["-a", "3", "-b", "4", "-c", "5", "-B", "53.13", "--no-draw"]
+        )
+        self.assertEqual(rc, 0)
+        self.assertIn("extra B given 53.13 solved 53.130102 diff +0.000102354\n", out)
+
+    def test_radians_output(self):
+        rc, out, _, _ = _run(
+            ["-a", "3", "-b", "4", "-c", "5", "--radians", "--no-draw"]
+        )
+        self.assertEqual(rc, 0)
+        self.assertRegex(out, r"C\s+1\.5708\s+derived")
+        rc, out, _, _ = _run(
+            ["-a", "3", "-b", "4", "-C", "1.5707963267948966", "--radians", "--no-draw"]
+        )
+        self.assertEqual(rc, 0)
+        self.assertRegex(out, r"c\s+5\.0000\s+derived")
+
+    def test_smoke(self):
+        rc, out, _, _ = _run(["--smoke"])
+        self.assertEqual(rc, 0)
+        self.assertIn("6.0000", out)
+        self.assertIsNotNone(_BRAILLE.search(out))
+
+    def test_input_error_exits_2(self):
+        rc, out, err, _ = _run(["-a", "3", "-b", "4"])
+        self.assertEqual(rc, 2)
+        self.assertEqual(out, "")
+        self.assertTrue(err.strip())
+
+    def test_no_triangle_exits_1(self):
+        rc, out, err, _ = _run(["-a", "1", "-b", "2", "-c", "9"])
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertTrue(err.strip())
+
+    def test_bare_run_without_tty_prints_usage(self):
+        rc, out, err, fake_input = _run([])
+        self.assertEqual(rc, 2)
+        self.assertEqual(out, "")
+        self.assertIn("usage", err.lower())
+        fake_input.assert_not_called()
+
+    def test_bare_run_with_flags_only_still_bare(self):
+        rc, _, err, _ = _run(["--no-draw"])
+        self.assertEqual(rc, 2)
+        self.assertIn("usage", err.lower())
+
+    def test_prompts_with_empty_and_bad_answers(self):
+        answers = ["3", "4", "5", "", "", ""]
+        rc, out, err, fake_input = _run(
+            [],
+            stdin_tty=True,
+            answers=answers,
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(err, "")
+        self.assertIn("6.0000", out)
+        prompts = [c.args[0] for c in fake_input.call_args_list]
+        self.assertEqual(len(prompts), 6)
+        for prompt in prompts:
+            self.assertTrue(prompt.endswith(": "))
+            self.assertNotIn("?", prompt)
+
+    def test_bad_answers_reprompt_with_reason(self):
+        answers = ["x", "nan", "-2", "0", "3", "4", "5", "", "", ""]
+        rc, out, err, fake_input = _run(["--no-draw"], stdin_tty=True, answers=answers)
+        self.assertEqual(rc, 0)
+        self.assertEqual(fake_input.call_count, 10)
+        reasons = err.splitlines()
+        self.assertEqual(len(reasons), 4)
+        self.assertIn("not a number", reasons[0])
+        self.assertIn("not finite", reasons[1])
+        self.assertIn("greater than zero", reasons[2])
+        self.assertIn("greater than zero", reasons[3])
+        self.assertIn("6.0000", out)
+
+    def test_prompt_eof_exits_2(self):
+        out, err = io.StringIO(), io.StringIO()
+        with (
+            contextlib.redirect_stdout(out),
+            contextlib.redirect_stderr(err),
+            mock.patch("sys.stdin.isatty", return_value=True),
+            mock.patch("builtins.input", side_effect=EOFError),
+        ):
+            rc = main([])
+        self.assertEqual(rc, 2)
+        self.assertTrue(err.getvalue().strip())
+
+    def test_prompt_fewer_than_three_exits_2(self):
+        rc, _, err, _ = _run([], stdin_tty=True, answers=["3", "4", "", "", "", ""])
+        self.assertEqual(rc, 2)
+        self.assertTrue(err.strip())
+
+    def test_canvas_uses_terminal_size(self):
+        size = mock.Mock(columns=30, lines=10)
+        with mock.patch("shutil.get_terminal_size", return_value=size):
+            _, out, _, _ = _run(["-a", "3", "-b", "4", "-c", "5"], stdout_tty=True)
+        drawing = [ln for ln in out.splitlines() if _BRAILLE.search(ln)]
+        self.assertEqual(len(drawing), 10)
+        self.assertEqual({len(ln) for ln in drawing}, {30})
+
+    def test_canvas_floored_at_render_minimum(self):
+        size = mock.Mock(columns=2, lines=1)
+        with mock.patch("shutil.get_terminal_size", return_value=size):
+            rc, out, _, _ = _run(["-a", "3", "-b", "4", "-c", "5"], stdout_tty=True)
+        self.assertEqual(rc, 0)
+        drawing = [ln for ln in out.splitlines() if _BRAILLE.search(ln)]
+        self.assertEqual((len(drawing), len(drawing[0])), (3, 6))
+
+    def test_canvas_rows_capped_at_20(self):
+        size = mock.Mock(columns=80, lines=50)
+        with mock.patch("shutil.get_terminal_size", return_value=size):
+            _, out, _, _ = _run(["-a", "3", "-b", "4", "-c", "5"], stdout_tty=True)
+        drawing = [ln for ln in out.splitlines() if _BRAILLE.search(ln)]
+        self.assertEqual(len(drawing), 20)
+
+    def test_canvas_piped_is_60_by_20(self):
+        _, out, _, _ = _run(["-a", "3", "-b", "4", "-c", "5"])
+        drawing = [ln for ln in out.splitlines() if _BRAILLE.search(ln)]
+        self.assertEqual((len(drawing), {len(ln) for ln in drawing}), (20, {60}))
+
+
+class TestSubprocess(unittest.TestCase):
+    def test_runs_as_program(self):
+        script = pathlib.Path(__file__).with_name("triangle.py")
+        done = subprocess.run(
+            [sys.executable, str(script), "-a", "3", "-b", "4", "-c", "5"],
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=60,
+            check=False,
+        )
+        self.assertEqual(done.returncode, 0)
+        self.assertIn("6.0000", done.stdout)
 
 
 if __name__ == "__main__":

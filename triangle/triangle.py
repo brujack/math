@@ -1,10 +1,12 @@
 """Solve a triangle from any three of its sides and angles.
 
-Three sections: solver (this task), renderer and CLI (later tasks).
+Three sections: solver, renderer and CLI.
 Standard library only.
 """
 
+import argparse
 import math
+import shutil
 import sys
 from dataclasses import dataclass
 
@@ -372,3 +374,153 @@ def render(t: Triangle, width: int, height: int) -> list[str]:
         row, col = _label_cell(vertex, centre)
         rows[row][col] = label
     return ["".join(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+# Closed-form kind of scripts/cli_contract.py: run these args, expect this token.
+CONTRACT_ARGS = ["-a", "3", "-b", "4", "-c", "5"]
+CONTRACT_EXPECT = "6.0000"
+
+_ALL_NAMES = _SIDES + _ANGLES
+_DEFAULT_PRECISION = 4
+_PIPE_WIDTH = 60
+_MAX_HEIGHT = 20
+
+
+def _precision(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not an integer: {text!r}") from None
+    if value < 0:
+        raise argparse.ArgumentTypeError("must be 0 or more")
+    return value
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="triangle.py",
+        description="Solve a triangle from three of its sides and angles.",
+    )
+    for name in _ALL_NAMES:
+        kind = "side" if name in _SIDES else "angle"
+        parser.add_argument(f"-{name}", type=float, default=None, help=f"{kind} {name}")
+    parser.add_argument("--radians", action="store_true", help="angles in radians")
+    parser.add_argument(
+        "--precision",
+        type=_precision,
+        default=_DEFAULT_PRECISION,
+        metavar="N",
+        help="decimals in the table (default 4)",
+    )
+    parser.add_argument("--no-draw", action="store_true", help="table only")
+    parser.add_argument("--smoke", action="store_true", help="solve and draw 3-4-5")
+    return parser
+
+
+def _reject_reason(text: str) -> str | None:
+    """Why this prompt answer is unusable, or None when it is a positive number."""
+    try:
+        value = float(text)
+    except ValueError:
+        return f"{text!r} is not a number"
+    if not math.isfinite(value):
+        return f"{text!r} is not finite"
+    if value <= 0:
+        return f"{text!r} must be greater than zero"
+    return None
+
+
+def _prompt_values(radians: bool) -> dict[str, float]:
+    """Ask for each of a b c A B C; an empty answer means unknown."""
+    unit = "radians" if radians else "degrees"
+    values: dict[str, float] = {}
+    for name in _ALL_NAMES:
+        label = name if name in _SIDES else f"{name} ({unit})"
+        while True:
+            answer = input(f"{label}: ").strip()
+            if not answer:
+                break
+            reason = _reject_reason(answer)
+            if reason is None:
+                values[name] = float(answer)
+                break
+            print(reason, file=sys.stderr)
+    return values
+
+
+def _canvas_size() -> tuple[int, int]:
+    if not sys.stdout.isatty():
+        return _PIPE_WIDTH, _MAX_HEIGHT
+    size = shutil.get_terminal_size()
+    return max(size.columns, _MIN_WIDTH), max(min(_MAX_HEIGHT, size.lines), _MIN_HEIGHT)
+
+
+def _print_table(t: Triangle, given: set[str], precision: int, radians: bool) -> None:
+    for name in _ALL_NAMES:
+        value = getattr(t, name)
+        if name in _ANGLES:
+            value = _to_unit(value, radians)
+        status = "given" if name in given else "derived"
+        print(f"{name:<10}{value:>{precision + 12}.{precision}f}  {status}")
+    print(f"{'area':<10}{t.area:>{precision + 12}.{precision}f}")
+    print(f"{'perimeter':<10}{t.perimeter:>{precision + 12}.{precision}f}")
+
+
+def _print_extras(solved: Solved, precision: int) -> None:
+    # given is printed with format(x, "g"), so a typed 53.13 prints as 53.13.
+    for e in solved.extras:
+        print(
+            f"extra {e.name} given {format(e.given, 'g')} "
+            f"solved {e.solved:.{precision + 2}f} diff {e.solved - e.given:+.6g}"
+        )
+
+
+def _report(solved: Solved, values: dict[str, float], args: argparse.Namespace) -> None:
+    given = set(values)
+    width, height = _canvas_size()
+    many = len(solved.solutions) > 1
+    for i, t in enumerate(solved.solutions, start=1):
+        if many:
+            print(f"Solution {i}")
+        _print_table(t, given, args.precision, args.radians)
+        if not args.no_draw:
+            print("\n".join(render(t, width, height)))
+    _print_extras(solved, args.precision)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    if args.smoke:
+        values: dict[str, float] = {"a": 3.0, "b": 4.0, "c": 5.0}
+    else:
+        values = {
+            n: getattr(args, n) for n in _ALL_NAMES if getattr(args, n) is not None
+        }
+        if not values:
+            if not sys.stdin.isatty():
+                parser.print_usage(sys.stderr)
+                return 2
+            try:
+                values = _prompt_values(args.radians)
+            except EOFError:
+                print("input ended before the values were read", file=sys.stderr)
+                return 2
+    try:
+        solved = solve(values, radians=args.radians)
+    except TriangleInputError as error:
+        print(error, file=sys.stderr)
+        return 2
+    except NoTriangle as error:
+        print(error, file=sys.stderr)
+        return 1
+    _report(solved, values, args)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
