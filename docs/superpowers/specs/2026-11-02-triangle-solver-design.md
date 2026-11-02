@@ -68,15 +68,13 @@ Hard-coded counts do break:
 
 Sides are `a`, `b`, `c`. Angles are `A`, `B`, `C`, each opposite the side of the same letter. Angles are in degrees unless `--radians` is given. Every computation happens in radians internally.
 
-**Normalisation.** When exactly two angles are known, the third is set to 180° minus their sum. When three are given, they must sum to 180° within the input tolerance of the three (defined below).
-
-**Input tolerance.** Each given value keeps the text it was typed as. Its tolerance is half a unit in its last typed digit: `53.1301` → `±0.00005`, `53.13` → `±0.005`, `90` → `±0.5`, `1.5e-3` → `±0.00005`. The tolerance of a sum is the sum of the members' tolerances. A floor of `1e-9` relative applies, so exact input still absorbs floating-point noise. The tolerance is only ever used to accept an extra value or an angle sum. It never changes the solution, which is computed from the determining three values exactly as typed.
+**Normalisation.** When exactly two angles are given, the third is 180° minus their sum. When all three are given, the first two in `A, B, C` order determine the third, and the given third is treated as an extra value (see below).
 
 **Case dispatch**, on the known values after normalisation:
 
 | Known                              | Method                                                                     | Solutions                                                                                                           |
 | ---------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| 3 sides (SSS) | Each angle from the sides by Kahan's stable form (`2·atan2` of the half-angle tangent), not `acos`, which loses digits on thin triangles | 1, or an error if the triangle inequality fails: `a + b <= c` for any ordering, which includes degenerate triangles |
+| 3 sides (SSS) | Each angle from the sides by Kahan's formula (below), not `acos`, which loses digits on thin triangles | 1, or exit 1 "no triangle" if the triangle inequality fails (`a + b <= c` for any ordering, which includes degenerate triangles) |
 | 2 sides + included angle (SAS) | Law of cosines for the third side, then the other angles as in SSS | 1 |
 | 1 side + 2 angles (ASA/AAS)        | Third angle from the sum, then the law of sines                            | 1                                                                                                                   |
 | 2 sides + non-included angle (SSA) | Law of sines for the second angle, counted by the ordered rule below | 0, 1 or 2 |
@@ -84,23 +82,35 @@ Sides are `a`, `b`, `c`. Angles are `A`, `B`, `C`, each opposite the side of the
 
 The SAS angles come from the side lengths, as in SSS, rather than from the law of sines, because the law of sines cannot tell an obtuse angle from its supplement.
 
-**SSA solution count.** Let the known angle be `X`, the side opposite it `x`, and the other known side `y`. The cases are tested in this order:
-1. **`X ≥ 90°`:** 1 solution if `x > y`, otherwise 0. The height does not enter. A second obtuse angle is impossible, and `x ≤ y` cannot close the triangle.
+**Kahan's angle formula** ("Miscalculating Area and Angles of a Needle-like Triangle"). Label the sides so that `p ≥ q`, and let `r` be the side opposite the wanted angle. Then:
+- `μ = r − (p − q)` when `q ≥ r`, else `μ = q − (p − r)`;
+- the angle is `2·atan(sqrt(((p − q) + r)·μ / ((p + (q + r))·((p − r) + q))))`.
+
+The parentheses are part of the formula and must be kept as written. Worked check, 3-4-5: `p=4, q=3, r=5`, so `μ = 4`, and the angle is `2·atan(sqrt(24/24)) = 90°`.
+
+**SSA solution count.** Let the known angle be `X`, its opposite side `x`, and the other known side `y`. Let `ε` be machine epsilon. The cases are tested in this order:
+1. **`X ≥ 90°`:** 1 solution if `x > y`, otherwise 0. The height does not enter.
 2. **`X < 90°`, with `h = y·sin X`:**
-   - `x ≥ y`: 1 solution. The second candidate angle is too large.
-   - `|x − h| ≤ 1e-9·max(x, h)`: 1 solution, with a right angle opposite `y`. This is tested before the strict comparison, because `4, 8, 30°` gives `h = 3.9999999999999996` in floats.
+   - `x ≥ y`: 1 solution.
+   - `|x − h| ≤ 4ε·max(x, h)`: 1 solution, with a right angle opposite `y`. This catches `4, 8, 30°`, where `h = 3.9999999999999996` is 1 ulp low. It is deliberately no wider: near tangency the angle error grows like the square root of the side error, so a 1e-9 band would merge two distinct solutions that differ at the default precision.
    - `x < h`: 0 solutions.
-   - otherwise: 2 solutions. The second uses the supplement of the first candidate angle.
+   - otherwise: 2 candidates. The second uses the supplement of the first candidate angle. It is kept only when its third angle exceeds `1e-12` rad, because when `x` is just below `y` that angle rounds to 0 and would crash the post-check.
 
-Every solution is checked before it is returned: all three angles positive and summing to 180°, and all sides positive. A failed check is a bug. It raises an exception and is never printed as a triangle.
+Every returned solution is checked: all three angles are positive and sum to 180°, and all sides are positive. A failed check raises an exception (a bug); it is never printed.
 
-A zero-solution SSA exits 1 with "no triangle: side X is shorter than the height H". For an obtuse `X` the message is "no triangle: side x must be longer than y opposite an angle of 90° or more".
+A zero-solution SSA exits 1. The message is "no triangle: side X is shorter than the height H", or for an obtuse `X`, "no triangle: side x must be longer than y opposite an angle of 90° or more".
 
-**Overdetermined input** (more than three values): pick three values that determine the triangle uniquely, preferring all sides, then SAS, then ASA/AAS. If the only determining set is SSA, pick it, and report both solutions only when both are consistent with every given value. Every other given value must match the solution within that value's input tolerance. On a mismatch, exit 1 and name the value. The message gives the solution to two more digits than the given value, so the two numbers always differ visibly. For example: "B = 50 conflicts: solution gives B = 36.869898".
+**Extra values: reported, not judged.** With more than three values, the solver picks the determining set in this order: all sides, then SAS, then ASA/AAS. With four or more values and at least one side, one of these always exists. Every other given value is printed beside its solved value with the difference, for example:
+
+```
+extra  B  given 53.13  solved 53.130102  diff +0.000102
+```
+
+The run always exits 0. There is no tolerance, so there is no pass/fail rule to get wrong; the reader decides whether 37 against 36.8699 counts as a match. The solved value prints at `--precision + 2` decimals, so a non-zero difference is always visible.
 
 **Area** uses Heron's formula in Kahan's numerically stable form: sort so `a >= b >= c`, then `0.25 * sqrt((a+(b+c))(c-(a-b))(c+(a-b))(a+(b-c)))`. **Perimeter** is `a + b + c`.
 
-**Input errors exit 2** with a message. They are:
+**Input errors exit 2** with a message. Every test asserts the exact text. They are:
 
 - fewer than three values;
 - fewer than three values after normalisation that still determine nothing, such as one side and one angle;
@@ -124,8 +134,8 @@ In the two-solution SSA case, both solutions are printed and drawn, headed `Solu
 
 ### 4. Input
 
-- **Flags:** `-a -b -c -A -B -C`, each taking a float. `--radians`, `--precision N`, `--no-draw` and `--smoke` (solve and draw a 3-4-5 triangle) are also accepted.
-- **Bare run with stdin a TTY:** prompt for each of the six values in turn. An empty answer means unknown. A prompt line ends in `: `, never a `?`, because `cli_contract`'s marker check rejects `?`.
+- **Flags:** `-a -b -c -A -B -C`, each taking a float. Angles are read and printed in the input unit: degrees by default, radians with `--radians`. `--radians`, `--precision N`, `--no-draw` and `--smoke` (solve and draw a 3-4-5 triangle) are also accepted.
+- **Bare run with stdin a TTY:** prompt for each of the six values in turn. An empty answer means unknown. An answer that is not a positive finite number re-prompts with a one-line reason. A prompt line ends in `: `, never a `?`, because `cli_contract`'s marker check rejects `?`.
 - **Bare run with stdin not a TTY:** print usage to stderr and exit 2. This matches the other CLIs.
 
 ### 5. CLI contract: a second program kind
@@ -136,7 +146,7 @@ The size-N `_common_problems` cannot be reused. It fails a run that writes no ou
 - not timed out;
 - exit 0;
 - no `?` on stdout;
-- **`CONTRACT_EXPECT` appears on stdout**;
+- **`CONTRACT_EXPECT` appears on stdout as a whole numeric token**. The pattern is `(?<![\d.])` + the escaped value + `(?![\d.])`, so `6.0000` does not match inside `36.0000` or `16.00001`;
 - no file written.
 
 There are three cases:
@@ -144,7 +154,7 @@ There are three cases:
 2. `--smoke` passes the same checks.
 3. No arguments exits 2 with usage.
 
-A program that declares both kinds, or neither, or only one of `CONTRACT_ARGS`/`CONTRACT_EXPECT`, is a `ContractConfigError` (exit 2). The size-N kind is unchanged, and so are its six cases for the existing eight programs. A program that runs but prints nothing, or prints the wrong area, fails case 1. The harness's tests pin that with a stub of each kind.
+A `ContractConfigError` (exit 2) is raised for a program that declares both kinds, neither, only one of `CONTRACT_ARGS`/`CONTRACT_EXPECT`, an empty `CONTRACT_ARGS`, or an empty `CONTRACT_EXPECT`. The size-N kind is unchanged, and so are its six cases for the existing eight programs. A program that runs but prints nothing fails case 1, and so does one that prints the area a missing `sqrt` would give (`36.0000`). The harness's tests pin that with a stub of each kind.
 
 triangle's `CONTRACT_ARGS` is `["-a", "3", "-b", "4", "-c", "5"]` and its `CONTRACT_EXPECT` is `"6.0000"`, the area at the default precision. The pre-push loop and `scripts/cli_contract.py`'s callers gain `triangle:triangle`.
 
@@ -156,21 +166,31 @@ Everything lives in `test_triangle.py` and, for the contract change, in `tests/`
 - **SAS:** an acute and an obtuse included angle, with the third angle checked against the law-of-cosines value, not the law-of-sines one.
 - **ASA and AAS:** both orderings. Third-angle normalisation, including a given third angle that conflicts.
 - **SSA:**
-  - 0, 1 and 2 solutions. The 1-solution cases are the right angle `4, 8, 30°` and an opposite side at least as long as the other side. The 2-solution case is `a = 6, b = 8, A = 30°`, giving `B ≈ 41.8103°` or `138.1897°`.
-  - Obtuse or right known angle with `a < b`, `a = b` and `a > b`: `7, 8, 120°` → 0, `8, 8, 120°` → 0, `8, 8, 90°` → 0, `9, 8, 120°` → 1.
-  - No returned solution has a non-positive angle.
+  - Solution counts:
+    - 0 solutions.
+    - 1 solution: the right angle `4, 8, 30°`, and the case `x ≥ y`.
+    - 2 solutions: `a = 6, b = 8, A = 30°`, giving `B = 41.8103°` or `138.1897°`.
+  - Obtuse or right known angle:
+    - `7, 8, 120°` → 0
+    - `8, 8, 120°` → 0
+    - `8, 8, 90°` → 0
+    - `9, 8, 120°` → 1
+  - Boundaries:
+    - `x = 7.9999999999, y = 8, A = 0.001°` returns 1 solution and does not raise.
+    - `x = 4·(1 + 5e-10), y = 8, A = 30°` returns 2 distinct solutions.
+  - Property: for each case, first assert that the returned list is non-empty, then that every angle in it is positive.
 - **AAA:** refused, both with consistent and with inconsistent sums.
-- **Overdetermined and tolerance:**
-  - Read-back: every value the table prints, fed back as a fourth value at the printed precision, exits 0. Checked on 3-4-5 and on the SSA example.
-  - `-a 3 -b 4 -c 5 -B 53.13` exits 0. `-B 53.2` exits 1, with a message whose two numbers differ.
-  - The angle sum `60.01 + 59.99 + 60.00` passes, and `60.1 + 60 + 60` fails.
-  - An exact extra angle on the thin triangle `1e-4, 1, 1.00009` passes. This is where acos would have failed.
-- **Invalid values:** zero, negative, NaN and infinite values, and angles ≥ 180° or summing to ≥ 180°. Each exits 2 with its message.
-- **Units:** degrees and radians give the same triangle.
+- **Extra values:**
+  - `-a 3 -b 4 -c 5 -B 53.13` exits 0 and prints the line `extra B given 53.13 solved 53.130102 diff +0.000102`.
+  - `-a 3 -b 4 -c 5 -A 37` exits 0 and shows a non-zero diff.
+  - `-c 1 -A 60.1 -B 60 -C 60` solves from `A, B` and reports `C` as an extra.
+  - Each extra line names the right letter and the right solved value.
+- **Invalid values:** zero, negative, NaN and infinite values, and angles ≥ 180° or summing to ≥ 180°. Each exits 2. The test asserts the exact message.
+- **Units:** degrees and radians give the same triangle. With `--radians`, the table prints angles in radians.
 - **Area and perimeter:** checked against known values.
-- **Numerical accuracy:**
-  - The Kahan area is checked against a precomputed high-precision reference on `1e5, 99999.99979, 0.00029`, where naive Heron is off by 2.7e-8.
-  - Angles on `1e-4, 1, 1.00009` are checked against references to within 1e-12 relative.
+- **Numerical accuracy:** checked against precomputed high-precision references.
+  - Kahan area on `1e5, 99999.99979, 0.00029`, where naive Heron is off by 2.7e-8.
+  - Kahan angles within 1e-12 relative on `1e-4, 1, 1.00009` and on the `1e5` needle. On the needle the naive half-angle form is off by 2.7e-8, and `acos` loses the angle entirely.
 - **Renderer:** a fixed 20×10 canvas of the 3-4-5 triangle produces an exact expected string. The vertex labels sit in their expected cells. A degenerate-looking needle still draws three edges.
 - **CLI:**
   - prompt parsing with empty answers;
@@ -180,7 +200,8 @@ Everything lives in `test_triangle.py` and, for the contract change, in `tests/`
   - two-solution output headed `Solution 1`/`Solution 2`.
 - **cli_contract:**
   - the closed-form kind passes on triangle;
-  - a stub that exits 0 but prints nothing fails case 1, and so does one that prints a wrong area;
+  - stubs that exit 0 and print nothing, `36.0000` or `16.00001` all fail case 1;
+  - an empty `CONTRACT_EXPECT` is a config error;
   - a program declaring both kinds, or neither, is a config error;
   - a closed-form stub that reads stdin fails on timeout;
   - the existing eight programs still pass.
@@ -200,12 +221,12 @@ Coverage is held at ≥ 90% (`make coverage`). `make mutants` runs through the t
 
 ## Requirements
 
-- **R1.** The solver section of `triangle/triangle.py` solves SSS, SAS, ASA, AAS and SSA input given as any three of `a b c A B C`. It returns every valid solution: 0, 1 or 2 for SSA, counted by the ordered rule in Design §2 (obtuse or right known angle first), and exactly 1 for the others. Angles are derived from sides by Kahan's `atan2` form, never `acos`. Each solution carries all six values, the area (Kahan-stable Heron) and the perimeter, and has only positive angles and sides.
-- **R2.** `triangle.py` exits 2 with a message on fewer than three values, AAA, a non-finite, zero or negative value, an angle of 180° or more, or two angles summing to 180° or more. It exits 1 on an SSA case with no solution, and on an overdetermined input whose extra value disagrees by more than that value's input tolerance: half a unit in its last typed digit, with a floor of `1e-9` relative. The message names the conflicting value and prints the solution to two more digits than the given value. Every value the table prints, fed back as an extra value, is accepted.
+- **R1.** The solver section of `triangle/triangle.py` solves SSS, SAS, ASA, AAS and SSA input given as any three of `a b c A B C` and returns every valid solution: 0 or 1 for SSS, 0, 1 or 2 for SSA by the ordered rule in Design §2, and exactly 1 for SAS, ASA and AAS. Angles from sides use Kahan's formula as given in Design §2, never `acos`. Each solution carries all six values, the area (Kahan-stable Heron) and the perimeter, and has only positive angles and sides.
+- **R2.** `triangle.py` exits 2 with a stated message on fewer than three values, AAA, a non-finite, zero or negative value, an angle of 180° or more, or two angles summing to 180° or more. It exits 1 with a "no triangle" message on an SSS input that fails the triangle inequality and on an SSA input with no solution. With more than three values it solves from the determining set (sides, then SAS, then ASA/AAS), prints each extra value beside its solved value and the difference, and exits 0.
 - **R3.** The renderer section of `triangle/triangle.py` renders a solved triangle onto a braille canvas of a given width and height, with vertex labels `A`, `B` and `C`. For the 3-4-5 triangle on a 20×10 canvas, `test_triangle.py` pins its output as an exact string.
 - **R4.** `triangle.py` accepts `-a -b -c -A -B -C --radians --precision N --no-draw --smoke`. A bare run prompts for each value when stdin is a TTY, and exits 2 with usage when it is not. In the two-solution SSA case it prints and draws both solutions, headed `Solution 1` and `Solution 2`.
 - **R5.** `"triangle"` is in `PYTHON_PROJECTS`. Its `Makefile`, `install_deps.sh`, `triangle-py.yml`, `pyrightconfig.json` and `cosmic-ray.toml` are rendered by `render_crate_files.py --write`. `tests/test_crate_uniformity.py` passes with the new count. No `triangle/triangle-rs/` exists.
-- **R6.** `scripts/cli_contract.py` accepts a program that defines `CONTRACT_ARGS` and `CONTRACT_EXPECT` and runs the three closed-form cases on it. Case 1 fails a run whose stdout lacks `CONTRACT_EXPECT`. A program that defines both kinds, neither, or only one of the two closed-form constants exits 2 as a config error. The six size-N cases are unchanged for the existing programs.
+- **R6.** `scripts/cli_contract.py` accepts a program that defines `CONTRACT_ARGS` and `CONTRACT_EXPECT` and runs the three closed-form cases on it. Case 1 fails a run whose stdout lacks `CONTRACT_EXPECT` as a whole numeric token. An empty `CONTRACT_ARGS` or `CONTRACT_EXPECT` is a config error. A program that defines both kinds, neither, or only one of the two closed-form constants exits 2 as a config error. The six size-N cases are unchanged for the existing programs.
 - **R7.** Every script, workflow and test that enumerates the Python projects (re-derived by the plan, not taken from the Measurements count) includes triangle. Every one that pairs a Python project with a Rust crate does not require `triangle/triangle-rs`.
 - **R8.** `triangle/test_triangle.py` covers every case listed in Design §6. `make coverage` in `triangle/` reports ≥ 90%.
 - **R9.** Root `CLAUDE.md` names triangle among the sub-projects. It contains no restated Python-project count and no "all 11 projects". `wc -c CLAUDE.md` is ≤ 30,000.
@@ -245,7 +266,7 @@ Minor points left to the plan:
 
 **Assumption.** That the overdetermined path is for checking rounded answers, so the operator's choice of tolerance settles it.
 
-**Disposition.** Addressed. The operator chose a tolerance set by input precision: half a unit in the last typed digit, plus a read-back test.
+**Disposition.** Addressed. The operator chose a tolerance set by input precision: half a unit in the last typed digit, plus a read-back test. Superseded in round 2 (below).
 
 ### Risk
 
@@ -274,3 +295,43 @@ Checked and clean:
 ### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — the spec has no comparison, evaluator or ambiguous-criteria trigger.
+
+### Round 2 (all three lenses)
+
+Reviewed at commit: `e1a48ba`.
+
+Goal-Fit, Ergonomics and Risk each independently found that the round-1 tolerance rule fails:
+- bare integers get ±0.5, so `-A 37` is accepted against 36.87;
+- `1e3` gets ±500;
+- §6's "`60.1 + 60 + 60` fails" test contradicts the rule;
+- the read-back promise is false: feeding back a printed side switches the solve to SSS, and rounding then shifts the typed angle, so 74 of 80 probed SAS cases are rejected;
+- argparse `float` would lose the typed digits that the rule needs.
+
+Risk also found:
+- an SSA crash when `x` is just below `y`, because the second solution's third angle rounds to 0;
+- a 1e-9 tangency band about 10⁶ too wide, which merges distinct solutions;
+- an underspecified Kahan formula that the test could not tell from the naive form;
+- a dead overdetermined-SSA branch;
+- no exit code for the triangle inequality;
+- R1's "exactly 1" for SSS, which can be 0.
+
+Goal-Fit and Risk found that `"6.0000"` matches inside `36.0000` (a missing-`sqrt` bug) and that an empty `CONTRACT_EXPECT` was not rejected.
+
+Checked and fine:
+- the ordered SSA rule's counts;
+- the visibility of the conflict message;
+- stdout decoding of braille;
+- the template trigger for the contract.
+
+Assumption, named by all three: whether extra values are rounded measurements or exact claims. The operator settled it by removing the judgement entirely.
+
+Disposition: Addressed (operator, 2026-11-02). Extra values are reported, not judged: each is printed with its solved value and the difference, the run exits 0, and the tolerance mechanism is removed. The other fixes, as listed:
+- the explicit Kahan formula, with needle tests;
+- a `4ε` tangency band;
+- the SSA second-solution guard;
+- an exit code for the triangle inequality;
+- angles printed in the input unit;
+- a whole-token `CONTRACT_EXPECT`, rejected when empty;
+- exact message text in reject tests;
+- non-empty-first property assertions;
+- a re-prompt on bad interactive input.
