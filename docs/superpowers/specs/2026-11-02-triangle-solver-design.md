@@ -68,7 +68,12 @@ Hard-coded counts do break:
 
 Sides are `a`, `b`, `c`. Angles are `A`, `B`, `C`, each opposite the side of the same letter. Angles are in degrees unless `--radians` is given. Every computation happens in radians internally.
 
-**Normalisation.** Given values are never replaced. When exactly two angles are given, the third is derived as 180° minus their sum. When all three are given, all three stay as typed. The determining set then uses a typed angle wherever one is needed: the typed included angle for SAS, and the first two typed angles in `A, B, C` order for ASA/AAS. Any typed angle not in the set is reported as an extra value.
+**Normalisation.** Given values are never replaced. When exactly two angles are given, the third is derived as 180° minus their sum; when all three are given, all three stay as typed. The determining set is the first of these that the typed values (plus a derived third angle) can form:
+1. all three typed sides (SSS);
+2. two typed sides and their typed included angle (SAS);
+3. the first typed side in `a, b, c` order and the first two typed angles in `A, B, C` order (ASA/AAS).
+
+Every typed value outside the set is reported as an extra value. For example, `a, b, A, B` has no typed included angle, so it solves as AAS from `a, A, B` and reports `b`; `a, b, A, B, C` solves as SAS from `a, b, C` and reports `A` and `B`.
 
 **Case dispatch**, on the known values after normalisation:
 
@@ -94,19 +99,19 @@ The parentheses are part of the formula and must be kept as written. Worked chec
    - `x ≥ y`: 1 solution.
    - `|x − h| ≤ 4ε·max(x, h)`: 1 solution, with a right angle opposite `y`. This catches `4, 8, 30°`, where `h = 3.9999999999999996` is 1 ulp low. It is deliberately no wider: near tangency the angle error grows like the square root of the side error, so a 1e-9 band would merge two distinct solutions that differ at the default precision.
    - `x < h`: 0 solutions.
-   - otherwise: 2 candidates. The second uses `Y2 = π − Y1`, where `Y1` is the first candidate angle opposite `y`. Its third angle is computed directly as `Z2 = Y1 − X`, not as `π − X − Y2`, which cancels to 0 when `x` is near `y`. The second candidate is kept whenever `Z2 > 0`, however thin the triangle: at `7.9999999999e12, 8e12, 0.001°` the second triangle's third side is 100.
+   - otherwise: 2 solutions. The SSA cases compute the unknown third side `z` directly, not from angle differences, which cancel when `x` is near `y`. The first root is `z1 = y·cos X + sqrt((x − h)(x + h))`. The second is `z2 = (y − x)(y + x) / z1`, because the two roots of the law-of-cosines quadratic multiply to `y² − x²`, and `y − x` is exact by Sterbenz. All angles then come from the three sides by Kahan's formula, as in SAS. The 1-solution cases use `z1`. The second solution exists exactly when `x < y` in this branch, however thin it is: at `7.9999999999e12, 8e12, 0.001°` its third side is `100.0000000152`.
 
 Every returned solution is checked: all sides and all angles are positive, and the angles sum to π within `1e-12` relative. The three angles are computed independently, so about one triangle in five misses an exact sum by up to 9e-16. A failed check raises an exception (a bug) and is never printed.
 
-A zero-solution SSA exits 1. The message is "no triangle: side X is shorter than the height H", or for an obtuse `X`, "no triangle: side x must be longer than y opposite an angle of 90° or more".
+A zero-solution SSA exits 1. The message is "no triangle: side x is shorter than the height h", or for an obtuse `X`, "no triangle: side x must be longer than y opposite an angle of 90° or more".
 
 **Extra values: reported, not judged.** With more than three values, the solver picks the determining set in this order: all sides, then SAS, then ASA/AAS. With four or more values and at least one side, one of these always exists. Every other given value is printed beside its solved value with the difference, for example:
 
 ```
-extra B given 53.13 solved 53.130102 diff +0.000102
+extra B given 53.13 solved 53.130102 diff +0.000102354
 ```
 
-The run always exits 0. There is no tolerance, so there is no pass/fail rule to get wrong; the reader decides whether 37 against 36.8699 counts as a match. The solved value prints at `--precision + 2` decimals. The difference prints with `{:+.6g}`, so a small non-zero difference shows as, for example, `-4.6e-08` instead of rounding away.
+The run always exits 0. There is no tolerance, so there is no pass/fail rule to get wrong; the reader decides whether 37 against 36.8699 counts as a match. The solved value prints at `--precision + 2` decimals. The difference is `solved − given` and prints with `{:+.6g}`, so a small non-zero difference shows as, for example, `-4.6e-08` instead of rounding away.
 
 **Area** uses Heron's formula in Kahan's numerically stable form: sort so `a >= b >= c`, then `0.25 * sqrt((a+(b+c))(c-(a-b))(c+(a-b))(a+(b-c)))`. **Perimeter** is `a + b + c`.
 
@@ -176,12 +181,12 @@ Everything lives in `test_triangle.py` and, for the contract change, in `tests/`
     - `8, 8, 90°` → 0
     - `9, 8, 120°` → 1
   - Boundaries:
-    - `x = 7.9999999999, y = 8, A = 0.001°` returns 2 solutions and does not raise. The same holds at `7.9999999999e12, 8e12, 0.001°`, where the second solution's third side is 100.0011.
+    - `x = 7.9999999999, y = 8, A = 0.001°` returns 2 solutions and does not raise. The second solution's third side matches the high-precision reference `1.00000008e-10` to 1e-12 relative. At `7.9999999999e12, 8e12, 0.001°` the third side is `100.0000000152`, also to 1e-12 relative. The round-3 angle-difference rule gave 100.0011.
     - `x = 4·(1 + 5e-10), y = 8, A = 30°` returns 2 distinct solutions.
   - Property: for each case, first assert that the returned list is non-empty, then that every angle in it is positive.
 - **AAA:** refused, both with consistent and with inconsistent sums.
 - **Extra values:**
-  - `-a 3 -b 4 -c 5 -B 53.13` exits 0 and prints the line `extra B given 53.13 solved 53.130102 diff +0.000102`.
+  - `-a 3 -b 4 -c 5 -B 53.13` exits 0 and prints the line `extra B given 53.13 solved 53.130102 diff +0.000102354`.
   - `-a 3 -b 4 -c 5 -A 37` exits 0 and shows a non-zero diff.
   - `-c 1 -A 60.1 -B 60 -C 60` solves from `A, B` and reports `C` as an extra.
   - Each extra line names the right letter and the right solved value.
@@ -368,3 +373,30 @@ Reviewed at commit `40e8dd0`. Scope: §2, §4, §5, §6 and R1, R2 and R6.
 - Typed values are never replaced.
 - Differences print as `{:+.6g}`.
 - All the tidy-ups are applied.
+
+### Round 4 (verification of round-3 fixes)
+
+Reviewed at commit `4b152e1`.
+
+**Finding.** The round-3 SSA fix moved the cancellation rather than removing it. `Z2 = Y1 − X` subtracts two nearly equal angles, and `asin`'s 1-ulp error turns into large relative error in the result:
+- At 1e12 scale the true third side is 100.0000000152, and §6's expected 100.0011 is that error pinned as the answer.
+- In the 1–39 ulp sweep, the worst error on the third side was 5–91%.
+- The post-check cannot see it, because the angles sum to π by construction.
+
+The verification also found two smaller defects:
+- The example diff did not match `{:+.6g}`: `+0.000102354` is correct, not `+0.000102`.
+- `a, b, A, B` was ambiguous, because there is no typed included angle.
+
+The following hold and were confirmed against 60-digit references:
+- No false second solution occurs, and none is dropped.
+- The tangency counts switch where expected.
+- The 1e-12 post-check is about 3500× the worst error observed over 200k random triangles.
+
+Assumption: no uncertain assumption remains. The tangency band was checked over 1.1M inputs of the only typable exact-tangency family (30°, by Niven).
+
+Disposition: fixed as proposed, within the operator's round-3 "fix all as listed" (2026-11-02). The orchestrator verified that `6, 8, 30°` still gives 41.8103 / 138.1897.
+- The third side is computed directly: `z1 = y cos X + sqrt((x−h)(x+h))` and `z2 = (y−x)(y+x)/z1`. Angles then come from Kahan's formula, which gives 100.0000000152 and 1.0000000829e-10, both matching the references.
+- The determining-set order is explicit, with worked examples.
+- The diff is defined as `solved − given`, and the example is corrected.
+
+Review stops here. The remaining risk is implementation numerics, which Phase 2's high-precision tests pin.
