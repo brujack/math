@@ -7,9 +7,11 @@ the `on:` key as the boolean True, which these tests do not need.
 
 import os
 import pathlib
+import re
 import subprocess
 import tempfile
 import unittest
+from typing import NamedTuple
 
 import yaml
 
@@ -332,6 +334,238 @@ class MutationPrTests(unittest.TestCase):
         found = pr_step("cargo install cargo-mutants --locked --version 27.1.0")
         self.assertEqual(len(found), 1)
         self.assertNotIn("if", found[0])
+
+
+RS_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "mutation-testing.yml"
+GIT_ENV_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
+
+
+def clean_git_env():
+    """Return os.environ minus the GIT_* vars a worktree hook exports."""
+    return {k: v for k, v in os.environ.items() if k not in GIT_ENV_VARS}
+
+
+def rs_steps():
+    return yaml.safe_load(RS_WORKFLOW.read_text())["jobs"]["mutants"]["steps"]
+
+
+def crates_step():
+    found = [s for s in rs_steps() if s.get("id") == "crates"]
+    assert len(found) == 1, "expected exactly one step with id: crates"
+    return found[0]
+
+
+class CratesRun(NamedTuple):
+    proc: "subprocess.CompletedProcess[str]"
+    outputs: dict[str, str]
+    lines: list[str]
+
+
+def run_crates(crate="", path=None):
+    """Execute the `crates` step's run block; return (proc, outputs dict)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        out = pathlib.Path(tmp) / "out"
+        out.touch()
+        env = {
+            "PATH": path if path is not None else os.environ["PATH"],
+            "GITHUB_OUTPUT": str(out),
+            "CRATE": crate,
+        }
+        proc = subprocess.run(
+            [
+                "bash",
+                "--noprofile",
+                "--norc",
+                "-eo",
+                "pipefail",
+                "-c",
+                crates_step()["run"],
+            ],
+            env=env,
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            check=False,
+        )
+        outputs = {}
+        raw_lines = []
+        for line in out.read_text().splitlines():
+            if not line:
+                continue
+            raw_lines.append(line)
+            if not re.fullmatch(r"[A-Za-z_]+=.*", line):
+                raise AssertionError(f"malformed GITHUB_OUTPUT line: {line!r}")
+            key, _, value = line.partition("=")
+            outputs[key] = value
+        return CratesRun(proc, outputs, raw_lines)
+
+
+def tracked_crate_dirs():
+    proc = subprocess.run(
+        ["git", "ls-files", "*/*-rs/Cargo.toml"],
+        cwd=REPO_ROOT,
+        env=clean_git_env(),
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        check=True,
+    )
+    return sorted(os.path.dirname(f) for f in proc.stdout.split())
+
+
+class RustCrateDiscoveryTests(unittest.TestCase):
+    def test_empty_crate_lists_tracked_crates_only(self):
+        proc, outputs, _lines = run_crates("")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        dirs = outputs["crate_dirs"].split()
+        self.assertEqual(len(dirs), 11)
+        self.assertEqual(sorted(dirs), tracked_crate_dirs())
+        self.assertFalse([d for d in dirs if d.startswith("tests/")])
+
+    def test_fixture_cargo_tomls_exist_as_positive_control(self):
+        proc = subprocess.run(
+            ["git", "ls-files", "tests/fixtures/**/Cargo.toml"],
+            cwd=REPO_ROOT,
+            env=clean_git_env(),
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            check=True,
+        )
+        self.assertTrue(proc.stdout.strip())
+
+    def test_explicit_crate_wins(self):
+        proc, outputs, _lines = run_crates("sq/sq-rs")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(outputs, {"crate_dirs": "sq/sq-rs"})
+
+    def test_newline_injection_refused(self):
+        proc, outputs, lines = run_crates("sq/sq-rs\nevil=1")
+        self.assertEqual(proc.returncode, 1)
+        self.assertNotIn("evil", outputs)
+        self.assertEqual(lines, [])
+
+    def test_unknown_crate_refused_naming_it(self):
+        proc, outputs, _lines = run_crates("nope/nope-rs")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("nope/nope-rs", proc.stderr)
+        self.assertEqual(outputs, {})
+
+    def test_known_crate_accepted(self):
+        proc, outputs, _lines = run_crates("collatz/collatz-rs")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(outputs["crate_dirs"], "collatz/collatz-rs")
+
+    def test_run_mutants_loop_iterates_quoted_array(self):
+        run = next(s for s in rs_steps() if s.get("name") == "Run mutants")["run"]
+        self.assertIn('"${crate_list[@]}"', run)
+        self.assertNotIn("${crate_dirs}", run)
+
+    def test_single_output_line(self):
+        _, _, lines = run_crates("")
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].startswith("crate_dirs="))
+
+    def test_no_expression_syntax_in_run_block(self):
+        self.assertNotIn("${{", crates_step()["run"])
+
+    def test_empty_list_refuses_green(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = pathlib.Path(tmp) / "git"
+            stub.write_text("#!/bin/sh\nexit 0\n")
+            stub.chmod(0o755)
+            proc, outputs, _lines = run_crates("", path=f"{tmp}:{os.environ['PATH']}")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("refusing to report green", proc.stderr)
+        self.assertEqual(outputs, {})
+
+    def test_crate_env_reads_dispatch_input(self):
+        self.assertEqual(
+            crates_step()["env"]["CRATE"], "${{ github.event.inputs.crate }}"
+        )
+
+    def test_run_mutants_reads_step_output(self):
+        found = [s for s in rs_steps() if s.get("name") == "Run mutants"]
+        self.assertEqual(len(found), 1)
+        self.assertEqual(
+            found[0]["env"]["CRATE_DIRS"], "${{ steps.crates.outputs.crate_dirs }}"
+        )
+        self.assertNotIn("find ", found[0]["run"])
+
+    def test_crates_step_precedes_run_mutants(self):
+        ids = [s.get("id") or s.get("name") for s in rs_steps()]
+        self.assertLess(ids.index("crates"), ids.index("Run mutants"))
+
+
+def run_mutants_in_sandbox(crate_dirs, red_crate=""):
+    """Execute `Run mutants` against stub make/classifier; return observations.
+
+    The classifier stub reports red (exit 1) for `red_crate`, green otherwise.
+    """
+    step = next(s for s in rs_steps() if s.get("name") == "Run mutants")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        bindir = root / "bin"
+        bindir.mkdir()
+        calls = root / "make-calls"
+        make = bindir / "make"
+        make.write_text(f'#!/bin/sh\nprintf \'%s\\n\' "$2" >> "{calls}"\n')
+        make.chmod(0o755)
+        workspace = root / "ws"
+        (workspace / "scripts").mkdir(parents=True)
+        classify = workspace / "scripts" / "mutation-classify.sh"
+        classify.write_text(
+            "#!/bin/sh\n"
+            'if [ "$3" = "$RED_CRATE" ]; then printf "red: %s\\n" "$3" >&2; exit 1; fi\n'
+            "printf 'green: %s\\n' \"$3\"\n"
+        )
+        classify.chmod(0o755)
+        summary = root / "summary"
+        summary.touch()
+        env = {
+            "PATH": f"{bindir}:{os.environ['PATH']}",
+            "GITHUB_WORKSPACE": str(workspace),
+            "GITHUB_STEP_SUMMARY": str(summary),
+            "CRATE_DIRS": crate_dirs,
+            "RED_CRATE": red_crate,
+        }
+        proc = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]],
+            env=env,
+            cwd=root,
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            check=False,
+        )
+        made = calls.read_text().splitlines() if calls.exists() else []
+        statuses = sorted(p.name for p in (workspace / "status").glob("*"))
+        return proc, made, statuses
+
+
+class RunMutantsBehaviourTests(unittest.TestCase):
+    def test_two_crates_split_into_two_make_calls(self):
+        proc, made, statuses = run_mutants_in_sandbox("a/a-rs b/b-rs")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(made, ["a/a-rs", "b/b-rs"])
+        self.assertIn("crates to test: 2", proc.stdout)
+        self.assertEqual(statuses, ["a-a-rs", "b-b-rs"])
+
+    def test_one_crate_is_one_make_call(self):
+        proc, made, statuses = run_mutants_in_sandbox("a/a-rs")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(made, ["a/a-rs"])
+        self.assertIn("crates to test: 1", proc.stdout)
+        self.assertEqual(statuses, ["a-a-rs"])
+
+    def test_one_red_crate_fails_the_step_after_running_all(self):
+        proc, made, statuses = run_mutants_in_sandbox(
+            "a/a-rs b/b-rs", red_crate="a/a-rs"
+        )
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(made, ["a/a-rs", "b/b-rs"])
+        self.assertEqual(statuses, ["a-a-rs", "b-b-rs"])
 
 
 if __name__ == "__main__":

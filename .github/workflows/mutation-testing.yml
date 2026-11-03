@@ -4,7 +4,7 @@ name: mutation-testing
 # Coverage % measures whether code is exercised; mutation testing measures
 # whether tests catch behavior changes.
 #
-# Triggered manually (workflow_dispatch) or weekly on schedule. Not on every PR
+# Triggered manually (workflow_dispatch) or monthly on schedule. Not on every PR
 # because mutant runs can take 10+ minutes per crate.
 
 on:
@@ -37,30 +37,53 @@ jobs:
       - name: Install cargo-mutants
         run: cargo install cargo-mutants --locked --version 27.1.0
 
-      - name: Run mutants
+      - name: List crates
+        id: crates
         env:
           CRATE: ${{ github.event.inputs.crate }}
         run: |
-          target="${CRATE}"
-          if [[ -n "${target}" ]]; then
-            crate_dirs="${target}"
+          # Tracked manifests only: `find` also matched tests/fixtures/**/Cargo.toml.
+          tracked=()
+          while IFS= read -r manifest; do
+            tracked+=("$(dirname "${manifest}")")
+          done < <(git ls-files '*/*-rs/Cargo.toml')
+
+          if [[ -n "${CRATE}" ]]; then
+            # Free text from a dispatch input must not reach GITHUB_OUTPUT
+            # unchecked (a newline would write a second output line).
+            match=0
+            for dir in "${tracked[@]}"; do
+              [[ "${dir}" == "${CRATE}" ]] && match=1
+            done
+            if [[ ${match} -eq 0 ]]; then
+              printf 'error: unknown crate %q (not a tracked */*-rs crate)\n' "${CRATE}" >&2
+              exit 1
+            fi
+            crate_dirs="${CRATE}"
           else
-            crate_dirs=$(find . -name Cargo.toml -not -path '*/target/*' -not -path '*/.cache/*' -exec dirname {} \;)
+            crate_dirs="${tracked[*]}"
           fi
 
-          # Without this, an empty crate_dirs (find failure, bad dispatch input,
-          # or a repo layout change) skips the loop entirely and exits 0 --
-          # reporting green having tested nothing. The classifier catches an
-          # untested crate; only this catches an untested run.
+          # Without this, an empty crate_dirs (no tracked crates: a repo
+          # layout change or a git failure) skips the loop entirely and exits 0 -- reporting
+          # green having tested nothing. The classifier catches an untested
+          # crate; only this catches an untested run.
           if [[ -z "${crate_dirs//[[:space:]]/}" ]]; then
             printf "error: no crates found to test — refusing to report green\n" >&2
             exit 1
           fi
-          printf "crates to test: %s\n" "$(printf '%s\n' ${crate_dirs} | wc -l | tr -d ' ')"
+          printf 'crate_dirs=%s\n' "${crate_dirs}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run mutants
+        env:
+          CRATE_DIRS: ${{ steps.crates.outputs.crate_dirs }}
+        run: |
+          read -ra crate_list <<< "${CRATE_DIRS}"
+          printf "crates to test: %s\n" "${#crate_list[@]}"
 
           mkdir -p "${GITHUB_WORKSPACE}/status"
           failed=0
-          for crate_dir in ${crate_dirs}; do
+          for crate_dir in "${crate_list[@]}"; do
             printf "\n=== Mutation testing %s ===\n" "${crate_dir}"
             rc=0
             make -C "${crate_dir}" mutants || rc=$?
@@ -122,4 +145,5 @@ jobs:
           ISSUE_LABEL: mutation-failure
           UNIT_NOUN: crate
           REPO: ${{ github.repository }}
+          FULL_SWEEP: ${{ format('{0}', inputs.crate) == '' && 'true' || 'false' }}
         run: scripts/mutation-notify.sh

@@ -1,0 +1,8 @@
+name: sc2086-positive-control
+on: push
+jobs:
+  control:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Unquoted expansion
+        run: echo $UNQUOTED

@@ -24,6 +24,9 @@ setup() {
     # env var" from "hardcodes the old value".
     export ISSUE_LABEL="mutation-failure-fixture-distinct-4b21"
     export MOCK_CALLS_FILE="${BATS_TEST_TMPDIR}/calls"
+    # A full sweep is the behaviour every case below was written against; the
+    # FULL_SWEEP cases at the end override it.
+    export FULL_SWEEP=true
 }
 
 # Lifted out of a single test so a --repo regression on any gh call site --
@@ -772,4 +775,106 @@ print("\n".join(out))
 
     grep -qF -- "- pi: red: pi -- late verdict" "${MOCK_CALLS_FILE}"
     run ! grep -qF -- "second red" "${MOCK_CALLS_FILE}"
+}
+
+# FULL_SWEEP: only a run over every unit may close the tracking issue. A green
+# single-unit run proves one unit, so it comments and leaves the issue open.
+
+@test "FULL_SWEEP=false: green with an open issue comments once and never closes" {
+    export FULL_SWEEP=false
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST="42"
+
+    run main
+    [ "${status}" -eq 0 ]
+
+    [ "$(grep -c '^gh issue comment' "${MOCK_CALLS_FILE}")" -eq 1 ]
+    grep -qF -- "Single-unit run green as of ${RUN_URL}; left open (only a full sweep closes this issue)." "${MOCK_CALLS_FILE}"
+    run ! grep -q "gh issue close" "${MOCK_CALLS_FILE}"
+    assert_all_gh_calls_carry_repo
+}
+
+@test "FULL_SWEEP=false: green with no open issue makes no call after issue list" {
+    export FULL_SWEEP=false
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST=""
+
+    run main
+    [ "${status}" -eq 0 ]
+
+    [ "$(grep -c '^gh ' "${MOCK_CALLS_FILE}")" -eq 1 ]
+    grep -q '^gh issue list' "${MOCK_CALLS_FILE}"
+}
+
+@test "FULL_SWEEP=false: a failed single-unit run still comments the cause" {
+    export FULL_SWEEP=false
+    export RESULT="failure"
+    export MOCK_GH_ISSUE_LIST="42"
+    mkdir -p "${ARTIFACT_DIR}/marker" "${ARTIFACT_DIR}/status"
+    printf 'red: pi-rs - exit code 2\n' > "${ARTIFACT_DIR}/status/pi-rs"
+
+    run main
+    [ "${status}" -eq 0 ]
+
+    grep -qF -- "Cause: verdicts-present" "${MOCK_CALLS_FILE}"
+    run ! grep -q "gh issue close" "${MOCK_CALLS_FILE}"
+}
+
+@test "FULL_SWEEP=false: a failing single-unit comment exits non-zero" {
+    export FULL_SWEEP=false
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST="42"
+    export MOCK_GH_EXIT_ISSUE_COMMENT=1
+
+    run main
+    [ "${status}" -ne 0 ]
+}
+
+@test "FULL_SWEEP unset: main exits 1 naming the variable" {
+    unset FULL_SWEEP
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST="42"
+
+    run main
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"FULL_SWEEP"* ]]
+    [ ! -e "${MOCK_CALLS_FILE}" ]
+}
+
+@test "FULL_SWEEP=maybe: main exits 1 with the true-or-false message" {
+    export FULL_SWEEP=maybe
+    export RESULT="success"
+    export MOCK_GH_ISSUE_LIST="42"
+
+    run main
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"FULL_SWEEP must be true or false, got: maybe"* ]]
+    [ ! -e "${MOCK_CALLS_FILE}" ]
+}
+
+@test "every notify step that runs the script declares FULL_SWEEP from its own input" {
+    local _real_path
+    _real_path=$(printf '%s' "${PATH}" | tr ':' '\n' | grep -v 'tests/mocks' | tr '\n' ':' | sed 's/:$//')
+
+    local _workflows
+    _workflows=$(cd "${REPO_ROOT}" && PATH="${_real_path}" git ls-files '.github/workflows/mutation-testing*.yml')
+    [ "$(printf '%s\n' "${_workflows}" | wc -l | tr -d ' ')" -eq 2 ]
+
+    local _exprs
+    _exprs=$(cd "${REPO_ROOT}" && PATH="${_real_path}" python3 -c '
+import sys, yaml
+out = []
+for f in sys.argv[1:]:
+    d = yaml.safe_load(open(f))
+    for job in d.get("jobs", {}).values():
+        for step in job.get("steps") or []:
+            if "mutation-notify.sh" in (step.get("run") or ""):
+                out.append(f + "|" + str(step.get("env", {}).get("FULL_SWEEP", "<MISSING>")))
+print("\n".join(out))
+' ${_workflows})
+
+    [ "$(printf '%s\n' "${_exprs}" | wc -l | tr -d ' ')" -eq 2 ]
+    run ! grep -q '<MISSING>' <<< "${_exprs}"
+    printf '%s\n' "${_exprs}" | grep -qxF ".github/workflows/mutation-testing.yml|\${{ format('{0}', inputs.crate) == '' && 'true' || 'false' }}"
+    printf '%s\n' "${_exprs}" | grep -qxF ".github/workflows/mutation-testing-python.yml|\${{ format('{0}', inputs.subproject) == '' && 'true' || 'false' }}"
 }

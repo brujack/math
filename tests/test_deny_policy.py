@@ -28,6 +28,9 @@ import tomllib
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
+sys.path.append(str(REPO_ROOT / "tests"))
+
+import workflow_jobs
 
 from scripts import render_crate_files as rcf
 
@@ -119,17 +122,6 @@ class TestDenyPolicy(unittest.TestCase):
         self.assertEqual(sorted(result.stdout.split()), expected)
 
 
-_BATS_SUITE = re.compile(r"\bbats\b|\bbash-coverage\b|\btest-hooks\b")
-
-
-def _runs_bats_suite(step):
-    # Matches installing bats (any job that installs it runs the suite), running
-    # it directly, and the root make targets that reach it. A crate's own
-    # `make test` runs cargo or pytest, not bats, so it is not matched.
-    run = step.get("run") or ""
-    return bool(_BATS_SUITE.search(run))
-
-
 def _installs_cargo_deny(step):
     uses = step.get("uses") or ""
     tool = str((step.get("with") or {}).get("tool", ""))
@@ -149,7 +141,7 @@ class TestBatsJobsInstallCargoDeny(unittest.TestCase):
             doc = yaml.safe_load(path.read_text())
             for job_name, job in (doc.get("jobs") or {}).items():
                 steps = job.get("steps") or []
-                if not any(_runs_bats_suite(s) for s in steps):
+                if not any(workflow_jobs.runs_bats_suite(s) for s in steps):
                     continue
                 checked += 1
                 with self.subTest(workflow=path.name, job=job_name):

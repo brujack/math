@@ -3,8 +3,9 @@
 #
 # attribute() and build_body() key the red-path body on the downloaded
 # artifact's own contents (ARTIFACT_DIR, RUN_URL, UNIT_NOUN). main() adds the
-# green-path close and the issue create/comment dispatch, consuming RESULT,
-# ISSUE_TITLE, REPO and ISSUE_LABEL on top of those. main()'s dispatch logic is ported
+# green-path close (only on a full sweep, FULL_SWEEP=true) and the issue
+# create/comment dispatch, consuming RESULT, ISSUE_TITLE, REPO, ISSUE_LABEL
+# and FULL_SWEEP on top of those. main()'s dispatch logic is ported
 # from .github/workflows/mutation-testing.yml's notify job -- but not
 # byte-for-byte: it drops that block's `set -u` in favour of explicit `:?`
 # guards per input, and adds --repo "${REPO}" to every gh issue/label call
@@ -162,9 +163,9 @@ check_expected_units() {
 # File, comment, or close the tracking issue. Same decision tree as
 # the notify job's former inline block, which it replaced on 2026-09-01;
 # the workflows now supply only env: -- with two
-# deliberate differences: no `set -u` (RESULT, REPO, ISSUE_TITLE and
-# ISSUE_LABEL each get an explicit `:?` guard instead, since RESULT alone
-# selects the branch),
+# deliberate differences: no `set -u` (RESULT, REPO, ISSUE_TITLE,
+# ISSUE_LABEL and FULL_SWEEP each get an explicit `:?` guard instead, since
+# together they select the branch),
 # and every gh issue/label call carries --repo "${REPO}" so a malformed
 # fixture REPO fails in gh's own argument parser instead of reaching a live
 # tracker (tdd.md E2).
@@ -173,6 +174,14 @@ main() {
     : "${REPO:?}"
     : "${ISSUE_TITLE:?}"
     : "${ISSUE_LABEL:?}"
+    : "${FULL_SWEEP:?FULL_SWEEP unset: the notify step must pass true or false}"
+    case "${FULL_SWEEP}" in
+        true | false) ;;
+        *)
+            printf 'FULL_SWEEP must be true or false, got: %s\n' "${FULL_SWEEP}" >&2
+            return 1
+            ;;
+    esac
 
     local _existing
     # --jq '.[0].number // empty' is real gh/jq behaviour; the test mock
@@ -188,8 +197,14 @@ main() {
 
     if [[ "${RESULT}" == "success" ]]; then
         if [[ -n "${_existing}" ]]; then
-            gh issue comment "${_existing}" --repo "${REPO}" --body "Green as of ${RUN_URL}. Closing." || return 1
-            gh issue close "${_existing}" --repo "${REPO}" || return 1
+            if [[ "${FULL_SWEEP}" == "true" ]]; then
+                gh issue comment "${_existing}" --repo "${REPO}" --body "Green as of ${RUN_URL}. Closing." || return 1
+                gh issue close "${_existing}" --repo "${REPO}" || return 1
+            else
+                # One green unit says nothing about the others, so leave it open.
+                gh issue comment "${_existing}" --repo "${REPO}" \
+                    --body "Single-unit run green as of ${RUN_URL}; left open (only a full sweep closes this issue)." || return 1
+            fi
         fi
         return 0
     fi
