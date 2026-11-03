@@ -28,7 +28,7 @@ import tomllib
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "tests"))
+sys.path.append(str(REPO_ROOT / "tests"))
 
 import workflow_jobs
 

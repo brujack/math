@@ -15,7 +15,7 @@ import yaml
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
-sys.path.insert(0, str(REPO_ROOT / "tests"))
+sys.path.append(str(REPO_ROOT / "tests"))
 
 import workflow_jobs
 
