@@ -117,7 +117,8 @@ def _close_angles(known: float, p: float, q: float) -> tuple[float, float]:
     pi by more than the post-check accepts.  The larger one, when it is at
     least pi/4, becomes pi - known - smaller, which costs it about 1e-15
     relative.  Below pi/4 both are small, so are their absolute errors, and
-    each keeps its direct value.
+    each keeps its direct value.  SSA needs this; SAS does not (its two
+    atan2 angles were never measured to miss pi), so SAS does not call it.
     """
     if p >= q and p >= math.pi / 4:
         return (math.pi - known) - q, q
@@ -261,10 +262,11 @@ def _solve_determined(
             )
             third = next(n for n in _SIDES if n not in (s1, s2))
             angle = values[included]
-            p_angle, q_angle = _close_angles(
-                angle, _opposite_angle(x, y, angle), _opposite_angle(y, x, angle)
-            )
-            angles = {included: angle, _OPPOSITE[s1]: p_angle, _OPPOSITE[s2]: q_angle}
+            angles = {
+                included: angle,
+                _OPPOSITE[s1]: _opposite_angle(x, y, angle),
+                _OPPOSITE[s2]: _opposite_angle(y, x, angle),
+            }
             area = 0.5 * x * y * math.sin(angle)
             return [_build({s1: x, s2: y, third: z}, angles, area)], {s1, s2, included}
     if sides and len(angles) >= 2:

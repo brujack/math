@@ -13,6 +13,7 @@ from dataclasses import replace
 from unittest import mock
 
 from triangle import (
+    _RANGE_ERROR,
     CONTRACT_ARGS,
     CONTRACT_EXPECT,
     NoTriangle,
@@ -291,19 +292,24 @@ class TestFloatRange(unittest.TestCase):
             self.assertIn("differ by more than", str(cm.exception))
 
     def test_tiny_given_angle_overflow_is_an_input_error(self):
-        cases: list[tuple[dict[str, float], bool]] = [
-            ({"a": 1, "A": 1e-307, "B": 30}, False),
-            ({"a": 1, "A": 1e-320, "B": 1}, True),
-            ({"a": 1, "b": 1, "C": 5e-324}, True),
+        cases: list[tuple[dict[str, float], bool, str]] = [
+            ({"a": 1, "A": 1e-307, "B": 30}, False, "A"),
+            ({"a": 1, "A": 1e-320, "B": 1}, True, "A"),
+            ({"a": 1, "b": 1, "C": 5e-324}, True, "C"),
         ]
-        for values, radians in cases:
-            with self.subTest(values=values), self.assertRaises(TriangleInputError):
-                solve(values, radians=radians)
+        for values, radians, name in cases:
+            with self.subTest(values=values):
+                with self.assertRaises(TriangleInputError) as cm:
+                    solve(values, radians=radians)
+                self.assertEqual(
+                    str(cm.exception), f"angle {name} is too small for a double"
+                )
 
     def test_scaled_subnormal_area_is_an_input_error(self):
         # The scaled area is subnormal although the unscaled one is not.
-        with self.assertRaises(TriangleInputError):
+        with self.assertRaises(TriangleInputError) as cm:
             solve({"a": 1e300, "b": 1, "C": 1e-18})
+        self.assertEqual(str(cm.exception), f"{_RANGE_ERROR} is too small for a double")
 
     def test_extra_side_does_not_set_the_scale(self):
         for extra in (1e161, 1e162, 1e-300):
@@ -374,6 +380,12 @@ class TestCloseAngles(unittest.TestCase):
     def test_larger_derived_angle_is_closed_whichever_side_it_is(self):
         self.assertEqual(_close_angles(1.0, 2.0, 0.1), ((math.pi - 1.0) - 0.1, 0.1))
         self.assertEqual(_close_angles(1.0, 0.1, 2.0), (0.1, (math.pi - 1.0) - 0.1))
+
+    def test_q_threshold_is_pi_over_4_not_pi_over_2(self):
+        self.assertEqual(_close_angles(2.0, 0.1, 1.0), (0.1, (math.pi - 2.0) - 0.1))
+
+    def test_tie_closes_the_first(self):
+        self.assertEqual(_close_angles(1.0, 1.0, 1.0), ((math.pi - 1.0) - 1.0, 1.0))
 
     def test_small_derived_angles_keep_their_direct_values(self):
         self.assertEqual(_close_angles(3.0, 0.1, 0.04), (0.1, 0.04))
