@@ -140,16 +140,20 @@ jobs:
           fi
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git fetch origin coverage-data 2>/dev/null && \
-            git worktree add /tmp/cov-data coverage-data || \
-            git worktree add -b coverage-data --orphan /tmp/cov-data
+          if git fetch origin coverage-data 2>/dev/null; then
+            git worktree add /tmp/cov-data coverage-data \
+              || { echo "coverage-data worktree unavailable; badge not published"; exit 0; }
+          else
+            git worktree add -b coverage-data --orphan /tmp/cov-data \
+              || { echo "coverage-data worktree unavailable; badge not published"; exit 0; }
+          fi
           mkdir -p /tmp/cov-data/perfect-numbers
           printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' \
             "$PCT" "$COLOR" > /tmp/cov-data/perfect-numbers/rust.json
           cd /tmp/cov-data
           git add .
           git diff --staged --quiet && exit 0
-          for i in 1 2 3; do
+          for _ in 1 2 3; do
             git pull origin coverage-data --rebase 2>/dev/null || true
             git diff --staged --quiet || git commit -m "coverage: perfect-numbers/rust.json → ${PCT}%"
             git push origin coverage-data && break
