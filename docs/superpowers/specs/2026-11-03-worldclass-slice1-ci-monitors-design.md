@@ -208,3 +208,31 @@ Reviewed at commit: `6ecca07`
 Finding: the revision's fail-closed positive control turns `auto-merge.yml`'s gated `bash-coverage` job red on every PR, because that job runs the whole bats suite with `CI=true` and the spec installed actionlint only in `scripts.yml`; the repo hit the same trap with cargo-deny (`auto-merge.yml:103-104`, `tests/test_deny_policy.py`). Fix: install actionlint in every bats-suite job and pin that with a test. Checked clean: no other CI caller of root `make lint`; the fixture is swept by no glob; R5 is safe against `check_expected_units` and the `gh` mock; no R contradicts an N.
 Assumption: no uncertain assumption found (the one that broke the design was refuted in the finding).
 Disposition: Addressed — R14 adds the install to every bats-suite job, pinned by a test (operator, 2026-11-03).
+
+## Amendments
+
+- finding R3 (2026-11-03, reviewer both): DIFFERS — The step yields the input only when it matches a tracked `*/*-rs` directory; any other value (e.g. `nope/nope-rs`, or input with a newline) exits 1 with `error: unknown crate` (mutation-testing.yml:55-64, tests test_unknown_crate_refused_naming_it / test_newline_injection_refused), whereas the requirement says it yields exactly that input. The env-only half is met (CRATE via env:, test_no_expression_syntax_in_run_block).
+- R3 -> With a `crate` dispatch input that names a tracked `*/*-rs` crate directory, `List crates` yields exactly that input; any other value (unknown, `./`-prefixed, trailing-slash or newline-bearing) exits 1 naming it before anything is written to `GITHUB_OUTPUT`; the step reads the input only through `env:`. — Phase 2 code review found the unchecked input could inject lines into `GITHUB_OUTPUT`; the allowlist check closes that and is recorded in ADR-0038.
+
+## Spec alignment (2026-11-03)
+
+- spec: docs/superpowers/specs/2026-11-03-worldclass-slice1-ci-monitors-design.md
+- anchor: 1cfda1dd365847989c310f5239169cb5e65ac627
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+| R3 | both | DIFFERS | The step yields the input only when it matches a tracked `*/*-rs` directory; any other value (e.g. `nope/nope-rs`, or input with a newline) exits 1 with `error: unknown crate` (mutation-testing.yml:55-64, tests test_unknown_crate_refused_naming_it / test_newline_injection_refused), whereas the requirement says it yields exactly that input. The env-only half is met (CRATE via env:, test_no_expression_syntax_in_run_block). | - R3 -> With a `crate` dispatch input that names a tracked `*/*-rs` crate directory, `List crates` yields exactly that input; any other value (unknown, `./`-prefixed, trailing-slash or newline-bearing) exits 1 naming it before anything is written to `GITHUB_OUTPUT`; the step reads the input only through `env:`. — Phase 2 code review found the unchecked input could inject lines into `GITHUB_OUTPUT`; the allowlist check closes that and is recorded in ADR-0038. |
+
+### Reviewed
+
+- none
+
+### Verifications
+
+- V1: no evidence recorded
+- V2: no evidence recorded
+- V3: no evidence recorded
