@@ -1,7 +1,8 @@
 # Worldclass slice 2: pi/e Python mutation survivors
 
 - **Date:** 2026-11-03
-- **Status:** Draft
+- **Status:** Approved
+- **Approved:** 2026-11-03
 - **Scope:** `pi/pi.py`, `e/e.py`, `pi/test_pi.py`, `e/test_e.py`, a new root test, `pi/CLAUDE.md`, `e/CLAUDE.md`, and the C901 line in root `CLAUDE.md`
 - **Revised:** 2026-11-03 after Step 8 round 1 (operator chose the hybrid scope)
 
@@ -240,7 +241,7 @@ Disposition: Addressed — §4 and R8 now keep the noqa (measured 12 > 10) and r
 
 Sections reviewed: Problem, §2-§6, R6-R10. Finding: (1) the Testing section still said a test pins the estimate floor and that every function gets a specific-value assertion, contradicting R7 and §5; (2) R9's normaliser was unspecified, and blanking string constants would also blank the render f-strings, so the check would be vacuous. Verified safe: `ValueError` for `exp < 1` (π, −π and e all give `exp` 1; no caller reaches the formatter with other values); all three estimate properties hold on master at every boundary; R10 is compatible; no R/N conflict. Noted: the properties pass a constant positive return and miss `<=`→`<` threshold mutants.
 Assumption: That direct unit tests on the extracted functions kill a large share of the display survivors, rather than most surviving as threshold or constant mutants. V1 settles it after merge.
-Disposition: Addressed — R9 now hoists `_BAR_FULL`/`_BAR_EMPTY` and compares plain `ast.dump` with a negative case; the floor clause deleted; the specific-value rule carves out R7 and names the accepted gaps. Review stopped here: both round-2 findings were wording and test-apparatus level, and the fix removed surface (no normaliser).
+Disposition: Addressed (operator confirmed 2026-11-03) — R9 now hoists `_BAR_FULL`/`_BAR_EMPTY` and compares plain `ast.dump` with a negative case; the floor clause deleted; the specific-value rule carves out R7 and names the accepted gaps. Review stopped here: both round-2 findings were wording and test-apparatus level, and the fix removed surface (no normaliser).
 
 ### Adversarial Spec Review (comparison/judge designs only)
 
