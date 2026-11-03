@@ -64,8 +64,8 @@ jobs:
             crate_dirs="${tracked[*]}"
           fi
 
-          # Without this, an empty crate_dirs (bad dispatch input or a repo
-          # layout change) skips the loop entirely and exits 0 -- reporting
+          # Without this, an empty crate_dirs (no tracked crates: a repo
+          # layout change or a git failure) skips the loop entirely and exits 0 -- reporting
           # green having tested nothing. The classifier catches an untested
           # crate; only this catches an untested run.
           if [[ -z "${crate_dirs//[[:space:]]/}" ]]; then
