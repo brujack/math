@@ -9,6 +9,7 @@ on:
       - "Makefile"
       - "deny.toml"
       - ".github/workflows/scripts.yml"
+      - ".github/workflows/**"
       - ".github/workflows/gmp-cache.yml"
       - ".github/workflows/release-*"
       # Rendered from scripts/crate_templates/; test_crate_uniformity checks them.
@@ -55,6 +56,17 @@ jobs:
           tar -xJf /tmp/sc.tar.xz -C /tmp
           sudo install -m755 "/tmp/shellcheck-v${SC_VER}/shellcheck" /usr/local/bin/shellcheck
           shellcheck --version | grep -q "version: ${SC_VER}"
+      - name: Install actionlint (pinned)
+        env:
+          AL_VER: "1.7.12"
+          AL_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+        run: |
+          curl -fsSL -o /tmp/actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${AL_VER}/actionlint_${AL_VER}_linux_amd64.tar.gz"
+          echo "${AL_SHA256}  /tmp/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
+          sudo install -m755 /tmp/actionlint /usr/local/bin/actionlint
+          actionlint --version | head -1 | grep -qx "${AL_VER}"
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.14"
