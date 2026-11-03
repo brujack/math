@@ -1,4 +1,4 @@
-.PHONY: install-hooks install-deps test-hooks test-python test lint lint-hooks lint-python changelog validate-plan bash-coverage test-rust
+.PHONY: install-hooks install-deps test-hooks test-python test lint lint-hooks lint-python lint-workflows changelog validate-plan bash-coverage test-rust
 
 # Derived from the tracked set (git ls-files), not a hand-maintained list --
 # an omitted file leaves a hand-list's coverage unchanged rather than lowering
@@ -12,6 +12,8 @@
 # environment (ci.md/shell.md); without it this parse-time assignment can
 # silently resolve against the wrong repository.
 SHELLCHECK := $(shell command -v shellcheck 2>/dev/null)
+ACTIONLINT := $(shell command -v actionlint 2>/dev/null)
+WORKFLOWS ?= $(shell env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git ls-files '.github/workflows/*.yml')
 RUFF := $(shell ruff --version >/dev/null 2>&1 && command -v ruff)
 BATS := $(shell command -v bats 2>/dev/null)
 # Split so the derived half can be checked on its own: appending the three
@@ -163,7 +165,25 @@ else
 	  git ls-files -z '*.py' | xargs -0 ruff format --check
 endif
 
-lint: lint-hooks lint-python
+# actionlint over every tracked workflow; it runs shellcheck on `run:` bodies, so
+# it catches what lint-hooks cannot see. Guarded like SHELLCHECK above, except
+# CI=true fails closed: a runner without the tool must not report a pass.
+lint-workflows:
+ifndef ACTIONLINT
+	@if [ "$$CI" = "true" ]; then \
+	  printf 'lint-workflows: actionlint not found and CI=true; install actionlint 1.7.12\n' >&2; \
+	  exit 1; \
+	fi
+	@printf "actionlint not found, skipping (install: https://github.com/rhysd/actionlint/releases/tag/v1.7.12)\n"
+else
+	@if [ -z "$(WORKFLOWS)" ]; then \
+	  printf 'lint-workflows: WORKFLOWS list is EMPTY; refusing to report a pass having linted nothing.\n' >&2; \
+	  exit 1; \
+	fi
+	actionlint $(WORKFLOWS)
+endif
+
+lint: lint-hooks lint-python lint-workflows
 
 changelog:
 	git-cliff -o CHANGELOG.md

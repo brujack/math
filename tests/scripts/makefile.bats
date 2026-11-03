@@ -1144,3 +1144,55 @@ _scratch_tmp() {
     done < <(git -C "${REPO_ROOT}" ls-files ':(glob)*/cosmic-ray.toml')
     [ "${n}" -eq 9 ]
 }
+
+# lint-workflows (actionlint). The fixture is a positive control: actionlint
+# only reports SC2086 for the `run:` body when it both ran and found shellcheck,
+# so a green run on the real workflows is not a vacuous pass.
+_path_without_actionlint() {
+    local dir out="" IFS=:
+    for dir in ${PATH}; do
+        [[ -x "${dir}/actionlint" ]] && continue
+        out="${out:+${out}:}${dir}"
+    done
+    printf '%s' "${out}"
+}
+
+@test "actionlint flags SC2086 in the positive-control fixture" {
+    if ! command -v actionlint > /dev/null 2>&1 || ! command -v shellcheck > /dev/null 2>&1; then
+        if [[ "${CI:-}" == "true" ]]; then
+            fail_msg="actionlint or shellcheck missing under CI=true"
+            printf '%s\n' "${fail_msg}" >&2
+            return 1
+        fi
+        skip "actionlint or shellcheck not installed"
+    fi
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${REPO_ROOT}" lint-workflows WORKFLOWS=tests/fixtures/actionlint/sc2086.yml
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"SC2086"* ]]
+}
+
+@test "lint-workflows without actionlint under CI=true fails naming actionlint" {
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS PATH="$(_path_without_actionlint)" CI=true make -C "${REPO_ROOT}" lint-workflows
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"actionlint not found"* ]]
+}
+
+@test "lint-workflows without actionlint and CI unset skips with the remedy" {
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u CI PATH="$(_path_without_actionlint)" make -C "${REPO_ROOT}" lint-workflows
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"actionlint not found, skipping"* ]]
+    [[ "${output}" == *"v1.7.12"* ]]
+}
+
+@test "make lint lists lint-workflows as a prerequisite (actionlint wiring)" {
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${REPO_ROOT}" -n lint --no-print-directory
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"actionlint"* ]] || [[ "${output}" == *"lint-workflows"* ]]
+}
+
+@test "lint-workflows with an empty workflow list fails closed (actionlint present)" {
+    command -v actionlint > /dev/null 2>&1 || skip "actionlint not installed"
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${REPO_ROOT}" lint-workflows WORKFLOWS=
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"WORKFLOWS"* ]]
+}
