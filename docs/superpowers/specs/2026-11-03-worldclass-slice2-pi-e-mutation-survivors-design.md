@@ -169,3 +169,29 @@ empty string or `0.0` must fail.
 - **N3.** No mutant exclusion mechanism (`pragma: no mutate`, a cosmic-ray filter or config exclusions).
 - **N4.** No change to the other six Python projects or to the Rust crates.
 - **N5.** No new dependencies.
+
+## Multi-Lens Review
+
+Reviewed at commit: `d4c828e` (Step 7 self-review commit, before Step 8 dispatch)
+
+### Goal-Fit
+
+Finding: The premise "no test can call it" is false. `TestSavePiEstimateAndProgress.test_estimate_conversion_time_tiers` (`pi/test_pi.py:943`) already drives all four estimate tiers through `save_pi_to_file`, but sends stdout to a discarded `io.StringIO()` and asserts only that the file exists. The survivors exist because no test asserts the output, not because the code cannot be reached. Separately, the 160 estimate survivors are tuning constants (`5e-8`, `0.05`, ...). R7's "specific expected float" restates them, so it is a change detector that breaks on the first ETA re-tune and checks no correctness property; the same applies to golden render strings. A cheaper path to the same noise cut is to list display constants under §5. The real-gap half (R4 multi-chunk pwrite, 18 survivors on lines 686/687/692; R5 `_io_workers`, 4 survivors) is confirmed and could ship without the extraction. Minor: `_format_mantissa` cases for `exp == 0` and `exp == 2` pin behaviour outside the π/e domain.
+Assumption: After extraction, mutants in the new module-level functions are killed by direct unit tests within the 60 s timeout, not only through `save_*_to_file`'s pool path, where tick-timing mutants could time out. Confirm on a prototype that extracts `estimate_conversion_time` and runs `MUTANT_SHARD=0/10 make mutants` in `pi/`.
+Disposition:
+
+### Ergonomics
+
+Finding: R1 creates six function pairs that must stay identical across `pi/pi.py` and `e/e.py`, and nothing enforces it; `tests/test_crate_uniformity.py` covers only rendered templates. §2's own pi/e slice drift is the proof this fails. Fix: a root test that parses both files with `ast` and asserts the six bodies equal after normalising glyph and label constants, plus a one-line "mirrored in e/e.py; mutation scope is one file" comment, with the rationale in the sub-project `CLAUDE.md` files (root is at 30,000/30,000 bytes). Secondary: V2 runs non-interactively (`python3 pi.py 1000 </dev/null`, exit 0), but at 1000 digits it reaches only the first estimate tier, one `write_chunk`, and no gmpy2 bar, and "timing figures masked" is undefined: a mask that swallows the `\r` progress line passes with `render_conversion_tick` returning `""`. Define the mask or drop V2. Minor: R3's golden capture from master needs `time.time` patched inside master's closures; say so in the plan.
+Assumption: That the C901 score sits mainly in the closures, so R8 frees the root `CLAUDE.md` line. Settle with `ruff check --select C901 --isolated` on a scratch copy with the closures removed.
+Disposition:
+
+### Risk
+
+Finding: Design sound; no R/N conflict. Three defects. (1) Measured on a scratch prototype of the split: `ruff check --select C901 --ignore-noqa` gives `save_pi_to_file` 12 > 10 (down from 21), so the noqa stays, and R8's "keep the line unchanged" branch leaves root `CLAUDE.md`'s "0 → 21 regression" figure stale; the keep branch must rewrite the figure. (This also settles the Ergonomics assumption: R8 frees no bytes.) (2) The `bytes_done` clamp (`pi.py:692`) feeds only `rate` and the print; it is display, not a corruption risk. Only the slice end (686) and offset (687) are. (3) `_format_mantissa` returns `"0."` silently for negative `exp` via Python negative indexing; assert the domain or pin it. Confirmed fine: `patch.object(pi, "_PWRITE_CHUNK", 7)` reaches both `chunk_starts` and `write_chunk`; `_io_workers` is fork/spawn safe; the mutant denominator barely changes; no test passes on empty output. Minor: first-tier slope mutants never win the `max()` (gmpy2 `d*5e-8` ≤ 0.005 < 0.05; mpmath ≤ 0.6 < 1.0), so they are equivalent and belong in §5.
+Assumption: The 2026-11-01 baseline is a complete run. Checked by the orchestrator: `gh run view 41279088956 --json jobs` shows all 20 pi and e shard jobs `success`.
+Disposition:
+
+### Adversarial Spec Review (comparison/judge designs only)
+
+N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
