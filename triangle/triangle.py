@@ -92,17 +92,38 @@ _SAS_SETS = ((("a", "b"), "C"), (("a", "c"), "B"), (("b", "c"), "A"))
 
 
 def _from_angles_and_side(
-    side_name: str, side: float, angles: dict[str, float]
+    side_name: str, side: float, angles: dict[str, float], sines: dict[str, float]
 ) -> Triangle:
-    """ASA/AAS: the law of sines from one side and all three angles."""
-    k = side / math.sin(angles[_OPPOSITE[side_name]])
-    sides = {n: k * math.sin(angles[_OPPOSITE[n]]) for n in _SIDES}
+    """ASA/AAS: the law of sines from one side, all three angles and their sines.
+
+    The caller passes the third angle's sine from whichever of A + B and
+    pi - (A + B) is the smaller, since that one holds its relative accuracy.
+    """
+    k = side / sines[_OPPOSITE[side_name]]
+    sides = {n: k * sines[_OPPOSITE[n]] for n in _SIDES}
     sides[side_name] = side
     other, third = (n for n in _SIDES if n != side_name)
     # Half the product of two sides and their included angle: Heron on the
     # rounded law-of-sines sides cancels for a sliver angle.
-    area = 0.5 * side * sides[other] * math.sin(angles[_OPPOSITE[third]])
+    area = 0.5 * side * sides[other] * sines[_OPPOSITE[third]]
     return _build(sides, angles, area)
+
+
+def _close_angles(known: float, p: float, q: float) -> tuple[float, float]:
+    """Make two derived angles sum with a known one to pi.
+
+    Computed independently, the two derived angles of an ill-conditioned
+    triangle can each be as accurate as the problem allows and still miss
+    pi by more than the post-check accepts.  The larger one, when it is at
+    least pi/4, becomes pi - known - smaller, which costs it about 1e-15
+    relative.  Below pi/4 both are small, so are their absolute errors, and
+    each keeps its direct value.
+    """
+    if p >= q and p >= math.pi / 4:
+        return (math.pi - known) - q, q
+    if q > p and q >= math.pi / 4:
+        return p, (math.pi - known) - p
+    return p, q
 
 
 def _build(sides: dict[str, float], angles: dict[str, float], area: float) -> Triangle:
@@ -166,13 +187,14 @@ def _ssa_third_sides(
                 f"no triangle: side {x_name} must be longer than {y_name} "
                 "opposite an angle of 90 degrees or more"
             )
-        root = math.sqrt((x - y * math.sin(angle)) * (x + y * math.sin(angle)))
+        # Each factor rooted alone: their product can underflow when x is tiny.
+        root = math.sqrt(x - y * math.sin(angle)) * math.sqrt(x + y * math.sin(angle))
         # y*cos(angle) <= 0 here, so the sum cancels when x is near y; the
         # roots multiply to y^2 - x^2, which gives the same value without it.
         return [((x - y) * (x + y) / (root - y * cos_x), root)]
     h = y * math.sin(angle)
     if x >= y:
-        root = math.sqrt((x - h) * (x + h))
+        root = math.sqrt(x - h) * math.sqrt(x + h)
         return [(y * cos_x + root, root)]
     if abs(x - h) <= 4.0 * sys.float_info.epsilon * max(x, h):
         # Tangent: the right angle is opposite y.  The square root would
@@ -183,7 +205,7 @@ def _ssa_third_sides(
         raise NoTriangle(
             f"no triangle: side {x_name} is shorter than the height {height:g}"
         )
-    root = math.sqrt((x - h) * (x + h))
+    root = math.sqrt(x - h) * math.sqrt(x + h)
     z1 = y * cos_x + root
     return [(z1, root), ((y - x) * (y + x) / z1, -root)]
 
@@ -198,16 +220,21 @@ def _solve_ssa(
     angle, x, y = values[angle_name], values[x_name], values[y_name]
     solutions = []
     for z, root in _ssa_third_sides(angle, x, y, x_name, y_name, exponent):
-        angles = {
-            angle_name: angle,
-            _OPPOSITE[y_name]: math.atan2(y * math.sin(angle), root),
+        y_angle, z_angle = _close_angles(
+            angle,
+            math.atan2(y * math.sin(angle), root),
             # y - z cos(angle) is y sin^2(angle) - root cos(angle); written
             # from root, it does not inherit the rounding of z, which cancels
             # against y when x is much shorter than y.
-            _OPPOSITE[z_name]: math.atan2(
+            math.atan2(
                 z * math.sin(angle),
                 y * math.sin(angle) ** 2 - root * math.cos(angle),
             ),
+        )
+        angles = {
+            angle_name: angle,
+            _OPPOSITE[y_name]: y_angle,
+            _OPPOSITE[z_name]: z_angle,
         }
         sides = {x_name: x, y_name: y, z_name: z}
         solutions.append(_build(sides, angles, 0.5 * y * z * math.sin(angle)))
@@ -234,11 +261,10 @@ def _solve_determined(
             )
             third = next(n for n in _SIDES if n not in (s1, s2))
             angle = values[included]
-            angles = {
-                included: angle,
-                _OPPOSITE[s1]: _opposite_angle(x, y, angle),
-                _OPPOSITE[s2]: _opposite_angle(y, x, angle),
-            }
+            p_angle, q_angle = _close_angles(
+                angle, _opposite_angle(x, y, angle), _opposite_angle(y, x, angle)
+            )
+            angles = {included: angle, _OPPOSITE[s1]: p_angle, _OPPOSITE[s2]: q_angle}
             area = 0.5 * x * y * math.sin(angle)
             return [_build({s1: x, s2: y, third: z}, angles, area)], {s1, s2, included}
     if sides and len(angles) >= 2:
@@ -246,10 +272,27 @@ def _solve_determined(
         angle_set = {first: values[first], second: values[second]}
         third_name = next(n for n in _ANGLES if n not in angle_set)
         angle_set[third_name] = math.pi - (values[first] + values[second])
-        t = _from_angles_and_side(sides[0], values[sides[0]], angle_set)
+        sines = {n: math.sin(v) for n, v in angle_set.items()}
+        given_sum = values[first] + values[second]
+        sines[third_name] = math.sin(min(given_sum, angle_set[third_name]))
+        t = _from_angles_and_side(sides[0], values[sides[0]], angle_set, sines)
         return [t], {sides[0], first, second}
     used = tuple(sides + angles)
     return _solve_ssa(values, used, exponent), set(used)
+
+
+def _determining_names(values: dict[str, float]) -> set[str]:
+    """The names _solve_determined uses, in the same precedence order."""
+    sides = [n for n in _SIDES if n in values]
+    angles = [n for n in _ANGLES if n in values]
+    if len(sides) == 3:
+        return set(_SIDES)
+    for (s1, s2), included in _SAS_SETS:
+        if s1 in values and s2 in values and included in values:
+            return {s1, s2, included}
+    if sides and len(angles) >= 2:
+        return {sides[0], angles[0], angles[1]}
+    return set(sides + angles)
 
 
 def _check_each_value(values: dict[str, float], limit: float, limit_text: str) -> None:
@@ -287,6 +330,9 @@ def _validate(values: dict[str, float], radians: bool) -> dict[str, float]:
     internal = {
         n: (v if n in _SIDES or radians else math.radians(v)) for n, v in values.items()
     }
+    for name in _ANGLES:
+        if name in internal and internal[name] < sys.float_info.min:
+            raise TriangleInputError(f"angle {name} is too small for a double")
     _check_angle_pairs(internal, limit_text)
     return internal
 
@@ -321,8 +367,23 @@ def _scale_sides(values: dict[str, float]) -> tuple[dict[str, float], int]:
     return scaled, exponent
 
 
+def _check_scaled_range(t: Triangle) -> None:
+    """Range errors in the scaled solve, before the post-check sees them.
+
+    A subnormal scaled side or area has already lost bits that unscaling
+    cannot restore.  Nothing scaled can overflow: the longest given side is
+    below 1 and _validate refuses an angle below the smallest normal double.
+    """
+    scaled = (t.a, t.b, t.c, t.area)
+    if not all(v >= sys.float_info.min for v in scaled):
+        raise TriangleInputError(f"{_RANGE_ERROR} is too small for a double")
+
+
 def _unscale(t: Triangle, exponent: int) -> Triangle:
-    """Undo _scale_sides; a result a double cannot hold is an input error."""
+    """Undo _scale_sides; a result a double cannot hold is an input error.
+
+    The scaled values were checked by _check_scaled_range first.
+    """
     try:
         u = replace(
             t,
@@ -346,9 +407,15 @@ def solve(values: dict[str, float], radians: bool = False) -> Solved:
     replaced: values outside the determining set come back as extras, in
     the input unit.
     """
-    internal, exponent = _scale_sides(_validate(values, radians))
-    solutions, used = _solve_determined(internal, exponent)
+    internal = _validate(values, radians)
+    # Only the determining set is solved, and only it sets the scale: an
+    # extra side far from the others must not push the real ones out of range.
+    determining, exponent = _scale_sides(
+        {n: internal[n] for n in _determining_names(internal)}
+    )
+    solutions, used = _solve_determined(determining, exponent)
     for t in solutions:
+        _check_scaled_range(t)
         _check(t)
     solutions = [_unscale(t, exponent) for t in solutions]
     extras = [

@@ -20,6 +20,7 @@ from triangle import (
     Triangle,
     TriangleInputError,
     _check,
+    _close_angles,
     _project,
     main,
     render,
@@ -168,6 +169,37 @@ class TestNearFlat(unittest.TestCase):
                         _rel(t.c / math.sin(t.C), x / math.sin(t.A)), 1e-9
                     )
 
+    def test_ssa_near_right_angle_with_equal_sides_solves(self):
+        # Ill-conditioned (cond ~1e8): inaccurate is allowed, a crash is not.
+        for values in (
+            {"a": 1.000000000001, "b": 1, "A": 90.0001},
+            {"a": 1.0000000000001, "b": 1, "A": 90.00001},
+        ):
+            with self.subTest(values=values):
+                self.assertTrue(solve(values).solutions)
+
+    def test_bounded_near_right_angle_property(self):
+        rng = random.Random(90)
+        for _ in range(3000):
+            angle = 90 + rng.choice((-1, 1)) * 10 ** rng.uniform(-9, 0)
+            x = 1 + rng.choice((-1, 1)) * 10 ** rng.uniform(-15, -6)
+            with self.subTest(a=x, A=angle):
+                try:
+                    solutions = solve({"a": x, "b": 1, "A": angle}).solutions
+                except NoTriangle:
+                    continue
+                for t in solutions:
+                    self.assertGreater(min(t.A, t.B, t.C), 0)
+
+    def test_aas_two_small_given_angles(self):
+        # sin of the third angle is sin(A + B), not sin(pi - (A + B)).
+        t = solve({"a": 1, "A": 1e-12, "B": 1e-12}, radians=True).solutions[0]
+        self.assertLessEqual(_rel(t.c, 2.0), 1e-15)
+        self.assertLessEqual(_rel(t.area, 9.99999999999999979886647e-13), 1e-15)
+        t = solve({"a": 1, "A": 1e-10, "B": 1e-10}).solutions[0]
+        self.assertLessEqual(_rel(t.c, 2.0), 1e-15)
+        self.assertLessEqual(_rel(t.area, 1.745329251994329596343536e-12), 1e-15)
+
     def test_cli_near_flat_exits_0(self):
         rc, out, err, _ = _run(["-a", "1", "-b", "1", "-C", "179.999999", "--no-draw"])
         self.assertEqual((rc, err), (0, ""))
@@ -220,11 +252,13 @@ class TestFloatRange(unittest.TestCase):
         with self.assertRaises(TriangleInputError) as cm:
             solve({"a": 1e200, "b": 1e200, "c": 1e200})
         self.assertIn("floating-point range", str(cm.exception))
+        self.assertIn("exceeds the largest double", str(cm.exception))
 
     def test_area_too_small_is_an_input_error(self):
         with self.assertRaises(TriangleInputError) as cm:
             solve({"a": 1e-200, "b": 1e-200, "c": 1e-200})
         self.assertIn("floating-point range", str(cm.exception))
+        self.assertIn("is too small for a double", str(cm.exception))
 
     def test_subnormal_area_is_an_input_error(self):
         # 1e-160 sides give an area near 4e-321: subnormal, so imprecise.
@@ -255,6 +289,47 @@ class TestFloatRange(unittest.TestCase):
             ):
                 solve(values)
             self.assertIn("differ by more than", str(cm.exception))
+
+    def test_tiny_given_angle_overflow_is_an_input_error(self):
+        cases: list[tuple[dict[str, float], bool]] = [
+            ({"a": 1, "A": 1e-307, "B": 30}, False),
+            ({"a": 1, "A": 1e-320, "B": 1}, True),
+            ({"a": 1, "b": 1, "C": 5e-324}, True),
+        ]
+        for values, radians in cases:
+            with self.subTest(values=values), self.assertRaises(TriangleInputError):
+                solve(values, radians=radians)
+
+    def test_scaled_subnormal_area_is_an_input_error(self):
+        # The scaled area is subnormal although the unscaled one is not.
+        with self.assertRaises(TriangleInputError):
+            solve({"a": 1e300, "b": 1, "C": 1e-18})
+
+    def test_extra_side_does_not_set_the_scale(self):
+        for extra in (1e161, 1e162, 1e-300):
+            with self.subTest(extra=extra):
+                s = solve({"a": 1, "A": 30, "B": 60, "b": extra})
+                self.assertLessEqual(_rel(s.solutions[0].area, math.sqrt(3) / 2), 1e-15)
+                self.assertEqual(s.extras[0].given, extra)
+
+    def test_scale_follows_the_longest_side(self):
+        t = solve({"a": 1e200, "b": 1, "A": 120}).solutions[0]
+        want = 0.5 * 1e200 * math.sin(math.radians(60))
+        self.assertLessEqual(_rel(t.area, want), 1e-12)
+
+    def test_ssa_tiny_side_far_from_the_other(self):
+        # (x - h)(x + h) underflows here; each factor rooted alone does not.
+        s = solve({"a": 1, "b": 1e300, "A": 1e-300})
+        self.assertEqual(len(s.solutions), 2)
+        b_angles = sorted(math.degrees(t.B) for t in s.solutions)
+        want = math.degrees(math.asin(1e300 * math.sin(math.radians(1e-300))))
+        self.assertLessEqual(_rel(b_angles[0], want), 1e-9)
+        self.assertLessEqual(_rel(b_angles[1], 180 - want), 1e-9)
+
+    def test_degree_angle_that_underflows_is_an_input_error(self):
+        with self.assertRaises(TriangleInputError) as cm:
+            solve({"a": 1, "b": 1, "C": 1e-323})
+        self.assertEqual(str(cm.exception), "angle C is too small for a double")
 
     def test_wide_but_representable_side_ratio_solves(self):
         t = solve({"a": 1, "b": 1e-300, "C": 90}).solutions[0]
@@ -293,6 +368,26 @@ class TestSAS(unittest.TestCase):
     def test_tiny_included_angle_third_side_stable(self):
         t = solve({"a": 1, "b": 1, "C": 1e-9}).solutions[0]
         self.assertLessEqual(_rel(t.c, 1e-9 * math.pi / 180), 1e-12)
+
+
+class TestCloseAngles(unittest.TestCase):
+    def test_larger_derived_angle_is_closed_whichever_side_it_is(self):
+        self.assertEqual(_close_angles(1.0, 2.0, 0.1), ((math.pi - 1.0) - 0.1, 0.1))
+        self.assertEqual(_close_angles(1.0, 0.1, 2.0), (0.1, (math.pi - 1.0) - 0.1))
+
+    def test_small_derived_angles_keep_their_direct_values(self):
+        self.assertEqual(_close_angles(3.0, 0.1, 0.04), (0.1, 0.04))
+
+
+class TestBuiltPaths(unittest.TestCase):
+    def test_sas_perimeter(self):
+        t = solve({"a": 3, "b": 4, "C": 90}).solutions[0]
+        self.assertAlmostEqual(t.perimeter, 12.0, places=12)
+
+    def test_aas_keeps_the_given_side_exactly(self):
+        self.assertEqual(
+            solve({"a": 22.247, "A": 35.59, "B": 40.17}).solutions[0].a, 22.247
+        )
 
 
 class TestASA_AAS(unittest.TestCase):
