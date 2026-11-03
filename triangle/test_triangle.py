@@ -22,6 +22,7 @@ from triangle import (
     TriangleInputError,
     _check,
     _close_angles,
+    _label_cell,
     _project,
     main,
     render,
@@ -808,6 +809,45 @@ class TestRender(unittest.TestCase):
             self.assertEqual(out[row][col], label)
         self.assertEqual(sum(ch in "ABC" for line in out for ch in line), 3)
 
+    def test_label_side_compares_dx_and_dy_in_cells(self):
+        # dx = -30 dots is 15 cells, dy = 10 dots is 2.5 cells: horizontal wins.
+        self.assertEqual(_label_cell((10, 40), (40, 30)), (10, 4))
+        self.assertEqual(_label_cell((70, 40), (40, 30)), (10, 36))
+        # dx = 4 dots is 2 cells, dy = 12 dots is 3 cells: vertical wins.
+        self.assertEqual(_label_cell((44, 40), (40, 28)), (11, 22))
+
+    def test_labels_pinned_for_off_axis_vertices(self):
+        # Each case moves one vertex away from both axes of the centroid, so
+        # the centroid's x and y each decide some label's side.
+        cases = (
+            (
+                {"a": 3, "b": 5, "c": 7},
+                0,
+                20,
+                10,
+                {"A": (6, 0), "B": (6, 19), "C": (3, 13)},
+            ),
+            (
+                {"a": 3, "b": 4, "c": 5},
+                0,
+                60,
+                20,
+                {"A": (16, 0), "B": (16, 59), "C": (2, 38)},
+            ),
+            (
+                {"a": 6, "b": 8, "A": 30},
+                1,
+                60,
+                20,
+                {"A": (18, 0), "B": (19, 21), "C": (1, 59)},
+            ),
+        )
+        for values, index, w, h, want in cases:
+            with self.subTest(values=values, w=w, h=h):
+                out = render(solve(values).solutions[index], w, h)
+                for label, (row, col) in want.items():
+                    self.assertEqual(out[row][col], label)
+
     def test_label_cells_are_next_to_their_vertices(self):
         t = self._t345()
         pts = _project(t, 20, 10)
@@ -900,6 +940,15 @@ class TestCLI(unittest.TestCase):
         self.assertIn("36.8699", lines["A"])
         self.assertIn("6.0000", lines["area"])
         self.assertIn("12.0000", lines["perimeter"])
+
+    def test_table_columns_are_fixed_width(self):
+        # The value column is precision + 12 wide, so the table reads as columns.
+        _, out, _, _ = _run(["-a", "3", "-b", "4", "-c", "5", "--no-draw"])
+        lines = out.splitlines()
+        self.assertIn("a                   3.0000  given", lines)
+        self.assertIn("C                  90.0000  derived", lines)
+        self.assertIn("area                6.0000", lines)
+        self.assertIn("perimeter          12.0000", lines)
 
     def test_no_draw_prints_no_braille(self):
         _, out, _, _ = _run(["-a", "3", "-b", "4", "-c", "5", "--no-draw"])
