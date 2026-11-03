@@ -127,9 +127,11 @@ closed by the PR (`Closes #100`).
 
 ## Out of scope (Backlog rows added in the same change)
 
-- Branch protection. Ruleset 14955025 targets no branch. Operator decision 2026-11-03: the
-  direct-to-master path for docs must keep working, so the fix is required checks with an
-  operator bypass, not a block on direct pushes. Update the existing P2 row.
+- Branch protection. The audit claimed nothing server-side protects `master`; that was wrong. Classic
+  branch protection requires `secret-scan` and `mutation-pr`, enforces linear history and blocks
+  force-push and deletion, with `enforce_admins: false` so the operator can push docs direct
+  (operator decision 2026-11-03: that path must keep working). Ruleset 14955025 is dead config
+  beside it; the existing P2 row now records this.
 - Coverage badges are published from `pull_request` runs, so each badge shows the most recent
   PR branch's coverage, not master's. New P3 row.
 - Mutation kill rates (Python pi 62%, e 55%; three Rust crates 68-78%): slices 2 and 3.
