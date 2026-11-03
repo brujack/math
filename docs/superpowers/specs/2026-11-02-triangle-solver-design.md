@@ -247,6 +247,10 @@ Coverage is held at ≥ 90% (`make coverage`). `make mutants` runs through the t
 ## Amendments
 
 - N1 -> No third-party import in `triangle/triangle.py`: the program uses the standard library only at runtime. The shared template `install_deps.sh` is exempt; it installs GMP and the pinned packages because every Python project is rendered identically (Design §1). — the plan's non-goal check found the template installer ambiguous under the original wording.
+- finding R1 (2026-11-03, reviewer B): DIFFERS — SSS/SAS/ASA/AAS/SSA dispatch, 0/1/2 SSA solutions, Kahan angle (_kahan_angle, line 47, no acos) and the positivity post-check are present, but the area is Kahan-stable Heron only for SSS (_from_sides); SAS, ASA/AAS and SSA compute area as 0.5*x*y*sin(angle), not Heron, which the requirement names as the area mechanism for each solution.
+- R1 -> The solver section of `triangle/triangle.py` solves SSS, SAS, ASA, AAS and SSA input given as any three of `a b c A B C` and returns every valid solution: 0 or 1 for SSS, 0, 1 or 2 for SSA by the ordered rule in Design §2, and exactly 1 for SAS, ASA and AAS. SSS angles use Kahan's formula as given in Design §2 and its area is Kahan-stable Heron, never `acos`; SAS and SSA derive their angles with non-cancelling `atan2` forms and ASA/AAS use the given angles, and every non-SSS area is half the product of two sides and the sine of the angle between them. Each solution carries all six values, the area and the perimeter, and has only positive angles and sides. — branch review (bug-scan rounds 1-4) found that re-deriving angles and Heron area from computed sides crashes or loses accuracy on near-flat triangles, because a computed side can round onto a + b; the operator chose a robust solve over refusing that input.
+- finding R8 (2026-11-03, reviewer A): NOT-BUILT — test_triangle.py covers SSS/SAS/ASA/AAS/SSA, near-flat and float-range numerics, every input error, extras, the renderer and the CLI, and the Makefile's coverage target has --cov-fail-under=90, but Design section 6's case list was not among my inputs so 'every case' cannot be checked against it, and no measured coverage figure appears in the diff.
+- R8 reviewed: the reviewer lacked Design §6, not the cases — every §6 item is in `triangle/test_triangle.py` or `tests/test_cli_contract_harness.py` (needle `1.9999999`, the obtuse and right SSA counts, both `7.9999999999` boundaries, `1 + 5e-10`, the extras lines, AAA, invalid values with exact messages, units, the pinned 3-4-5 drawing, the CLI cases and the six closed-form fixtures), and `make coverage` in `triangle/` reports 99.72% at 4e685f6.
 
 ## Multi-Lens Review
 
@@ -406,3 +410,27 @@ Disposition: Addressed. These were fixed as proposed and are recorded with the o
 - The diff is defined as `solved − given`, and the example is corrected.
 
 Review stops here. The remaining risk is implementation numerics, which Phase 2's high-precision tests pin.
+
+## Spec alignment (2026-11-03)
+
+- spec: docs/superpowers/specs/2026-11-02-triangle-solver-design.md
+- anchor: f895cc4743dbd4ca38de4eb69f8f19b13327b24a
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8, R9
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+| R1 | B | DIFFERS | SSS/SAS/ASA/AAS/SSA dispatch, 0/1/2 SSA solutions, Kahan angle (_kahan_angle, line 47, no acos) and the positivity post-check are present, but the area is Kahan-stable Heron only for SSS (_from_sides); SAS, ASA/AAS and SSA compute area as 0.5*x*y*sin(angle), not Heron, which the requirement names as the area mechanism for each solution. | - R1 -> The solver section of `triangle/triangle.py` solves SSS, SAS, ASA, AAS and SSA input given as any three of `a b c A B C` and returns every valid solution: 0 or 1 for SSS, 0, 1 or 2 for SSA by the ordered rule in Design §2, and exactly 1 for SAS, ASA and AAS. SSS angles use Kahan's formula as given in Design §2 and its area is Kahan-stable Heron, never `acos`; SAS and SSA derive their angles with non-cancelling `atan2` forms and ASA/AAS use the given angles, and every non-SSS area is half the product of two sides and the sine of the angle between them. Each solution carries all six values, the area and the perimeter, and has only positive angles and sides. — branch review (bug-scan rounds 1-4) found that re-deriving angles and Heron area from computed sides crashes or loses accuracy on near-flat triangles, because a computed side can round onto a + b; the operator chose a robust solve over refusing that input. |
+| R8 | A | NOT-BUILT | test_triangle.py covers SSS/SAS/ASA/AAS/SSA, near-flat and float-range numerics, every input error, extras, the renderer and the CLI, and the Makefile's coverage target has --cov-fail-under=90, but Design section 6's case list was not among my inputs so 'every case' cannot be checked against it, and no measured coverage figure appears in the diff. | - R8 reviewed: the reviewer lacked Design §6, not the cases — every §6 item is in `triangle/test_triangle.py` or `tests/test_cli_contract_harness.py` (needle `1.9999999`, the obtuse and right SSA counts, both `7.9999999999` boundaries, `1 + 5e-10`, the extras lines, AAA, invalid values with exact messages, units, the pinned 3-4-5 drawing, the CLI cases and the six closed-form fixtures), and `make coverage` in `triangle/` reports 99.72% at 4e685f6. |
+
+### Reviewed
+
+- R8 reviewed: the reviewer lacked Design §6, not the cases — every §6 item is in `triangle/test_triangle.py` or `tests/test_cli_contract_harness.py` (needle `1.9999999`, the obtuse and right SSA counts, both `7.9999999999` boundaries, `1 + 5e-10`, the extras lines, AAA, invalid values with exact messages, units, the pinned 3-4-5 drawing, the CLI cases and the six closed-form fixtures), and `make coverage` in `triangle/` reports 99.72% at 4e685f6.
+
+### Verifications
+
+- V1: Not yet run on macOS at this HEAD. The operator's Mac probe (2026-11-02) confirmed braille cells align in their terminal; the triangle drawing itself is pending a Mac run after merge.
+- V2: Pending: the PR's CI has not run yet.
+- V3: MUTANT_SHARD=0/10 make -C triangle mutants at 2140b6e: green, 207 jobs, 19 survived, 2 timed out, so caught > 0. Not re-run after the review fixes.
