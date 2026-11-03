@@ -122,6 +122,8 @@ Module-level constants / state:
 - The `if __name__ == "__main__":` guard checks `multiprocessing.current_process().name == "MainProcess"` to prevent `main()` from running in worker subprocesses (required on macOS where `spawn` re-executes the script in each worker).
 - Very large output files can be slow to generate and should not be casually regenerated during routine edits.
 
+**Mirrored helpers.** `_io_workers`, `estimate_conversion_time`, `render_conversion_tick`, `render_write_progress`, `render_bar` and `_format_mantissa` are deliberately duplicated in `e/e.py`: cosmic-ray's `module-path` names one file per project, so a shared module would drop them from mutation scope. Only the `_BAR_FULL`/`_BAR_EMPTY` glyph constants differ; `tests/test_pi_e_mirror.py` fails if the copies drift apart.
+
 ## Keeping This File Up To Date
 
 **Update this file whenever you change the code.** Future Claude sessions rely on it — stale docs are worse than none. Specifically:
@@ -200,7 +202,8 @@ gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 | `TestPiToStrNegativeSign`            | 1     | Negative-mpfr sign-strip branch in `_gmpy2_mpfr_to_str`                 |
 | `TestShowPiPreviewNoDecimal`         | 1     | Else branch when preview string lacks `.`                               |
 | `TestGetTargetDigitsInteractive`     | 5     | Interactive prompt: valid, retries, large-N decline + accept            |
-| `TestSavePiEstimateAndProgress`      | 1     | Exercises `estimate_conversion_time` tiers via patched ProcessPool      |
+| `TestSavePiEstimateAndProgress`      | 2     | `estimate_conversion_time` tiers via patched ProcessPool; multi-chunk pwrite (`_PWRITE_CHUNK` = 7) |
+| `TestMirroredHelpers`                | 19    | Mirrored helpers: render goldens, `_io_workers` table, estimate ordering properties, `_format_mantissa` |
 | `TestSavePiToFilePhaseAFallback`     | 1     | OSError triggers serial fallback in `save_pi_to_file`                   |
 | `TestMain`                           | 13    | Always-write, `--show` (returned string, ordering), overwrite, refusal before any write, `--yes` proceed, error handlers |
 | `TestEntryPointGuard`                | 1     | Module runs via subprocess (`if __name__ == "__main__"` block)          |

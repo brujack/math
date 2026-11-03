@@ -25,6 +25,8 @@ from hypothesis import strategies as st
 
 import pi as pi_module
 from pi import (
+    _BAR_EMPTY,
+    _BAR_FULL,
     _CHU_A,
     _CHU_B,
     _CHU_C3_OVER_24,
@@ -33,16 +35,22 @@ from pi import (
     SMOKE_SIZE,
     _convert_gmpy2_worker,
     _convert_mpmath_worker,
+    _format_mantissa,
     _gmpy2_mpfr_to_str,
     _gmpy2_str_from_QT,
+    _io_workers,
     _pi_to_str,
     _pwrite_all,
     _tree_combine,
     calculate_pi_high_precision,
+    estimate_conversion_time,
     get_target_digits,
     main,
     parse_args,
     refuse_large_run,
+    render_bar,
+    render_conversion_tick,
+    render_write_progress,
     save_pi_to_file,
     show_pi_preview,
 )
@@ -926,6 +934,127 @@ class TestGetTargetDigitsInteractive(unittest.TestCase):
         )
 
 
+class TestMirroredHelpers(unittest.TestCase):
+    """Value-asserting tests for the display/format helpers mirrored in e/e.py."""
+
+    def test_render_conversion_tick_in_progress(self):
+        self.assertEqual(
+            render_conversion_tick(1000, 1.25, 5.0),
+            "\rConverting 1,000 digits..  [███████░░░░░░░░░░░░░░░░░░░░░░░] 25.0% "
+            "Elapsed: 1.2s | ETA: 3.8s",
+        )
+
+    def test_render_conversion_tick_overrun(self):
+        self.assertEqual(
+            render_conversion_tick(1234567, 7.6, 5.0),
+            "\rConverting 1,234,567 digits... [Still converting...] "
+            "Elapsed: 7.6s (longer than estimated)",
+        )
+
+    def test_render_conversion_tick_boundary_elapsed_equals_estimate(self):
+        self.assertEqual(
+            render_conversion_tick(1000, 5.0, 5.0),
+            "\rConverting 1,000 digits..  [██████████████████████████████] 100.0% "
+            "Elapsed: 5.0s | ETA: 0.0s",
+        )
+
+    def test_render_conversion_tick_zero_elapsed(self):
+        self.assertEqual(
+            render_conversion_tick(50, 0.0, 1.0),
+            "\rConverting 50 digits    [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0.0% "
+            "Elapsed: 0.0s | ETA: 1.0s",
+        )
+
+    def test_render_bar_values(self):
+        self.assertEqual(
+            render_bar(3, 8, 30, _BAR_FULL, _BAR_EMPTY),
+            _BAR_FULL * 11 + _BAR_EMPTY * 19,
+        )
+        self.assertEqual(render_bar(8, 8, 30, _BAR_FULL, _BAR_EMPTY), _BAR_FULL * 30)
+        self.assertEqual(
+            render_bar(1, 8, 30, _BAR_FULL, _BAR_EMPTY),
+            _BAR_FULL * 3 + _BAR_EMPTY * 27,
+        )
+        self.assertEqual(render_bar(0, 8, 30, _BAR_FULL, _BAR_EMPTY), _BAR_EMPTY * 30)
+
+    def test_render_write_progress_first_chunk(self):
+        self.assertEqual(
+            render_write_progress(1, 3, 10_000_000, 4_194_304, 2.0),
+            "\rFile write progress: 33.3% | Written: 4,194,304/10,000,000 chars | "
+            "ETA: 4.0s | Rate: 2.0 MB/s",
+        )
+
+    def test_render_write_progress_last_chunk(self):
+        self.assertEqual(
+            render_write_progress(3, 3, 10_000_000, 4_194_304, 4.0),
+            "\rFile write progress: 100.0% | Written: 10,000,000/10,000,000 chars | "
+            "ETA: 0.0s | Rate: 2.4 MB/s",
+        )
+
+    def test_render_write_progress_zero_elapsed(self):
+        self.assertEqual(
+            render_write_progress(1, 3, 10_000_000, 4_194_304, 0.0),
+            "\rFile write progress: 33.3% | Written: 4,194,304/10,000,000 chars | "
+            "ETA: 0.0s | Rate: 0.0 MB/s",
+        )
+
+    def test_render_write_progress_small_chunk(self):
+        self.assertEqual(
+            render_write_progress(2, 3, 20, 7, 0.5),
+            "\rFile write progress: 66.7% | Written: 14/20 chars | "
+            "ETA: 0.2s | Rate: 0.0 MB/s",
+        )
+
+    def test_render_write_progress_rate_is_mebibytes(self):
+        self.assertEqual(
+            render_write_progress(1, 1, 10_485_760, 10_485_760, 1.0),
+            "\rFile write progress: 100.0% | Written: 10,485,760/10,485,760 chars | "
+            "ETA: 0.0s | Rate: 10.0 MB/s",
+        )
+
+    def test_render_write_progress_no_chunks_done(self):
+        self.assertEqual(
+            render_write_progress(0, 3, 20, 7, 1.0),
+            "\rFile write progress: 0.0% | Written: 0/20 chars | "
+            "ETA: 0.0s | Rate: 0.0 MB/s",
+        )
+
+    def test_io_workers_clamp(self):
+        for cpus, expected in ((1, 2), (2, 2), (3, 3), (8, 8), (9, 8)):
+            with self.subTest(cpus=cpus):
+                self.assertEqual(_io_workers(cpus), expected)
+
+    def test_estimate_conversion_time_properties(self):
+        points = (100_000, 100_001, 1_000_000, 1_000_001, 10_000_000, 10_000_001)
+        fast = [estimate_conversion_time(d, True) for d in points]
+        slow = [estimate_conversion_time(d, False) for d in points]
+        for series in (fast, slow):
+            self.assertTrue(all(v > 0 for v in series))
+            self.assertEqual(series, sorted(series))
+        for f, s in zip(fast, slow, strict=True):
+            self.assertLessEqual(f, s)
+
+    def test_format_mantissa_positive(self):
+        self.assertEqual(_format_mantissa("314159", 1, 3), "3.141")
+
+    def test_format_mantissa_negative(self):
+        self.assertEqual(_format_mantissa("-314159", 1, 3), "-3.141")
+
+    def test_format_mantissa_zero_digits(self):
+        self.assertEqual(_format_mantissa("314159", 1, 0), "3.")
+
+    def test_format_mantissa_one_digit(self):
+        self.assertEqual(_format_mantissa("314159", 1, 1), "3.1")
+
+    def test_format_mantissa_multi_digit_integer_part(self):
+        self.assertEqual(_format_mantissa("123456", 3, 2), "123.45")
+
+    def test_format_mantissa_rejects_nonpositive_exp(self):
+        for exp in (0, -2):
+            with self.subTest(exp=exp), self.assertRaises(ValueError):
+                _format_mantissa("314159", exp, 3)
+
+
 class TestSavePiEstimateAndProgress(unittest.TestCase):
     """Cover save_pi_to_file's estimate_conversion_time tiers via patched ProcessPool."""
 
@@ -973,15 +1102,61 @@ class TestSavePiEstimateAndProgress(unittest.TestCase):
 
         for d in (50_000, 500_000, 5_000_000, 50_000_000):
             path = os.path.join(self._tmp, f"pi_{d}.txt")
+            buf = io.StringIO()
             with (
                 unittest.mock.patch(
                     "pi.concurrent.futures.ProcessPoolExecutor", _FakePool
                 ),
-                redirect_stdout(io.StringIO()),
+                redirect_stdout(buf),
             ):
                 save_pi_to_file(pi_val, d, path)
+            self.assertIn("Estimated conversion time:", buf.getvalue())
             self.assertTrue(os.path.exists(path))
             os.unlink(path)
+
+    def test_multi_chunk_pwrite_places_every_chunk(self):
+        import mpmath
+
+        s = "3." + "1415926535" * 3  # 32 chars -> 5 chunks of 7
+
+        class _FakeFuture:
+            def done(self):
+                return True
+
+            def result(self):
+                return s
+
+        class _FakePool:
+            def __init__(self, *_, **__):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_a):
+                return False
+
+            def submit(self, fn, *args, **kwargs):
+                return _FakeFuture()
+
+        mpmath.mp.dps = 30
+        path = os.path.join(self._tmp, "chunk.txt")
+        with (
+            unittest.mock.patch("pi.concurrent.futures.ProcessPoolExecutor", _FakePool),
+            unittest.mock.patch("pi._PWRITE_CHUNK", 7),
+            redirect_stdout(io.StringIO()),
+        ):
+            save_pi_to_file(mpmath.mpf(3), 30, path)
+        with open(path, "rb") as fh:
+            data = fh.read()
+        expected = (
+            (
+                "π calculated to 30 decimal places using mpmath\n" + "=" * 60 + "\n\n"
+            ).encode()
+            + s.encode()
+            + b"\n\nTotal decimal places: 30"
+        )
+        self.assertEqual(data, expected)
 
 
 class TestSavePiToFilePhaseAFallback(unittest.TestCase):

@@ -74,7 +74,7 @@ A single root `ruff.toml` serves every Python sub-project via ancestor discovery
 Every `pip install` in every workflow and every Python `install_deps.sh` pins `name==X.Y.Z`, one version per package across all sites (`tests/test_tool_pins.py`); bump them together in the templates. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 Root `make lint` runs `ruff check .`, `ruff format --check` on `git ls-files '*.py'` (never `.`: rewrites markdown), `lint-hooks` and `lint-workflows` (actionlint 1.7.12; skips if absent, fails if `CI=true`). → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 `lint-python` exits 0 when ruff is missing (so a machine can still commit the fix); `scripts.yml` installs ruff so CI enforces it, and `tests/scripts/makefile.bats` asserts that. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
-The two `# noqa: C901` directives in `e/e.py` and `pi/pi.py` are load-bearing: `maintainability-review` runs `ruff check --select C901` on the CLI, which overrides config, so removing one without refactoring reads as a 0 → 21 regression. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
+The two `# noqa: C901` directives in `e/e.py` and `pi/pi.py` are load-bearing: `maintainability-review` runs `ruff check --select C901` on the CLI, which overrides config, so removing one without refactoring reads as a 0 → 12 regression. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 
 Root `make test-rust` runs `make test` in all 11 crates concurrently via `scripts/parallel-make-test.sh` (`JOBS` default 8, crate list derived from `git ls-files '*/*-rs/Makefile'`, exits non-zero on an empty list or any `FAIL <crate>`); covered by `tests/scripts/makefile.bats`.
 

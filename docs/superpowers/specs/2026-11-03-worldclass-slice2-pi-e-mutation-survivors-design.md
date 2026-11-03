@@ -246,3 +246,29 @@ Disposition: Addressed (operator confirmed 2026-11-03) — R9 now hoists `_BAR_F
 ### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+## Amendments
+
+- finding R3 (2026-11-03, reviewer A): DIFFERS — The extracted helpers reproduce the old format strings, but the golden-string tests (TestMirroredHelpers) pin only the return values of render_conversion_tick, render_write_progress and render_bar. Nothing pins the full lines that save_*_to_file and _calculate_*_gmpy2 print: the '\r [bar] k/n chunks' line, the 'Starting conversion'/'Estimated conversion time: X seconds (backend)'/'Using N CPU cores' lines, and the rest are never compared against master eaed2c4 output. So the pinning covers less than 'every string printed'.
+- R3 -> Every string printed by `save_*_to_file` and `_calculate_*_gmpy2` is byte-identical to master `eaed2c4` for the same inputs; the moved display strings are pinned by golden-string tests on the render functions, and the whole-output equivalence is shown by an old-versus-new differential run in Phase 3 (bug-scan). — the golden tests cover only the extracted helpers; the unchanged print lines around them were verified by differential, not pinned by a test.
+
+## Spec alignment (2026-11-03)
+
+- spec: docs/superpowers/specs/2026-11-03-worldclass-slice2-pi-e-mutation-survivors-design.md
+- anchor: 6f84c6867dd879a634b87d8a11d65125b5b75212
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8, R9, R10
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+| R3 | A | DIFFERS | The extracted helpers reproduce the old format strings, but the golden-string tests (TestMirroredHelpers) pin only the return values of render_conversion_tick, render_write_progress and render_bar. Nothing pins the full lines that save_*_to_file and _calculate_*_gmpy2 print: the '\\r [bar] k/n chunks' line, the 'Starting conversion'/'Estimated conversion time: X seconds (backend)'/'Using N CPU cores' lines, and the rest are never compared against master eaed2c4 output. So the pinning covers less than 'every string printed'. | - R3 -> Every string printed by `save_*_to_file` and `_calculate_*_gmpy2` is byte-identical to master `eaed2c4` for the same inputs; the moved display strings are pinned by golden-string tests on the render functions, and the whole-output equivalence is shown by an old-versus-new differential run in Phase 3 (bug-scan). — the golden tests cover only the extracted helpers; the unchanged print lines around them were verified by differential, not pinned by a test. |
+
+### Reviewed
+
+- none
+
+### Verifications
+
+- V1: Pending: dispatch mutation-testing-python.yml for pi and e after merge; baseline 710/735 survivors (run 41279088956, all 20 shards green).

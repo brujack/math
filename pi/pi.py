@@ -53,8 +53,97 @@ def _require_gmpy2():
 # ---------------------------------------------------------------------------
 
 _CPU_COUNT = os.cpu_count() or 1
-_IO_WORKERS = max(2, min(8, _CPU_COUNT))
 _PWRITE_CHUNK = 4 * 1024 * 1024  # 4 MiB per I/O worker chunk
+_BAR_FULL = "█"
+_BAR_EMPTY = "░"
+
+
+def _io_workers(cpu_count):
+    """Return the parallel I/O worker count for *cpu_count* CPUs: 2..8."""
+    # Mirrored in e/e.py (tests/test_pi_e_mirror.py); mutation scope is one file.
+    return max(2, min(8, cpu_count))
+
+
+def estimate_conversion_time(digits, using_gmpy2):
+    """Return a rough string-conversion time estimate in seconds."""
+    # Mirrored in e/e.py (tests/test_pi_e_mirror.py); mutation scope is one file.
+    if using_gmpy2:
+        # MPFR string conversion is ~10x faster than mpmath
+        if digits <= 100_000:
+            return max(0.05, digits * 5e-8)
+        if digits <= 1_000_000:
+            return max(0.1, digits * 2e-7)
+        if digits <= 10_000_000:
+            return max(1.0, digits * 5e-6)
+        return max(10.0, digits * 1e-5)
+    else:
+        if digits <= 100_000:
+            return max(1.0, 0.1 + digits * 5e-6)
+        if digits <= 1_000_000:
+            return max(2.0, 0.5 + digits * 2e-6)
+        if digits <= 10_000_000:
+            return max(30.0, digits * 5e-5)
+        return max(60.0, digits * 1e-4)
+
+
+def render_conversion_tick(digits, elapsed, estimated):
+    """Return the conversion progress line show_one_tick prints."""
+    # Mirrored in e/e.py (tests/test_pi_e_mirror.py); mutation scope is one file.
+    if elapsed <= estimated:
+        remaining = max(0, estimated - elapsed)
+        pct = (elapsed / estimated) * 100
+        bar_length = 30
+        filled = int(bar_length * pct / 100)
+        bar = _BAR_FULL * filled + _BAR_EMPTY * (bar_length - filled)
+        dots = "." * (int(elapsed * 2) % 4)
+        return (
+            f"\rConverting {digits:,} digits{dots:<3} "
+            f"[{bar}] {pct:.1f}% "
+            f"Elapsed: {elapsed:.1f}s | ETA: {remaining:.1f}s"
+        )
+    dots = "." * (int(elapsed * 2) % 4)
+    return (
+        f"\rConverting {digits:,} digits{dots:<3} "
+        f"[Still converting...] "
+        f"Elapsed: {elapsed:.1f}s (longer than estimated)"
+    )
+
+
+def render_write_progress(done, total_chunks, total_bytes, chunk, elapsed):
+    """Return the file-write progress line write_chunk prints."""
+    # Mirrored in e/e.py (tests/test_pi_e_mirror.py); mutation scope is one file.
+    pct = done / total_chunks * 100
+    bytes_done = min(done * chunk, total_bytes)
+    rate = bytes_done / elapsed / 1024 / 1024 if elapsed > 0 else 0
+    remaining = total_chunks - done
+    eta = (remaining / done * elapsed) if done > 0 else 0
+    return (
+        f"\rFile write progress: {pct:.1f}% | "
+        f"Written: {bytes_done:,}/{total_bytes:,} chars | "
+        f"ETA: {eta:.1f}s | "
+        f"Rate: {rate:.1f} MB/s"
+    )
+
+
+def render_bar(completed, total, width, full, empty):
+    """Return a progress bar of *width* cells, completed*width//total filled."""
+    # Mirrored in e/e.py (tests/test_pi_e_mirror.py); mutation scope is one file.
+    filled = completed * width // total
+    return full * filled + empty * (width - filled)
+
+
+def _format_mantissa(mantissa, exp, digits):
+    """Format an mpfr.digits() mantissa as 'I.DDDD' with *digits* decimals."""
+    # Mirrored in e/e.py (tests/test_pi_e_mirror.py); mutation scope is one file.
+    if exp < 1:
+        raise ValueError(f"_format_mantissa: exp must be >= 1, got {exp}")
+    sign = ""
+    if mantissa.startswith("-"):
+        sign, mantissa = "-", mantissa[1:]
+    return f"{sign}{mantissa[:exp]}.{mantissa[exp : exp + digits]}"
+
+
+_IO_WORKERS = _io_workers(_CPU_COUNT)
 
 # Cached (Q, T) from the most recent gmpy2 Chudnovsky computation.
 # Plain Python ints — always picklable for the subprocess worker.
@@ -177,8 +266,9 @@ def _calculate_pi_gmpy2(digits):
                 for completed, _ in enumerate(
                     concurrent.futures.as_completed(futures), start=1
                 ):
-                    filled = completed * bar_width // n_workers
-                    bar = "█" * filled + "░" * (bar_width - filled)
+                    bar = render_bar(
+                        completed, n_workers, bar_width, _BAR_FULL, _BAR_EMPTY
+                    )
                     print(
                         f"\r  [{bar}] {completed}/{n_workers} chunks",
                         end="",
@@ -244,12 +334,7 @@ def _gmpy2_str_from_QT(Q_int, T_int, digits):
     finally:
         ctx.precision = saved_prec
 
-    sign = ""
-    if mantissa.startswith("-"):
-        sign, mantissa = "-", mantissa[1:]
-    int_part = mantissa[:exp] if exp > 0 else "0"
-    dec_part = mantissa[exp : digits + 1]
-    return f"{sign}{int_part}.{dec_part}"
+    return _format_mantissa(mantissa, exp, digits)
 
 
 def _gmpy2_mpfr_to_str(pi_mpfr, digits):
@@ -261,12 +346,7 @@ def _gmpy2_mpfr_to_str(pi_mpfr, digits):
     For π ≈ 3.14159…: mantissa = '314159…', exp = 1.
     """
     mantissa, exp, _ = pi_mpfr.digits(10, digits + 5)
-    sign = ""
-    if mantissa.startswith("-"):
-        sign, mantissa = "-", mantissa[1:]
-    int_part = mantissa[:exp] if exp > 0 else "0"
-    dec_part = mantissa[exp : digits + 1]
-    return f"{sign}{int_part}.{dec_part}"
+    return _format_mantissa(mantissa, exp, digits)
 
 
 def _pi_to_str(pi_value, digits):
@@ -530,25 +610,6 @@ def save_pi_to_file(pi_value, digits, filename):  # noqa: C901 — multi-backend
     using_gmpy2 = _gmpy2 is not None and isinstance(pi_value, _gmpy2.mpfr)
     backend_label = "gmpy2/MPFR" if using_gmpy2 else "mpmath"
 
-    def estimate_conversion_time(d):
-        if using_gmpy2:
-            # MPFR string conversion is ~10x faster than mpmath
-            if d <= 100_000:
-                return max(0.05, d * 5e-8)
-            if d <= 1_000_000:
-                return max(0.1, d * 2e-7)
-            if d <= 10_000_000:
-                return max(1.0, d * 5e-6)
-            return max(10.0, d * 1e-5)
-        else:
-            if d <= 100_000:
-                return max(1.0, 0.1 + d * 5e-6)
-            if d <= 1_000_000:
-                return max(2.0, 0.5 + d * 2e-6)
-            if d <= 10_000_000:
-                return max(30.0, d * 5e-5)
-            return max(60.0, d * 1e-4)
-
     class ProgressIndicator:
         def __init__(self, estimated_duration):
             self.running = False
@@ -566,34 +627,16 @@ def save_pi_to_file(pi_value, digits, filename):  # noqa: C901 — multi-backend
             if self.start_time is None:
                 return
             elapsed = time.time() - self.start_time
-            if elapsed <= self.estimated_duration:
-                remaining = max(0, self.estimated_duration - elapsed)
-                pct = (elapsed / self.estimated_duration) * 100
-                bar_length = 30
-                filled = int(bar_length * pct / 100)
-                bar = "█" * filled + "░" * (bar_length - filled)
-                dots = "." * (int(elapsed * 2) % 4)
-                print(
-                    f"\rConverting {digits:,} digits{dots:<3} "
-                    f"[{bar}] {pct:.1f}% "
-                    f"Elapsed: {elapsed:.1f}s | ETA: {remaining:.1f}s",
-                    end="",
-                    flush=True,
-                )
-            else:
-                dots = "." * (int(elapsed * 2) % 4)
-                print(
-                    f"\rConverting {digits:,} digits{dots:<3} "
-                    f"[Still converting...] "
-                    f"Elapsed: {elapsed:.1f}s (longer than estimated)",
-                    end="",
-                    flush=True,
-                )
+            print(
+                render_conversion_tick(digits, elapsed, self.estimated_duration),
+                end="",
+                flush=True,
+            )
 
     # ── Phase A: subprocess conversion + main-thread progress ───────────────
 
     print(f"Starting conversion of {digits:,} digits...")
-    estimated_time = estimate_conversion_time(digits)
+    estimated_time = estimate_conversion_time(digits, using_gmpy2)
     print(f"Estimated conversion time: {estimated_time:.1f} seconds ({backend_label})")
     print(
         f"Using {_CPU_COUNT} CPU core{'s' if _CPU_COUNT != 1 else ''} "
@@ -687,21 +730,14 @@ def save_pi_to_file(pi_value, digits, filename):  # noqa: C901 — multi-backend
             _pwrite_all(fd, pi_bytes[start:end], pi_offset + start)
             with _progress_lock:
                 completed_chunks += 1
-                elapsed = time.time() - write_start
-                pct = completed_chunks / total_chunks * 100
-                bytes_done = min(completed_chunks * _PWRITE_CHUNK, len(pi_bytes))
-                rate = bytes_done / elapsed / 1024 / 1024 if elapsed > 0 else 0
-                remaining = total_chunks - completed_chunks
-                eta = (
-                    (remaining / completed_chunks * elapsed)
-                    if completed_chunks > 0
-                    else 0
-                )
                 print(
-                    f"\rFile write progress: {pct:.1f}% | "
-                    f"Written: {bytes_done:,}/{len(pi_bytes):,} chars | "
-                    f"ETA: {eta:.1f}s | "
-                    f"Rate: {rate:.1f} MB/s",
+                    render_write_progress(
+                        completed_chunks,
+                        total_chunks,
+                        len(pi_bytes),
+                        _PWRITE_CHUNK,
+                        time.time() - write_start,
+                    ),
                     end="",
                     flush=True,
                 )
