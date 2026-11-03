@@ -3,8 +3,9 @@
 #
 # attribute() and build_body() key the red-path body on the downloaded
 # artifact's own contents (ARTIFACT_DIR, RUN_URL, UNIT_NOUN). main() adds the
-# green-path close and the issue create/comment dispatch, consuming RESULT,
-# ISSUE_TITLE, REPO and ISSUE_LABEL on top of those. main()'s dispatch logic is ported
+# green-path close (only on a full sweep, FULL_SWEEP=true) and the issue
+# create/comment dispatch, consuming RESULT, ISSUE_TITLE, REPO, ISSUE_LABEL
+# and FULL_SWEEP on top of those. main()'s dispatch logic is ported
 # from .github/workflows/mutation-testing.yml's notify job -- but not
 # byte-for-byte: it drops that block's `set -u` in favour of explicit `:?`
 # guards per input, and adds --repo "${REPO}" to every gh issue/label call
@@ -162,9 +163,9 @@ check_expected_units() {
 # File, comment, or close the tracking issue. Same decision tree as
 # the notify job's former inline block, which it replaced on 2026-09-01;
 # the workflows now supply only env: -- with two
-# deliberate differences: no `set -u` (RESULT, REPO, ISSUE_TITLE and
+# deliberate differences: no `set -u` (RESULT, REPO, ISSUE_TITLE,
 # ISSUE_LABEL and FULL_SWEEP each get an explicit `:?` guard instead, since
-# RESULT alone selects the branch),
+# together they select the branch),
 # and every gh issue/label call carries --repo "${REPO}" so a malformed
 # fixture REPO fails in gh's own argument parser instead of reaching a live
 # tracker (tdd.md E2).

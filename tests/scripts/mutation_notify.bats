@@ -838,7 +838,7 @@ print("\n".join(out))
     run main
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"FULL_SWEEP"* ]]
-    run ! grep -q "gh issue close" "${MOCK_CALLS_FILE}"
+    [ ! -e "${MOCK_CALLS_FILE}" ]
 }
 
 @test "FULL_SWEEP=maybe: main exits 1 with the true-or-false message" {
@@ -849,7 +849,7 @@ print("\n".join(out))
     run main
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"FULL_SWEEP must be true or false, got: maybe"* ]]
-    run ! grep -q "gh issue close" "${MOCK_CALLS_FILE}"
+    [ ! -e "${MOCK_CALLS_FILE}" ]
 }
 
 @test "every notify step that runs the script declares FULL_SWEEP from its own input" {
@@ -875,6 +875,6 @@ print("\n".join(out))
 
     [ "$(printf '%s\n' "${_exprs}" | wc -l | tr -d ' ')" -eq 2 ]
     run ! grep -q '<MISSING>' <<< "${_exprs}"
-    printf '%s\n' "${_exprs}" | grep -F 'mutation-testing.yml|' | grep -qF 'inputs.crate'
-    printf '%s\n' "${_exprs}" | grep -F 'mutation-testing-python.yml|' | grep -qF 'inputs.subproject'
+    printf '%s\n' "${_exprs}" | grep -qxF ".github/workflows/mutation-testing.yml|\${{ format('{0}', inputs.crate) == '' && 'true' || 'false' }}"
+    printf '%s\n' "${_exprs}" | grep -qxF ".github/workflows/mutation-testing-python.yml|\${{ format('{0}', inputs.subproject) == '' && 'true' || 'false' }}"
 }
