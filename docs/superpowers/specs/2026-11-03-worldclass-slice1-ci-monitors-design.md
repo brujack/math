@@ -1,6 +1,7 @@
 # Worldclass slice 1: mutation monitor correctness and an actionlint gate
 
-- **Status:** Draft
+- **Status:** Approved
+- **Approved:** 2026-11-03
 - **Date:** 2026-11-03
 - **Issues:** #195, #100, #95, #90
 
@@ -206,4 +207,4 @@ Reviewed at commit: `6ecca07`
 
 Finding: the revision's fail-closed positive control turns `auto-merge.yml`'s gated `bash-coverage` job red on every PR, because that job runs the whole bats suite with `CI=true` and the spec installed actionlint only in `scripts.yml`; the repo hit the same trap with cargo-deny (`auto-merge.yml:103-104`, `tests/test_deny_policy.py`). Fix: install actionlint in every bats-suite job and pin that with a test. Checked clean: no other CI caller of root `make lint`; the fixture is swept by no glob; R5 is safe against `check_expected_units` and the `gh` mock; no R contradicts an N.
 Assumption: no uncertain assumption found (the one that broke the design was refuted in the finding).
-Disposition:
+Disposition: Addressed — R14 adds the install to every bats-suite job, pinned by a test (operator, 2026-11-03).
