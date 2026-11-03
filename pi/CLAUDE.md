@@ -202,7 +202,8 @@ gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 | `TestPiToStrNegativeSign`            | 1     | Negative-mpfr sign-strip branch in `_gmpy2_mpfr_to_str`                 |
 | `TestShowPiPreviewNoDecimal`         | 1     | Else branch when preview string lacks `.`                               |
 | `TestGetTargetDigitsInteractive`     | 5     | Interactive prompt: valid, retries, large-N decline + accept            |
-| `TestSavePiEstimateAndProgress`      | 1     | Exercises `estimate_conversion_time` tiers via patched ProcessPool      |
+| `TestSavePiEstimateAndProgress`      | 2     | `estimate_conversion_time` tiers via patched ProcessPool; multi-chunk pwrite (`_PWRITE_CHUNK` = 7) |
+| `TestMirroredHelpers`                | 16    | Mirrored helpers: render goldens, `_io_workers` table, estimate ordering properties, `_format_mantissa` |
 | `TestSavePiToFilePhaseAFallback`     | 1     | OSError triggers serial fallback in `save_pi_to_file`                   |
 | `TestMain`                           | 13    | Always-write, `--show` (returned string, ordering), overwrite, refusal before any write, `--yes` proceed, error handlers |
 | `TestEntryPointGuard`                | 1     | Module runs via subprocess (`if __name__ == "__main__"` block)          |

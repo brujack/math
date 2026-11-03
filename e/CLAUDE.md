@@ -204,7 +204,8 @@ gmpy2-dependent tests are automatically skipped when gmpy2 is not installed.
 | `TestGmpy2WorkerFunctions`           | 2     | Direct dispatch of `_gmpy2_str_from_PQ` and `_convert_gmpy2_worker`     |
 | `TestConvertMpmathWorker`            | 1     | Direct dispatch of `_convert_mpmath_worker`                             |
 | `TestPwriteAllStall`                 | 1     | Stall path in `_pwrite_all` (returns 0)                                 |
-| `TestSaveEEstimateAndProgress`       | 1     | Exercises `estimate_conversion_time` tiers via patched ProcessPool      |
+| `TestSaveEEstimateAndProgress`       | 2     | `estimate_conversion_time` tiers via patched ProcessPool; multi-chunk pwrite (`_PWRITE_CHUNK` = 7) |
+| `TestMirroredHelpers`                | 16    | Mirrored helpers: render goldens, `_io_workers` table, estimate ordering properties, `_format_mantissa` |
 | `TestSaveEToFilePhaseAFallback`      | 1     | OSError triggers serial fallback in `save_e_to_file`                    |
 | `TestGetTargetDigitsInteractive`     | 5     | Interactive prompt: valid, retries, large-N decline + accept            |
 | `TestMain`                           | 15    | Always-save, --show, large-run refusal/--yes, error handlers            |

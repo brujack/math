@@ -79,6 +79,7 @@ class TestPiEMirror(unittest.TestCase):
     def test_glyphs_are_module_constants(self) -> None:
         for tree in (self.pi_tree, self.e_tree):
             self.assertTrue(_has_module_assign(tree, "_BAR_FULL"))
+            self.assertTrue(_has_module_assign(tree, "_BAR_EMPTY"))
 
 
 if __name__ == "__main__":
