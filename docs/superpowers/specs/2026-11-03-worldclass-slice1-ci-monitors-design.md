@@ -107,6 +107,11 @@ comments.
   step. Its `paths:` filter gains `.github/workflows/**` (replacing the per-file workflow entries
   it subsumes), so any workflow edit runs the gate. This also covers `mutation-testing*.yml`,
   whose tests `scripts.yml` never triggered on before.
+- **Every bats-suite job installs it.** The positive control fails closed under `CI=true`, and
+  `auto-merge.yml`'s gated `bash-coverage` job also runs the whole bats suite with `CI=true`
+  (`scripts/run-bash-coverage.sh`), so it gets the same pinned, checksummed install step. A test
+  pins the rule the way `tests/test_deny_policy.py` does for cargo-deny: every workflow job whose
+  steps run `bats`, `bash-coverage` or `test-hooks` installs actionlint at the one pinned version.
 - **Positive control:** fixture `tests/fixtures/actionlint/sc2086.yml`, a minimal workflow whose
   `run:` block expands an unquoted variable. A bats case runs `make lint-workflows
   WORKFLOWS=<fixture>` and asserts a non-zero exit with `SC2086` in the output, proving both
@@ -159,6 +164,7 @@ closed by the PR (`Closes #100`).
 - **R11.** `[PR1]` actionlint 1.7.12 reports 0 findings over the repo's workflows.
 - **R12.** `[PR1]` In both badge templates a failed `git worktree add` for `coverage-data` prints a message and exits 0.
 - **R13.** `[PR1]` The 20 rendered workflows match their templates (`tests/test_crate_uniformity.py` green).
+- **R14.** `[PR1]` Every workflow job that runs the bats suite (`scripts.yml`'s job and `auto-merge.yml`'s `bash-coverage`) installs actionlint 1.7.12 with a `sha256sum -c` check, and a test fails if any such job lacks it.
 - **V1.** The PR's `scripts` CI job log shows actionlint 1.7.12 running, exiting 0 on the repo, and the R10 case passing (not skipped).
 - **V2.** After merge, a `workflow_dispatch` full sweep of `mutation-testing.yml` lists 11 crates and no `tests-fixtures-*` status entry.
 - **V3.** #95 and #90 are closed with evidence comments; #100 is closed by the PR.
@@ -193,3 +199,11 @@ Disposition: Addressed — positive-control fixture (R10); `GITHUB_OUTPUT` pinne
 ### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+### Risk (round 2, scoped to sections A-D and Requirements)
+
+Reviewed at commit: `6ecca07`
+
+Finding: the revision's fail-closed positive control turns `auto-merge.yml`'s gated `bash-coverage` job red on every PR, because that job runs the whole bats suite with `CI=true` and the spec installed actionlint only in `scripts.yml`; the repo hit the same trap with cargo-deny (`auto-merge.yml:103-104`, `tests/test_deny_policy.py`). Fix: install actionlint in every bats-suite job and pin that with a test. Checked clean: no other CI caller of root `make lint`; the fixture is swept by no glob; R5 is safe against `check_expected_units` and the `gh` mock; no R contradicts an N.
+Assumption: no uncertain assumption found (the one that broke the design was refuted in the finding).
+Disposition:
