@@ -819,7 +819,9 @@ class TestRender(unittest.TestCase):
     def test_labels_pinned_for_off_axis_vertices(self):
         # Each case moves one vertex away from both axes of the centroid, so
         # the centroid's x and y each decide some label's side.
-        cases = (
+        cases: tuple[
+            tuple[dict[str, float], int, int, int, dict[str, tuple[int, int]]], ...
+        ] = (
             (
                 {"a": 3, "b": 5, "c": 7},
                 0,
