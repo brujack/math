@@ -169,25 +169,20 @@ def _to_unit(value: float, radians: bool) -> float:
     return value if radians else math.degrees(value)
 
 
-def _ssa_third_sides(
-    angle: float, x: float, y: float, x_name: str, y_name: str, exponent: int
-) -> list[tuple[float, float]]:
-    """Third sides for SSA, longest first: 0 (raises), 1 or 2 of them.
+def _ssa_third_sides(angle: float, x: float, y: float) -> list[tuple[float, float]]:
+    """Third sides for SSA, longest first: 0, 1 or 2 of them.
 
     angle is opposite x; y is the other known side.  Each entry is (z, r)
     with r = z - y cos(angle), which is the signed square-root term, so the
     angle opposite y is atan2(y sin(angle), r) without any cancellation.
     The third side is computed directly, never from angle differences,
-    which cancel when x is near y.  The sides arrive scaled by
-    2**-exponent; messages unscale them.
+    which cancel when x is near y.  An empty list means no triangle; the
+    caller words the reason.
     """
     cos_x = math.cos(angle)
     if angle >= math.pi / 2:
         if x <= y:
-            raise NoTriangle(
-                f"no triangle: side {x_name} must be longer than {y_name} "
-                "opposite an angle of 90 degrees or more"
-            )
+            return []
         # Each factor rooted alone: their product can underflow when x is tiny.
         root = math.sqrt(x - y * math.sin(angle)) * math.sqrt(x + y * math.sin(angle))
         # y*cos(angle) <= 0 here, so the sum cancels when x is near y; the
@@ -202,10 +197,7 @@ def _ssa_third_sides(
         # amplify the 1-ulp error in h into a visibly non-right angle.
         return [(y * cos_x, 0.0)]
     if x < h:
-        height = math.ldexp(h, exponent)
-        raise NoTriangle(
-            f"no triangle: side {x_name} is shorter than the height {height:g}"
-        )
+        return []
     root = math.sqrt(x - h) * math.sqrt(x + h)
     z1 = y * cos_x + root
     return [(z1, root), ((y - x) * (y + x) / z1, -root)]
@@ -219,8 +211,20 @@ def _solve_ssa(
     y_name = next(n for n in names if n in _SIDES and n != x_name)
     z_name = next(n for n in _SIDES if n not in (x_name, y_name))
     angle, x, y = values[angle_name], values[x_name], values[y_name]
+    third_sides = _ssa_third_sides(angle, x, y)
+    if not third_sides and angle >= math.pi / 2:
+        raise NoTriangle(
+            f"no triangle: side {x_name} must be longer than {y_name} "
+            "opposite an angle of 90 degrees or more"
+        )
+    if not third_sides:
+        # The sides arrive scaled by 2**-exponent; the message unscales.
+        height = math.ldexp(y * math.sin(angle), exponent)
+        raise NoTriangle(
+            f"no triangle: side {x_name} is shorter than the height {height:g}"
+        )
     solutions = []
-    for z, root in _ssa_third_sides(angle, x, y, x_name, y_name, exponent):
+    for z, root in third_sides:
         y_angle, z_angle = _close_angles(
             angle,
             math.atan2(y * math.sin(angle), root),
