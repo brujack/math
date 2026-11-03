@@ -78,7 +78,10 @@ class Shared:
                     stub.chmod(0o755)
                 (root / self.crate_dir).mkdir()
                 log = root / "git.log"
-                script = badge_step(self.workflow).replace("/tmp/", f"{root}/")
+                original = badge_step(self.workflow)
+                self.assertIn("/tmp/cov-data", original)
+                script = original.replace("/tmp/", f"{root}/")
+                self.assertNotIn("/tmp", script.replace(str(root), ""))
                 env = {
                     "PATH": f"{bin_dir}:{os.environ['PATH']}",
                     "HOME": str(root),
@@ -86,7 +89,7 @@ class Shared:
                     **{k: str(v) for k, v in env_rc.items()},
                 }
                 result = subprocess.run(
-                    ["bash", "-e", "-c", script],
+                    ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
                     cwd=root,
                     env=env,
                     capture_output=True,
