@@ -737,6 +737,20 @@ class TestMirroredHelpers(unittest.TestCase):
             "ETA: 0.2s | Rate: 0.0 MB/s",
         )
 
+    def test_render_write_progress_rate_is_mebibytes(self):
+        self.assertEqual(
+            render_write_progress(1, 1, 10_485_760, 10_485_760, 1.0),
+            "\rFile write progress: 100.0% | Written: 10,485,760/10,485,760 chars | "
+            "ETA: 0.0s | Rate: 10.0 MB/s",
+        )
+
+    def test_render_write_progress_no_chunks_done(self):
+        self.assertEqual(
+            render_write_progress(0, 3, 20, 7, 1.0),
+            "\rFile write progress: 0.0% | Written: 0/20 chars | "
+            "ETA: 0.0s | Rate: 0.0 MB/s",
+        )
+
     def test_io_workers_clamp(self):
         for cpus, expected in ((1, 2), (2, 2), (3, 3), (8, 8), (9, 8)):
             with self.subTest(cpus=cpus):
@@ -764,6 +778,9 @@ class TestMirroredHelpers(unittest.TestCase):
     def test_format_mantissa_one_digit(self):
         self.assertEqual(_format_mantissa("314159", 1, 1), "3.1")
 
+    def test_format_mantissa_multi_digit_integer_part(self):
+        self.assertEqual(_format_mantissa("123456", 3, 2), "123.45")
+
     def test_format_mantissa_rejects_nonpositive_exp(self):
         for exp in (0, -2):
             with self.subTest(exp=exp), self.assertRaises(ValueError):
@@ -771,7 +788,7 @@ class TestMirroredHelpers(unittest.TestCase):
 
 
 class TestSaveEEstimateAndProgress(unittest.TestCase):
-    """Cover save_e_to_file's nested estimate_conversion_time and ProgressIndicator
+    """Cover save_e_to_file's estimate_conversion_time and ProgressIndicator
     overrun branch by invoking the function with a tiny digit count."""
 
     def setUp(self):
