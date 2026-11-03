@@ -164,8 +164,12 @@ The extracted functions must stay mirrored across two files, because mutation sc
 one file per project. Nothing checks that today: `tests/test_crate_uniformity.py`
 covers only rendered templates, and §2's slice drift shows what happens without a
 check. A new root test parses `pi/pi.py` and `e/e.py` with `ast` and asserts that each
-mirrored function's body is equal after normalising the known label and glyph
-constants. Each mirrored function carries a one-line comment naming its twin. The
+mirrored function's `ast.dump` is equal, with no normaliser. The only literal that
+differs today is the bar glyph pair in `render_conversion_tick` (`█░` in pi, `#.` in e),
+so each module hoists it to module constants `_BAR_FULL` and `_BAR_EMPTY`, and the
+mirrored bodies become identical. A normaliser that blanked string constants would also
+blank the f-string fragments the render functions exist to produce, which would make the
+check vacuous. A negative case alters one parsed tree and asserts the comparison fails. Each mirrored function carries a one-line comment naming its twin. The
 reason for the duplication goes in `pi/CLAUDE.md` and `e/CLAUDE.md`, not in the root
 file, which has no room.
 
@@ -180,12 +184,16 @@ cases as the repo's testing policy requires:
   `elapsed == 0`; `completed_chunks == total_chunks`; a partial last chunk.
 - **Error paths.** `render_write_progress` with `elapsed == 0` (the guard that avoids
   division by zero); `estimated == 0` is not reachable, because every
-  `estimate_conversion_time` branch has a positive floor, and a test pins that floor.
+  `estimate_conversion_time` branch has a positive floor.
 - **State.** The pure functions have no state. The multi-chunk test asserts the whole
   file, so it checks both that no chunk is written twice and that none is skipped.
 
-At least one test for each function asserts a specific value, not just a shape. An
-empty string or `0.0` must fail.
+At least one test for each function asserts a specific value, not just a shape, so an
+empty string or `0.0` fails. The exception is `estimate_conversion_time`, whose tests
+are property tests by design (R7). A constant positive return would pass them, and that
+is accepted: its coefficients are tuning guesses (§5), and the properties exist to catch
+ordering and sign breaks, not to pin values. Boundary mutants such as `<=` to `<` at a
+threshold also survive the properties, and V1 will show them.
 
 ## Requirements
 
@@ -197,7 +205,7 @@ empty string or `0.0` must fail.
 - **R6.** The four mantissa formatters delegate to `_format_mantissa`, which slices `mantissa[exp : exp + digits]`, raises `ValueError` for `exp < 1`, and is tested for negative input, `exp` of 1, 0 and -2, and `digits` of 0 and 1.
 - **R7.** `estimate_conversion_time` is tested at each threshold (100,000, 1,000,000 and 10,000,000) and one above it, for both backends, asserting that the result is positive, non-decreasing in `digits`, and no larger for gmpy2 than for mpmath; no test restates a coefficient.
 - **R8.** The `# noqa: C901` comments on `save_*_to_file` stay while `ruff check --select C901 --ignore-noqa` scores them above 10, and the root `CLAUDE.md` line's "0 → 21" figure is rewritten to the branch's measured score without growing the file.
-- **R9.** A root test asserts that each mirrored function in `pi/pi.py` and `e/e.py` has an equal `ast` body after normalising label and glyph constants, and fails when one copy changes alone.
+- **R9.** A root test asserts that each mirrored function in `pi/pi.py` and `e/e.py` has an equal `ast.dump` with no normaliser, the bar glyphs live in module constants `_BAR_FULL` and `_BAR_EMPTY`, and a negative case shows the comparison fails when one copy changes alone.
 - **R10.** `test_estimate_conversion_time_tiers` in `pi/test_pi.py` and `test_estimate_conversion_time_branches` in `e/test_e.py` each assert that captured stdout contains an `Estimated conversion time:` line.
 - **V1.** After merge, dispatch `mutation-testing-python.yml` for `pi` and for `e`, and record in the PR or a follow-up comment the survivor count, the total mutant count and the kill rate for each, beside the 2026-11-01 figures (710 and 735 survivors).
 - **N1.** No change to the π or e algorithms, the precision formulas or the series term counts.
@@ -227,6 +235,12 @@ Disposition: Addressed — R9 adds the `ast` sync test with twin comments and su
 Finding: Design sound; no R/N conflict. Three defects. (1) Measured on a scratch prototype of the split: `ruff check --select C901 --ignore-noqa` gives `save_pi_to_file` 12 > 10 (down from 21), so the noqa stays, and R8's "keep the line unchanged" branch leaves root `CLAUDE.md`'s "0 → 21 regression" figure stale; the keep branch must rewrite the figure. (This also settles the Ergonomics assumption: R8 frees no bytes.) (2) The `bytes_done` clamp (`pi.py:692`) feeds only `rate` and the print; it is display, not a corruption risk. Only the slice end (686) and offset (687) are. (3) `_format_mantissa` returns `"0."` silently for negative `exp` via Python negative indexing; assert the domain or pin it. Confirmed fine: `patch.object(pi, "_PWRITE_CHUNK", 7)` reaches both `chunk_starts` and `write_chunk`; `_io_workers` is fork/spawn safe; the mutant denominator barely changes; no test passes on empty output. Minor: first-tier slope mutants never win the `max()` (gmpy2 `d*5e-8` ≤ 0.005 < 0.05; mpmath ≤ 0.6 < 1.0), so they are equivalent and belong in §5.
 Assumption: The 2026-11-01 baseline is a complete run. Checked by the orchestrator: `gh run view 41279088956 --json jobs` shows all 20 pi and e shard jobs `success`.
 Disposition: Addressed — §4 and R8 now keep the noqa (measured 12 > 10) and rewrite the root figure; line 692 reclassified as display; `_format_mantissa` domain enforced with `ValueError`; first-tier slope added to §5. Baseline completeness verified.
+
+### Risk (round 2, scoped re-review at `790ecdf`)
+
+Sections reviewed: Problem, §2-§6, R6-R10. Finding: (1) the Testing section still said a test pins the estimate floor and that every function gets a specific-value assertion, contradicting R7 and §5; (2) R9's normaliser was unspecified, and blanking string constants would also blank the render f-strings, so the check would be vacuous. Verified safe: `ValueError` for `exp < 1` (π, −π and e all give `exp` 1; no caller reaches the formatter with other values); all three estimate properties hold on master at every boundary; R10 is compatible; no R/N conflict. Noted: the properties pass a constant positive return and miss `<=`→`<` threshold mutants.
+Assumption: That direct unit tests on the extracted functions kill a large share of the display survivors, rather than most surviving as threshold or constant mutants. V1 settles it after merge.
+Disposition: Addressed — R9 now hoists `_BAR_FULL`/`_BAR_EMPTY` and compares plain `ast.dump` with a negative case; the floor clause deleted; the specific-value rule carves out R7 and names the accepted gaps. Review stopped here: both round-2 findings were wording and test-apparatus level, and the fix removed surface (no normaliser).
 
 ### Adversarial Spec Review (comparison/judge designs only)
 
