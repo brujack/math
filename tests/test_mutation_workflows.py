@@ -498,8 +498,11 @@ class RustCrateDiscoveryTests(unittest.TestCase):
         self.assertLess(ids.index("crates"), ids.index("Run mutants"))
 
 
-def run_mutants_in_sandbox(crate_dirs):
-    """Execute `Run mutants` against stub make/classifier; return observations."""
+def run_mutants_in_sandbox(crate_dirs, red_crate=""):
+    """Execute `Run mutants` against stub make/classifier; return observations.
+
+    The classifier stub reports red (exit 1) for `red_crate`, green otherwise.
+    """
     step = next(s for s in rs_steps() if s.get("name") == "Run mutants")
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
@@ -512,7 +515,11 @@ def run_mutants_in_sandbox(crate_dirs):
         workspace = root / "ws"
         (workspace / "scripts").mkdir(parents=True)
         classify = workspace / "scripts" / "mutation-classify.sh"
-        classify.write_text("#!/bin/sh\nprintf 'green: %s\\n' \"$3\"\n")
+        classify.write_text(
+            "#!/bin/sh\n"
+            'if [ "$3" = "$RED_CRATE" ]; then printf "red: %s\\n" "$3" >&2; exit 1; fi\n'
+            "printf 'green: %s\\n' \"$3\"\n"
+        )
         classify.chmod(0o755)
         summary = root / "summary"
         summary.touch()
@@ -521,6 +528,7 @@ def run_mutants_in_sandbox(crate_dirs):
             "GITHUB_WORKSPACE": str(workspace),
             "GITHUB_STEP_SUMMARY": str(summary),
             "CRATE_DIRS": crate_dirs,
+            "RED_CRATE": red_crate,
         }
         proc = subprocess.run(
             ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]],
@@ -531,7 +539,7 @@ def run_mutants_in_sandbox(crate_dirs):
             stdin=subprocess.DEVNULL,
             check=False,
         )
-        made = calls.read_text().split() if calls.exists() else []
+        made = calls.read_text().splitlines() if calls.exists() else []
         statuses = sorted(p.name for p in (workspace / "status").glob("*"))
         return proc, made, statuses
 
@@ -550,6 +558,14 @@ class RunMutantsBehaviourTests(unittest.TestCase):
         self.assertEqual(made, ["a/a-rs"])
         self.assertIn("crates to test: 1", proc.stdout)
         self.assertEqual(statuses, ["a-a-rs"])
+
+    def test_one_red_crate_fails_the_step_after_running_all(self):
+        proc, made, statuses = run_mutants_in_sandbox(
+            "a/a-rs b/b-rs", red_crate="a/a-rs"
+        )
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(made, ["a/a-rs", "b/b-rs"])
+        self.assertEqual(statuses, ["a-a-rs", "b-b-rs"])
 
 
 if __name__ == "__main__":
