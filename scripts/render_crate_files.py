@@ -113,10 +113,14 @@ def _expected(root, kinds, python_kinds):
 
 
 def _drifted(path, rel, text):
-    """True when path is missing, differs from text, or is a script without +x."""
+    """True when path is missing, differs from text, or is a script without +x.
+
+    Only the owner execute bit counts: git records a single execute bit, so a
+    checkout under umask 077 is 0700 and is not drift.
+    """
     if not path.is_file() or path.read_text() != text:
         return True
-    return rel.endswith(".sh") and path.stat().st_mode & 0o111 != 0o111
+    return rel.endswith(".sh") and not path.stat().st_mode & 0o100
 
 
 def check(root, kinds, python_kinds=None):

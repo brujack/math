@@ -195,6 +195,15 @@ class TestCheckAndWrite(unittest.TestCase):
             drift = rcf.check(root, kinds)
         self.assertEqual(drift, ["pi/pi-rs/install_deps.sh"])
 
+    def test_owner_execute_bit_is_enough(self):
+        # git records one execute bit; a umask-077 checkout gives 0700.
+        kinds = {"install_deps.sh": "{crate}/{crate}-rs/install_deps.sh"}
+        for mode in (0o700, 0o744):
+            with self.subTest(mode=oct(mode)), tempfile.TemporaryDirectory() as tmp:
+                root = self._sh_tree(tmp)
+                (root / "pi" / "pi-rs" / "install_deps.sh").chmod(mode)
+                self.assertEqual(rcf.check(root, kinds), [])
+
     def test_write_makes_a_rendered_script_executable(self):
         kinds = {"install_deps.sh": "{crate}/{crate}-rs/install_deps.sh"}
         with tempfile.TemporaryDirectory() as tmp:
