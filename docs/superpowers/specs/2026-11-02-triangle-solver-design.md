@@ -434,3 +434,11 @@ Review stops here. The remaining risk is implementation numerics, which Phase 2'
 - V1: Not yet run on macOS at this HEAD. The operator's Mac probe (2026-11-02) confirmed braille cells align in their terminal; the triangle drawing itself is pending a Mac run after merge.
 - V2: Pending: the PR's CI has not run yet.
 - V3: MUTANT_SHARD=0/10 make -C triangle mutants at 2140b6e: green, 207 jobs, 19 survived, 2 timed out, so caught > 0. Not re-run after the review fixes.
+
+## Post-merge verification (2026-11-03)
+
+Recorded after math#198 merged as ad40b7b. The verdict block above is left as written on 2026-11-03 before merge.
+
+- V1: Passed by operator inspection, with one substitution. `-a 3 -b 4 -c 5` and `-a 6 -b 8 -A 30` (both SSA solutions) were drawn in Warp on macOS, run over ssh to the Linux host; the terminal emulator renders the glyphs, so this exercises the Mac's font. In Terminal.app the operator ran `-a 1 -b 1 -c 1` instead of the two V1 commands; it looked correct, which is the stricter check of the 2:1 cell-aspect assumption the renderer relies on. Vertex labels were correct in every run; the label positions matched the expected geometry (C at 0.64 of AB for 3-4-5, C beyond B for the 138-degree solution).
+- V2: CI green on math#198, all 20 checks, `Test triangle.py` coverage 99.72%.
+- V3: Unchanged: last run at 2140b6e, not re-run at the merged code.
