@@ -177,4 +177,5 @@ jobs:
           UNIT_NOUN: sub-project
           REPO: ${{ github.repository }}
           EXPECTED_STATUS_UNITS: ${{ needs.setup.outputs.units }}
+          FULL_SWEEP: ${{ format('{0}', inputs.subproject) == '' && 'true' || 'false' }}
         run: scripts/mutation-notify.sh

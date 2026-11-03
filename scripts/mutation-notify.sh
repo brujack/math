@@ -163,8 +163,8 @@ check_expected_units() {
 # the notify job's former inline block, which it replaced on 2026-09-01;
 # the workflows now supply only env: -- with two
 # deliberate differences: no `set -u` (RESULT, REPO, ISSUE_TITLE and
-# ISSUE_LABEL each get an explicit `:?` guard instead, since RESULT alone
-# selects the branch),
+# ISSUE_LABEL and FULL_SWEEP each get an explicit `:?` guard instead, since
+# RESULT alone selects the branch),
 # and every gh issue/label call carries --repo "${REPO}" so a malformed
 # fixture REPO fails in gh's own argument parser instead of reaching a live
 # tracker (tdd.md E2).
@@ -173,6 +173,14 @@ main() {
     : "${REPO:?}"
     : "${ISSUE_TITLE:?}"
     : "${ISSUE_LABEL:?}"
+    : "${FULL_SWEEP:?FULL_SWEEP unset: the notify step must pass true or false}"
+    case "${FULL_SWEEP}" in
+        true | false) ;;
+        *)
+            printf 'FULL_SWEEP must be true or false, got: %s\n' "${FULL_SWEEP}" >&2
+            return 1
+            ;;
+    esac
 
     local _existing
     # --jq '.[0].number // empty' is real gh/jq behaviour; the test mock
@@ -188,8 +196,14 @@ main() {
 
     if [[ "${RESULT}" == "success" ]]; then
         if [[ -n "${_existing}" ]]; then
-            gh issue comment "${_existing}" --repo "${REPO}" --body "Green as of ${RUN_URL}. Closing." || return 1
-            gh issue close "${_existing}" --repo "${REPO}" || return 1
+            if [[ "${FULL_SWEEP}" == "true" ]]; then
+                gh issue comment "${_existing}" --repo "${REPO}" --body "Green as of ${RUN_URL}. Closing." || return 1
+                gh issue close "${_existing}" --repo "${REPO}" || return 1
+            else
+                # One green unit says nothing about the others, so leave it open.
+                gh issue comment "${_existing}" --repo "${REPO}" \
+                    --body "Single-unit run green as of ${RUN_URL}; left open (only a full sweep closes this issue)." || return 1
+            fi
         fi
         return 0
     fi

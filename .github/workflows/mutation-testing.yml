@@ -145,4 +145,5 @@ jobs:
           ISSUE_LABEL: mutation-failure
           UNIT_NOUN: crate
           REPO: ${{ github.repository }}
+          FULL_SWEEP: ${{ format('{0}', inputs.crate) == '' && 'true' || 'false' }}
         run: scripts/mutation-notify.sh
