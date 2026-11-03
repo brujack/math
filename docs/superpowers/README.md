@@ -54,7 +54,7 @@ Master status index for all specs and implementation plans in this directory.
 | 2026-10-31 | [hook-hardening](plans/2026-10-31-hook-hardening.md) | [spec](specs/2026-10-31-hook-hardening-design.md) | Done (#192) |
 | 2026-10-31 | [python-makefile-template-hardening](plans/2026-10-31-python-makefile-template-hardening.md) | [spec](specs/2026-10-31-python-makefile-template-hardening-design.md) | Done (math#194) |
 | 2026-11-02 | [triangle-solver](plans/2026-11-02-triangle-solver.md) | [spec](specs/2026-11-02-triangle-solver-design.md) | Done |
-| 2026-11-03 | [worldclass-slice1-ci-monitors](plans/2026-11-03-worldclass-slice1-ci-monitors.md) | [spec](specs/2026-11-03-worldclass-slice1-ci-monitors-design.md) | In progress |
+| 2026-11-03 | [worldclass-slice1-ci-monitors](plans/2026-11-03-worldclass-slice1-ci-monitors.md) | [spec](specs/2026-11-03-worldclass-slice1-ci-monitors-design.md) | Done (math#200) |
 | 2026-10-31 | [shared-push-content-gate](plans/2026-10-31-shared-push-content-gate.md) | ai-config `2026-10-30-shared-push-content-gate-design.md` (cross-repo) | Done |
 
 ---

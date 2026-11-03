@@ -1,5 +1,7 @@
 # Worldclass Slice 1: CI Monitors Implementation Plan
 
+> **Status: DONE** — merged in math#200 (5bb2bf4), 2026-11-03.
+
 spec: docs/superpowers/specs/2026-11-03-worldclass-slice1-ci-monitors-design.md
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
