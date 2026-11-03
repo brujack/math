@@ -672,6 +672,32 @@ class TestInputErrors(unittest.TestCase):
             "angles B and C must sum to less than pi radians",
         )
 
+    def test_pair_summing_to_180_in_degrees_is_refused_after_rounding(self):
+        # radians(10.8) + radians(169.2) is 1 ulp below pi.
+        for first, second in ((10.8, 169.2), (15.479, 164.521)):
+            with self.subTest(A=first, B=second):
+                self.assertEqual(
+                    self._msg({"a": 1, "A": first, "B": second}),
+                    "angles A and B must sum to less than 180 degrees",
+                )
+
+    def test_pair_below_180_whose_radians_reach_pi_is_refused(self):
+        # 0.22 + 179.77999999999997 < 180, but the radians sum is pi.
+        self.assertEqual(
+            self._msg({"a": 1, "A": 0.22, "B": 179.77999999999997}),
+            "angles A and B must sum to less than 180 degrees",
+        )
+
+    def test_every_one_decimal_pair_summing_to_180_is_refused(self):
+        for tenths in range(1, 1800):
+            first = tenths / 10
+            second = round(180 - first, 1)
+            if first + second != 180:
+                continue
+            with self.subTest(A=first, B=second):
+                with self.assertRaises(TriangleInputError):
+                    solve({"a": 1, "A": first, "B": second})
+
     def test_pair_sum_checked_with_extra_angles(self):
         self.assertEqual(
             self._msg({"a": 3, "b": 4, "A": 100, "B": 90}),

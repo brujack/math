@@ -306,11 +306,24 @@ def _check_each_value(values: dict[str, float], limit: float, limit_text: str) -
             raise TriangleInputError(f"angle {name} must be less than {limit_text}")
 
 
-def _check_angle_pairs(internal: dict[str, float], limit_text: str) -> None:
+def _check_angle_pairs(
+    values: dict[str, float],
+    internal: dict[str, float],
+    limit: float,
+    limit_text: str,
+) -> None:
+    """Refuse any two angles that leave no room for a third.
+
+    Checked in the input unit and in radians: radians(10.8) + radians(169.2)
+    rounds to 1 ulp below pi, and a radians sum can round up onto it.
+    """
     angles = [n for n in _ANGLES if n in internal]
     for i, first in enumerate(angles):
         for second in angles[i + 1 :]:
-            if internal[first] + internal[second] >= math.pi:
+            if (
+                values[first] + values[second] >= limit
+                or internal[first] + internal[second] >= math.pi
+            ):
                 raise TriangleInputError(
                     f"angles {first} and {second} must sum to less than {limit_text}"
                 )
@@ -324,7 +337,8 @@ def _validate(values: dict[str, float], radians: bool) -> dict[str, float]:
     if len(values) < 3:
         raise TriangleInputError("need at least three values")
     limit_text = "pi radians" if radians else "180 degrees"
-    _check_each_value(values, math.pi if radians else 180.0, limit_text)
+    limit = math.pi if radians else 180.0
+    _check_each_value(values, limit, limit_text)
     if not any(n in values for n in _SIDES):
         raise TriangleInputError("need at least one side")
     internal = {
@@ -333,7 +347,7 @@ def _validate(values: dict[str, float], radians: bool) -> dict[str, float]:
     for name in _ANGLES:
         if name in internal and internal[name] < sys.float_info.min:
             raise TriangleInputError(f"angle {name} is too small for a double")
-    _check_angle_pairs(internal, limit_text)
+    _check_angle_pairs(values, internal, limit, limit_text)
     return internal
 
 
