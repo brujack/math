@@ -261,4 +261,4 @@ The universal DoD in `behavior.md` applies. math adds:
 - [ ] Rust coverage ≥90% on Linux CI — verify from CI output (`gh run view --repo brujack/math <id> --log | grep Coverage`)
 - [ ] BATS failure-mode tests added/updated for any new or modified CLI
 - [ ] Plan index updated (`docs/superpowers/README.md`) if this PR implements a tracked spec
-- [ ] Root `README.md` CLI table updated if a new CLI was added
+- [ ] Root `README.md` CLI and Coverage tables updated if a new CLI was added
