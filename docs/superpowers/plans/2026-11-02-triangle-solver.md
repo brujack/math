@@ -1,5 +1,7 @@
 # Triangle Solver Implementation Plan
 
+> **Status: DONE** — Implemented 2026-11-02. math#198 merged as ad40b7b.
+
 spec: docs/superpowers/specs/2026-11-02-triangle-solver-design.md
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
