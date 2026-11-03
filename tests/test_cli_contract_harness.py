@@ -467,6 +467,180 @@ class TestEachCheckHasAFailingMutant(unittest.TestCase):
         )
 
 
+class TestClosedFormKind(unittest.TestCase):
+    """The closed-form kind: CONTRACT_ARGS and CONTRACT_EXPECT, not a size."""
+
+    def _stub(self, tmp: str, source: str) -> pathlib.Path:
+        path = pathlib.Path(tmp) / "stub.py"
+        path.write_text(source)
+        return path
+
+    def test_conforming_stub_has_no_failures(self):
+        self.assertEqual(cli_contract.run_matrix(FIXTURES / "closed_form_ok.py"), [])
+
+    def test_silent_program_fails_case_1(self):
+        failures = cli_contract.run_matrix(FIXTURES / "closed_form_silent.py")
+        self.assertTrue(_failures_naming(failures, 1), failures)
+
+    def test_missing_sqrt_area_fails_case_1(self):
+        failures = cli_contract.run_matrix(FIXTURES / "closed_form_wrong_area.py")
+        self.assertTrue(_failures_naming(failures, 1), failures)
+
+    def test_expected_value_inside_a_longer_number_fails(self):
+        for printed in ("16.00001", "area 6.0000.5", "6.00001", "area 1.6.0000"):
+            with self.subTest(printed=printed):
+                with tempfile.TemporaryDirectory() as tmp:
+                    source = (FIXTURES / "closed_form_ok.py").read_text()
+                    stub = self._stub(tmp, source.replace("area 6.0000", printed))
+                    failures = cli_contract.run_matrix(stub)
+                self.assertTrue(_failures_naming(failures, 1), failures)
+
+    def test_expected_dot_is_literal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = (FIXTURES / "closed_form_ok.py").read_text()
+            stub = self._stub(tmp, source.replace("area 6.0000", "area 6x0000"))
+            failures = cli_contract.run_matrix(stub)
+        self.assertTrue(_failures_naming(failures, 1), failures)
+
+    def test_expected_value_delimited_by_text_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = (FIXTURES / "closed_form_ok.py").read_text()
+            stub = self._stub(tmp, source.replace("area 6.0000", "area=6.0000 m2"))
+            self.assertEqual(cli_contract.run_matrix(stub), [])
+
+    def test_stdin_reader_fails_by_timeout(self):
+        with mock.patch.object(cli_contract, "CASE_TIMEOUT", SHORT_TIMEOUT):
+            failures = cli_contract.run_matrix(FIXTURES / "closed_form_reader.py")
+        timed_out = [f for f in failures if "timed out" in f]
+        self.assertTrue(_failures_naming(timed_out, 1), failures)
+        self.assertTrue(_failures_naming(timed_out, 2), failures)
+
+    def test_question_mark_on_stdout_fails_case_1(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = (FIXTURES / "closed_form_ok.py").read_text()
+            stub = self._stub(tmp, source.replace("area 6.0000", "area 6.0000?"))
+            failures = cli_contract.run_matrix(stub)
+        self.assertTrue(_failures_naming(failures, 1), failures)
+
+    def test_nonzero_exit_fails_case_1(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = (FIXTURES / "closed_form_ok.py").read_text()
+            stub = self._stub(
+                tmp,
+                source.replace(
+                    '    print("area 6.0000")',
+                    '    print("area 6.0000")\n    raise SystemExit(1)',
+                ),
+            )
+            failures = cli_contract.run_matrix(stub)
+        self.assertIn("case 1 (CONTRACT_ARGS): exit 1, expected 0", failures)
+
+    def test_a_file_written_fails_case_1(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = (FIXTURES / "closed_form_ok.py").read_text()
+            stub = self._stub(
+                tmp,
+                source.replace(
+                    '    print("area 6.0000")',
+                    '    open("out.txt", "w").write("x")\n    print("area 6.0000")',
+                ),
+            )
+            failures = cli_contract.run_matrix(stub)
+        self.assertTrue(
+            any("wrote files" in f for f in _failures_naming(failures, 1)), failures
+        )
+
+    def test_smoke_that_prints_nothing_fails_case_2(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = (FIXTURES / "closed_form_ok.py").read_text()
+            stub = self._stub(
+                tmp,
+                source.replace(
+                    '    parse_args(argv)\n    print("area 6.0000")',
+                    "    args = parse_args(argv)\n"
+                    "    if args.a == 3.0 and args.b == 4.0 and args.c == 5.0:\n"
+                    '        print("area 6.0000")',
+                ).replace(
+                    "args.a, args.b, args.c = 3.0, 4.0, 5.0",
+                    "args.a, args.b, args.c = 1.0, 1.0, 1.0",
+                ),
+            )
+            failures = cli_contract.run_matrix(stub)
+        self.assertEqual(
+            [f.split(":")[0] for f in failures], ["case 2 (--smoke)"], failures
+        )
+
+    def test_exit_0_with_no_arguments_fails_case_3(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = (FIXTURES / "closed_form_ok.py").read_text()
+            stub = self._stub(
+                tmp,
+                source.replace(
+                    '        parser.error("give three of the triangle values")',
+                    "        pass",
+                ),
+            )
+            failures = cli_contract.run_matrix(stub)
+        self.assertIn("case 3 (no arguments): exit 0, expected 2", failures)
+
+    def test_three_cases_are_run(self):
+        smoke_case = cli_contract._build_closed_form_cases(["-a", "1"])
+        self.assertEqual([c.number for c in smoke_case], [1, 2, 3])
+        self.assertEqual(smoke_case[0].args, ["-a", "1"])
+        self.assertEqual(smoke_case[1].args, ["--smoke"])
+        self.assertEqual(smoke_case[2].args, [])
+
+    def test_both_kinds_is_a_config_error(self):
+        with self.assertRaises(cli_contract.ContractConfigError):
+            cli_contract.run_matrix(FIXTURES / "closed_form_both_kinds.py")
+
+    def test_empty_expect_is_a_config_error(self):
+        with self.assertRaises(cli_contract.ContractConfigError):
+            cli_contract.run_matrix(FIXTURES / "closed_form_empty_expect.py")
+
+    def test_bad_declarations_are_config_errors(self):
+        bad = {
+            "neither": "X = 1\n",
+            "only args": 'CONTRACT_ARGS = ["-a", "1"]\n',
+            "only expect": 'CONTRACT_EXPECT = "6.0000"\n',
+            "empty args": 'CONTRACT_ARGS = []\nCONTRACT_EXPECT = "6.0000"\n',
+            "non-list args": 'CONTRACT_ARGS = "-a 1"\nCONTRACT_EXPECT = "6"\n',
+            "non-str args": "CONTRACT_ARGS = [1]\nCONTRACT_EXPECT = '6'\n",
+            "non-str expect": 'CONTRACT_ARGS = ["-a"]\nCONTRACT_EXPECT = 6\n',
+            "threshold too": (
+                'CONTRACT_ARGS = ["-a"]\nCONTRACT_EXPECT = "6"\n'
+                "LARGE_RUN_THRESHOLD = None\n"
+            ),
+        }
+        for name, source in bad.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                stub = self._stub(tmp, source)
+                with self.assertRaises(cli_contract.ContractConfigError):
+                    cli_contract.run_matrix(stub)
+
+    def test_half_declared_pair_names_the_pair(self):
+        for source in ('CONTRACT_ARGS = ["-a", "1"]\n', 'CONTRACT_EXPECT = "6.0000"\n'):
+            with self.subTest(source), tempfile.TemporaryDirectory() as tmp:
+                stub = self._stub(tmp, source)
+                with self.assertRaisesRegex(
+                    cli_contract.ContractConfigError, "declared together"
+                ):
+                    cli_contract.run_matrix(stub)
+
+    def test_main_reports_config_error_as_usage(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = cli_contract.main([str(FIXTURES / "closed_form_both_kinds.py")])
+        self.assertEqual(code, 2)
+
+    def test_main_passes_a_conforming_stub(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = cli_contract.main([str(FIXTURES / "closed_form_ok.py")])
+        self.assertEqual(code, 0)
+        self.assertIn("closed_form_ok.py: all cases pass", out.getvalue())
+
+
 class TestMain(unittest.TestCase):
     def _run(self, argv: list[str]) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()

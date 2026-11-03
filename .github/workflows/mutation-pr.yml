@@ -12,7 +12,7 @@ jobs:
   mutation-pr:
     runs-on: ubuntu-latest
     # 10 minutes only fits a diff touching one or two sub-projects. A change
-    # spanning all 8 runs the capped baseline 8 times.
+    # spanning every sub-project runs the capped baseline once for each.
     timeout-minutes: 30
 
     steps:

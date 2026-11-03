@@ -8,34 +8,34 @@ setup() {
     load_mocks
     export MOCK_CALLS_FILE="${BATS_TEST_TMPDIR}/calls"
     SCRIPT="${REPO_ROOT}/scripts/mutation-pr-detect.sh"
-    ALL8="amicable collatz e factorial fib perfect-numbers pi sq"
+    ALL9="amicable collatz e factorial fib perfect-numbers pi sq triangle"
 }
 
-@test "template path selects all eight" {
+@test "template path selects all nine" {
     export MOCK_GIT_DIFF_NAMES="scripts/crate_templates/python/Makefile"
     run -0 bash "${SCRIPT}" origin/master
-    [ "${lines[0]}" = "py_dirs=${ALL8}" ]
+    [ "${lines[0]}" = "py_dirs=${ALL9}" ]
     [ "${lines[1]}" = "has_py=true" ]
 }
 
-@test "a py workflow selects all eight" {
+@test "a py workflow selects all nine" {
     export MOCK_GIT_DIFF_NAMES=".github/workflows/fib-py.yml"
     run -0 bash "${SCRIPT}" origin/master
-    [ "${lines[0]}" = "py_dirs=${ALL8}" ]
+    [ "${lines[0]}" = "py_dirs=${ALL9}" ]
     [ "${lines[1]}" = "has_py=true" ]
 }
 
-@test "a python install_deps.sh selects all eight" {
+@test "a python install_deps.sh selects all nine" {
     export MOCK_GIT_DIFF_NAMES="pi/install_deps.sh"
     run -0 bash "${SCRIPT}" origin/master
-    [ "${lines[0]}" = "py_dirs=${ALL8}" ]
+    [ "${lines[0]}" = "py_dirs=${ALL9}" ]
     [ "${lines[1]}" = "has_py=true" ]
 }
 
-@test "mutation-pr.yml selects all eight" {
+@test "mutation-pr.yml selects all nine" {
     export MOCK_GIT_DIFF_NAMES=".github/workflows/mutation-pr.yml"
     run -0 bash "${SCRIPT}" origin/master
-    [ "${lines[0]}" = "py_dirs=${ALL8}" ]
+    [ "${lines[0]}" = "py_dirs=${ALL9}" ]
     [ "${lines[1]}" = "has_py=true" ]
 }
 

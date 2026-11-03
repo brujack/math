@@ -60,3 +60,16 @@ in the harness. fib's smallest refused size takes about 15.5 s and writes 239 MB
   copies are kept identical by review and by the harness, not by a renderer.
 - The Rust binaries are out of scope. Nothing consumes a uniform Rust CLI yet, so that work is
   a Backlog row.
+
+## Amendment (2026-11-02): a closed-form contract kind
+
+The triangle solver (spec `docs/superpowers/specs/2026-11-02-triangle-solver-design.md`) has
+no size: its input is any three sides and angles. It declares `CONTRACT_ARGS` (a list of
+argument strings) and `CONTRACT_EXPECT` (a string its stdout must contain as a whole number
+token) instead of `SMOKE_SIZE` and `LARGE_RUN_THRESHOLD`. `scripts/cli_contract.py` reads
+whichever pair a program declares (`load_contract`), refuses a program declaring both or only
+half of one, and runs three cases for a closed-form program: `CONTRACT_ARGS` with stdin held
+open, `--smoke`, and a bare run with stdin not a terminal (exit 2). The never-reads-stdin,
+`--smoke` and exit-2 parts of the contract are unchanged; only the size-specific cases
+(`--show`, `--yes`, the large-run refusal) do not apply. The size-N path is untouched, and the
+harness now covers nine programs.

@@ -2,7 +2,7 @@ name: mutation-testing-python
 
 # cosmic-ray runs every operator+line mutation against each Python sub-project's
 # unittest suite. Surviving mutants = tests do not detect that behavior change.
-# Sharded into 8 sub-projects x 10 cells; monthly cron + manual dispatch.
+# Sharded into each sub-project x 10 cells; monthly cron + manual dispatch.
 # Non-blocking: report uploads as artifact, never gates merges.
 
 on:
@@ -36,7 +36,7 @@ jobs:
         env:
           SUBPROJECT: ${{ inputs.subproject }}
         run: |
-          all_dirs=(amicable collatz e factorial fib perfect-numbers pi sq)
+          all_dirs=(amicable collatz e factorial fib perfect-numbers pi sq triangle)
           if [[ -z "${SUBPROJECT}" ]]; then
             dirs=("${all_dirs[@]}")
           else

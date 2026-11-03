@@ -602,7 +602,7 @@ STUB
         env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git -C "${REPO_ROOT}" ls-files --error-unmatch "${p}/Makefile" > /dev/null 2>&1 || continue
         projects+=("${p}")
     done < <(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git -C "${REPO_ROOT}" ls-files '*/*.py')
-    [ "${#projects[@]}" -eq 8 ]
+    [ "${#projects[@]}" -eq 9 ]
     for p in "${projects[@]}"; do
         d="${BATS_TEST_TMPDIR}/${p}"
         mkdir -p "${d}"
@@ -723,10 +723,10 @@ _py_recipe_line() {
     printf '%s\n' "$1" | grep -nE -- "$2" | head -1 | cut -d: -f1
 }
 
-@test "exactly 8 Python Makefiles carry a cosmic-ray.toml" {
+@test "exactly 9 Python Makefiles carry a cosmic-ray.toml" {
     local count
     count="$(_py_mutants_makefiles | wc -l)"
-    [ "${count}" -eq 8 ]
+    [ "${count}" -eq 9 ]
 }
 
 @test "every Python mutants-baseline falls back to the module's unittest on failure" {
@@ -741,7 +741,7 @@ _py_recipe_line() {
         grep -qE '^\.PHONY:.* mutants-baseline( |$)' "${REPO_ROOT}/${mf}" || bad="${bad}${mf}(not PHONY) "
         grep -qE '^CELL_LABEL \?= ' "${REPO_ROOT}/${mf}" || bad="${bad}${mf}(no CELL_LABEL) "
     done < <(_py_mutants_makefiles)
-    [ "${n}" -eq 8 ]
+    [ "${n}" -eq 9 ]
     [ -z "${bad}" ] || { printf 'baseline problems: %s\n' "${bad}" >&2; return 1; }
 }
 
@@ -1142,5 +1142,5 @@ _scratch_tmp() {
         [ -f "${dir}/../scripts/cosmic_ray_cell_status.py" ]
         n=$((n + 1))
     done < <(git -C "${REPO_ROOT}" ls-files ':(glob)*/cosmic-ray.toml')
-    [ "${n}" -eq 8 ]
+    [ "${n}" -eq 9 ]
 }

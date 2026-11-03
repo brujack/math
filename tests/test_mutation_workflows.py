@@ -1,6 +1,6 @@
 """Pin the structure of the monthly Python mutation workflow.
 
-The workflow is `setup` -> 8x10 `mutants` matrix -> `notify`. Each assertion parses
+The workflow is `setup` -> per-project x 10 `mutants` matrix -> `notify`. Each assertion parses
 the file with `yaml.safe_load` so a comment cannot fake a directive. PyYAML parses
 the `on:` key as the boolean True, which these tests do not need.
 """
@@ -17,7 +17,17 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "mutation-testing-python.yml"
 TEMPLATE = REPO_ROOT / "scripts" / "crate_templates" / "python" / "py.yml"
 
-DIRS = ["amicable", "collatz", "e", "factorial", "fib", "perfect-numbers", "pi", "sq"]
+DIRS = [
+    "amicable",
+    "collatz",
+    "e",
+    "factorial",
+    "fib",
+    "perfect-numbers",
+    "pi",
+    "sq",
+    "triangle",
+]
 
 
 def load(path=WORKFLOW):
@@ -96,13 +106,13 @@ class SetupJobTests(unittest.TestCase):
         self.assertIn("matrix", outputs)
         self.assertIn("units", outputs)
 
-    def test_empty_input_yields_all_eighty_units(self):
+    def test_empty_input_yields_all_ninety_units(self):
         proc, out = run_setup("")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         lines = dict(line.split("=", 1) for line in out.splitlines())
         units = lines["units"].split()
-        self.assertEqual(len(units), 80)
-        self.assertEqual(len(set(units)), 80)
+        self.assertEqual(len(units), 90)
+        self.assertEqual(len(set(units)), 90)
         import json
 
         matrix = json.loads(lines["matrix"])

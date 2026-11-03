@@ -8,7 +8,7 @@
 #   C libraries -- GMP + MPFR (required by gmpy2)
 #   Python      -- every package pinned below, runtime and tooling
 #
-# For the Rust @CRATE@-rs implementation, run @CRATE@/@CRATE@-rs/install_deps.sh instead.
+# Rust crates have their own <project>-rs/install_deps.sh.
 #
 # Supported platforms:
 #   macOS (Apple Silicon and x86_64) -- Homebrew

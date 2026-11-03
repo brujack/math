@@ -19,6 +19,7 @@
 [![goldbach-rs](https://github.com/brujack/math/actions/workflows/goldbach-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/goldbach-rs.yml)
 [![amicable.py](https://github.com/brujack/math/actions/workflows/amicable-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/amicable-py.yml)
 [![amicable-rs](https://github.com/brujack/math/actions/workflows/amicable-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/amicable-rs.yml)
+[![triangle.py](https://github.com/brujack/math/actions/workflows/triangle-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/triangle-py.yml)
 [![scripts](https://github.com/brujack/math/actions/workflows/scripts.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/scripts.yml)
 
 High-performance mathematical computation tools.
@@ -36,6 +37,7 @@ High-performance mathematical computation tools.
 | [`collatz/`](collatz/README.md)                 | Find Collatz chain record-setters up to 10^N                           | Python + Rust  | [![collatz-py](https://github.com/brujack/math/actions/workflows/collatz-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/collatz-py.yml) [![collatz-rs](https://github.com/brujack/math/actions/workflows/collatz-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/collatz-rs.yml)                                                 |
 | [`goldbach/`](goldbach/README.md)               | Find all Goldbach pairs for even numbers up to 10^N                    | Rust           | [![goldbach-rs](https://github.com/brujack/math/actions/workflows/goldbach-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/goldbach-rs.yml)                                                                                                                                                                                                                               |
 | [`amicable/`](amicable/README.md)               | Find all amicable pairs (a,b) with b ≤ 10^N (proper-divisor sum sieve) | Python + Rust  | [![amicable.py](https://github.com/brujack/math/actions/workflows/amicable-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/amicable-py.yml) [![amicable-rs](https://github.com/brujack/math/actions/workflows/amicable-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/amicable-rs.yml)                                           |
+| [`triangle/`](triangle/README.md)               | Solve a triangle from any three sides/angles; area, perimeter, braille drawing | Python         | [![triangle.py](https://github.com/brujack/math/actions/workflows/triangle-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/triangle-py.yml)                                                                                                                                                                                                                               |
 
 ## Coverage
 
@@ -145,7 +147,7 @@ See [`perfect-numbers/README.md`](perfect-numbers/README.md) for full details.
 
 ### Python CLI contract
 
-All eight Python programs share one command line (`<module>` is pi, fib, sq, e, factorial, perfect_numbers, collatz or amicable):
+The size-N Python programs share one command line (`<module>` is pi, fib, sq, e, factorial, perfect_numbers, collatz or amicable); triangle has its own flags (see its section):
 
 ```bash
 python3 <module>.py SIZE [--show] [--yes]   # never reads stdin; always writes the output file, --show also prints
@@ -371,6 +373,16 @@ Finds all amicable pairs (a, b) where a < b ≤ 10^N using a **proper-divisor su
 - Rust implementation (`amicable/amicable-rs/`) — plain u64 arithmetic with a pre-computed sigma sieve
 
 See [`amicable/README.md`](amicable/README.md) for full details.
+
+---
+
+## triangle
+
+Solves a triangle from any three of its sides and angles, reports area and perimeter, and draws it in braille.
+
+- Python implementation (`triangle/triangle.py`) — stdlib only, no external dependencies; there is no Rust crate
+
+See [`triangle/README.md`](triangle/README.md) for full details.
 
 ---
 

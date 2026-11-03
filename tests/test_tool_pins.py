@@ -110,8 +110,8 @@ _REQUIREMENT = re.compile(r"^(?P<name>[A-Za-z0-9_.-]+)==(?P<version>\d+\.\d+\.\d
 
 
 def pip_installs():
-    """Yield (file, argument) for every `pip install` argument in the 8 Python
-    installers and the 8 `*-py.yml` workflows (both rendered from one template).
+    """Yield (file, argument) for every `pip install` argument in the 9 Python
+    installers and the 9 `*-py.yml` workflows (both rendered from one template).
     """
     for path in [*PYTHON_INSTALLERS, *PYTHON_WORKFLOWS]:
         for match in _PIP_INSTALL.finditer(path.read_text()):
@@ -282,8 +282,8 @@ class TestInstallActionPins(unittest.TestCase):
 class TestPyrightPins(unittest.TestCase):
     def test_every_pyright_install_is_pinned_to_one_version(self):
         sites = list(pyright_installs())
-        # 10 workflow sites + 8 installers + requirements-dev.txt
-        self.assertEqual(len(sites), 19, sites)
+        # 11 workflow sites + 9 installers + requirements-dev.txt
+        self.assertEqual(len(sites), 21, sites)
         pins = {token for _, token in sites}
         self.assertEqual(len(pins), 1, f"pyright pinned inconsistently: {sorted(pins)}")
         (pin,) = pins
@@ -291,13 +291,13 @@ class TestPyrightPins(unittest.TestCase):
 
 
 class TestPythonInstallerPins(unittest.TestCase):
-    """Scope: the 8 Python `install_deps.sh` files and the 8 `*-py.yml` workflows."""
+    """Scope: the 9 Python `install_deps.sh` files and the 9 `*-py.yml` workflows."""
 
     def test_every_installer_pip_argument_is_pinned(self):
         sites = list(pip_installs())
         self.assertEqual(
             len({n for n, _ in sites}),
-            16,
+            18,
             "an installer or workflow has no pip install",
         )
         for name, token in sites:
