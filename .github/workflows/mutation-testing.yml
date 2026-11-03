@@ -4,7 +4,7 @@ name: mutation-testing
 # Coverage % measures whether code is exercised; mutation testing measures
 # whether tests catch behavior changes.
 #
-# Triggered manually (workflow_dispatch) or weekly on schedule. Not on every PR
+# Triggered manually (workflow_dispatch) or monthly on schedule. Not on every PR
 # because mutant runs can take 10+ minutes per crate.
 
 on:
@@ -43,13 +43,25 @@ jobs:
           CRATE: ${{ github.event.inputs.crate }}
         run: |
           # Tracked manifests only: `find` also matched tests/fixtures/**/Cargo.toml.
+          tracked=()
+          while IFS= read -r manifest; do
+            tracked+=("$(dirname "${manifest}")")
+          done < <(git ls-files '*/*-rs/Cargo.toml')
+
           if [[ -n "${CRATE}" ]]; then
+            # Free text from a dispatch input must not reach GITHUB_OUTPUT
+            # unchecked (a newline would write a second output line).
+            match=0
+            for dir in "${tracked[@]}"; do
+              [[ "${dir}" == "${CRATE}" ]] && match=1
+            done
+            if [[ ${match} -eq 0 ]]; then
+              printf 'error: unknown crate %q (not a tracked */*-rs crate)\n' "${CRATE}" >&2
+              exit 1
+            fi
             crate_dirs="${CRATE}"
           else
-            crate_dirs=""
-            while IFS= read -r manifest; do
-              crate_dirs+="${crate_dirs:+ }$(dirname "${manifest}")"
-            done < <(git ls-files '*/*-rs/Cargo.toml')
+            crate_dirs="${tracked[*]}"
           fi
 
           # Without this, an empty crate_dirs (bad dispatch input or a repo
@@ -66,13 +78,12 @@ jobs:
         env:
           CRATE_DIRS: ${{ steps.crates.outputs.crate_dirs }}
         run: |
-          crate_dirs="${CRATE_DIRS}"
-          read -ra crate_list <<< "${crate_dirs}"
+          read -ra crate_list <<< "${CRATE_DIRS}"
           printf "crates to test: %s\n" "${#crate_list[@]}"
 
           mkdir -p "${GITHUB_WORKSPACE}/status"
           failed=0
-          for crate_dir in ${crate_dirs}; do
+          for crate_dir in "${crate_list[@]}"; do
             printf "\n=== Mutation testing %s ===\n" "${crate_dir}"
             rc=0
             make -C "${crate_dir}" mutants || rc=$?

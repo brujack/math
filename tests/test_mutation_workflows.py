@@ -339,6 +339,10 @@ RS_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "mutation-testing.yml"
 GIT_ENV_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
 
 
+# Raw non-empty GITHUB_OUTPUT lines of the latest run_crates call.
+LAST_OUTPUT_LINES: list[str] = []
+
+
 def clean_git_env():
     """Return os.environ minus the GIT_* vars a worktree hook exports."""
     return {k: v for k, v in os.environ.items() if k not in GIT_ENV_VARS}
@@ -365,7 +369,15 @@ def run_crates(crate="", path=None):
             "CRATE": crate,
         }
         proc = subprocess.run(
-            ["bash", "-e", "-c", crates_step()["run"]],
+            [
+                "bash",
+                "--noprofile",
+                "--norc",
+                "-eo",
+                "pipefail",
+                "-c",
+                crates_step()["run"],
+            ],
             env=env,
             cwd=REPO_ROOT,
             capture_output=True,
@@ -374,13 +386,16 @@ def run_crates(crate="", path=None):
             check=False,
         )
         outputs = {}
+        raw_lines = []
         for line in out.read_text().splitlines():
             if not line:
                 continue
+            raw_lines.append(line)
             if not re.fullmatch(r"[A-Za-z_]+=.*", line):
                 raise AssertionError(f"malformed GITHUB_OUTPUT line: {line!r}")
             key, _, value = line.partition("=")
             outputs[key] = value
+        LAST_OUTPUT_LINES[:] = raw_lines
         return proc, outputs
 
 
@@ -423,9 +438,33 @@ class RustCrateDiscoveryTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(outputs, {"crate_dirs": "sq/sq-rs"})
 
+    def test_newline_injection_refused(self):
+        proc, outputs = run_crates("sq/sq-rs\nevil=1")
+        self.assertEqual(proc.returncode, 1)
+        self.assertNotIn("evil", outputs)
+        self.assertEqual(LAST_OUTPUT_LINES, [])
+
+    def test_unknown_crate_refused_naming_it(self):
+        proc, outputs = run_crates("nope/nope-rs")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("nope/nope-rs", proc.stderr)
+        self.assertEqual(outputs, {})
+
+    def test_known_crate_accepted(self):
+        proc, outputs = run_crates("collatz/collatz-rs")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(outputs["crate_dirs"], "collatz/collatz-rs")
+
+    def test_run_mutants_loop_iterates_quoted_array(self):
+        run = next(s for s in rs_steps() if s.get("name") == "Run mutants")["run"]
+        self.assertIn('"${crate_list[@]}"', run)
+        self.assertNotIn("${crate_dirs}", run)
+
     def test_single_output_line(self):
-        _, outputs = run_crates("")
-        self.assertEqual(list(outputs), ["crate_dirs"])
+        run_crates("")
+        lines = LAST_OUTPUT_LINES
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].startswith("crate_dirs="))
 
     def test_no_expression_syntax_in_run_block(self):
         self.assertNotIn("${{", crates_step()["run"])
