@@ -1148,15 +1148,6 @@ _scratch_tmp() {
 # lint-workflows (actionlint). The fixture is a positive control: actionlint
 # only reports SC2086 for the `run:` body when it both ran and found shellcheck,
 # so a green run on the real workflows is not a vacuous pass.
-_path_without_actionlint() {
-    local dir out="" IFS=:
-    for dir in ${PATH}; do
-        [[ -x "${dir}/actionlint" ]] && continue
-        out="${out:+${out}:}${dir}"
-    done
-    printf '%s' "${out}"
-}
-
 @test "actionlint flags SC2086 in the positive-control fixture" {
     if ! command -v actionlint > /dev/null 2>&1 || ! command -v shellcheck > /dev/null 2>&1; then
         if [[ "${CI:-}" == "true" ]]; then
@@ -1172,13 +1163,13 @@ _path_without_actionlint() {
 }
 
 @test "lint-workflows without actionlint under CI=true fails naming actionlint" {
-    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS PATH="$(_path_without_actionlint)" CI=true make -C "${REPO_ROOT}" lint-workflows
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS CI=true make -C "${REPO_ROOT}" lint-workflows ACTIONLINT=
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"actionlint not found"* ]]
 }
 
 @test "lint-workflows without actionlint and CI unset skips with the remedy" {
-    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u CI PATH="$(_path_without_actionlint)" make -C "${REPO_ROOT}" lint-workflows
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u CI make -C "${REPO_ROOT}" lint-workflows ACTIONLINT=
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"actionlint not found, skipping"* ]]
     [[ "${output}" == *"v1.7.12"* ]]
@@ -1195,4 +1186,11 @@ _path_without_actionlint() {
     run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${REPO_ROOT}" lint-workflows WORKFLOWS=
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"WORKFLOWS"* ]]
+}
+
+@test "lint-workflows with a whitespace-only workflow list fails closed (actionlint present)" {
+    command -v actionlint > /dev/null 2>&1 || skip "actionlint not installed"
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${REPO_ROOT}" lint-workflows 'WORKFLOWS=$(subst x, ,x)'
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"WORKFLOWS list is EMPTY"* ]]
 }

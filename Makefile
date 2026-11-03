@@ -176,7 +176,7 @@ ifndef ACTIONLINT
 	fi
 	@printf "actionlint not found, skipping (install: https://github.com/rhysd/actionlint/releases/tag/v1.7.12)\n"
 else
-	@if [ -z "$(WORKFLOWS)" ]; then \
+	@if [ -z "$(strip $(WORKFLOWS))" ]; then \
 	  printf 'lint-workflows: WORKFLOWS list is EMPTY; refusing to report a pass having linted nothing.\n' >&2; \
 	  exit 1; \
 	fi
