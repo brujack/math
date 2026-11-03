@@ -53,6 +53,7 @@ High-performance mathematical computation tools.
 | pi              | ![python](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/pi/python.json)              | ![rust](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/pi/rust.json)              |
 | prime           | —                                                                                                                                       | ![rust](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/prime/rust.json)           |
 | sq              | ![python](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/sq/python.json)              | ![rust](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/sq/rust.json)              |
+| triangle        | ![python](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/triangle/python.json)        | —                                                                                                                                   |
 | twin-primes     | —                                                                                                                                       | ![rust](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/twin-primes/rust.json)     |
 
 ---
