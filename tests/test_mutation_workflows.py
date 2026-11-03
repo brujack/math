@@ -7,6 +7,7 @@ the `on:` key as the boolean True, which these tests do not need.
 
 import os
 import pathlib
+import re
 import subprocess
 import tempfile
 import unittest
@@ -332,6 +333,129 @@ class MutationPrTests(unittest.TestCase):
         found = pr_step("cargo install cargo-mutants --locked --version 27.1.0")
         self.assertEqual(len(found), 1)
         self.assertNotIn("if", found[0])
+
+
+RS_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "mutation-testing.yml"
+GIT_ENV_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
+
+
+def clean_git_env():
+    """Return os.environ minus the GIT_* vars a worktree hook exports."""
+    return {k: v for k, v in os.environ.items() if k not in GIT_ENV_VARS}
+
+
+def rs_steps():
+    return yaml.safe_load(RS_WORKFLOW.read_text())["jobs"]["mutants"]["steps"]
+
+
+def crates_step():
+    found = [s for s in rs_steps() if s.get("id") == "crates"]
+    assert len(found) == 1, "expected exactly one step with id: crates"
+    return found[0]
+
+
+def run_crates(crate="", path=None):
+    """Execute the `crates` step's run block; return (proc, outputs dict)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        out = pathlib.Path(tmp) / "out"
+        out.touch()
+        env = {
+            "PATH": path if path is not None else os.environ["PATH"],
+            "GITHUB_OUTPUT": str(out),
+            "CRATE": crate,
+        }
+        proc = subprocess.run(
+            ["bash", "-e", "-c", crates_step()["run"]],
+            env=env,
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            check=False,
+        )
+        outputs = {}
+        for line in out.read_text().splitlines():
+            if not line:
+                continue
+            if not re.fullmatch(r"[A-Za-z_]+=.*", line):
+                raise AssertionError(f"malformed GITHUB_OUTPUT line: {line!r}")
+            key, _, value = line.partition("=")
+            outputs[key] = value
+        return proc, outputs
+
+
+def tracked_crate_dirs():
+    proc = subprocess.run(
+        ["git", "ls-files", "*/*-rs/Cargo.toml"],
+        cwd=REPO_ROOT,
+        env=clean_git_env(),
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        check=True,
+    )
+    return sorted(os.path.dirname(f) for f in proc.stdout.split())
+
+
+class RustCrateDiscoveryTests(unittest.TestCase):
+    def test_empty_crate_lists_tracked_crates_only(self):
+        proc, outputs = run_crates("")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        dirs = outputs["crate_dirs"].split()
+        self.assertEqual(len(dirs), 11)
+        self.assertEqual(sorted(dirs), tracked_crate_dirs())
+        self.assertFalse([d for d in dirs if d.startswith("tests/")])
+
+    def test_fixture_cargo_tomls_exist_as_positive_control(self):
+        proc = subprocess.run(
+            ["git", "ls-files", "tests/fixtures/**/Cargo.toml"],
+            cwd=REPO_ROOT,
+            env=clean_git_env(),
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            check=True,
+        )
+        self.assertTrue(proc.stdout.strip())
+
+    def test_explicit_crate_wins(self):
+        proc, outputs = run_crates("sq/sq-rs")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(outputs, {"crate_dirs": "sq/sq-rs"})
+
+    def test_single_output_line(self):
+        _, outputs = run_crates("")
+        self.assertEqual(list(outputs), ["crate_dirs"])
+
+    def test_no_expression_syntax_in_run_block(self):
+        self.assertNotIn("${{", crates_step()["run"])
+
+    def test_empty_list_refuses_green(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = pathlib.Path(tmp) / "git"
+            stub.write_text("#!/bin/sh\nexit 0\n")
+            stub.chmod(0o755)
+            proc, outputs = run_crates("", path=f"{tmp}:{os.environ['PATH']}")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("refusing to report green", proc.stderr)
+        self.assertEqual(outputs, {})
+
+    def test_crate_env_reads_dispatch_input(self):
+        self.assertEqual(
+            crates_step()["env"]["CRATE"], "${{ github.event.inputs.crate }}"
+        )
+
+    def test_run_mutants_reads_step_output(self):
+        found = [s for s in rs_steps() if s.get("name") == "Run mutants"]
+        self.assertEqual(len(found), 1)
+        self.assertEqual(
+            found[0]["env"]["CRATE_DIRS"], "${{ steps.crates.outputs.crate_dirs }}"
+        )
+        self.assertNotIn("find ", found[0]["run"])
+
+    def test_crates_step_precedes_run_mutants(self):
+        ids = [s.get("id") or s.get("name") for s in rs_steps()]
+        self.assertLess(ids.index("crates"), ids.index("Run mutants"))
 
 
 if __name__ == "__main__":

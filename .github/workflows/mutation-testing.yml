@@ -37,26 +37,38 @@ jobs:
       - name: Install cargo-mutants
         run: cargo install cargo-mutants --locked --version 27.1.0
 
-      - name: Run mutants
+      - name: List crates
+        id: crates
         env:
           CRATE: ${{ github.event.inputs.crate }}
         run: |
-          target="${CRATE}"
-          if [[ -n "${target}" ]]; then
-            crate_dirs="${target}"
+          # Tracked manifests only: `find` also matched tests/fixtures/**/Cargo.toml.
+          if [[ -n "${CRATE}" ]]; then
+            crate_dirs="${CRATE}"
           else
-            crate_dirs=$(find . -name Cargo.toml -not -path '*/target/*' -not -path '*/.cache/*' -exec dirname {} \;)
+            crate_dirs=""
+            while IFS= read -r manifest; do
+              crate_dirs+="${crate_dirs:+ }$(dirname "${manifest}")"
+            done < <(git ls-files '*/*-rs/Cargo.toml')
           fi
 
-          # Without this, an empty crate_dirs (find failure, bad dispatch input,
-          # or a repo layout change) skips the loop entirely and exits 0 --
-          # reporting green having tested nothing. The classifier catches an
-          # untested crate; only this catches an untested run.
+          # Without this, an empty crate_dirs (bad dispatch input or a repo
+          # layout change) skips the loop entirely and exits 0 -- reporting
+          # green having tested nothing. The classifier catches an untested
+          # crate; only this catches an untested run.
           if [[ -z "${crate_dirs//[[:space:]]/}" ]]; then
             printf "error: no crates found to test — refusing to report green\n" >&2
             exit 1
           fi
-          printf "crates to test: %s\n" "$(printf '%s\n' ${crate_dirs} | wc -l | tr -d ' ')"
+          printf 'crate_dirs=%s\n' "${crate_dirs}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run mutants
+        env:
+          CRATE_DIRS: ${{ steps.crates.outputs.crate_dirs }}
+        run: |
+          crate_dirs="${CRATE_DIRS}"
+          read -ra crate_list <<< "${crate_dirs}"
+          printf "crates to test: %s\n" "${#crate_list[@]}"
 
           mkdir -p "${GITHUB_WORKSPACE}/status"
           failed=0
