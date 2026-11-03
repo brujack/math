@@ -158,3 +158,29 @@ closed by the PR (`Closes #100`).
 - **N2.** No branch-protection or ruleset change.
 - **N3.** A coverage-data push failure never fails a CI job.
 - **N4.** No edit to a rendered workflow that is not produced by `render_crate_files.py --write` from a template.
+
+## Multi-Lens Review
+
+Reviewed at commit: `3f42636` (Step 7 self-review commit, before Step 8 dispatch)
+
+### Goal-Fit
+
+Finding: A, B and C pass the reads-it test; D does not. D changes no verdict (N3 keeps the job green) and its `::warning::` lands on a `pull_request` run that auto-merge has already landed, so nobody reads it; the badge value is also already wrong (PR-branch source, Out of scope row 2). Drop D (R12, the `pushed` flag) and fix the retry loop with the badge source, or give it a durable consumer (stale marker in the `coverage-data` JSON, or an issue). The SC2015 rewrite is a real bug fix and should stay.
+Assumption: someone reads `::warning::` annotations on auto-merged PR runs; refuted if no script or person consumes run annotations (`git grep -n annotations`). No uncertain assumption for A, B or C; their premises were re-verified (11 real crates, 6 fixtures, notify closes on any success, `EXPECTED_STATUS_UNITS` does not guard single-unit runs).
+Disposition:
+
+### Ergonomics
+
+Finding: the actionlint gate fails open where it is enforced. `lint-workflows` copies `lint-python`'s exit-0-when-missing guard, CI reaches it through `make lint`, and the only durable check asserts actionlint is installed, not that it ran. A PATH slip turns CI into a green "skipping". Locally actionlint is absent on `claude`, so R10's pre-push branch only prints a skip line. Fix: a missing actionlint exits 1 when `CI=true`; add a seeded-defect case `lint-workflows` must reject; either get actionlint into `make install-deps` or drop R10 and call the gate CI-only. Minor: under R5 a green single-unit re-dispatch leaves no trace on the issue; a non-closing "unit X green as of <run>" comment would cost nothing.
+Assumption: no uncertain assumption found.
+Disposition:
+
+### Risk
+
+Finding: no case fails when actionlint's shellcheck integration produces nothing. 40 of 41 findings are shellcheck findings, and actionlint silently disables that rule when `shellcheck` is not on PATH, so a reordered `scripts.yml` or a machine without shellcheck passes clean. Fix: a positive-control fixture with a known SC2086 that `lint-workflows` must report. Secondary: (1) A's test reads `GITHUB_OUTPUT` as raw text; a multi-line `crate_dirs=` write passes it but the runner rejects it, so pin the format (space-joined or heredoc delimiter) and parse as the runner does. (2) The SC2015 `if/else` turns a post-fetch `git worktree add` failure into a red coverage job under `bash -e`, against N3; give non-push `coverage-data` failures the same warn-and-exit-0 treatment or scope N3 to push.
+Assumption: actionlint in the `scripts` job finds the pinned shellcheck; confirm with `actionlint -verbose` in the CI log or a seeded defect failing CI.
+Disposition:
+
+### Adversarial Spec Review (comparison/judge designs only)
+
+N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
