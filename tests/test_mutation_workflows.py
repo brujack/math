@@ -1,6 +1,6 @@
 """Pin the structure of the monthly Python mutation workflow.
 
-The workflow is `setup` -> 8x10 `mutants` matrix -> `notify`. Each assertion parses
+The workflow is `setup` -> per-project x 10 `mutants` matrix -> `notify`. Each assertion parses
 the file with `yaml.safe_load` so a comment cannot fake a directive. PyYAML parses
 the `on:` key as the boolean True, which these tests do not need.
 """
