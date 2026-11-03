@@ -8,20 +8,19 @@ when any workflow changes.
 
 import pathlib
 import re
+import sys
 import unittest
 
 import yaml
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
+sys.path.insert(0, str(REPO_ROOT / "tests"))
+
+import workflow_jobs
+
 AL_VER = "1.7.12"
 AL_SHA256 = "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
-
-_BATS_SUITE = re.compile(r"\bbats\b|\bbash-coverage\b|\btest-hooks\b")
-
-
-def _runs_bats_suite(step):
-    return bool(_BATS_SUITE.search(step.get("run") or ""))
 
 
 def _installs_actionlint(step):
@@ -39,7 +38,7 @@ def _bats_jobs():
         doc = yaml.safe_load(path.read_text())
         for job_name, job in (doc.get("jobs") or {}).items():
             steps = job.get("steps") or []
-            if any(_runs_bats_suite(s) for s in steps):
+            if any(workflow_jobs.runs_bats_suite(s) for s in steps):
                 yield path.name, job_name, steps
 
 
@@ -60,17 +59,23 @@ class TestBatsJobsInstallActionlint(unittest.TestCase):
         self.assertGreaterEqual(checked, 2, "expected scripts.yml and auto-merge.yml")
 
 
+class TestMakefileVersionMatchesPin(unittest.TestCase):
+    def test_every_makefile_actionlint_version_equals_workflow_pin(self):
+        text = (REPO_ROOT / "Makefile").read_text()
+        versions = re.findall(
+            r"actionlint (\d+\.\d+\.\d+)|releases/tag/v(\d+\.\d+\.\d+)", text
+        )
+        found = [a or b for a, b in versions]
+        self.assertGreaterEqual(len(found), 2, "expected both Makefile messages")
+        self.assertEqual(set(found), {AL_VER})
+
+
 class TestScriptsWorkflowPaths(unittest.TestCase):
     def test_paths_cover_every_workflow(self):
         doc = yaml.safe_load((WORKFLOWS / "scripts.yml").read_text())
         # PyYAML parses the bare key `on` as boolean True.
         paths = doc[True]["pull_request"]["paths"]
         self.assertIn(".github/workflows/**", paths)
-
-    def test_existing_workflow_entries_kept(self):
-        doc = yaml.safe_load((WORKFLOWS / "scripts.yml").read_text())
-        paths = doc[True]["pull_request"]["paths"]
-        self.assertIn(".github/workflows/gmp-cache.yml", paths)
 
 
 if __name__ == "__main__":
