@@ -130,6 +130,8 @@ Module-level constants / state:
 - On macOS the `spawn` multiprocessing context is used; on Linux `fork` is used.
 - The `if __name__ == "__main__":` guard checks `multiprocessing.current_process().name == "MainProcess"` to prevent `main()` from running in worker subprocesses (required on macOS where `spawn` re-executes the script in each worker).
 
+**Mirrored helpers.** `_io_workers`, `estimate_conversion_time`, `render_conversion_tick`, `render_write_progress`, `render_bar` and `_format_mantissa` are deliberately duplicated in `pi/pi.py`: cosmic-ray's `module-path` names one file per project, so a shared module would drop them from mutation scope. Only the `_BAR_FULL`/`_BAR_EMPTY` glyph constants differ; `tests/test_pi_e_mirror.py` fails if the copies drift apart.
+
 ## Keeping This File Up To Date
 
 **Update this file whenever you change the code.** Future Claude sessions rely on it -- stale docs are worse than none. Specifically:
