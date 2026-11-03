@@ -72,7 +72,7 @@ make test       # lint, then cargo test
 All 11 crates are treated identically (operator rule): each crate's `Makefile`, `rustfmt.toml`, `.config/nextest.toml`, `install_deps.sh`, `<crate>-rs.yml` and `release-<crate>-rs.yml` is rendered from `scripts/crate_templates/` by `scripts/render_crate_files.py`, and so are the Python projects' `Makefile`, `install_deps.sh`, `<project>-py.yml`, `pyrightconfig.json` and `cosmic-ray.toml` (from `scripts/crate_templates/python/`; `@CRATE@` is the directory, `@MODULE@` the module name, the only placeholders); edit the template and run `--write`, never one crate's copy, and `tests/test_crate_uniformity.py` fails on any drift.
 A single root `ruff.toml` serves every Python sub-project via ancestor discovery; keep one and never create per-subproject configs. It uses `extend-select` over ruff's default rule set (pinned by `tests/test_ruff_config.py`); new defaults arrive only with a deliberate ruff pin bump, gated by that PR's `make lint`. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 Every `pip install` in every workflow and every Python `install_deps.sh` pins `name==X.Y.Z`, one version per package across all sites (`tests/test_tool_pins.py`); bump them together in the templates. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
-Root `make lint` runs `ruff check .` plus `ruff format --check` scoped to `git ls-files '*.py'` (never `ruff format --check .`, which rewrites markdown code blocks) alongside `lint-hooks`. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
+Root `make lint` runs `ruff check .`, `ruff format --check` on `git ls-files '*.py'` (never `.`: rewrites markdown), `lint-hooks` and `lint-workflows` (actionlint 1.7.12; skips if absent, fails if `CI=true`). → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 `lint-python` exits 0 when ruff is missing (so a machine can still commit the fix); `scripts.yml` installs ruff so CI enforces it, and `tests/scripts/makefile.bats` asserts that. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 The two `# noqa: C901` directives in `e/e.py` and `pi/pi.py` are load-bearing: `maintainability-review` runs `ruff check --select C901` on the CLI, which overrides config, so removing one without refactoring reads as a 0 → 21 regression. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 
@@ -136,7 +136,7 @@ Python `make mutants` runs a capped `cosmic-ray baseline` first (8 GiB `ulimit -
 ### Mutation testing (Rust)
 
 Rust mutation testing uses `cargo-mutants` (`cargo install cargo-mutants --locked`); run `make mutants` in a crate directory; correctness over coverage %, a kill rate above 80% is good for math code. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
-Mutation CI is `.github/workflows/mutation-testing.yml` (monthly `cron: "0 4 1 * *"` plus `workflow_dispatch`), calling `make -C <crate> mutants` so local and CI share one definition. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
+Mutation CI is `.github/workflows/mutation-testing.yml` (monthly `cron: "0 4 1 * *"`, `workflow_dispatch`) calling `make -C <crate> mutants`; `List crates` uses `git ls-files '*/*-rs/Cargo.toml'`, rejects unknown `crate`. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
 
 Never put a fixed `--timeout` back (#95): keep `--timeout-multiplier 5 --minimum-test-timeout 30` in each crate's `Makefile` `mutants` target, not the workflow, because a fixed value caps the unmutated baseline and evaluated zero mutants for a month; `tests/scripts/makefile.bats` pins both halves across all 11 crates. → ai-config/docs/knowledge/math-testing-policy.md § Mutation timeout
 
@@ -144,7 +144,7 @@ Keep `ulimit -v 8388608` (8 GiB) in the same `mutants` recipe; macOS cannot enfo
 
 A mutation leg is red only when `caught + missed == 0`, the baseline fails or the runner dies; survivors (exit 2) and timeouts (exit 3) are green (`scripts/mutation-classify.sh`, `tests/scripts/mutation_classify.bats`). → ai-config/docs/knowledge/math-testing-policy.md § Mutation green/red
 
-The notify job stays separate (`needs: [mutants], if: always()`) with `issues: write` only, labelled `mutation-failure` (`mutation-failure-python` via `ISSUE_LABEL` for the Python workflow); `scripts/mutation-notify.sh` derives the cause from the `marker/job-began` breadcrumb. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
+The notify job is separate (`needs: [mutants], if: always()`), `issues: write`, label `mutation-failure` (`-python` by `ISSUE_LABEL`); `scripts/mutation-notify.sh` reads `marker/job-began`; needs `FULL_SWEEP`, only a full sweep closes it. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
 Add `mutants` to a new Rust crate's `Makefile` `.PHONY` list and target; investigate surviving mutants in logic code, not main glue. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
 
 Exclude equivalent mutants via the crate's `.cargo/mutants.toml` `exclude_re` regexes matched against `src/lib.rs:<line>:<col>: <description>`; `// mutants::skip` is not recognized (cargo-mutants ≥27.x), only `#[mutants::skip]` on items. → ai-config/docs/knowledge/math-testing-policy.md § Equivalent mutations
@@ -211,7 +211,7 @@ Every `<crate>-rs.yml` runs `make test` with `NEXTEST_PROFILE: ci` (JUnit in `ta
 `renovate.json`'s `packageRules` must begin with the five canonical rules of ai-config `renovate-presets/default.json` (`renovate_preset_sync.py` tests prefix equality and reports DRIFT; appended rules are deviations); rules 3-4 hold Python interpreter updates. → ai-config/docs/knowledge/math-ci.md § Renovate auto-merge policy
 Each of the ten `updateType`s must be auto-merged or declared in `_DELIBERATELY_HELD` in `tests/test_renovate_automerge_policy.py`; do not name held types in `renovate.json`. → ai-config/docs/knowledge/math-ci.md § Renovate auto-merge policy
 
-Project workflows are paths-filtered (root `Makefile` covered by `scripts.yml`); release workflows and `auto-merge.yml` trigger unconditionally. → ai-config/docs/knowledge/math-ci.md § Paths-filtered workflows
+Project workflows are paths-filtered (`scripts.yml`: root `Makefile`, any workflow); release and `auto-merge.yml` are unconditional. → ai-config/docs/knowledge/math-ci.md § Paths-filtered workflows
 
 `continue-on-error` is allowed only on the allow-list in `tests/test_workflow_continue_on_error.py`, each entry with its reason; pip-audit stays advisory (ADR-0016) through `scripts/pip_audit_advisory.py`, which warns on findings and fails when no audit ran.
 
