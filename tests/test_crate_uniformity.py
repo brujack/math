@@ -9,6 +9,7 @@ differed. To change one crate's file, change the template and re-render all 11:
     python3 scripts/render_crate_files.py --write
 """
 
+import os
 import pathlib
 import re
 import subprocess
@@ -175,6 +176,37 @@ class TestCheckAndWrite(unittest.TestCase):
             self.assertEqual(rcf.check(root, kinds), [])
         self.assertEqual(len(written), 11)
 
+    def _sh_tree(self, tmp):
+        root = pathlib.Path(tmp)
+        (root / "scripts" / "crate_templates").mkdir(parents=True)
+        (root / "scripts" / "crate_templates" / "install_deps.sh").write_text("x\n")
+        for crate in rcf.CRATES:
+            path = root / crate / f"{crate}-rs" / "install_deps.sh"
+            path.parent.mkdir(parents=True)
+            path.write_text("x\n")
+            path.chmod(0o755)
+        return root
+
+    def test_check_reports_a_rendered_script_that_is_not_executable(self):
+        kinds = {"install_deps.sh": "{crate}/{crate}-rs/install_deps.sh"}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._sh_tree(tmp)
+            (root / "pi" / "pi-rs" / "install_deps.sh").chmod(0o644)
+            drift = rcf.check(root, kinds)
+        self.assertEqual(drift, ["pi/pi-rs/install_deps.sh"])
+
+    def test_write_makes_a_rendered_script_executable(self):
+        kinds = {"install_deps.sh": "{crate}/{crate}-rs/install_deps.sh"}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._sh_tree(tmp)
+            path = root / "pi" / "pi-rs" / "install_deps.sh"
+            path.unlink()
+            written = rcf.write(root, kinds)
+            mode = path.stat().st_mode & 0o777
+            self.assertEqual(rcf.check(root, kinds), [])
+        self.assertEqual(written, ["pi/pi-rs/install_deps.sh"])
+        self.assertEqual(mode, 0o755)
+
     def test_cli_check_exits_1_on_drift_and_0_when_clean(self):
         script = REPO_ROOT / "scripts" / "render_crate_files.py"
         with tempfile.TemporaryDirectory() as tmp:
@@ -269,6 +301,26 @@ class TestRepoCratesMatchTemplates(unittest.TestCase):
                     any(fnmatch.fnmatch(rel, glob) for glob in paths),
                     f"scripts.yml paths do not trigger on {rel}",
                 )
+
+    def test_rendered_scripts_are_executable_in_git(self):
+        # The index mode is what a checkout gets; a working-tree chmod is not.
+        rendered = [
+            rel
+            for rel, _ in rcf._expected(REPO_ROOT, rcf.KINDS, rcf.PYTHON_KINDS)
+            if rel.endswith(".sh")
+        ]
+        # A hook-exported GIT_DIR would point git at another repository.
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        listing = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "ls-files", "-s", "--", *rendered],
+            capture_output=True,
+            text=True,
+            check=True,
+            env=env,
+        ).stdout.splitlines()
+        modes = {line.split("\t")[1]: line.split()[0] for line in listing}
+        self.assertEqual(sorted(modes), sorted(rendered))
+        self.assertEqual({r for r, m in modes.items() if m != "100755"}, set())
 
     def test_repo_matches_templates(self):
         drift = rcf.check(REPO_ROOT, rcf.KINDS, rcf.PYTHON_KINDS)

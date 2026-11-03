@@ -112,14 +112,20 @@ def _expected(root, kinds, python_kinds):
             )
 
 
+def _drifted(path, rel, text):
+    """True when path is missing, differs from text, or is a script without +x."""
+    if not path.is_file() or path.read_text() != text:
+        return True
+    return rel.endswith(".sh") and path.stat().st_mode & 0o111 != 0o111
+
+
 def check(root, kinds, python_kinds=None):
-    """Return the relative paths whose content differs from the rendered text."""
-    drift = []
-    for rel, text in _expected(root, kinds, python_kinds or {}):
-        path = root / rel
-        if not path.is_file() or path.read_text() != text:
-            drift.append(rel)
-    return drift
+    """Return the relative paths whose content or script mode differs."""
+    return [
+        rel
+        for rel, text in _expected(root, kinds, python_kinds or {})
+        if _drifted(root / rel, rel, text)
+    ]
 
 
 def write(root, kinds, python_kinds=None):
@@ -127,9 +133,11 @@ def write(root, kinds, python_kinds=None):
     written = []
     for rel, text in _expected(root, kinds, python_kinds or {}):
         path = root / rel
-        if not path.is_file() or path.read_text() != text:
+        if _drifted(path, rel, text):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
+            if rel.endswith(".sh"):
+                path.chmod(0o755)
             written.append(rel)
     return written
 
