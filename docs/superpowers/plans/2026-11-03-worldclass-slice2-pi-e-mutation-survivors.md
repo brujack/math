@@ -1,5 +1,7 @@
 # Worldclass Slice 2: pi/e Mutation Survivors Implementation Plan
 
+> **Status: DONE** (math#201, c7c8f6f)
+
 spec: docs/superpowers/specs/2026-11-03-worldclass-slice2-pi-e-mutation-survivors-design.md
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
