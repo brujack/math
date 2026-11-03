@@ -694,9 +694,11 @@ class TestInputErrors(unittest.TestCase):
             second = round(180 - first, 1)
             if first + second != 180:
                 continue
-            with self.subTest(A=first, B=second):
-                with self.assertRaises(TriangleInputError):
-                    solve({"a": 1, "A": first, "B": second})
+            with (
+                self.subTest(A=first, B=second),
+                self.assertRaises(TriangleInputError),
+            ):
+                solve({"a": 1, "A": first, "B": second})
 
     def test_pair_sum_checked_with_extra_angles(self):
         self.assertEqual(
