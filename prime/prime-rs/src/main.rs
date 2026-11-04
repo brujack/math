@@ -188,7 +188,10 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use prime::{find_primes, fmt_int, format_phase2_progress, sieve_segment, small_sieve};
+    use prime::{
+        SEG_SIZE, find_primes, find_primes_sized, fmt_int, format_phase2_done,
+        format_phase2_progress, phase2_range, sieve_segment, small_sieve,
+    };
     use proptest::prelude::*;
     use tempfile::tempdir;
 
@@ -273,7 +276,7 @@ mod tests {
     fn test_sieve_segment_small() {
         // Primes in [11, 30] given small primes up to 7.
         let sp = vec![2u64, 3, 5, 7];
-        let result = sieve_segment(11, 30, &sp);
+        let result = sieve_segment(11, 30, &sp, SEG_SIZE);
         assert_eq!(result, vec![11u64, 13, 17, 19, 23, 29]);
     }
 
@@ -281,7 +284,7 @@ mod tests {
     fn test_sieve_segment_known_range() {
         // Primes in [101, 200]; sqrt(200) < 15 so sieve with primes up to 14.
         let sp = small_sieve(14);
-        let result = sieve_segment(101, 200, &sp);
+        let result = sieve_segment(101, 200, &sp, SEG_SIZE);
         let expected = vec![
             101u64, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167, 173, 179, 181,
             191, 193, 197, 199,
@@ -293,7 +296,7 @@ mod tests {
     fn test_sieve_segment_no_even_numbers() {
         // All results must be odd (segment lo is odd, 2 is not included).
         let sp = small_sieve(32);
-        let result = sieve_segment(101, 200, &sp);
+        let result = sieve_segment(101, 200, &sp, SEG_SIZE);
         assert!(result.iter().all(|&p| p % 2 == 1));
     }
 
@@ -301,7 +304,7 @@ mod tests {
     fn test_sieve_segment_empty_when_lo_exceeds_limit() {
         // lo > limit → empty.
         let sp = vec![2u64, 3, 5];
-        let result = sieve_segment(101, 100, &sp);
+        let result = sieve_segment(101, 100, &sp, SEG_SIZE);
         assert!(result.is_empty());
     }
 
@@ -309,7 +312,7 @@ mod tests {
     fn test_sieve_segment_lo_equals_limit_prime() {
         // lo == limit == 31 (a prime): segment contains exactly [31].
         let sp = small_sieve(5); // [2, 3, 5]
-        let result = sieve_segment(31, 31, &sp);
+        let result = sieve_segment(31, 31, &sp, SEG_SIZE);
         assert_eq!(result, vec![31u64]);
     }
 
@@ -340,6 +343,120 @@ mod tests {
         // phase2_total=0 → uses .max(1) to avoid division by zero; pct=0
         let s = format_phase2_progress(0, 0, 1.0);
         assert!(s.contains("  0%"), "got: {}", s);
+    }
+
+    // --- sieve_segment seg parameter ---
+
+    #[test]
+    fn test_sieve_segment_seg_bounds_range() {
+        // seg = 16 covers odd numbers in [101, 117) only, though limit is 200.
+        let sp = small_sieve(14);
+        assert_eq!(sieve_segment(101, 200, &sp, 16), vec![101u64, 103, 107, 109, 113]);
+    }
+
+    // --- phase2_range ---
+
+    #[test]
+    fn test_phase2_range_even_sqrt_limit() {
+        // even sqrt_limit: first odd above it is sqrt_limit + 1.
+        assert_eq!(phase2_range(32, 1_000), (33, 968));
+    }
+
+    #[test]
+    fn test_phase2_range_odd_sqrt_limit() {
+        // odd sqrt_limit: first odd above it is sqrt_limit + 2.
+        assert_eq!(phase2_range(33, 1_058), (35, 1_024));
+    }
+
+    #[test]
+    fn test_phase2_range_single_number() {
+        assert_eq!(phase2_range(32, 33), (33, 1));
+    }
+
+    // --- format_phase2_done / progress exact strings ---
+
+    #[test]
+    fn test_format_phase2_done_exact() {
+        // elapsed 0.001 is not above the threshold: rate 0.0.
+        assert_eq!(
+            format_phase2_done(1_234, 0.001),
+            "\r  Phase 2: 100%  (1,234 numbers sieved)  0.0 M/s              "
+        );
+        // just above the threshold: 1e6 / 0.002 / 1e6 = 500.0
+        assert_eq!(
+            format_phase2_done(1_000_000, 0.002),
+            "\r  Phase 2: 100%  (1,000,000 numbers sieved)  500.0 M/s              "
+        );
+        assert_eq!(
+            format_phase2_done(3_000_000, 1.0),
+            "\r  Phase 2: 100%  (3,000,000 numbers sieved)  3.0 M/s              "
+        );
+    }
+
+    #[test]
+    fn test_format_phase2_progress_exact_rate_threshold() {
+        assert_eq!(
+            format_phase2_progress(1_000_000, 4_000_000, 0.001),
+            "\r  Phase 2:  25%  (1,000,000 / 4,000,000 numbers sieved)  0.0 M/s   "
+        );
+        assert_eq!(
+            format_phase2_progress(1_000_000, 4_000_000, 0.002),
+            "\r  Phase 2:  25%  (1,000,000 / 4,000,000 numbers sieved)  500.0 M/s   "
+        );
+        assert_eq!(
+            format_phase2_progress(2_000_000, 4_000_000, 1.0),
+            "\r  Phase 2:  50%  (2,000,000 / 4,000,000 numbers sieved)  2.0 M/s   "
+        );
+    }
+
+    // --- find_primes_sized against a naive reference ---
+
+    fn naive_primes(limit: u64) -> Vec<u64> {
+        (2..=limit).filter(|&n| (2..).take_while(|d| d * d <= n).all(|d| n % d != 0)).collect()
+    }
+
+    fn sized_primes(limit: u64, block: u64, seg: u64) -> (Vec<u64>, u64) {
+        let mut buf = Vec::new();
+        let (count, processed) = find_primes_sized(limit, &mut buf, block, seg).unwrap();
+        let primes: Vec<u64> =
+            String::from_utf8(buf).unwrap().lines().map(|l| l.parse().unwrap()).collect();
+        assert_eq!(count, primes.len() as u64);
+        (primes, processed)
+    }
+
+    #[test]
+    fn test_find_primes_sized_matches_naive_1000_and_1001() {
+        for limit in [1_000u64, 1_001] {
+            let (primes, _) = sized_primes(limit, 64, 16);
+            assert_eq!(primes, naive_primes(limit), "limit {limit}");
+        }
+    }
+
+    #[test]
+    fn test_find_primes_sized_limit_on_block_boundary() {
+        // limit 1058: sqrt_limit 33, phase 2 starts at 35, so blocks are
+        // 35..=98, 99..=162, ... and the 16th ends exactly at 34 + 64 * 16 = 1058.
+        let (primes, processed) = sized_primes(1_058, 64, 16);
+        assert_eq!(primes, naive_primes(1_058));
+        assert_eq!(processed, 1_024);
+    }
+
+    #[test]
+    fn test_find_primes_sized_processed_counts_every_block() {
+        // limit 1000: sqrt_limit 32, start 33, 968 numbers = 15 full blocks of 64
+        // (960) plus a final partial block of 8.
+        let (primes, processed) = sized_primes(1_000, 64, 16);
+        assert_eq!(processed, 968);
+        assert_eq!(primes.len(), 168);
+    }
+
+    #[test]
+    fn test_find_primes_sized_no_phase2_returns_zero_processed() {
+        // limit 2: sqrt_limit 2, so limit <= sqrt_limit and phase 2 never runs.
+        let (primes, processed) = sized_primes(2, 64, 16);
+        assert_eq!((primes, processed), (vec![2u64], 0));
+        let (primes, processed) = sized_primes(1, 64, 16);
+        assert_eq!((primes.len(), processed), (0, 0));
     }
 
     // --- read_line_from ---
