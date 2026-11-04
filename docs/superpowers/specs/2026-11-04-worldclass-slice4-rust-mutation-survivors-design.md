@@ -2,8 +2,8 @@
 
 - **Date:** 2026-11-04
 - **Status:** Draft
-- **Revised:** 2026-11-04 after Step 8 round 1 (drift test, sixth equivalence class, V2 floor)
-- **Scope:** `pi/pi-rs`, `e/e-rs`, `prime/prime-rs`, `twin-primes/twin-primes-rs` and `collatz/collatz-rs`: their `src/`, a new `.cargo/mutants.toml` in each, and each crate's `CLAUDE.md`, a new root test `tests/test_mutants_exclusions.py`, and one install step in `.github/workflows/scripts.yml`
+- **Revised:** 2026-11-04 after Step 8 round 1 (drift test, sixth equivalence class, V2 floor) and round 2 (drift-test triggers and match rule)
+- **Scope:** `pi/pi-rs`, `e/e-rs`, `prime/prime-rs`, `twin-primes/twin-primes-rs` and `collatz/collatz-rs`: their `src/`, a new `.cargo/mutants.toml` in each, and each crate's `CLAUDE.md`, a new root test `tests/test_mutants_exclusions.py`, an install step and two `paths:` globs in `.github/workflows/scripts.yml`, and a targeted run in `scripts/pre-push` with its bats coverage
 
 ## Problem
 
@@ -20,8 +20,8 @@ Rust crates. The other six crates show 0 missed.
 | collatz-rs     | 33     | 4      | 3       | 1        |
 
 Population: the five `mutants.out/missed.txt` files in that artifact, 136 lines in total.
-No crate source has changed since (`git log -1 -- '*/*-rs/src'` is `c398814`, older than
-`4a76cb4`), so the line numbers below hold on today's master.
+No crate source has changed since (`git log -1 --format=%h -- '*/*-rs/src/*'` is `c398814`,
+an ancestor of `4a76cb4`), so the line numbers below hold on today's master.
 
 The operator rule is that all crates get the same treatment
 (`math-all-crates-treated-identically`), so all five are in scope, not only the three
@@ -100,8 +100,11 @@ These change nothing a test can observe, and go into `exclude_re` with a reason:
   (checked in a scratch copy; the `*` sibling does change the bytes and the file test
   kills it). The retry offset `base + written` runs with `written = 0` on every first
   call, and `write_at` on a regular file writes the whole chunk, so the retry never
-  runs on a fault-free file system. Reaching it needs an injected short write, and a
-  seam built only for that is production abstraction with no other user.
+  runs on a fault-free file system. Unlike the other entries this one is not strictly
+  equivalent: `base - written` would misplace bytes after a real partial write (ENOSPC,
+  a signal). It is unreachable without fault injection, a seam for that is production
+  abstraction with no other user, and N5 permits the exclusion; its comment in
+  `mutants.toml` says "unreachable without fault injection", not "equivalent".
 - **twin-primes-rs `limit < 5`** (`lib.rs:84`, 2 mutants). No pair `(p, p + 2)` with
   `p + 2 < limit` exists below 5 or at 5, so the early return and the full path agree.
 
@@ -168,14 +171,32 @@ The entries must keep their line numbers: most equivalents share file, operator 
 function with mutants that are killed today, so a regex without the line would hide
 those. A line-anchored entry goes stale silently when an edit moves its line (11 commits
 touched these five crates' `src/` between 2026-05-01 and today). A new root test,
-`tests/test_mutants_exclusions.py`, runs `cargo mutants --list --no-config` in every
-crate that has a `.cargo/mutants.toml` (the four existing and the five new, nine in all)
-and asserts that each `exclude_re` entry matches exactly one listed mutant. Listing takes
-about 0.2 s per crate and writes nothing (measured on `factorial-rs`: 65 mutants listed
-without config, 62 with, and its three entries matched one each). The test skips with a
-message naming the remedy when `cargo-mutants` is absent, and fails instead when
-`CI=true`. `scripts.yml` installs `cargo-mutants` 27.1.0, the version
-`mutation-testing.yml` uses, so `tests/test_tool_pins.py` still sees one version.
+`tests/test_mutants_exclusions.py`, guards that:
+
+- It finds exactly nine `.cargo/mutants.toml` files (the four existing and the five
+  new), so a deleted file fails rather than shrinking the set.
+- Each file parses to a non-empty `exclude_re` list, so a misspelled key fails.
+- `cargo mutants --list --no-config` exits 0 with non-empty output in each crate.
+- Each entry, searched unanchored as cargo-mutants does, matches at least one listed
+  mutant, and no listed mutant is matched by two entries. "Exactly one" would be wrong:
+  `perfect-numbers`' `verify_perfect` entry deliberately matches both
+  `-> bool with true` and `-> bool with false`.
+
+Listing writes nothing and fetches nothing: with `CARGO_HOME` pointed at an empty
+directory, pi-rs listed its 170 mutants (the table's 118 + 43 + 6 + 3) in 0.05 s and the
+directory stayed empty. The test skips with a message naming the remedy when
+`cargo-mutants` is absent, and fails instead when `CI=true`.
+
+The test must run on the change that causes drift, which is a crate source edit:
+
+- `scripts.yml` adds `*/*-rs/src/**` and `*/*-rs/.cargo/mutants.toml` to its `paths:`,
+  and installs `cargo-mutants@27.1.0` through the pinned `taiki-e/install-action` with
+  `fallback: none` (its manifest carries 27.1.0 at the pinned SHA), the version
+  `mutation-testing.yml` uses, so `tests/test_tool_pins.py` still sees one version.
+- `scripts/pre-push` runs `tests/test_mutants_exclusions.py` alone when a push touches
+  either path, the way it already runs `scripts/cli_contract.py` alone, without
+  widening the full root `make test` trigger. The pre-push bats suite covers both the
+  trigger and its absence.
 
 A per-crate missed-count ratchet (red when a crate's missed count rises above a committed
 baseline) would make the 0 last, but it changes the mutation workflow, which N4 keeps out
@@ -205,7 +226,7 @@ remaining survivors match §Equivalents.
 - **R6.** Tests cover `run` with `digits = 1` (pi-rs, e-rs), `generate_records` at a limit of at least 19 asserting the exact record list (collatz-rs), and a twin-primes segment on which the `idx <= n` mutant indexes past the bitset, shown by a mutation control in which that test fails with the mutant applied.
 - **R7.** Each of the five crates has `.cargo/mutants.toml` whose `exclude_re` entries each carry a comment naming the equivalence, and every entry belongs to a class in §Equivalents.
 - **R8.** Each crate's `CLAUDE.md` lists the new functions and its test table counts.
-- **R9.** `tests/test_mutants_exclusions.py` asserts that every `exclude_re` entry in every crate's `.cargo/mutants.toml` matches exactly one mutant listed by `cargo mutants --list --no-config`, skips naming the remedy when `cargo-mutants` is absent outside CI, fails when it is absent under `CI=true`, and `scripts.yml` installs `cargo-mutants` 27.1.0.
+- **R9.** `tests/test_mutants_exclusions.py` finds exactly nine `.cargo/mutants.toml` files, each with a non-empty `exclude_re`, requires `cargo mutants --list --no-config` to exit 0 with non-empty output per crate, and asserts each entry matches at least one listed mutant and no mutant is matched by two entries; it skips naming the remedy when `cargo-mutants` is absent outside CI and fails when absent under `CI=true`. `scripts.yml` installs `cargo-mutants@27.1.0` via the pinned `taiki-e/install-action` and triggers on `*/*-rs/src/**` and `*/*-rs/.cargo/mutants.toml`, and `scripts/pre-push` runs the test alone when a push touches either, with bats tests for both branches.
 - **V1.** After merge, dispatch `mutation-testing.yml` for each of the five crates and record caught, missed, timeout and unviable per crate beside the run-41769558239 figures; missed is 0 in all five.
 - **V2.** Before the PR, `make mutants` in each of the five crates leaves only survivors that the crate's `exclude_re` covers: the run's missed count is 0 and its caught count is above 0.
 - **N1.** No change to any algorithm, output file format, printed text, or default chunk, block or segment size.
@@ -248,7 +269,7 @@ Disposition: Addressed — sixth class "Preallocation and short-write retry" add
 Goal-Fit — Finding: R9 fails the reads-it test on the event it exists for. A crate `src/` edit is what moves an excluded line, and neither consumer fires on one: `scripts.yml` `paths:` lists no `*/*-rs/src/**` or `*/*-rs/.cargo/mutants.toml`, and `scripts/pre-push:180` runs the root suite only for `^scripts/|^tests/|...`. The orphan surfaces in the monthly sweep or as a red on a later unrelated PR, blamed on its author. "Exactly one match per entry" also passes on an empty list, and on a deleted `mutants.toml`. The spec's evidence command `git log -1 -- '*/*-rs/src'` prints nothing (the pathspec needs `src/*`; with it, `c398814`, still older than `4a76cb4`). Assumption: that `cargo mutants --list --no-config` on a cold runner needs no dependency fetch or GMP build. Settled by the orchestrator: with `CARGO_HOME` pointed at an empty directory it listed pi-rs's 170 mutants (118 + 43 + 6 + 3, the table's total) in 0.05 s, exit 0, and the directory stayed empty.
 Ergonomics — Finding: the same trigger gap, with the fix scoped: add the two path globs to `scripts.yml`, and in pre-push run only `tests/test_mutants_exclusions.py` when they change, as `scripts/cli_contract.py` already runs alone, without widening the full root trigger. R9 also needs: exactly nine `mutants.toml` files found, each with a non-empty `exclude_re` (a misspelled `exclude-re` key reads as empty), `--list` exiting 0 with non-empty output, and an unanchored search as cargo-mutants does. `cargo install` in `scripts.yml` compiles on every run; the repo's pinned `taiki-e/install-action` with `fallback: none` keeps one version for `test_tool_pins.py` and takes seconds. Assumption: that only R9 can catch a stale entry, since the classifier scores survivors green; R9's trigger paths decide whether the design lasts.
 Risk — Finding: R9 as written is red on day one without breaking N2. In a scratch copy of the four existing crates, `perfect-numbers` `src/lib\.rs:44:5: replace verify_perfect` matches 2 listed mutants (`-> bool with true` and `with false`), by design: it is the documented algebraic-identity exclusion. The other 35 existing entries match one each, so none has gone stale yet. Fix: at least one match per entry, plus no listed mutant matched by two entries; assert nine crates found. Also the trigger gap above. The short-write retry entry is unreachable without fault injection rather than equivalent (`base - written` is wrong on a real partial write); N5 permits it, but its comment should say "unreachable without fault injection". Assumption: the cold-runner listing question, settled as above.
-Disposition:
+Disposition: Addressed — R9 now runs on crate `src/` and `mutants.toml` changes (`scripts.yml` paths, a targeted pre-push run), uses at-least-one with no shared matches, pins nine non-empty files and non-empty listing output, installs through `taiki-e/install-action`; the retry entry's comment says "unreachable without fault injection"; the `git log` pathspec is fixed. Operator chose to stop review here: the round-2 findings sit in test plumbing that Phase 2's first runs exercise.
 
 ### Adversarial Spec Review (comparison/judge designs only)
 
