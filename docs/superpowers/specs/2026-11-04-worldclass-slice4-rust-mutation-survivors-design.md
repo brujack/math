@@ -2,7 +2,8 @@
 
 - **Date:** 2026-11-04
 - **Status:** Draft
-- **Scope:** `pi/pi-rs`, `e/e-rs`, `prime/prime-rs`, `twin-primes/twin-primes-rs` and `collatz/collatz-rs`: their `src/`, a new `.cargo/mutants.toml` in each, and each crate's `CLAUDE.md`
+- **Revised:** 2026-11-04 after Step 8 round 1 (drift test, sixth equivalence class, V2 floor)
+- **Scope:** `pi/pi-rs`, `e/e-rs`, `prime/prime-rs`, `twin-primes/twin-primes-rs` and `collatz/collatz-rs`: their `src/`, a new `.cargo/mutants.toml` in each, and each crate's `CLAUDE.md`, a new root test `tests/test_mutants_exclusions.py`, and one install step in `.github/workflows/scripts.yml`
 
 ## Problem
 
@@ -24,9 +25,10 @@ No crate source has changed since (`git log -1 -- '*/*-rs/src'` is `c398814`, ol
 
 The operator rule is that all crates get the same treatment
 (`math-all-crates-treated-identically`), so all five are in scope, not only the three
-weakest. The six clean crates got to 0 with tests plus a `.cargo/mutants.toml`
-`exclude_re` list for true equivalents (for example `factorial/factorial-rs`). None of
-the five crates here has a `.cargo/mutants.toml`.
+weakest. Of the six clean crates, four reached 0 with tests plus a `.cargo/mutants.toml`
+`exclude_re` list for true equivalents (factorial, amicable, goldbach, perfect-numbers;
+written in `59c7736` and `f18f96f` and never re-anchored since), and fib and sq reached 0
+with tests alone. None of the five crates here has a `.cargo/mutants.toml`.
 
 ### Why they survive
 
@@ -77,8 +79,12 @@ These change nothing a test can observe, and go into `exclude_re` with a reason:
 - **Partition arithmetic.** The chunk-size expression and the block bound
   (`block_lo + BLOCK_SIZE - 1`) choose where pieces split. Any positive partition writes
   the same bytes and finds the same primes, provided the mutant keeps the pieces
-  non-overlapping and gap-free. That proviso is checked per mutant against the
-  size-parameter tests before an exclusion is written.
+  positive, non-overlapping and gap-free. For an expression the `_sized` tests run (the
+  block bound, the `len / threads` term), the size-parameter tests check that proviso.
+  The default constants (`4 * 1024 * 1024`, `BLOCK_SIZE`) move into the public wrappers,
+  which those tests never call, so their literal mutants are excluded on the argument
+  alone: every mutated value stays positive, and any positive size gives the same
+  output.
 - **e-rs term count** (`lib.rs:139`, 141, 143, 144; 7 mutants). Each mutated formula
   still gives at least as many Taylor terms as `digits` needs, and more terms cannot
   change correct digits. Measured with the formula reproduced in Python against the
@@ -88,6 +94,14 @@ These change nothing a test can observe, and go into `exclude_re` with a reason:
 - **`small_sieve` start** (prime-rs `lib.rs:35`, 37; twin-primes-rs `lib.rs:16`, 18).
   Starting the crossing-off at `i + i` instead of `i * i` marks the same composites, the
   same equivalence `factorial-rs` already excludes.
+- **Preallocation and short-write retry** (pi-rs `main.rs:95:39`, `129:62`; e-rs
+  `main.rs:78:44`, `112:62`; `+` to `-`). `set_len(total)` only preallocates: the later
+  `write_at` calls extend the file, so `hdr + digits - ftr` leaves the same bytes
+  (checked in a scratch copy; the `*` sibling does change the bytes and the file test
+  kills it). The retry offset `base + written` runs with `written = 0` on every first
+  call, and `write_at` on a regular file writes the whole chunk, so the retry never
+  runs on a fault-free file system. Reaching it needs an injected short write, and a
+  seam built only for that is production abstraction with no other user.
 - **twin-primes-rs `limit < 5`** (`lib.rs:84`, 2 mutants). No pair `(p, p + 2)` with
   `p + 2 < limit` exists below 5 or at 5, so the early return and the full path agree.
 
@@ -150,6 +164,23 @@ format: one comment line per entry stating why the mutant is equivalent, and a r
 numbers of the finished code, and holds only survivors that match a class in
 §Equivalents.
 
+The entries must keep their line numbers: most equivalents share file, operator and
+function with mutants that are killed today, so a regex without the line would hide
+those. A line-anchored entry goes stale silently when an edit moves its line (11 commits
+touched these five crates' `src/` between 2026-05-01 and today). A new root test,
+`tests/test_mutants_exclusions.py`, runs `cargo mutants --list --no-config` in every
+crate that has a `.cargo/mutants.toml` (the four existing and the five new, nine in all)
+and asserts that each `exclude_re` entry matches exactly one listed mutant. Listing takes
+about 0.2 s per crate and writes nothing (measured on `factorial-rs`: 65 mutants listed
+without config, 62 with, and its three entries matched one each). The test skips with a
+message naming the remedy when `cargo-mutants` is absent, and fails instead when
+`CI=true`. `scripts.yml` installs `cargo-mutants` 27.1.0, the version
+`mutation-testing.yml` uses, so `tests/test_tool_pins.py` still sees one version.
+
+A per-crate missed-count ratchet (red when a crate's missed count rises above a committed
+baseline) would make the 0 last, but it changes the mutation workflow, which N4 keeps out
+of this slice. It goes to the Backlog.
+
 ### 5. Edits go to source directly
 
 These crates' `src/` files are not rendered from `scripts/crate_templates/`, so the
@@ -171,22 +202,24 @@ remaining survivors match §Equivalents.
 - **R3.** The large-digit warning, preview and auto-save thresholds in pi-rs and e-rs, and the N>9 warning in collatz-rs, are pure functions used by `run` (and `prompt_digits_with`), each tested at its bound and one either side.
 - **R4.** The final write-speed line (pi-rs, e-rs), the final phase-2 line and the phase-2 start and total (prime-rs) are produced by pure functions with exact-string or exact-value tests.
 - **R5.** `format_write_progress` and `format_phase2_progress` tests pin the megabyte figures, the speed, and output at `elapsed` of 0.001 and just above.
-- **R6.** Tests cover `run` with `digits = 1` (pi-rs, e-rs), `generate_records` at a limit of at least 19 asserting the exact record list (collatz-rs), and a twin-primes segment whose odd count is a multiple of 8.
+- **R6.** Tests cover `run` with `digits = 1` (pi-rs, e-rs), `generate_records` at a limit of at least 19 asserting the exact record list (collatz-rs), and a twin-primes segment on which the `idx <= n` mutant indexes past the bitset, shown by a mutation control in which that test fails with the mutant applied.
 - **R7.** Each of the five crates has `.cargo/mutants.toml` whose `exclude_re` entries each carry a comment naming the equivalence, and every entry belongs to a class in §Equivalents.
 - **R8.** Each crate's `CLAUDE.md` lists the new functions and its test table counts.
+- **R9.** `tests/test_mutants_exclusions.py` asserts that every `exclude_re` entry in every crate's `.cargo/mutants.toml` matches exactly one mutant listed by `cargo mutants --list --no-config`, skips naming the remedy when `cargo-mutants` is absent outside CI, fails when it is absent under `CI=true`, and `scripts.yml` installs `cargo-mutants` 27.1.0.
 - **V1.** After merge, dispatch `mutation-testing.yml` for each of the five crates and record caught, missed, timeout and unviable per crate beside the run-41769558239 figures; missed is 0 in all five.
-- **V2.** Before the PR, `make mutants` in each of the five crates leaves only survivors that the crate's `exclude_re` covers, and the run's missed count is 0.
+- **V2.** Before the PR, `make mutants` in each of the five crates leaves only survivors that the crate's `exclude_re` covers: the run's missed count is 0 and its caught count is above 0.
 - **N1.** No change to any algorithm, output file format, printed text, or default chunk, block or segment size.
 - **N2.** No change to the six crates already at 0 missed.
 - **N3.** No new dependencies.
-- **N4.** No change to `mutation-testing.yml`, the crate `Makefile` `mutants` recipe or `scripts/crate_templates/`.
+- **N4.** No change to `mutation-testing.yml`, `scripts/mutation-classify.sh`, the crate `Makefile` `mutants` recipe or `scripts/crate_templates/`.
 - **N5.** No `exclude_re` entry for a mutant that a test with input under 10,000 digits, numbers or bytes could kill.
 
 ## Assumptions
 
-- A twin-primes segment with `n % 8 == 0` makes `idx <= n` index past the bitset and
-  panic, which a test catches; at other sizes it sets a padding bit that is never read
-  and is equivalent. The test must use the panicking size.
+- The twin-primes `idx <= n` mutant panics only on a full segment where `n % 8 == 0`
+  and some sieving prime's progression lands on `idx == n`; `n % 8 == 0` alone is not
+  enough (first counterexample: limit 21, lo 7, n 8). R6's mutation control is what
+  shows the chosen test reaches it.
 
 ## Multi-Lens Review
 
@@ -196,19 +229,19 @@ Reviewed at commit: `4c44f34` (spec as first committed, after the Step 7 self-re
 
 Finding: R1, R2, R6 and R7 change decisions: they put real untested paths under `make test` (the chunk offset runs only above 4 MiB, the prime block step only above 1e8) and keep monthly sweeps honest. R3 to R5 restructure production code to kill mutants in stderr progress text that N1 already freezes and nothing downstream reads. "Missed is 0" has no lasting reader: `scripts/mutation-classify.sh` scores survivors (exit 2) green and the Rust notify fires only on failure, so a crate drifting from 0 to 30 missed goes unnoticed. The 0 is a snapshot, not a ratchet. Kill rates from the table: twin-primes 90% and collatz 89% already pass the repo's 80% bar; prime 78%, pi 73%, e 66% do not. Simpler path: R1, R2, R6, R7 and the equivalents; drop R3 to R5, or add a per-crate missed baseline so the gain lasts. Second finding: the twin-primes Assumption is false as stated. A Python simulation over limits 5 to 2,999 found segments with `n % 8 == 0` where the `idx <= n` mutant does not panic (first: limit 21, lo 7, n 8), because the panic also needs a sieving prime's progression to land on `idx == n`.
 Assumption: That the operator wants missed = 0 as a lasting standard rather than a one-time milestone. Settle by answering: should a Rust crate regressing from 0 missed turn the monthly leg red?
-Disposition:
+Disposition: Accepted, reason: operator keeps R3 to R5 as designed so every crate reaches a true 0; the per-crate missed-count ratchet goes to the Backlog because it changes the workflow N4 excludes. The twin-primes Assumption was rewritten and R6 now requires a mutation control.
 
 ### Ergonomics
 
 Finding: Roughly 20 line-anchored `exclude_re` entries across five crates (seven in e-rs `compute_e`, lines 139 to 144) have no drift detection. The line number cannot be dropped: most equivalents share file, operator and function with mutants killed today (for example `replace - with + in bs` has 3 sites per crate, 1 equivalent). Any edit above an excluded line silently orphans the entry, and the equivalent returns as "missed" in the next monthly sweep, weeks later, with no context. Dead entries accumulate because nothing reports an entry that matches nothing. The four existing `mutants.toml` files share the gap at lower cost. Fix within N4: a root `tests/` check running `cargo mutants --list` per crate that asserts each `exclude_re` matches exactly one listed mutant, skipping with a message when cargo-mutants is absent outside CI; covers all nine crates with a `mutants.toml`. Premise correction: only four of the six clean crates have `.cargo/mutants.toml` (factorial, amicable, goldbach, perfect-numbers); fib and sq reached 0 with tests alone.
 Assumption: That the five crates stay unedited between the local V2 run and later monthly sweeps. Measured by the orchestrator after the report: 11 commits touched the five crates' `src/` since 2026-05-01 (6 in May, 1 each in July and August, 3 in October), and the existing four `mutants.toml` files were each written once and never re-anchored (`59c7736`, `f18f96f`).
-Disposition:
+Disposition: Addressed — R9 adds `tests/test_mutants_exclusions.py` over all nine crates with a `mutants.toml`, plus the `scripts.yml` install; the premise sentence now names the four crates that use exclusions.
 
 ### Risk
 
 Finding: Four equivalent survivors fit no class in §Equivalents, so V2 is unreachable without breaking R7. pi-rs `main.rs:95:39` and e-rs `main.rs:78:44` (`+` to `-` in the `set_len(total)` preallocation): later `write_at` calls extend the file, so the bytes are identical (probe in a scratch copy: `h+p+f` vs `h+p-f` equal; `h*p+f` differs, so the byte test kills the `*` sibling). pi-rs `main.rs:129:62` and e-rs `main.rs:112:62` (`base + written` to `-` in the short-write retry): `write_at` on a regular file writes the whole chunk, so `written` is 0 whenever the expression runs; only an injected short write reaches it, and a seam for that would be production abstraction whose only job is killing a mutant. Fix: add a sixth class, "preallocation and short-write retry, unobservable on a fault-free file system". Smaller: once §1 moves `4 * 1024 * 1024` into the public wrapper, the `_sized` tests never run that literal, so the partition proviso checks nothing for it (still equivalent); V2 passes on a run that evaluated nothing, so require caught > 0 per crate, as the CI classifier's `caught + missed == 0` red rule does. Cleared: `debug_assert!` on even sizes; default behaviour unchanged; `idx <= n` panics exactly when `n % 8 == 0` with a progression landing on `n` (a full 64-number segment has n = 32); `limit < 5` equivalent at 0, 3, 4, 5; prime block `- to /` stays gap-free and `+ to -` underflows and is caught.
 Assumption: That the e-rs term-count mutants never fall short at an unsampled digit count. Settled by the orchestrator after the report: the original formula and all seven mutants (`139:28 > to >=`, `141` ×2, `143` ×3, `144`) swept against the smallest `n` with `log10(n!) >= digits + 2` at every `digits` from 1 to 100,000 plus 8,001 log-spaced points from 10^5 to 10^9 (108,001 points): zero shortfalls for any of them.
-Disposition:
+Disposition: Addressed — sixth class "Preallocation and short-write retry" added, the partition proviso reworded for the default constants, V2 requires caught > 0, R6 requires a mutation control.
 
 ### Adversarial Spec Review (comparison/judge designs only)
 
