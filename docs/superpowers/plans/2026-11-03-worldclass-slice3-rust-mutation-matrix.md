@@ -1,5 +1,7 @@
 # Worldclass Slice 3: Rust Mutation Matrix Implementation Plan
 
+> **Status: DONE** (math#202, 4a76cb4)
+
 spec: docs/superpowers/specs/2026-11-03-worldclass-slice3-rust-mutation-matrix-design.md
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
