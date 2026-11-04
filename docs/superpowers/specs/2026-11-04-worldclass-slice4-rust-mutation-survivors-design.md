@@ -236,6 +236,11 @@ remaining survivors match §Equivalents.
 - **N4.** No change to `mutation-testing.yml`, `scripts/mutation-classify.sh`, the crate `Makefile` `mutants` recipe or `scripts/crate_templates/`.
 - **N5.** No `exclude_re` entry for a mutant that a test with input under 10,000 digits, numbers or bytes could kill.
 
+## Amendments
+
+- R7 -> Each of the five crates whose final mutation run leaves a survivor in a §Equivalents class has `.cargo/mutants.toml` whose `exclude_re` entries each carry a comment naming the equivalence, and every entry belongs to a class in §Equivalents; a crate whose survivors are all killed has no `.cargo/mutants.toml`. — collatz-rs's four survivors are all killable, so a mandatory file there would be empty, which R9 forbids.
+- R9 -> `tests/test_mutants_exclusions.py` asserts the set of crates with a `.cargo/mutants.toml` equals an expected set written as a literal in the test (the four existing crates plus each slice-4 crate that got one), each file with a non-empty `exclude_re`, requires `cargo mutants --list --no-config` to exit 0 with non-empty output per crate, and asserts each entry matches at least one listed mutant and no mutant is matched by two entries; it skips naming the remedy when `cargo-mutants` is absent outside CI and fails when absent under `CI=true`. `scripts.yml` installs `cargo-mutants@27.1.0` via the pinned `taiki-e/install-action` and triggers on `*/*-rs/src/**` and `*/*-rs/.cargo/mutants.toml`, and `scripts/pre-push` runs the test alone when a push touches either, with bats tests for both branches. — follows the R7 amendment: the expected set is eight or nine crates, and a literal set still fails on a deleted file.
+
 ## Assumptions
 
 - The twin-primes `idx <= n` mutant panics only on a full segment where `n % 8 == 0`
