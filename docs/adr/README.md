@@ -43,3 +43,4 @@ Repo-specific decisions for the `math` repository. Cross-cutting decisions (CI t
 | [0037](0037-ci-supply-chain-guardrails.md) | CI supply-chain guardrails: verified downloads, locked cargo-deny, no system GMP | 2026-10-31 | Accepted               |
 | [0038](0038-actionlint-gate-and-full-sweep-close.md) | actionlint is a CI-enforced lint gate; only a full mutation sweep closes its issue | 2026-11-03 | Accepted               |
 | [0039](0039-mirrored-pi-e-helpers.md) | pi and e mirror their display helpers in-file, guarded by an AST test | 2026-11-03 | Accepted               |
+| [0040](0040-rust-mutation-matrix.md) | One mutation job per Rust crate | 2026-11-03 | Accepted               |
