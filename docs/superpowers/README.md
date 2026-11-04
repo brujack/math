@@ -57,7 +57,7 @@ Master status index for all specs and implementation plans in this directory.
 | 2026-11-03 | [worldclass-slice1-ci-monitors](plans/2026-11-03-worldclass-slice1-ci-monitors.md) | [spec](specs/2026-11-03-worldclass-slice1-ci-monitors-design.md) | Done (math#200) |
 | 2026-11-03 | [worldclass-slice2-pi-e-mutation-survivors](plans/2026-11-03-worldclass-slice2-pi-e-mutation-survivors.md) | [spec](specs/2026-11-03-worldclass-slice2-pi-e-mutation-survivors-design.md) | Done (math#201) |
 | 2026-11-03 | [worldclass-slice3-rust-mutation-matrix](plans/2026-11-03-worldclass-slice3-rust-mutation-matrix.md) | [spec](specs/2026-11-03-worldclass-slice3-rust-mutation-matrix-design.md) | Done (math#202) |
-| 2026-11-04 | worldclass-slice4-rust-mutation-survivors (plan pending) | [spec](specs/2026-11-04-worldclass-slice4-rust-mutation-survivors-design.md) | Spec review |
+| 2026-11-04 | worldclass-slice4-rust-mutation-survivors (plan pending) | [spec](specs/2026-11-04-worldclass-slice4-rust-mutation-survivors-design.md) | Spec approved |
 | 2026-10-31 | [shared-push-content-gate](plans/2026-10-31-shared-push-content-gate.md) | ai-config `2026-10-30-shared-push-content-gate-design.md` (cross-repo) | Done |
 
 ---

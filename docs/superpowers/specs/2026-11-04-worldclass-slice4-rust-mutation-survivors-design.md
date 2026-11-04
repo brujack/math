@@ -1,7 +1,8 @@
 # Worldclass slice 4: Rust mutation survivors in five crates
 
 - **Date:** 2026-11-04
-- **Status:** Draft
+- **Status:** Approved
+- **Approved:** 2026-11-04
 - **Revised:** 2026-11-04 after Step 8 round 1 (drift test, sixth equivalence class, V2 floor) and round 2 (drift-test triggers and match rule)
 - **Scope:** `pi/pi-rs`, `e/e-rs`, `prime/prime-rs`, `twin-primes/twin-primes-rs` and `collatz/collatz-rs`: their `src/`, a new `.cargo/mutants.toml` in each, and each crate's `CLAUDE.md`, a new root test `tests/test_mutants_exclusions.py`, an install step and two `paths:` globs in `.github/workflows/scripts.yml`, and a targeted run in `scripts/pre-push` with its bats coverage
 
