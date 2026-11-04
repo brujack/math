@@ -59,7 +59,16 @@ Spec: `docs/superpowers/specs/2026-11-03-worldclass-slice3-rust-mutation-matrix-
 - `notify` downloads only the status artifacts, so `mutation-notify.sh` can no longer report
   `loop-began-no-verdict` for this workflow. When no crate writes a status, the cause reads
   `died-before-loop` or `no-attestation`; missing crates are still named by `EXPECTED_STATUS_UNITS`.
-- V2 (re-running failed jobs only): unverified, recorded after the first matrix run.
+- **First matrix sweep (run 41769558239, 2026-11-04).** 8 crates finished green in 2 to 19
+  minutes. `collatz`, `fib` and `sq` were still in `Run mutants` at 48 minutes (3 to 4 minutes
+  each on 2026-11-01) and all three lost their runners within the same two minutes. `notify`
+  filed `missing-status` naming exactly those three crates, then rebuilt `mutants-output` from
+  the 8 that finished.
+- **Re-running failed jobs recovers a lost crate (V2, verified).** "Re-run failed jobs" on that
+  run re-ran only the three crates and `notify`. Attempt 2's `notify` saw attempt 1's eight
+  `mutants-status-*` artifacts beside the three new ones: 11 statuses, 11 `outcomes.json` in
+  `mutants-output`, and #195 closed. The re-runs took 4 to 7 minutes, so the losses look
+  transient rather than a property of those crates. A full re-dispatch is not needed.
 
 ## Related
 
