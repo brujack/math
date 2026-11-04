@@ -43,7 +43,9 @@ Integer::from(&l.q * &r.p) + &r.q
 - `fn bs_merge(l, r)`: combines two adjacent ranges
 - `fn compute_e(digits)`: resets `BS_LEAF_COUNT`, spawns a progress thread that prints series completion % every 200 ms, runs `bs(0, n)`, joins the thread, then builds `rug::Float` and calls `e_to_string`
 - `fn e_to_string(e, digits)`: uses `e.to_string_radix(10, Some(digits+5))`, trims to exact decimal places
-- `fn write_e_file(dir, e_str, digits)`: `#[cfg(unix)]` -- builds `dir/e_<digits>_digits.txt`, pre-allocates with `file.set_len()`, spawns a progress thread reporting write % and MB/s every 200 ms, parallel pwrite via rayon `par_chunks` (each chunk updates an `Arc<AtomicU64>` byte counter), joins thread and prints final MB/s; returns the written `PathBuf`
+- `fn write_e_file(dir, e_str, digits)`: `#[cfg(unix)]` -- delegates to `write_e_file_sized(dir, e_str, digits, min_chunk)` with `MIN_WRITE_CHUNK` (4 MiB); the sized form builds `dir/e_<digits>_digits.txt`, pre-allocates with `file.set_len()`, spawns a progress thread reporting write % and MB/s every 200 ms, parallel pwrite via rayon `par_chunks` (each chunk updates an `Arc<AtomicU64>` byte counter), joins thread and prints final MB/s; returns the written `PathBuf`
+- `fn warn_large_digits(d)` (`d > 1_000_000`), `fn shows_preview(d)` (`d <= 1_000_000`), `fn auto_saves(d)` (`d > 10_000`): pure thresholds used by `run` and `prompt_digits_with`
+- `fn format_write_done(total_bytes, elapsed)`: pure formatter for the final write summary line (caller prints the leading `\r`)
 - `fn save_e(dir, e_str, digits, out)`: `#[cfg(unix)]` -- announces the filename then delegates to `write_e_file`
 - `fn fmt_int(n)`: formats with thousands separators
 - `fn format_series_progress(completed, n)`: pure formatter for the compute progress line (testable in isolation)
@@ -88,7 +90,7 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-### Test coverage (92.59% line coverage, 65 tests: 59 unit + 6 integration)
+### Test coverage (92.59% line coverage, 79 tests: 73 unit + 6 integration)
 
 | Area                                    | Tests | Notes                                                                                                 |
 | --------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------- |
@@ -99,13 +101,15 @@ cargo tarpaulin --out Stdout
 | `e_to_string`                           | 7     | format, exact length, no exponent, known digits, single decimal place, exponent strip, no-dot path    |
 | `compute_e`                             | 4     | digits=1 (else branch), end-to-end accuracy at 10 / 50, long enough to fire compute progress thread   |
 | `format_series_progress`                | 4     | zero/partial/complete/zero-total                                                                      |
-| `format_write_progress`                 | 4     | normal speed, zero-elapsed, zero-total, complete                                                      |
+| `format_write_progress`                 | 6     | normal speed, zero-elapsed, zero-total, complete, exact strings at 0.001 s and 0.002 s                |
+| thresholds                              | 3     | `warn_large_digits`, `shows_preview`, `auto_saves` at the bound and either side                       |
+| `format_write_done`                     | 1     | exact strings at elapsed 0.001, 0.002, 1.0                                                            |
 | `read_line_from`                        | 3     | trims newline, empty input, trims whitespace                                                          |
-| `prompt_digits_with`                    | 6     | valid, minimum=1, zero retry, non-numeric retry, large decline + accept                               |
+| `prompt_digits_with`                    | 8     | valid, minimum=1, zero retry, non-numeric retry, large decline + accept, 1,000,000 skips confirm, 1,000,001 confirms |
 | `confirm_large_digits_with`             | 4     | "y", "yes", "n", other input                                                                          |
-| `write_e_file`                          | 4     | contents, filename format, idempotency, missing-dir error                                             |
+| `write_e_file`                          | 6     | contents, filename format, idempotency, missing-dir error, multi-chunk byte-exact (`min_chunk = 7`), oversize chunk |
 | `save_e`                                | 1     | writes file + announces                                                                               |
-| `run`                                   | 5     | digits=0 → exit 1, display=y, save=n, no-arg prompts, digits>10000 auto-saves                         |
+| `run`                                   | 7     | digits=0 → exit 1, display=y, save=n, no-arg prompts, digits>10000 auto-saves, digits=1 exact preview, digits=10000 prompts |
 | `run_returns_err_on_stdout_failure`     | 1     | `run()` propagates Err when stdout write fails (FailWriter injection)                                 |
 | `run_returns_err_on_stderr_failure`     | 1     | `run()` propagates Err when stderr write fails (FailWriter injection)                                 |
 | `tests/cli.rs` (subprocess integration) | 6     | arg=0 exit 1, arg=10 + "y" displays, arg=10 + "n" saves, no-arg + "10\\nn\\n" prompts, unwritable dir, 20,000,000 digits exits within 60 s with a progress tick (stderr-lock deadlock regression) |

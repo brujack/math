@@ -58,10 +58,50 @@ struct Cli {
 // File output
 // ---------------------------------------------------------------------------
 
+/// Digit counts above this warn that the run may take a long time.
+fn warn_large_digits(digits: usize) -> bool {
+    digits > 1_000_000
+}
+
+/// Digit counts up to this show an on-screen preview of e.
+fn shows_preview(digits: usize) -> bool {
+    digits <= 1_000_000
+}
+
+/// Digit counts above this are saved to a file without asking.
+fn auto_saves(digits: usize) -> bool {
+    digits > 10_000
+}
+
+/// Final write summary line (the caller prints the leading `\r`).
+fn format_write_done(total_bytes: u64, elapsed: f64) -> String {
+    let speed = if elapsed > 0.001 { total_bytes as f64 / elapsed / 1_048_576.0 } else { 0.0 };
+    format!(
+        "  Writing: 100%  ({:.1} MB)  {:.1} MB/s              ",
+        total_bytes as f64 / 1_048_576.0,
+        speed,
+    )
+}
+
+/// Default lower bound on the parallel write chunk size.
+const MIN_WRITE_CHUNK: usize = 4 * 1024 * 1024;
+
 /// Write e to a file using parallel pwrite(2) chunks, reporting progress and
 /// write speed. Returns the absolute path written.
 #[cfg(unix)]
 fn write_e_file(dir: &Path, e_str: &str, digits: usize) -> io::Result<PathBuf> {
+    write_e_file_sized(dir, e_str, digits, MIN_WRITE_CHUNK)
+}
+
+/// `write_e_file` with an explicit minimum chunk size, so tests can force
+/// several chunks from a small input.
+#[cfg(unix)]
+fn write_e_file_sized(
+    dir: &Path,
+    e_str: &str,
+    digits: usize,
+    min_chunk: usize,
+) -> io::Result<PathBuf> {
     let path = dir.join(format!("e_{}_digits.txt", digits));
 
     let header = format!(
@@ -86,7 +126,7 @@ fn write_e_file(dir: &Path, e_str: &str, digits: usize) -> io::Result<PathBuf> {
     file.write_at(ftr, e_offset + e_total)?;
 
     let n_threads = rayon::current_num_threads();
-    let chunk_size = (4 * 1024 * 1024_usize).max(e_bytes.len() / n_threads);
+    let chunk_size = min_chunk.max(e_bytes.len() / n_threads);
 
     let bytes_written = Arc::new(AtomicU64::new(0));
     let bytes_written_c = Arc::clone(&bytes_written);
@@ -119,12 +159,7 @@ fn write_e_file(dir: &Path, e_str: &str, digits: usize) -> io::Result<PathBuf> {
     progress_thread.join().unwrap();
 
     let elapsed = t_write.elapsed().as_secs_f64();
-    let speed = if elapsed > 0.001 { e_total as f64 / elapsed / 1_048_576.0 } else { 0.0 };
-    eprintln!(
-        "\r  Writing: 100%  ({:.1} MB)  {:.1} MB/s              ",
-        e_total as f64 / 1_048_576.0,
-        speed,
-    );
+    eprintln!("\r{}", format_write_done(e_total, elapsed));
 
     Ok(path)
 }
@@ -151,7 +186,7 @@ fn prompt_digits_with<R: BufRead, W: Write, E: Write>(
         out.flush()?;
         match read_line_from(reader)?.parse::<usize>() {
             Ok(n) if n >= 1 => {
-                if n > 1_000_000 && !confirm_large_digits_with(reader, out, err, n)? {
+                if warn_large_digits(n) && !confirm_large_digits_with(reader, out, err, n)? {
                     continue;
                 }
                 return Ok(n);
@@ -197,7 +232,7 @@ fn run<R: BufRead, W: Write, E: Write>(
                 writeln!(err, "Error: digits must be >= 1")?;
                 return Ok(1);
             }
-            if d > 1_000_000 {
+            if warn_large_digits(d) {
                 writeln!(err, "Warning: very large numbers may take a long time.")?;
             }
             d
@@ -216,7 +251,7 @@ fn run<R: BufRead, W: Write, E: Write>(
     let e_str = compute_e(digits);
     writeln!(out, "\nDone in {:.2}s", t_total.elapsed().as_secs_f64())?;
 
-    if digits <= 1_000_000 {
+    if shows_preview(digits) {
         let preview = 100.min(digits);
         if let Some(dot) = e_str.find('.') {
             let end = (dot + 1 + preview).min(e_str.len());
@@ -225,7 +260,7 @@ fn run<R: BufRead, W: Write, E: Write>(
         }
     }
 
-    if digits > 10_000 {
+    if auto_saves(digits) {
         let path = save_e(dir, &e_str, digits, out)?;
         writeln!(out, "Full precision e saved to {}", path.display())?;
     } else {
@@ -508,6 +543,58 @@ mod tests {
         assert!(s.contains("100%"));
     }
 
+    #[test]
+    fn test_format_write_progress_exact_at_one_ms_speed_is_zero() {
+        // elapsed == 0.001 is NOT above the threshold, so speed is 0.0.
+        let s = format_write_progress(1_048_576, 2_097_152, 0.001);
+        assert_eq!(s, "  Writing:  50%  (1.0 / 2.0 MB)  0.0 MB/s   ");
+    }
+
+    #[test]
+    fn test_format_write_progress_exact_just_above_one_ms() {
+        let s = format_write_progress(1_048_576, 2_097_152, 0.002);
+        assert_eq!(s, "  Writing:  50%  (1.0 / 2.0 MB)  500.0 MB/s   ");
+    }
+
+    // --- pure thresholds and summary line ---
+
+    #[test]
+    fn test_warn_large_digits_bounds() {
+        assert!(!warn_large_digits(999_999));
+        assert!(!warn_large_digits(1_000_000));
+        assert!(warn_large_digits(1_000_001));
+    }
+
+    #[test]
+    fn test_shows_preview_bounds() {
+        assert!(shows_preview(1));
+        assert!(shows_preview(1_000_000));
+        assert!(!shows_preview(1_000_001));
+    }
+
+    #[test]
+    fn test_auto_saves_bounds() {
+        assert!(!auto_saves(1));
+        assert!(!auto_saves(10_000));
+        assert!(auto_saves(10_001));
+    }
+
+    #[test]
+    fn test_format_write_done_exact_strings() {
+        assert_eq!(
+            format_write_done(1_048_576, 0.001),
+            "  Writing: 100%  (1.0 MB)  0.0 MB/s              "
+        );
+        assert_eq!(
+            format_write_done(1_048_576, 0.002),
+            "  Writing: 100%  (1.0 MB)  500.0 MB/s              "
+        );
+        assert_eq!(
+            format_write_done(3 * 1_048_576, 1.0),
+            "  Writing: 100%  (3.0 MB)  3.0 MB/s              "
+        );
+    }
+
     // --- bs above the parallel threshold ---
 
     #[test]
@@ -698,6 +785,34 @@ mod tests {
         assert!(res.is_err());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn test_write_e_file_sized_multi_chunk_is_byte_exact() {
+        // 43 bytes, chunk size 7: 6 chunks, last one short (43 % 7 != 0).
+        let e_str = "2.7182818284590452353602874713526624977572470";
+        let digits = e_str.len() - 2;
+        let dir = tempdir().unwrap();
+        let path = write_e_file_sized(dir.path(), e_str, digits, 7).unwrap();
+        let header = format!(
+            "e calculated to {} decimal places using Taylor/Rayon\n{}\n\n",
+            fmt_int(digits),
+            "=".repeat(60),
+        );
+        let footer = format!("\n\nTotal decimal places: {}", fmt_int(digits));
+        let expected = format!("{header}{e_str}{footer}");
+        assert!(e_str.len() >= 40 && !e_str.len().is_multiple_of(7));
+        assert_eq!(std::fs::read_to_string(path).unwrap(), expected);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_write_e_file_sized_chunk_larger_than_data_is_byte_exact() {
+        let dir = tempdir().unwrap();
+        let path = write_e_file_sized(dir.path(), "2.7", 1, 1 << 20).unwrap();
+        let contents = std::fs::read_to_string(path).unwrap();
+        assert!(contents.contains("\n\n2.7\n\nTotal decimal places: 1"));
+    }
+
     // --- save_e ---
 
     #[test]
@@ -707,6 +822,69 @@ mod tests {
         let path = save_e(dir.path(), E_REF, 50, &mut out).unwrap();
         assert!(path.exists());
         assert!(String::from_utf8(out).unwrap().contains("Saving to"));
+    }
+
+    /// BufRead that panics instead of reporting EOF, so a mutant that makes
+    /// the code read past the scripted input fails fast instead of looping.
+    struct EofPanics<'a>(&'a [u8]);
+    impl std::io::Read for EofPanics<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            std::io::Read::read(&mut self.0, buf)
+        }
+    }
+    impl BufRead for EofPanics<'_> {
+        fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+            assert!(!self.0.is_empty(), "read past scripted input");
+            Ok(self.0)
+        }
+        fn consume(&mut self, amt: usize) {
+            self.0 = &self.0[amt..];
+        }
+    }
+
+    #[test]
+    fn test_prompt_digits_with_exactly_one_million_skips_confirmation() {
+        let mut reader = EofPanics(b"1000000\nsentinel\n");
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let n = prompt_digits_with(&mut reader, &mut out, &mut err).unwrap();
+        assert_eq!(n, 1_000_000);
+        assert_eq!(reader.0, b"sentinel\n");
+        assert!(err.is_empty());
+    }
+
+    #[test]
+    fn test_prompt_digits_with_just_over_one_million_confirms() {
+        let mut reader = EofPanics(b"1000001\ny\n");
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let n = prompt_digits_with(&mut reader, &mut out, &mut err).unwrap();
+        assert_eq!(n, 1_000_001);
+        assert!(String::from_utf8(err).unwrap().contains("very large"));
+    }
+
+    #[test]
+    fn test_run_with_one_digit_returns_zero_and_previews() {
+        let dir = tempdir().unwrap();
+        let cli = Cli { digits: Some(1) };
+        let mut reader = &b"n\n"[..];
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let rc = run(cli, &mut reader, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(rc, 0);
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("\ne = 2.7...\n"), "{text}");
+        assert!(text.contains("(Showing first 1 decimal places)"));
+        assert!(err.is_empty());
+    }
+
+    #[test]
+    fn test_run_with_exactly_10k_digits_prompts_instead_of_auto_saving() {
+        let dir = tempdir().unwrap();
+        let cli = Cli { digits: Some(10_000) };
+        let mut reader = &b"n\n"[..];
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let rc = run(cli, &mut reader, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(rc, 0);
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("Display all 10,000 digits? (y/n): "), "{text}");
     }
 
     // --- run ---
