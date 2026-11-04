@@ -100,9 +100,17 @@ environment (`RESULT`, `DL_OUTCOME`, `ARTIFACT_DIR`, `FULL_SWEEP` and the rest).
 `mutation-review.yml` runs `mutation_review.py --workflow mutation-testing.yml
 --artifact mutants-output`, which downloads that exact name; its 2026-11-02 run read
 it. A rename would stop Rust mutation-review PRs while that job stays green. So
-`notify` downloads `pattern: mutants-output-*` with `merge-multiple: true` into a
-separate directory and uploads it as `mutants-output` (`if: always()`, 30-day
-retention, unchanged), with the same `<crate>/mutants.out/` layout as today.
+`notify` downloads `pattern: mutants-output-*` with `merge-multiple: true` into
+`outputs` (never into `artifact`: `mutation-notify.sh` reads any extra root entry there
+as a different attestation cause) and uploads it as `mutants-output` (30-day
+retention, unchanged, `overwrite: true` so a re-run attempt cannot 409 on the name),
+with the same `<crate>/mutants.out/` layout as today minus `status/`, which the
+consumer does not read (it `rglob`s `outcomes.json`).
+
+Step order matters, because filing the issue is the one thing `notify` must not skip:
+the tracking-issue step gets `if: always()`, and both output steps come after it, each
+with `if: always()`. Neither gets `continue-on-error`. A failed re-aggregation then
+fails `notify` visibly without stopping the issue.
 
 ### What changes in practice
 
@@ -135,7 +143,9 @@ tests already use (`SetupJobTests`, `MutantsJobTests`, `NotifyJobTests`):
 - **Structure:** `fail-fast: false`, the 60-minute timeout, the `cancelled()` step, both
   upload names (from `matrix.slug`), the output artifact's extra `marker/` path, the
   status download pattern with `merge-multiple`, `EXPECTED_STATUS_UNITS` wired from
-  `setup`, and the re-aggregated `mutants-output` upload.
+  `setup`, the re-aggregated `mutants-output` upload (`overwrite: true`, from
+  `outputs`), and step order in `notify`: the tracking-issue step has `if: always()`
+  and precedes both output steps, which also have `if: always()`.
 
 ## Requirements
 
@@ -146,7 +156,7 @@ tests already use (`SetupJobTests`, `MutantsJobTests`, `NotifyJobTests`):
 - **R5.** `notify` needs `setup` and `mutants`, downloads `pattern: mutants-status-*` with `merge-multiple: true`, and passes `EXPECTED_STATUS_UNITS` from `needs.setup.outputs.units` to `scripts/mutation-notify.sh`.
 - **R6.** Tests run the setup script and the per-crate run step in a sandbox and pin the behaviours listed under Testing, including 11 units on the real tree.
 - **R7.** A new ADR records one job per crate and supersedes ADR-0038's single-job wording; the root `CLAUDE.md` mutation-CI line and notify line (`needs: [mutants]`) describe the matrix without growing the file.
-- **R8.** `notify` downloads `pattern: mutants-output-*` with `merge-multiple: true` and uploads the result as one `mutants-output` artifact with `<crate>/mutants.out/` paths, so ai-config's `mutation-review.yml` keeps reading it.
+- **R8.** After its tracking-issue step (which runs `if: always()`), `notify` downloads `pattern: mutants-output-*` with `merge-multiple: true` into `outputs` and uploads it as one `mutants-output` artifact (`overwrite: true`) with `<crate>/mutants.out/` paths, both steps `if: always()`, so ai-config's `mutation-review.yml` keeps reading it.
 - **V1.** After merge, dispatch a full sweep: 11 crate jobs run, `notify` sees 11 statuses, the `mutants-output` artifact holds 11 `<crate>/mutants.out/` trees, and #195 closes on an all-green sweep.
 - **V2.** Settle whether "Re-run failed jobs" on a matrix run lets `notify` see the first attempt's green `mutants-status-*` artifacts: record the result in the ADR, and if it does not, record that recovery from a lost runner needs a full re-dispatch.
 - **N1.** No change to any crate `Makefile` `mutants` target, `scripts/mutation-classify.sh`, `scripts/mutation-notify.sh`, `mutation-pr.yml` or `mutation-testing-python.yml`.
@@ -174,6 +184,12 @@ Disposition: Addressed — operator chose to re-aggregate in `notify`: R8 downlo
 Finding: Load-bearing: the spec never said where `<slug>` comes from inside a crate job; expressions cannot replace `/`, and artifact names may not contain `/` (actions/toolkit validation), so naming per-crate artifacts needs the slug in the matrix. Otherwise the slug is recomputed in three places and drift makes every green crate read as missing. Test gap: "a green crate passes" did not assert that `status/<slug>` is written; the `cancelled()` step was only checked for structure.
 Assumption: Same re-run-failed-jobs question as Goal-Fit.
 Disposition: Addressed — setup emits a `jq`-built `include` list of `crate`/`slug`; every later use reads `matrix.slug`; tests assert the green status content, the cancelled step's behaviour, and slug equality with `units`. Also found while revising: a lone `<crate>/mutants.out/` upload loses its crate prefix, so the output artifact adds `marker/` to keep paths.
+
+### Risk (round 2, scoped re-review at `c92e537`)
+
+Sections reviewed: setup outputs, mutants uploads, notify re-aggregation, Testing, R1, R4, R7, R8, V1, V2. Finding: the new output steps could skip the tracking-issue step (it had no `if: always()` and only `dl` may carry `continue-on-error`), so a digest mismatch or a re-run 409 on `mutants-output` would stop the issue being filed; the output download directory was unnamed. Verified: the least-common-ancestor claim holds and the consumer `rglob`s `outcomes.json`; an empty pattern download is benign.
+Assumption: That attempt-1 artifacts are visible to, and name-conflict in, a "Re-run failed jobs" attempt. V2 settles it after merge.
+Disposition:
 
 ### Adversarial Spec Review (comparison/judge designs only)
 
