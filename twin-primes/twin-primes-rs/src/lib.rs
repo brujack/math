@@ -38,12 +38,13 @@ pub fn fmt_int(n: u64) -> String {
     out.chars().rev().collect()
 }
 
-/// Sieve odd numbers in [lo, lo + SEG_SIZE) ∩ [lo, limit] using `small_primes`.
+/// Sieve odd numbers in [lo, lo + seg) ∩ [lo, limit] using `small_primes`.
 ///
 /// Packed bitset: bit index i ↔ number lo + 2*i. 1 = composite, 0 = prime.
-/// `lo` must be odd.
-pub fn sieve_segment(lo: u64, limit: u64, small_primes: &[u64]) -> Vec<u64> {
-    let hi = (lo + SEG_SIZE).min(limit + 1); // exclusive
+/// `lo` must be odd and `seg` even.
+pub fn sieve_segment(lo: u64, limit: u64, small_primes: &[u64], seg: u64) -> Vec<u64> {
+    debug_assert!(seg.is_multiple_of(2), "seg must be even to keep lo odd");
+    let hi = (lo + seg).min(limit + 1); // exclusive
     if lo >= hi {
         return vec![];
     }
@@ -78,9 +79,20 @@ pub fn sieve_segment(lo: u64, limit: u64, small_primes: &[u64]) -> Vec<u64> {
         .collect()
 }
 
+/// First odd number above `sqrt_limit`: where the segmented phase begins.
+pub fn segment_start(sqrt_limit: u64) -> u64 {
+    sqrt_limit + 1 + (sqrt_limit & 1)
+}
+
 /// Find all twin prime pairs (p, p+2) where both p and p+2 < limit.
 /// Writes "p | p+2\n" per pair to `out`. Returns pair count.
 pub fn find_twin_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
+    find_twin_primes_sized(limit, out, SEG_SIZE)
+}
+
+/// As `find_twin_primes`, with the segment size `seg` (even) chosen by the caller.
+pub fn find_twin_primes_sized<W: Write>(limit: u64, out: &mut W, seg: u64) -> io::Result<u64> {
+    debug_assert!(seg.is_multiple_of(2), "seg must be even to keep lo odd");
     if limit < 5 {
         return Ok(0);
     }
@@ -99,16 +111,16 @@ pub fn find_twin_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
     }
 
     // Segmented sieve for (sqrt_limit, limit].
-    // lo is always odd; SEG_SIZE is even so lo + SEG_SIZE stays odd.
+    // lo is always odd; seg is even so lo + seg stays odd.
     let mut last_prime: Option<u64> = small_primes.last().copied();
-    let mut lo = sqrt_limit + 1 + (sqrt_limit & 1); // first odd > sqrt_limit
+    let mut lo = segment_start(sqrt_limit);
 
     while lo <= limit {
-        let seg = sieve_segment(lo, limit, &small_primes);
+        let segment = sieve_segment(lo, limit, &small_primes, seg);
 
         // Boundary: check if last prime from the previous segment + 2 equals
         // the first prime of this segment.
-        if let (Some(lp), Some(&fp)) = (last_prime, seg.first())
+        if let (Some(lp), Some(&fp)) = (last_prime, segment.first())
             && fp == lp + 2
             && fp < limit
         {
@@ -117,15 +129,15 @@ pub fn find_twin_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
         }
 
         // Twin pairs within this segment.
-        for w in seg.windows(2) {
+        for w in segment.windows(2) {
             if w[1] - w[0] == 2 && w[1] < limit {
                 writeln!(out, "{} | {}", w[0], w[1])?;
                 count += 1;
             }
         }
 
-        last_prime = seg.last().copied().or(last_prime);
-        lo += SEG_SIZE;
+        last_prime = segment.last().copied().or(last_prime);
+        lo += seg;
     }
 
     Ok(count)

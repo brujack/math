@@ -85,7 +85,9 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
     use tempfile::tempdir;
-    use twin_primes::{fmt_int, sieve_segment, small_sieve};
+    use twin_primes::{
+        SEG_SIZE, find_twin_primes_sized, fmt_int, segment_start, sieve_segment, small_sieve,
+    };
 
     #[test]
     fn test_fmt_int_zero() {
@@ -149,7 +151,7 @@ mod tests {
     fn test_sieve_segment_small() {
         // Primes in [11, 30] given small primes [2,3,5,7].
         let sp = vec![2u64, 3, 5, 7];
-        let result = sieve_segment(11, 30, &sp);
+        let result = sieve_segment(11, 30, &sp, SEG_SIZE);
         assert_eq!(result, vec![11u64, 13, 17, 19, 23, 29]);
     }
 
@@ -157,7 +159,7 @@ mod tests {
     fn test_sieve_segment_known_range() {
         // Primes in [101, 200]; sqrt(200) < 15 so sieve with primes up to 14.
         let sp = small_sieve(14);
-        let result = sieve_segment(101, 200, &sp);
+        let result = sieve_segment(101, 200, &sp, SEG_SIZE);
         let expected = vec![
             101u64, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167, 173, 179, 181,
             191, 193, 197, 199,
@@ -169,7 +171,7 @@ mod tests {
     fn test_sieve_segment_all_odd() {
         // All returned values must be odd (segment starts at odd lo).
         let sp = small_sieve(32);
-        let result = sieve_segment(101, 200, &sp);
+        let result = sieve_segment(101, 200, &sp, SEG_SIZE);
         assert!(result.iter().all(|&p| p % 2 == 1));
     }
 
@@ -177,14 +179,14 @@ mod tests {
     fn test_sieve_segment_lo_exceeds_limit() {
         // lo > limit → empty.
         let sp = vec![2u64, 3, 5];
-        assert!(sieve_segment(101, 100, &sp).is_empty());
+        assert!(sieve_segment(101, 100, &sp, SEG_SIZE).is_empty());
     }
 
     #[test]
     fn test_sieve_segment_single_prime() {
         // lo == limit == 31 (a prime): returns exactly [31].
         let sp = small_sieve(5);
-        assert_eq!(sieve_segment(31, 31, &sp), vec![31u64]);
+        assert_eq!(sieve_segment(31, 31, &sp, SEG_SIZE), vec![31u64]);
     }
 
     proptest! {
@@ -207,6 +209,84 @@ mod tests {
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
         }
+    }
+
+    // --- segment_start ---
+
+    #[test]
+    fn test_segment_start_odd_input_skips_to_next_odd() {
+        assert_eq!(segment_start(55), 57);
+    }
+
+    #[test]
+    fn test_segment_start_even_input_is_next_odd() {
+        assert_eq!(segment_start(54), 55);
+    }
+
+    // --- sieve_segment witness and sized segments ---
+
+    #[test]
+    fn test_sieve_segment_full_segment_progression_hits_end_index() {
+        // seg = 64 gives n = 32 odd numbers, n % 8 == 0, so the bitset has
+        // exactly 4 bytes. For lo = 101 the progression of p = 3 starts at
+        // idx 2 and lands on idx 32 == n; a loop bound of `idx <= n` would
+        // index byte 4, out of bounds.
+        let sp = small_sieve(13);
+        let result = sieve_segment(101, 1_000, &sp, 64);
+        let primes_below_165 = small_sieve(165);
+        let expected: Vec<u64> =
+            (101..165u64).filter(|x| x % 2 == 1 && primes_below_165.contains(x)).collect();
+        assert_eq!(result, expected);
+    }
+
+    /// Twin pairs (p, p+2), both below `limit`, from the plain sieve.
+    fn naive_twin_lines(limit: u64) -> String {
+        let primes = small_sieve(limit);
+        let mut s = String::new();
+        for w in primes.windows(2) {
+            if w[1] - w[0] == 2 && w[1] < limit {
+                s.push_str(&format!("{} | {}\n", w[0], w[1]));
+            }
+        }
+        s
+    }
+
+    fn sized_output(limit: u64, seg: u64) -> (u64, String) {
+        let mut buf: Vec<u8> = Vec::new();
+        let count = find_twin_primes_sized(limit, &mut buf, seg).unwrap();
+        (count, String::from_utf8(buf).unwrap())
+    }
+
+    #[test]
+    fn test_find_twin_primes_sized_matches_naive_at_known_limits() {
+        for limit in [1000u64, 1001] {
+            let (count, text) = sized_output(limit, 64);
+            assert_eq!(text, naive_twin_lines(limit), "limit {limit}");
+            assert_eq!(count as usize, text.lines().count());
+        }
+    }
+
+    #[test]
+    fn test_find_twin_primes_sized_matches_naive_on_segment_boundary() {
+        // limit equal to the lo of the second segment, and one either side.
+        let sqrt_limit = (1000f64).sqrt() as u64 + 1;
+        let boundary = segment_start(sqrt_limit) + 64;
+        for limit in [boundary - 1, boundary, boundary + 1, boundary + 2] {
+            let (_, text) = sized_output(limit, 64);
+            assert_eq!(text, naive_twin_lines(limit), "limit {limit}");
+        }
+    }
+
+    #[test]
+    fn test_find_twin_primes_sized_pair_spanning_two_segments() {
+        // limit 3000: sqrt_limit = 55, first lo = 57, segments start at
+        // 57 + 64k. 313 = 57 + 4 * 64 opens a segment and 311 closes the one
+        // before, so (311, 313) is found only through the boundary check.
+        let start = segment_start((3000f64).sqrt() as u64 + 1);
+        assert_eq!((313 - start) % 64, 0);
+        let (_, text) = sized_output(3000, 64);
+        assert!(text.contains("311 | 313\n"), "missing spanning pair");
+        assert_eq!(text, naive_twin_lines(3000));
     }
 
     // --- find_twin_primes ---
