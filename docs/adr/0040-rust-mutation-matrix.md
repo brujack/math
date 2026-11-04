@@ -56,6 +56,9 @@ Spec: `docs/superpowers/specs/2026-11-03-worldclass-slice3-rust-mutation-matrix-
 - Each of the 11 jobs installs cargo-mutants (`cargo install --locked --version 27.1.0`),
   so total runner minutes rise.
 - Per-crate results are in `mutants-status-<slug>` artifacts, kept 30 days.
+- `notify` downloads only the status artifacts, so `mutation-notify.sh` can no longer report
+  `loop-began-no-verdict` for this workflow. When no crate writes a status, the cause reads
+  `died-before-loop` or `no-attestation`; missing crates are still named by `EXPECTED_STATUS_UNITS`.
 - V2 (re-running failed jobs only): unverified, recorded after the first matrix run.
 
 ## Related
