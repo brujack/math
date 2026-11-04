@@ -5,6 +5,7 @@ the file with `yaml.safe_load` so a comment cannot fake a directive. PyYAML pars
 the `on:` key as the boolean True, which these tests do not need.
 """
 
+import fnmatch
 import json
 import os
 import pathlib
@@ -623,6 +624,74 @@ class RustMutantsJobTests(unittest.TestCase):
 
     def test_no_expression_syntax_in_any_run_block(self):
         for step in rs_job("mutants")["steps"]:
+            self.assertNotIn("${{", step.get("run", ""), step)
+
+
+class RustNotifyJobTests(unittest.TestCase):
+    ISSUE = "File, comment, or close the tracking issue"
+    DOWNLOAD = "Download crate outputs"
+    UPLOAD = "Upload mutants output"
+
+    def test_job_shape(self):
+        job = rs_job("notify")
+        self.assertEqual(job["needs"], ["setup", "mutants"])
+        self.assertEqual(job["if"], "always()")
+        self.assertEqual(job["permissions"]["issues"], "write")
+
+    def test_status_download_merges_per_crate_artifacts(self):
+        dl = rs_step("notify", "dl")
+        self.assertEqual(dl["with"]["pattern"], "mutants-status-*")
+        self.assertIs(dl["with"]["merge-multiple"], True)
+        self.assertEqual(dl["with"]["path"], "artifact")
+        self.assertIs(dl["continue-on-error"], True)
+        self.assertNotIn("name", dl["with"])
+
+    def test_issue_step_env_and_run(self):
+        step = rs_step("notify", self.ISSUE)
+        self.assertEqual(step["if"], "always()")
+        env = step["env"]
+        self.assertEqual(
+            env["EXPECTED_STATUS_UNITS"], "${{ needs.setup.outputs.units }}"
+        )
+        self.assertEqual(env["UNIT_NOUN"], "crate")
+        self.assertEqual(env["ISSUE_LABEL"], "mutation-failure")
+        self.assertEqual(step["run"], "scripts/mutation-notify.sh")
+
+    def test_output_download_and_upload(self):
+        dl = rs_step("notify", self.DOWNLOAD)
+        self.assertEqual(dl["with"]["pattern"], "mutants-output-*")
+        self.assertIs(dl["with"]["merge-multiple"], True)
+        self.assertEqual(dl["with"]["path"], "outputs")
+        self.assertNotIn("continue-on-error", dl)
+        up = rs_step("notify", self.UPLOAD)
+        self.assertEqual(up["with"]["name"], "mutants-output")
+        self.assertEqual(up["with"]["path"], "outputs/")
+        self.assertIs(up["with"]["overwrite"], True)
+        self.assertEqual(up["with"]["retention-days"], 30)
+        self.assertNotIn("continue-on-error", up)
+
+    def test_order_and_always(self):
+        steps = rs_job("notify")["steps"]
+        names = [s.get("name") for s in steps]
+        idx = [names.index(n) for n in (self.ISSUE, self.DOWNLOAD, self.UPLOAD)]
+        self.assertEqual(idx, sorted(idx))
+        self.assertEqual(len(set(idx)), 3)
+        for n in (self.ISSUE, self.DOWNLOAD, self.UPLOAD):
+            self.assertEqual(rs_step("notify", n)["if"], "always()")
+
+    def test_patterns_do_not_overlap(self):
+        status = rs_step("notify", "dl")["with"]["pattern"]
+        output = rs_step("notify", self.DOWNLOAD)["with"]["pattern"]
+        self.assertFalse(fnmatch.fnmatch("mutants-output-x", status))
+        self.assertFalse(fnmatch.fnmatch("mutants-status-x", output))
+
+    def test_only_dl_step_continues_on_error(self):
+        for step in rs_job("notify")["steps"]:
+            if step.get("id") != "dl":
+                self.assertNotIn("continue-on-error", step, step)
+
+    def test_no_expression_syntax_in_any_run_block(self):
+        for step in rs_job("notify")["steps"]:
             self.assertNotIn("${{", step.get("run", ""), step)
 
 
