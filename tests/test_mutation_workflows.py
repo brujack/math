@@ -5,6 +5,7 @@ the file with `yaml.safe_load` so a comment cannot fake a directive. PyYAML pars
 the `on:` key as the boolean True, which these tests do not need.
 """
 
+import json
 import os
 import pathlib
 import re
@@ -345,24 +346,25 @@ def clean_git_env():
     return {k: v for k, v in os.environ.items() if k not in GIT_ENV_VARS}
 
 
-def rs_steps():
-    return yaml.safe_load(RS_WORKFLOW.read_text())["jobs"]["mutants"]["steps"]
+def rs_job(name):
+    return yaml.safe_load(RS_WORKFLOW.read_text())["jobs"][name]
 
 
-def crates_step():
-    found = [s for s in rs_steps() if s.get("id") == "crates"]
-    assert len(found) == 1, "expected exactly one step with id: crates"
+def rs_step(job, name):
+    """Return the one step of `job` whose id or name is `name`."""
+    found = [s for s in rs_job(job)["steps"] if name in (s.get("id"), s.get("name"))]
+    assert len(found) == 1, f"expected exactly one step {name!r} in job {job!r}"
     return found[0]
 
 
-class CratesRun(NamedTuple):
+class SetupRun(NamedTuple):
     proc: "subprocess.CompletedProcess[str]"
     outputs: dict[str, str]
     lines: list[str]
 
 
-def run_crates(crate="", path=None):
-    """Execute the `crates` step's run block; return (proc, outputs dict)."""
+def run_rs_setup(crate="", path=None):
+    """Execute the setup job's `plan` step; return (proc, outputs, lines)."""
     with tempfile.TemporaryDirectory() as tmp:
         out = pathlib.Path(tmp) / "out"
         out.touch()
@@ -379,7 +381,7 @@ def run_crates(crate="", path=None):
                 "-eo",
                 "pipefail",
                 "-c",
-                crates_step()["run"],
+                rs_step("setup", "plan")["run"],
             ],
             env=env,
             cwd=REPO_ROOT,
@@ -398,7 +400,7 @@ def run_crates(crate="", path=None):
                 raise AssertionError(f"malformed GITHUB_OUTPUT line: {line!r}")
             key, _, value = line.partition("=")
             outputs[key] = value
-        return CratesRun(proc, outputs, raw_lines)
+        return SetupRun(proc, outputs, raw_lines)
 
 
 def tracked_crate_dirs():
@@ -414,14 +416,27 @@ def tracked_crate_dirs():
     return sorted(os.path.dirname(f) for f in proc.stdout.split())
 
 
-class RustCrateDiscoveryTests(unittest.TestCase):
+class RustSetupJobTests(unittest.TestCase):
     def test_empty_crate_lists_tracked_crates_only(self):
-        proc, outputs, _lines = run_crates("")
+        proc, outputs, lines = run_rs_setup("")
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        dirs = outputs["crate_dirs"].split()
-        self.assertEqual(len(dirs), 11)
-        self.assertEqual(sorted(dirs), tracked_crate_dirs())
-        self.assertFalse([d for d in dirs if d.startswith("tests/")])
+        self.assertEqual(len(lines), 2, lines)
+        self.assertTrue(lines[0].startswith("matrix="), lines)
+        self.assertTrue(lines[1].startswith("units="), lines)
+        units = outputs["units"].split()
+        dirs = tracked_crate_dirs()
+        self.assertEqual(len(units), 11)
+        self.assertEqual(units, [d.replace("/", "-") for d in dirs])
+        self.assertFalse([u for u in units if u.startswith("tests-")])
+
+    def test_matrix_crates_and_slugs_match_units(self):
+        proc, outputs, _lines = run_rs_setup("")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        include = json.loads(outputs["matrix"])["include"]
+        self.assertEqual([i["crate"] for i in include], tracked_crate_dirs())
+        self.assertEqual([i["slug"] for i in include], outputs["units"].split())
+        for item in include:
+            self.assertEqual(item["slug"], item["crate"].replace("/", "-"))
 
     def test_fixture_cargo_tomls_exist_as_positive_control(self):
         proc = subprocess.run(
@@ -435,75 +450,59 @@ class RustCrateDiscoveryTests(unittest.TestCase):
         )
         self.assertTrue(proc.stdout.strip())
 
-    def test_explicit_crate_wins(self):
-        proc, outputs, _lines = run_crates("sq/sq-rs")
+    def test_known_crate_gives_single_entry_matrix(self):
+        proc, outputs, _lines = run_rs_setup("sq/sq-rs")
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(outputs, {"crate_dirs": "sq/sq-rs"})
+        self.assertEqual(outputs["units"], "sq-sq-rs")
+        self.assertEqual(
+            json.loads(outputs["matrix"])["include"],
+            [{"crate": "sq/sq-rs", "slug": "sq-sq-rs"}],
+        )
+
+    def test_unknown_crate_refused_naming_it(self):
+        proc, outputs, lines = run_rs_setup("nope/nope-rs")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("nope/nope-rs", proc.stderr)
+        self.assertEqual(lines, [])
+        self.assertEqual(outputs, {})
 
     def test_newline_injection_refused(self):
-        proc, outputs, lines = run_crates("sq/sq-rs\nevil=1")
+        proc, outputs, lines = run_rs_setup("sq/sq-rs\nevil=1")
         self.assertEqual(proc.returncode, 1)
         self.assertNotIn("evil", outputs)
         self.assertEqual(lines, [])
-
-    def test_unknown_crate_refused_naming_it(self):
-        proc, outputs, _lines = run_crates("nope/nope-rs")
-        self.assertEqual(proc.returncode, 1)
-        self.assertIn("nope/nope-rs", proc.stderr)
-        self.assertEqual(outputs, {})
-
-    def test_known_crate_accepted(self):
-        proc, outputs, _lines = run_crates("collatz/collatz-rs")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(outputs["crate_dirs"], "collatz/collatz-rs")
-
-    def test_run_mutants_loop_iterates_quoted_array(self):
-        run = next(s for s in rs_steps() if s.get("name") == "Run mutants")["run"]
-        self.assertIn('"${crate_list[@]}"', run)
-        self.assertNotIn("${crate_dirs}", run)
-
-    def test_single_output_line(self):
-        _, _, lines = run_crates("")
-        self.assertEqual(len(lines), 1, lines)
-        self.assertTrue(lines[0].startswith("crate_dirs="))
-
-    def test_no_expression_syntax_in_run_block(self):
-        self.assertNotIn("${{", crates_step()["run"])
 
     def test_empty_list_refuses_green(self):
         with tempfile.TemporaryDirectory() as tmp:
             stub = pathlib.Path(tmp) / "git"
             stub.write_text("#!/bin/sh\nexit 0\n")
             stub.chmod(0o755)
-            proc, outputs, _lines = run_crates("", path=f"{tmp}:{os.environ['PATH']}")
+            proc, _outputs, lines = run_rs_setup("", path=f"{tmp}:{os.environ['PATH']}")
         self.assertEqual(proc.returncode, 1)
         self.assertIn("refusing to report green", proc.stderr)
-        self.assertEqual(outputs, {})
+        self.assertEqual(lines, [])
 
     def test_crate_env_reads_dispatch_input(self):
         self.assertEqual(
-            crates_step()["env"]["CRATE"], "${{ github.event.inputs.crate }}"
+            rs_step("setup", "plan")["env"]["CRATE"], "${{ github.event.inputs.crate }}"
         )
 
-    def test_run_mutants_reads_step_output(self):
-        found = [s for s in rs_steps() if s.get("name") == "Run mutants"]
-        self.assertEqual(len(found), 1)
-        self.assertEqual(
-            found[0]["env"]["CRATE_DIRS"], "${{ steps.crates.outputs.crate_dirs }}"
-        )
-        self.assertNotIn("find ", found[0]["run"])
+    def test_outputs_declared_from_plan_step(self):
+        outputs = rs_job("setup")["outputs"]
+        self.assertEqual(outputs["matrix"], "${{ steps.plan.outputs.matrix }}")
+        self.assertEqual(outputs["units"], "${{ steps.plan.outputs.units }}")
 
-    def test_crates_step_precedes_run_mutants(self):
-        ids = [s.get("id") or s.get("name") for s in rs_steps()]
-        self.assertLess(ids.index("crates"), ids.index("Run mutants"))
+    def test_no_expression_syntax_in_run_block(self):
+        self.assertNotIn("${{", rs_step("setup", "plan")["run"])
 
 
-def run_mutants_in_sandbox(crate_dirs, red_crate=""):
-    """Execute `Run mutants` against stub make/classifier; return observations.
+def run_crate_job(crate, slug, red=False, pre_status=None, step="Run mutants"):
+    """Execute a `mutants` job step against stub make/classifier.
 
-    The classifier stub reports red (exit 1) for `red_crate`, green otherwise.
+    Returns (proc, make_calls, {status filename: content}). The classifier stub
+    reports red (exit 1) when `red`, green otherwise. `pre_status` seeds
+    status/<slug> before the step runs.
     """
-    step = next(s for s in rs_steps() if s.get("name") == "Run mutants")
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
         bindir = root / "bin"
@@ -517,21 +516,33 @@ def run_mutants_in_sandbox(crate_dirs, red_crate=""):
         classify = workspace / "scripts" / "mutation-classify.sh"
         classify.write_text(
             "#!/bin/sh\n"
-            'if [ "$3" = "$RED_CRATE" ]; then printf "red: %s\\n" "$3" >&2; exit 1; fi\n'
+            'if [ "$RED" = "1" ]; then printf "red: %s\\n" "$3" >&2; exit 1; fi\n'
             "printf 'green: %s\\n' \"$3\"\n"
         )
         classify.chmod(0o755)
+        if pre_status is not None:
+            (workspace / "status").mkdir()
+            (workspace / "status" / slug).write_text(pre_status)
         summary = root / "summary"
         summary.touch()
         env = {
             "PATH": f"{bindir}:{os.environ['PATH']}",
             "GITHUB_WORKSPACE": str(workspace),
             "GITHUB_STEP_SUMMARY": str(summary),
-            "CRATE_DIRS": crate_dirs,
-            "RED_CRATE": red_crate,
+            "CRATE_DIR": crate,
+            "SLUG": slug,
+            "RED": "1" if red else "0",
         }
         proc = subprocess.run(
-            ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]],
+            [
+                "bash",
+                "--noprofile",
+                "--norc",
+                "-eo",
+                "pipefail",
+                "-c",
+                rs_step("mutants", step)["run"],
+            ],
             env=env,
             cwd=root,
             capture_output=True,
@@ -540,32 +551,78 @@ def run_mutants_in_sandbox(crate_dirs, red_crate=""):
             check=False,
         )
         made = calls.read_text().splitlines() if calls.exists() else []
-        statuses = sorted(p.name for p in (workspace / "status").glob("*"))
+        statuses = {p.name: p.read_text() for p in (workspace / "status").glob("*")}
         return proc, made, statuses
 
 
-class RunMutantsBehaviourTests(unittest.TestCase):
-    def test_two_crates_split_into_two_make_calls(self):
-        proc, made, statuses = run_mutants_in_sandbox("a/a-rs b/b-rs")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(made, ["a/a-rs", "b/b-rs"])
-        self.assertIn("crates to test: 2", proc.stdout)
-        self.assertEqual(statuses, ["a-a-rs", "b-b-rs"])
-
-    def test_one_crate_is_one_make_call(self):
-        proc, made, statuses = run_mutants_in_sandbox("a/a-rs")
+class RustMutantsJobTests(unittest.TestCase):
+    def test_green_crate_writes_green_status(self):
+        proc, made, statuses = run_crate_job("a/a-rs", "a-a-rs")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(made, ["a/a-rs"])
-        self.assertIn("crates to test: 1", proc.stdout)
-        self.assertEqual(statuses, ["a-a-rs"])
+        self.assertEqual(statuses, {"a-a-rs": "green: a/a-rs\n"})
 
-    def test_one_red_crate_fails_the_step_after_running_all(self):
-        proc, made, statuses = run_mutants_in_sandbox(
-            "a/a-rs b/b-rs", red_crate="a/a-rs"
-        )
+    def test_red_crate_fails_step_and_writes_red_status(self):
+        proc, made, statuses = run_crate_job("a/a-rs", "a-a-rs", red=True)
         self.assertEqual(proc.returncode, 1)
-        self.assertEqual(made, ["a/a-rs", "b/b-rs"])
-        self.assertEqual(statuses, ["a-a-rs", "b-b-rs"])
+        self.assertEqual(made, ["a/a-rs"])
+        self.assertEqual(statuses, {"a-a-rs": "red: a/a-rs\n"})
+
+    def test_cancelled_step_records_red_when_no_status(self):
+        proc, _made, statuses = run_crate_job(
+            "a/a-rs", "a-a-rs", step="Record unfinished crate"
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(
+            statuses,
+            {"a-a-rs": "red: a-a-rs \u2014 did not finish (cancelled or timed out)\n"},
+        )
+
+    def test_cancelled_step_keeps_existing_status(self):
+        proc, _made, statuses = run_crate_job(
+            "a/a-rs",
+            "a-a-rs",
+            pre_status="green: a/a-rs\n",
+            step="Record unfinished crate",
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(statuses, {"a-a-rs": "green: a/a-rs\n"})
+
+    def test_job_structure(self):
+        job = rs_job("mutants")
+        self.assertIs(job["strategy"]["fail-fast"], False)
+        self.assertEqual(job["timeout-minutes"], 60)
+        self.assertEqual(
+            job["strategy"]["matrix"], "${{ fromJSON(needs.setup.outputs.matrix) }}"
+        )
+        self.assertEqual(job["needs"], "setup")
+        self.assertEqual(
+            rs_step("mutants", "Record unfinished crate")["if"], "cancelled()"
+        )
+
+    def test_run_step_env_from_matrix(self):
+        env = rs_step("mutants", "Run mutants")["env"]
+        self.assertEqual(env["CRATE_DIR"], "${{ matrix.crate }}")
+        self.assertEqual(env["SLUG"], "${{ matrix.slug }}")
+
+    def test_uploads_are_per_crate_and_always(self):
+        status = rs_step("mutants", "Upload crate status")
+        output = rs_step("mutants", "Upload crate output")
+        self.assertEqual(status["if"], "always()")
+        self.assertEqual(output["if"], "always()")
+        self.assertEqual(status["with"]["name"], "mutants-status-${{ matrix.slug }}")
+        self.assertEqual(output["with"]["name"], "mutants-output-${{ matrix.slug }}")
+        self.assertEqual(
+            set(status["with"]["path"].splitlines()), {"status/", "marker/"}
+        )
+        self.assertEqual(
+            set(output["with"]["path"].splitlines()),
+            {"${{ matrix.crate }}/mutants.out/", "marker/"},
+        )
+
+    def test_no_expression_syntax_in_any_run_block(self):
+        for step in rs_job("mutants")["steps"]:
+            self.assertNotIn("${{", step.get("run", ""), step)
 
 
 if __name__ == "__main__":
