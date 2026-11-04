@@ -1,7 +1,8 @@
 # Worldclass slice 3: one job per crate in the Rust mutation sweep
 
 - **Date:** 2026-11-03
-- **Status:** Draft
+- **Status:** Approved
+- **Approved:** 2026-11-03
 - **Scope:** `.github/workflows/mutation-testing.yml`, `tests/test_mutation_workflows.py`, root `CLAUDE.md` (two lines), a new ADR, `docs/superpowers/README.md`
 - **Revised:** 2026-11-03 after Step 8 round 1 (operator chose to re-aggregate `mutants-output` in `notify`)
 
@@ -189,7 +190,7 @@ Disposition: Addressed — setup emits a `jq`-built `include` list of `crate`/`s
 
 Sections reviewed: setup outputs, mutants uploads, notify re-aggregation, Testing, R1, R4, R7, R8, V1, V2. Finding: the new output steps could skip the tracking-issue step (it had no `if: always()` and only `dl` may carry `continue-on-error`), so a digest mismatch or a re-run 409 on `mutants-output` would stop the issue being filed; the output download directory was unnamed. Verified: the least-common-ancestor claim holds and the consumer `rglob`s `outcomes.json`; an empty pattern download is benign.
 Assumption: That attempt-1 artifacts are visible to, and name-conflict in, a "Re-run failed jobs" attempt. V2 settles it after merge.
-Disposition:
+Disposition: Addressed — tracking-issue step gets `if: always()`; output steps run after it with `if: always()`, download into `outputs`, upload with `overwrite: true`; R8 reworded (9600550).
 
 ### Adversarial Spec Review (comparison/judge designs only)
 
