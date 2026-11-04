@@ -1,5 +1,10 @@
 use std::io::{self, Write};
 
+/// True when N is large enough that the cache (4 bytes * 10^N) warrants a warning.
+pub fn warns_large_n(v: u64) -> bool {
+    v > 9
+}
+
 pub fn collatz_next(n: u64) -> u64 {
     if n.is_multiple_of(2) { n / 2 } else { 3 * n + 1 }
 }
