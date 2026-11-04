@@ -75,9 +75,49 @@ fn format_write_progress(written: u64, pi_total: u64, elapsed: f64) -> String {
     )
 }
 
+/// Final summary line of a file write (the caller prints the leading `\r`).
+fn format_write_done(total_bytes: u64, elapsed: f64) -> String {
+    let speed = if elapsed > 0.001 { total_bytes as f64 / elapsed / 1_048_576.0 } else { 0.0 };
+    format!(
+        "  Writing: 100%  ({:.1} MB)  {:.1} MB/s              ",
+        total_bytes as f64 / 1_048_576.0,
+        speed,
+    )
+}
+
+/// True when `digits` is large enough to warrant a long-running warning.
+fn warn_large_digits(digits: usize) -> bool {
+    digits > 1_000_000
+}
+
+/// True when a decimal-place preview is printed (small enough to show).
+fn shows_preview(digits: usize) -> bool {
+    digits <= 1_000_000
+}
+
+/// True when the result is saved to a file without asking.
+fn auto_saves(digits: usize) -> bool {
+    digits > 10_000
+}
+
+/// Minimum bytes per parallel write chunk used by `write_pi_file`.
+#[cfg(unix)]
+const WRITE_MIN_CHUNK: usize = 4 * 1024 * 1024;
+
 /// Write π to `dir/pi_<digits>_digits.txt` using parallel pwrite(2) chunks.
 #[cfg(unix)]
 fn write_pi_file(dir: &Path, pi_str: &str, digits: usize) -> io::Result<PathBuf> {
+    write_pi_file_sized(dir, pi_str, digits, WRITE_MIN_CHUNK)
+}
+
+/// `write_pi_file` with an explicit minimum chunk size, so tests can force several chunks.
+#[cfg(unix)]
+fn write_pi_file_sized(
+    dir: &Path,
+    pi_str: &str,
+    digits: usize,
+    min_chunk: usize,
+) -> io::Result<PathBuf> {
     let filename = format!("pi_{}_digits.txt", digits);
     let path = dir.join(&filename);
 
@@ -103,7 +143,7 @@ fn write_pi_file(dir: &Path, pi_str: &str, digits: usize) -> io::Result<PathBuf>
     file.write_at(ftr, pi_offset + pi_total)?;
 
     let n_threads = rayon::current_num_threads();
-    let chunk_size = ((4 * 1024 * 1024) as usize).max(pi.len() / n_threads);
+    let chunk_size = min_chunk.max(pi.len() / n_threads);
 
     let bytes_written = Arc::new(AtomicU64::new(0));
     let bytes_written_c = Arc::clone(&bytes_written);
@@ -136,12 +176,7 @@ fn write_pi_file(dir: &Path, pi_str: &str, digits: usize) -> io::Result<PathBuf>
     progress_thread.join().unwrap();
 
     let elapsed = t_write.elapsed().as_secs_f64();
-    let speed = if elapsed > 0.001 { pi_total as f64 / elapsed / 1_048_576.0 } else { 0.0 };
-    eprintln!(
-        "\r  Writing: 100%  ({:.1} MB)  {:.1} MB/s              ",
-        pi_total as f64 / 1_048_576.0,
-        speed,
-    );
+    eprintln!("\r{}", format_write_done(pi_total, elapsed));
 
     Ok(path)
 }
@@ -193,7 +228,7 @@ where
         let line = read_line_from(reader)?;
         match line.parse::<usize>() {
             Ok(n) if n >= 1 => {
-                if n > 1_000_000 {
+                if warn_large_digits(n) {
                     writeln!(err, "Warning: very large numbers may take a long time.")?;
                     if !confirm_large_digits_with(reader, out, err, n)? {
                         continue;
@@ -225,7 +260,7 @@ where
                 writeln!(err, "Error: digits must be ≥ 1")?;
                 return Ok(1);
             }
-            if d > 1_000_000 {
+            if warn_large_digits(d) {
                 writeln!(err, "Warning: very large numbers may take a long time.")?;
             }
             d
@@ -244,7 +279,7 @@ where
     let pi_str = compute_pi(digits);
     writeln!(out, "\nDone in {:.2}s", t_total.elapsed().as_secs_f64())?;
 
-    if digits <= 1_000_000 {
+    if shows_preview(digits) {
         let preview = 100.min(digits);
         if let Some(dot) = pi_str.find('.') {
             let end = (dot + 1 + preview).min(pi_str.len());
@@ -253,7 +288,7 @@ where
         }
     }
 
-    if digits > 10_000 {
+    if auto_saves(digits) {
         #[cfg(unix)]
         save_pi(dir, &pi_str, digits, out)?;
         #[cfg(not(unix))]
@@ -516,6 +551,62 @@ mod tests {
         assert!(s.contains("100%"), "complete should show 100%: {}", s);
     }
 
+    #[test]
+    fn test_format_write_progress_exact_strings() {
+        // elapsed 0.001 is not > 0.001, so speed is pinned to zero.
+        assert_eq!(
+            format_write_progress(1_048_576, 2_097_152, 0.001),
+            "  Writing:  50%  (1.0 / 2.0 MB)  0.0 MB/s   "
+        );
+        // 1 MiB in 0.002 s is exactly 500 MB/s.
+        assert_eq!(
+            format_write_progress(1_048_576, 2_097_152, 0.002),
+            "  Writing:  50%  (1.0 / 2.0 MB)  500.0 MB/s   "
+        );
+    }
+
+    // --- format_write_done ---
+
+    #[test]
+    fn test_format_write_done_exact_strings() {
+        let three_mb = 3 * 1_048_576;
+        assert_eq!(
+            format_write_done(three_mb, 0.001),
+            "  Writing: 100%  (3.0 MB)  0.0 MB/s              "
+        );
+        assert_eq!(
+            format_write_done(three_mb, 0.002),
+            "  Writing: 100%  (3.0 MB)  1500.0 MB/s              "
+        );
+        assert_eq!(
+            format_write_done(three_mb, 1.0),
+            "  Writing: 100%  (3.0 MB)  3.0 MB/s              "
+        );
+    }
+
+    // --- thresholds ---
+
+    #[test]
+    fn test_warn_large_digits_boundary() {
+        assert!(!warn_large_digits(999_999));
+        assert!(!warn_large_digits(1_000_000));
+        assert!(warn_large_digits(1_000_001));
+    }
+
+    #[test]
+    fn test_shows_preview_boundary() {
+        assert!(shows_preview(999_999));
+        assert!(shows_preview(1_000_000));
+        assert!(!shows_preview(1_000_001));
+    }
+
+    #[test]
+    fn test_auto_saves_boundary() {
+        assert!(!auto_saves(9_999));
+        assert!(!auto_saves(10_000));
+        assert!(auto_saves(10_001));
+    }
+
     // --- read_line_from ---
 
     #[test]
@@ -683,6 +774,31 @@ mod tests {
         assert!(announcement.contains("π saved to"));
     }
 
+    #[test]
+    #[cfg(unix)]
+    fn test_write_pi_file_sized_multi_chunk_exact_bytes() {
+        // 45 bytes with min_chunk 7: several chunks, last one partial (45 % 7 != 0).
+        let pi_str = "3.1415926535897932384626433832795028841971693";
+        assert_eq!(pi_str.len(), 45);
+        let dir = tempdir().unwrap();
+        let path = write_pi_file_sized(dir.path(), pi_str, 43, 7).unwrap();
+        let expected = format!(
+            "π calculated to {} decimal places using Chudnovsky/Rayon\n{}\n\n{}\n\nTotal decimal places: {}",
+            fmt_int(43),
+            "=".repeat(60),
+            pi_str,
+            fmt_int(43),
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), expected.as_bytes());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_write_pi_file_sized_missing_dir_errors() {
+        let result = write_pi_file_sized(Path::new("/nonexistent/path"), PI_REF, 50, 7);
+        assert!(result.is_err());
+    }
+
     // --- run ---
 
     #[test]
@@ -695,6 +811,22 @@ mod tests {
         let code = run(cli, &mut r, &mut out, &mut err, dir.path()).unwrap();
         assert_eq!(code, 1);
         assert!(String::from_utf8(err).unwrap().contains("≥ 1"));
+    }
+
+    #[test]
+    fn test_run_with_one_digit_returns_zero_and_previews() {
+        let cli = Cli { digits: Some(1) };
+        let mut r = &b"y\n"[..];
+        let mut out = Vec::<u8>::new();
+        let mut err = Vec::<u8>::new();
+        let dir = tempdir().unwrap();
+        let code = run(cli, &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        let stdout = String::from_utf8(out).unwrap();
+        assert!(stdout.contains("π = 3.1…"), "{stdout}");
+        assert!(!stdout.contains("π = 3.14"), "{stdout}");
+        assert!(stdout.contains("(Showing first 1 decimal places)"), "{stdout}");
+        assert!(err.is_empty());
     }
 
     #[test]
