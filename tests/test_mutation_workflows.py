@@ -498,12 +498,16 @@ class RustSetupJobTests(unittest.TestCase):
         self.assertNotIn("${{", rs_step("setup", "plan")["run"])
 
 
-def run_crate_job(crate, slug, red=False, pre_status=None, step="Run mutants"):
+def run_crate_job(
+    crate, slug, red=False, pre_status=None, step="Run mutants", make_rc=0
+):
     """Execute a `mutants` job step against stub make/classifier.
 
-    Returns (proc, make_calls, {status filename: content}). The classifier stub
-    reports red (exit 1) when `red`, green otherwise. `pre_status` seeds
-    status/<slug> before the step runs.
+    Returns (proc, make_calls, {status filename: content}, step summary). The
+    make stub exits `make_rc` (cargo-mutants exits 2 for survivors, 3 for
+    timeouts, both green by policy). The classifier stub echoes the exit code
+    and outcomes path it was given, and reports red (exit 1) when `red`, green
+    otherwise. `pre_status` seeds status/<slug> before the step runs.
     """
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
@@ -511,15 +515,17 @@ def run_crate_job(crate, slug, red=False, pre_status=None, step="Run mutants"):
         bindir.mkdir()
         calls = root / "make-calls"
         make = bindir / "make"
-        make.write_text(f'#!/bin/sh\nprintf \'%s\\n\' "$2" >> "{calls}"\n')
+        make.write_text(
+            f'#!/bin/sh\nprintf \'%s\\n\' "$2" >> "{calls}"\nexit "$MAKE_RC"\n'
+        )
         make.chmod(0o755)
         workspace = root / "ws"
         (workspace / "scripts").mkdir(parents=True)
         classify = workspace / "scripts" / "mutation-classify.sh"
         classify.write_text(
             "#!/bin/sh\n"
-            'if [ "$RED" = "1" ]; then printf "red: %s\\n" "$3" >&2; exit 1; fi\n'
-            "printf 'green: %s\\n' \"$3\"\n"
+            'if [ "$RED" = "1" ]; then printf "red: %s rc=%s %s\\n" "$3" "$1" "$2" >&2; exit 1; fi\n'
+            'printf \'green: %s rc=%s %s\\n\' "$3" "$1" "$2"\n'
         )
         classify.chmod(0o755)
         if pre_status is not None:
@@ -534,6 +540,7 @@ def run_crate_job(crate, slug, red=False, pre_status=None, step="Run mutants"):
             "CRATE_DIR": crate,
             "SLUG": slug,
             "RED": "1" if red else "0",
+            "MAKE_RC": str(make_rc),
         }
         proc = subprocess.run(
             [
@@ -554,24 +561,40 @@ def run_crate_job(crate, slug, red=False, pre_status=None, step="Run mutants"):
         )
         made = calls.read_text().splitlines() if calls.exists() else []
         statuses = {p.name: p.read_text() for p in (workspace / "status").glob("*")}
-        return proc, made, statuses
+        return proc, made, statuses, summary.read_text()
 
 
 class RustMutantsJobTests(unittest.TestCase):
     def test_green_crate_writes_green_status(self):
-        proc, made, statuses = run_crate_job("a/a-rs", "a-a-rs")
+        proc, made, statuses, summary = run_crate_job("a/a-rs", "a-a-rs")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(made, ["a/a-rs"])
-        self.assertEqual(statuses, {"a-a-rs": "green: a/a-rs\n"})
+        line = "green: a/a-rs rc=0 a/a-rs/mutants.out/outcomes.json\n"
+        self.assertEqual(statuses, {"a-a-rs": line})
+        self.assertEqual(summary, line)
+
+    def test_make_failure_rc_reaches_classifier_and_status(self):
+        # cargo-mutants exits 2 when mutants survive; under `bash -e` the step
+        # must capture it, hand it to the classifier and still write status.
+        proc, made, statuses, summary = run_crate_job("a/a-rs", "a-a-rs", make_rc=2)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(made, ["a/a-rs"])
+        line = "green: a/a-rs rc=2 a/a-rs/mutants.out/outcomes.json\n"
+        self.assertEqual(statuses, {"a-a-rs": line})
+        self.assertEqual(summary, line)
 
     def test_red_crate_fails_step_and_writes_red_status(self):
-        proc, made, statuses = run_crate_job("a/a-rs", "a-a-rs", red=True)
+        proc, made, statuses, summary = run_crate_job(
+            "a/a-rs", "a-a-rs", red=True, make_rc=1
+        )
         self.assertEqual(proc.returncode, 1)
         self.assertEqual(made, ["a/a-rs"])
-        self.assertEqual(statuses, {"a-a-rs": "red: a/a-rs\n"})
+        line = "red: a/a-rs rc=1 a/a-rs/mutants.out/outcomes.json\n"
+        self.assertEqual(statuses, {"a-a-rs": line})
+        self.assertEqual(summary, line)
 
     def test_cancelled_step_records_red_when_no_status(self):
-        proc, _made, statuses = run_crate_job(
+        proc, _made, statuses, _summary = run_crate_job(
             "a/a-rs", "a-a-rs", step="Record unfinished crate"
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -581,7 +604,7 @@ class RustMutantsJobTests(unittest.TestCase):
         )
 
     def test_cancelled_step_keeps_existing_status(self):
-        proc, _made, statuses = run_crate_job(
+        proc, _made, statuses, _summary = run_crate_job(
             "a/a-rs",
             "a-a-rs",
             pre_status="green: a/a-rs\n",
@@ -645,6 +668,7 @@ class RustNotifyJobTests(unittest.TestCase):
         self.assertEqual(dl["with"]["path"], "artifact")
         self.assertIs(dl["continue-on-error"], True)
         self.assertNotIn("name", dl["with"])
+        self.assertEqual(dl["with"]["digest-mismatch"], "error")
 
     def test_issue_step_env_and_run(self):
         step = rs_step("notify", self.ISSUE)
@@ -662,6 +686,7 @@ class RustNotifyJobTests(unittest.TestCase):
         self.assertEqual(dl["with"]["pattern"], "mutants-output-*")
         self.assertIs(dl["with"]["merge-multiple"], True)
         self.assertEqual(dl["with"]["path"], "outputs")
+        self.assertEqual(dl["with"]["digest-mismatch"], "error")
         self.assertNotIn("continue-on-error", dl)
         up = rs_step("notify", self.UPLOAD)
         self.assertEqual(up["with"]["name"], "mutants-output")
