@@ -61,3 +61,4 @@ Spec: `docs/superpowers/specs/2026-11-03-worldclass-slice1-ci-monitors-design.md
 - ADR-0033 (Python mutation fails closed and runs sharded)
 - ADR-0037 (CI supply-chain guardrails)
 - core.md ci-002, shell-004
+- ADR-0040 (Decision 1's single `List crates` step and `crate_dirs=` output are superseded by it)

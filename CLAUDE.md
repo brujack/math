@@ -136,7 +136,7 @@ Python `make mutants` runs a capped `cosmic-ray baseline` first (8 GiB `ulimit -
 ### Mutation testing (Rust)
 
 Rust mutation testing uses `cargo-mutants` (`cargo install cargo-mutants --locked`); run `make mutants` in a crate directory; correctness over coverage %, a kill rate above 80% is good for math code. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
-Mutation CI is `.github/workflows/mutation-testing.yml` (monthly `cron: "0 4 1 * *"`, `workflow_dispatch`) calling `make -C <crate> mutants`; `List crates` uses `git ls-files '*/*-rs/Cargo.toml'`, rejects unknown `crate`. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
+Mutation CI is `mutation-testing.yml` (monthly `cron: "0 4 1 * *"`, `workflow_dispatch`) calling `make -C <crate> mutants`; `setup` lists crates via `git ls-files '*/*-rs/Cargo.toml'`, rejects unknown `crate`, fans out a 60-minute job per crate. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
 
 Never put a fixed `--timeout` back (#95): keep `--timeout-multiplier 5 --minimum-test-timeout 30` in each crate's `Makefile` `mutants` target, not the workflow, because a fixed value caps the unmutated baseline and evaluated zero mutants for a month; `tests/scripts/makefile.bats` pins both halves across all 11 crates. → ai-config/docs/knowledge/math-testing-policy.md § Mutation timeout
 
@@ -144,7 +144,7 @@ Keep `ulimit -v 8388608` (8 GiB) in the same `mutants` recipe; macOS cannot enfo
 
 A mutation leg is red only when `caught + missed == 0`, the baseline fails or the runner dies; survivors (exit 2) and timeouts (exit 3) are green (`scripts/mutation-classify.sh`, `tests/scripts/mutation_classify.bats`). → ai-config/docs/knowledge/math-testing-policy.md § Mutation green/red
 
-The notify job is separate (`needs: [mutants], if: always()`), `issues: write`, label `mutation-failure` (`-python` by `ISSUE_LABEL`); `scripts/mutation-notify.sh` reads `marker/job-began`; needs `FULL_SWEEP`, only a full sweep closes it. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
+`notify` is separate (`needs: [setup, mutants], if: always()`), label `mutation-failure` (`-python` via `ISSUE_LABEL`); `mutation-notify.sh` reads `marker/job-began`; needs `FULL_SWEEP`; only a full sweep closes. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
 Add `mutants` to a new Rust crate's `Makefile` `.PHONY` list and target; investigate surviving mutants in logic code, not main glue. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
 
 Exclude equivalent mutants via the crate's `.cargo/mutants.toml` `exclude_re` regexes matched against `src/lib.rs:<line>:<col>: <description>`; `// mutants::skip` is not recognized (cargo-mutants ≥27.x), only `#[mutants::skip]` on items. → ai-config/docs/knowledge/math-testing-policy.md § Equivalent mutations
