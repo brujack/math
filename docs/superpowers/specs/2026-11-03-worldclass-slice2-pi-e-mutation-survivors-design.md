@@ -271,4 +271,4 @@ N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
 
 ### Verifications
 
-- V1: Pending: dispatch mutation-testing-python.yml for pi and e after merge; baseline 710/735 survivors (run 41279088956, all 20 shards green).
+- V1: Done 2026-11-04. Runs 41735040362 (pi) and 41735044331 (e) at `c7c8f6f`, 10 shards each, all green. pi: 378 survivors of 1,830 mutants (39 timeouts), kill rate 79.3%, against 710 of 1,857 (61.8%) in run 41279088956. e: 406 of 1,623 (31 timeouts), 75.0%, against 735 of 1,646 (55.3%). Kill rate counts timeouts as killed: (mutants - survivors) / mutants. `_io_workers`, `_format_mantissa` and `render_bar` have 0 survivors in both files. `show_one_tick` and `write_chunk` fell from 117 and 108 to 8 each. `estimate_conversion_time` keeps 71 of its 160 (34 NumberReplacer), the ETA tuning constants §5 accepts. `render_conversion_tick` and `render_write_progress` keep 16 per file; about half are equivalent (`elapsed > 0` as `!=`, `int(x / 100)` as `//`), and the rest go to the Backlog.
