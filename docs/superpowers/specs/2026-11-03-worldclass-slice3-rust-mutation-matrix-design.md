@@ -195,3 +195,30 @@ Disposition: Addressed — tracking-issue step gets `if: always()`; output steps
 ### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+## Amendments
+
+- finding R3 (2026-11-04, reviewer B): DIFFERS — The if: cancelled() step writes only when status/<slug> is absent, as required, but the literal is 'red: <slug> — did not finish (cancelled or timed out)', i.e. the spec's 'red: <slug> — did not finish' plus an extra parenthetical suffix (cosmetic wording difference).
+- R3 -> A step with `if: cancelled()` writes a `red: <slug> — did not finish (cancelled or timed out)` status when the crate has none. — the built line names both causes the step covers; R3 named only the prefix.
+
+## Spec alignment (2026-11-04)
+
+- spec: docs/superpowers/specs/2026-11-03-worldclass-slice3-rust-mutation-matrix-design.md
+- anchor: 8c61a3109bb7cdcec7d55a84143d4440e5fd0672
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+| R3 | B | DIFFERS | The if: cancelled() step writes only when status/<slug> is absent, as required, but the literal is 'red: <slug> — did not finish (cancelled or timed out)', i.e. the spec's 'red: <slug> — did not finish' plus an extra parenthetical suffix (cosmetic wording difference). | - R3 -> A step with `if: cancelled()` writes a `red: <slug> — did not finish (cancelled or timed out)` status when the crate has none. — the built line names both causes the step covers; R3 named only the prefix. |
+
+### Reviewed
+
+- none
+
+### Verifications
+
+- V1: no evidence recorded
+- V2: no evidence recorded
