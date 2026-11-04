@@ -187,3 +187,29 @@ remaining survivors match §Equivalents.
 - A twin-primes segment with `n % 8 == 0` makes `idx <= n` index past the bitset and
   panic, which a test catches; at other sizes it sets a padding bit that is never read
   and is equivalent. The test must use the panicking size.
+
+## Multi-Lens Review
+
+Reviewed at commit: `4c44f34` (spec as first committed, after the Step 7 self-review)
+
+### Goal-Fit
+
+Finding: R1, R2, R6 and R7 change decisions: they put real untested paths under `make test` (the chunk offset runs only above 4 MiB, the prime block step only above 1e8) and keep monthly sweeps honest. R3 to R5 restructure production code to kill mutants in stderr progress text that N1 already freezes and nothing downstream reads. "Missed is 0" has no lasting reader: `scripts/mutation-classify.sh` scores survivors (exit 2) green and the Rust notify fires only on failure, so a crate drifting from 0 to 30 missed goes unnoticed. The 0 is a snapshot, not a ratchet. Kill rates from the table: twin-primes 90% and collatz 89% already pass the repo's 80% bar; prime 78%, pi 73%, e 66% do not. Simpler path: R1, R2, R6, R7 and the equivalents; drop R3 to R5, or add a per-crate missed baseline so the gain lasts. Second finding: the twin-primes Assumption is false as stated. A Python simulation over limits 5 to 2,999 found segments with `n % 8 == 0` where the `idx <= n` mutant does not panic (first: limit 21, lo 7, n 8), because the panic also needs a sieving prime's progression to land on `idx == n`.
+Assumption: That the operator wants missed = 0 as a lasting standard rather than a one-time milestone. Settle by answering: should a Rust crate regressing from 0 missed turn the monthly leg red?
+Disposition:
+
+### Ergonomics
+
+Finding: Roughly 20 line-anchored `exclude_re` entries across five crates (seven in e-rs `compute_e`, lines 139 to 144) have no drift detection. The line number cannot be dropped: most equivalents share file, operator and function with mutants killed today (for example `replace - with + in bs` has 3 sites per crate, 1 equivalent). Any edit above an excluded line silently orphans the entry, and the equivalent returns as "missed" in the next monthly sweep, weeks later, with no context. Dead entries accumulate because nothing reports an entry that matches nothing. The four existing `mutants.toml` files share the gap at lower cost. Fix within N4: a root `tests/` check running `cargo mutants --list` per crate that asserts each `exclude_re` matches exactly one listed mutant, skipping with a message when cargo-mutants is absent outside CI; covers all nine crates with a `mutants.toml`. Premise correction: only four of the six clean crates have `.cargo/mutants.toml` (factorial, amicable, goldbach, perfect-numbers); fib and sq reached 0 with tests alone.
+Assumption: That the five crates stay unedited between the local V2 run and later monthly sweeps. Measured by the orchestrator after the report: 11 commits touched the five crates' `src/` since 2026-05-01 (6 in May, 1 each in July and August, 3 in October), and the existing four `mutants.toml` files were each written once and never re-anchored (`59c7736`, `f18f96f`).
+Disposition:
+
+### Risk
+
+Finding: Four equivalent survivors fit no class in §Equivalents, so V2 is unreachable without breaking R7. pi-rs `main.rs:95:39` and e-rs `main.rs:78:44` (`+` to `-` in the `set_len(total)` preallocation): later `write_at` calls extend the file, so the bytes are identical (probe in a scratch copy: `h+p+f` vs `h+p-f` equal; `h*p+f` differs, so the byte test kills the `*` sibling). pi-rs `main.rs:129:62` and e-rs `main.rs:112:62` (`base + written` to `-` in the short-write retry): `write_at` on a regular file writes the whole chunk, so `written` is 0 whenever the expression runs; only an injected short write reaches it, and a seam for that would be production abstraction whose only job is killing a mutant. Fix: add a sixth class, "preallocation and short-write retry, unobservable on a fault-free file system". Smaller: once §1 moves `4 * 1024 * 1024` into the public wrapper, the `_sized` tests never run that literal, so the partition proviso checks nothing for it (still equivalent); V2 passes on a run that evaluated nothing, so require caught > 0 per crate, as the CI classifier's `caught + missed == 0` red rule does. Cleared: `debug_assert!` on even sizes; default behaviour unchanged; `idx <= n` panics exactly when `n % 8 == 0` with a progression landing on `n` (a full 64-number segment has n = 32); `limit < 5` equivalent at 0, 3, 4, 5; prime block `- to /` stays gap-free and `+ to -` underflows and is caught.
+Assumption: That the e-rs term-count mutants never fall short at an unsampled digit count. Settled by the orchestrator after the report: the original formula and all seven mutants (`139:28 > to >=`, `141` ×2, `143` ×3, `144`) swept against the smallest `n` with `log10(n!) >= digits + 2` at every `digits` from 1 to 100,000 plus 8,001 log-spaced points from 10^5 to 10^9 (108,001 points): zero shortfalls for any of them.
+Disposition:
+
+### Adversarial Spec Review (comparison/judge designs only)
+
+N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
