@@ -469,6 +469,7 @@ class RustSetupJobTests(unittest.TestCase):
     def test_newline_injection_refused(self):
         proc, outputs, lines = run_rs_setup("sq/sq-rs\nevil=1")
         self.assertEqual(proc.returncode, 1)
+        self.assertIn("evil=1", proc.stderr)
         self.assertNotIn("evil", outputs)
         self.assertEqual(lines, [])
 
