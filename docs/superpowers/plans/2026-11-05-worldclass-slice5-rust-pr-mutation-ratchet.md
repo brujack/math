@@ -1,5 +1,7 @@
 # Worldclass Slice 5: Per-PR Rust Mutation Ratchet Implementation Plan
 
+> **Status: DONE** (math#206, 20a2b5b)
+
 spec: docs/superpowers/specs/2026-11-05-worldclass-slice5-rust-pr-mutation-ratchet-design.md
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
