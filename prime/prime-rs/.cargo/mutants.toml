@@ -1,0 +1,17 @@
+# Equivalent mutations excluded from cargo-mutants testing.
+# Each produces identical observable behavior, so no test with input under
+# 10,000 can kill it.
+# Update line numbers if surrounding code changes shift these expressions.
+#
+# Format: regex matched against "src/<file>.rs:<line>:<col>: <description>"
+exclude_re = [
+    # small_sieve start: crossing off from i + i instead of i * i marks the same
+    # composites (everything below i * i was already marked by smaller primes).
+    "^src/lib\\.rs:35:13: replace \\* with \\+ in small_sieve$",
+    "^src/lib\\.rs:37:27: replace \\* with \\+ in small_sieve$",
+    # Partition arithmetic, block bound block_lo + block - 1: with + 1 the block
+    # ends two numbers later (block_hi stays even, next block_lo = block_hi + 1
+    # stays odd); segments are clamped to block_hi, so the pieces stay positive,
+    # non-overlapping and gap-free and the primes and processed count are identical.
+    "^src/lib\\.rs:199:42: replace - with \\+ in find_primes_sized$",
+]
