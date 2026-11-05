@@ -1,5 +1,7 @@
 # Worldclass Slice 4: Rust Mutation Survivors Implementation Plan
 
+> **Status: DONE** (math#203, 821acb1)
+
 spec: docs/superpowers/specs/2026-11-04-worldclass-slice4-rust-mutation-survivors-design.md
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
