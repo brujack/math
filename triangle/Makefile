@@ -25,8 +25,9 @@ coverage:
 CELL_LABEL ?= triangle
 export CELL_LABEL STATUS_OUT SURVIVORS_OUT MUTANT_SHARD
 
-# The memory cap, shared by every recipe that runs cosmic-ray (same text as the Rust template).
-MUTANTS_CAP = if [ -n "$${MUTANTS_UNCAPPED}" ]; then \
+# The memory and file-size caps, shared by every recipe that runs cosmic-ray (same caps as the Rust
+# template). ulimit -f (1 KiB units in bash -c) ends a mutant writing unbounded output at 256 MiB.
+MUTANTS_CAP = ulimit -f 262144 2>/dev/null || { printf "error: cannot set the 256 MiB file-size cap (ulimit -f).\n" >&2; exit 1; }; if [ -n "$${MUTANTS_UNCAPPED}" ]; then \
 	    printf "warning: MUTANTS_UNCAPPED set — running without a memory cap.\n" >&2; \
 	  else \
 	    ulimit -v 8388608 2>/dev/null || { \
@@ -39,16 +40,22 @@ MUTANTS_CAP = if [ -n "$${MUTANTS_UNCAPPED}" ]; then \
 mutants-baseline:
 	@command -v cosmic-ray >/dev/null || { printf "cosmic-ray not installed: pip install cosmic-ray\n" >&2; exit 1; }
 	@bash -c '$(MUTANTS_CAP); \
+	  mkdir -p "$$(pwd)/.mutants-tmp" || exit 1; \
+	  b="$$(mktemp -d "$$(pwd)/.mutants-tmp/baseline.XXXXXX")" || exit 1; \
+	  trap "rm -rf -- \"$$b\"" EXIT; \
+	  export TMPDIR="$$b"; \
 	  cosmic-ray baseline cosmic-ray.toml || { python3 -m unittest test_triangle; exit 1; }'
 
 # Runs in a scratch copy of the module, its test and the config only: the project
-# directory also holds <crate>-rs/target (up to ~1.8 GB), and /tmp may be tmpfs.
+# directory also holds <crate>-rs/target (up to ~1.8 GB). The scratch dir and TMPDIR live in the
+# project's gitignored .mutants-tmp, not /tmp (tmpfs, RAM): cosmic-ray kills tests mid-write and
+# their tempfile dirs would otherwise leak; here cleanup removes them with the scratch copy.
 mutants: mutants-baseline
 	@bash -c '$(MUTANTS_CAP); \
 	  proj="$$(pwd)"; \
 	  rm -f cosmic-ray-session.sqlite cosmic-ray-session.sqlite-journal mutants-report.txt || exit 1; \
-	  work="$$(mktemp -d "$${TMPDIR:-/tmp}/mutants-triangle.XXXXXX")" || exit 1; \
-	  work="$$(CDPATH="" cd -- "$$work" >/dev/null && pwd)" || exit 1; \
+	  mkdir -p "$$proj/.mutants-tmp" || exit 1; \
+	  work="$$(mktemp -d "$$proj/.mutants-tmp/mutants-triangle.XXXXXX")" || exit 1; \
 	  cleanup() { \
 	    trap "" TERM HUP INT; \
 	    ok=1; \
@@ -62,7 +69,8 @@ mutants: mutants-baseline
 	    else printf "mutants: kept %s (copy-back failed)\n" "$$work" >&2; fi; \
 	  }; \
 	  trap cleanup EXIT; trap "exit 143" TERM; trap "exit 129" HUP; \
-	  mkdir "$$work/triangle" || exit 1; \
+	  mkdir "$$work/triangle" "$$work/tmp" || exit 1; \
+	  export TMPDIR="$$work/tmp"; \
 	  cp -- triangle.py test_triangle.py cosmic-ray.toml "$$work/triangle/" || exit 1; \
 	  ln -s "$$(cd .. && pwd)/scripts" "$$work/scripts" || exit 1; \
 	  cd "$$work/triangle" || exit 1; \
@@ -92,6 +100,7 @@ mutants-report:
 
 mutants-clean:
 	rm -f cosmic-ray-session.sqlite cosmic-ray-session.sqlite-journal mutants-report.txt
+	rm -rf .mutants-tmp
 
 clean: mutants-clean
 	rm -rf __pycache__ .coverage triangle_*.txt

@@ -351,6 +351,15 @@ _rs_stub_setup() {
 printf 'cargo %s ulimit=%s\n' "$*" "$(ulimit -v)" >> "${CALLS}"
 # One argument per line, so a test can tell one quoted argument from several.
 for arg in "$@"; do printf 'arg %s\n' "${arg}" >> "${CALLS}.args"; done
+# Simulate a killed timeout test: its TempDir is never dropped, so it leaves a dir in TMPDIR.
+printf 'tmpdir %s\n' "${TMPDIR}" >> "${CALLS}"
+printf 'fsize=%s\n' "$(ulimit -f)" >> "${CALLS}"
+# The recipe must create TMPDIR itself and wipe a stale one before cargo runs.
+if [ -n "${TMPDIR}" ] && [ ! -d "${TMPDIR}" ]; then printf 'tmpdir-missing\n' >> "${CALLS}"; fi
+if [ -n "${TMPDIR}" ] && [ -e "${TMPDIR}/old" ]; then printf 'stale\n' >> "${CALLS}"; fi
+if [ -n "${TMPDIR}" ]; then
+    mkdir "${TMPDIR}/.tmpLEAK" && printf x > "${TMPDIR}/.tmpLEAK/primes_1e7.txt"
+fi
 if [ -n "${STUB_CARGO_WRITE}" ]; then
     mkdir -p mutants.out
     printf 'NEW\n' > mutants.out/outcomes.json
@@ -363,6 +372,111 @@ STUB
 
 _rs_make() {
     env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u MUTANTS_UNCAPPED make -C "${CRATE}" "$@"
+}
+
+# cargo-mutants kills a timed-out test, so its TempDir never drops; /tmp is tmpfs (RAM).
+# Both recipes must point TMPDIR at the crate's own target dir and remove it on exit.
+_tmpdir_run() {
+    local recipe="$1"
+    _rs_stub_setup
+    OUTER="${BATS_TEST_TMPDIR}/outer"
+    mkdir -p "${OUTER}"
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    local args=("${recipe}")
+    [ "${recipe}" = "mutants-diff" ] && args+=("DIFF=${BATS_TEST_TMPDIR}/pr.diff")
+    TMPDIR="${OUTER}" run _rs_make "${args[@]}"
+}
+
+@test "make mutants runs cargo with TMPDIR under the crate's target dir" {
+    _tmpdir_run mutants
+    [ "${status}" -eq 0 ]
+    grep -qxF "tmpdir ${CRATE}/target/mutants-tmp" "${CALLS}"
+    _assert_no_call "^tmpdir-missing$"
+}
+
+@test "make mutants caps any single file at 256 MiB" {
+    _tmpdir_run mutants
+    [ "${status}" -eq 0 ]
+    grep -qxF "fsize=262144" "${CALLS}"
+}
+
+@test "make mutants caps file size even with MUTANTS_UNCAPPED set" {
+    _rs_stub_setup
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    MUTANTS_UNCAPPED=1 run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${CRATE}" mutants
+    [ "${status}" -eq 0 ]
+    grep -qxF "fsize=262144" "${CALLS}"
+}
+
+@test "make mutants-diff runs cargo with TMPDIR under the crate's target dir" {
+    _tmpdir_run mutants-diff
+    [ "${status}" -eq 0 ]
+    grep -qxF "tmpdir ${CRATE}/target/mutants-tmp" "${CALLS}"
+    _assert_no_call "^tmpdir-missing$"
+}
+
+@test "make mutants-diff caps any single file at 256 MiB" {
+    _tmpdir_run mutants-diff
+    [ "${status}" -eq 0 ]
+    grep -qxF "fsize=262144" "${CALLS}"
+}
+
+@test "make mutants-diff caps file size even with MUTANTS_UNCAPPED set" {
+    _rs_stub_setup
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    MUTANTS_UNCAPPED=1 run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${CRATE}" mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -eq 0 ]
+    grep -qxF "fsize=262144" "${CALLS}"
+}
+
+@test "make mutants removes target/mutants-tmp and leaves the caller's TMPDIR empty" {
+    _tmpdir_run mutants
+    [ "${status}" -eq 0 ]
+    [ ! -e "${CRATE}/target/mutants-tmp" ]
+    [ -z "$(ls -A "${OUTER}")" ]
+}
+
+@test "make mutants-diff removes target/mutants-tmp and leaves the caller's TMPDIR empty" {
+    _tmpdir_run mutants-diff
+    [ "${status}" -eq 0 ]
+    [ ! -e "${CRATE}/target/mutants-tmp" ]
+    [ -z "$(ls -A "${OUTER}")" ]
+}
+
+@test "make mutants cleans target/mutants-tmp and still propagates cargo's exit code 3" {
+    _rs_stub_setup
+    STUB_CARGO_RC=3 run _rs_make mutants
+    [ "${status}" -ne 0 ]
+    [ "$(cat "${CRATE}/mutants.out/exit-code")" = "3" ]
+    [ ! -e "${CRATE}/target/mutants-tmp" ]
+}
+
+@test "make mutants-diff cleans target/mutants-tmp and still propagates cargo's exit code 3" {
+    _rs_stub_setup
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    STUB_CARGO_RC=3 run _rs_make mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -ne 0 ]
+    [ "$(cat "${CRATE}/mutants.out/exit-code")" = "3" ]
+    [ ! -e "${CRATE}/target/mutants-tmp" ]
+}
+
+@test "make mutants clears a stale target/mutants-tmp left by a killed run" {
+    _rs_stub_setup
+    mkdir -p "${CRATE}/target/mutants-tmp/old"
+    run _rs_make mutants
+    [ "${status}" -eq 0 ]
+    [ ! -e "${CRATE}/target/mutants-tmp" ]
+    _assert_no_call "^stale$"
+}
+
+@test "make mutants-diff clears a stale target/mutants-tmp left by a killed run" {
+    _rs_stub_setup
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    mkdir -p "${CRATE}/target/mutants-tmp/old"
+    run _rs_make mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -eq 0 ]
+    [ ! -e "${CRATE}/target/mutants-tmp" ]
+    _assert_no_call "^stale$"
 }
 
 @test "make mutants records cargo's exit code in mutants.out/exit-code and propagates it" {
@@ -954,13 +1068,20 @@ _py_stub_setup() {
 #!/bin/bash
 printf 'cosmic-ray %s ulimit=%s\n' "$*" "$(ulimit -v)" >> "${CALLS}"
 printf '%s %s\n' "$1" "${PWD}" >> "${PWDS}"
+printf '%s fsize=%s\n' "$1" "$(ulimit -f)" >> "${CALLS}.env"
+printf '%s tmpdir=%s\n' "$1" "${TMPDIR}" >> "${CALLS}.env"
 case "$1" in
-    baseline) exit "${STUB_BASELINE_RC:-0}" ;;
+    baseline)
+        # The baseline runs the tests too; whatever it leaks must land under its TMPDIR, not /tmp.
+        printf x > "${TMPDIR}/baseline-leak"
+        exit "${STUB_BASELINE_RC:-0}" ;;
     init)
         # The real init creates the session; later steps and the copy-back depend on it.
         printf 'I' > cosmic-ray-session.sqlite
         exit "${STUB_INIT_RC:-0}" ;;
     exec)
+        # A killed test never drops its tempfile dir; it must land under TMPDIR, not /tmp.
+        if [ -n "${STUB_EXEC_LEAK}" ]; then mkdir "${TMPDIR}/tmpLEAK" && printf x > "${TMPDIR}/tmpLEAK/fib_1e5.txt"; fi
         [ -n "${STUB_EXEC_MUTATE}" ] && printf 'MUTATED\n' >> fib.py
         [ -n "${STUB_EXEC_SESSION}" ] && printf 'S' > cosmic-ray-session.sqlite
         [ -n "${STUB_EXEC_LS}" ] && ls -A | grep -v '^cosmic-ray-session' | tr '\n' ' ' > "${BATS_TEST_TMPDIR}/ls"
@@ -1059,6 +1180,77 @@ _calls_line() {
     run _py_make mutants-baseline
     [ "${status}" -eq 0 ]
     grep -q '^cosmic-ray baseline cosmic-ray.toml ulimit=8388608$' "${CALLS}"
+}
+
+@test "python mutants-baseline caps any single file at 256 MiB" {
+    _py_stub_setup
+    run _py_make mutants-baseline
+    [ "${status}" -eq 0 ]
+    grep -qxF 'baseline fsize=262144' "${CALLS}.env"
+}
+
+@test "python mutants-baseline runs with a project-local TMPDIR removed on exit" {
+    _py_stub_setup
+    local outer="${BATS_TEST_TMPDIR}/outer"
+    mkdir -p "${outer}"
+    run env TMPDIR="${outer}" env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants-baseline
+    [ "${status}" -eq 0 ]
+    grep -q "^baseline tmpdir=${STUBDIR}/.mutants-tmp/baseline\\." "${CALLS}.env"
+    [ -z "$(ls -A "${STUBDIR}/.mutants-tmp")" ]
+    [ -z "$(ls -A "${outer}")" ]
+}
+
+@test "python mutants-baseline removes its TMPDIR when the baseline fails" {
+    _py_stub_setup
+    run env STUB_BASELINE_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants-baseline
+    [ "${status}" -ne 0 ]
+    [ -z "$(ls -A "${STUBDIR}/.mutants-tmp")" ]
+}
+
+@test "python mutants-clean removes the kept .mutants-tmp scratch dir" {
+    _py_stub_setup
+    mkdir -p "${STUBDIR}/.mutants-tmp/kept"
+    printf x > "${STUBDIR}/.mutants-tmp/kept/x"
+    run _py_make mutants-clean
+    [ "${status}" -eq 0 ]
+    [ ! -e "${STUBDIR}/.mutants-tmp" ]
+}
+
+@test "python mutants caps any single file at 256 MiB, also with MUTANTS_UNCAPPED" {
+    _py_stub_setup
+    run _py_make mutants
+    [ "${status}" -eq 0 ]
+    grep -qxF 'baseline fsize=262144' "${CALLS}.env"
+    grep -qxF 'exec fsize=262144' "${CALLS}.env"
+    : > "${CALLS}.env"
+    MUTANTS_UNCAPPED=1 run _py_make mutants
+    [ "${status}" -eq 0 ]
+    grep -qxF 'exec fsize=262144' "${CALLS}.env"
+}
+
+@test "python mutants runs cosmic-ray exec with TMPDIR inside the project-local work dir" {
+    _py_stub_setup
+    run _py_make mutants
+    [ "${status}" -eq 0 ]
+    grep -qE "^exec tmpdir=${STUBDIR}/\.mutants-tmp/mutants-fib\.[^/]+/tmp\$" "${CALLS}.env"
+}
+
+@test "python mutants leaves .mutants-tmp empty after a successful run" {
+    _py_stub_setup
+    run _py_make mutants
+    [ "${status}" -eq 0 ]
+    [ -d "${STUBDIR}/.mutants-tmp" ]
+    [ -z "$(ls -A "${STUBDIR}/.mutants-tmp")" ]
+}
+
+@test "python mutants removes tempfile dirs a killed test left in TMPDIR" {
+    _py_stub_setup
+    mkdir -p "${BATS_TEST_TMPDIR}/outer"
+    run env TMPDIR="${BATS_TEST_TMPDIR}/outer" STUB_EXEC_LEAK=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
+    [ "${status}" -eq 0 ]
+    [ -d "${STUBDIR}/.mutants-tmp" ]
+    [ -z "$(ls -A "${STUBDIR}/.mutants-tmp")" ]
+    [ -z "$(ls -A "${BATS_TEST_TMPDIR}/outer")" ]
 }
 
 @test "python mutants-baseline with MUTANTS_UNCAPPED runs uncapped and warns" {
@@ -1171,9 +1363,10 @@ _calls_line() {
     grep -qF "cosmic_ray_cell_status.py cosmic-ray-session.sqlite fib 'x\$y\"z --out out/s.txt --survivors out/v.txt " "${CALLS}"
 }
 
-# Scratch-copy cases. TMPDIR points at an empty directory so "scratch removed" is observable.
+# Scratch-copy cases. The recipe's work dir is project-local (.mutants-tmp), whatever the caller's
+# TMPDIR says, so "scratch removed" is observed there.
 _scratch_tmp() {
-    SCRATCH_T="${BATS_TEST_TMPDIR}/t"
+    SCRATCH_T="${STUBDIR}/.mutants-tmp"
     mkdir -p "${SCRATCH_T}"
 }
 
@@ -1290,24 +1483,6 @@ _scratch_tmp() {
     wait "${pid}" 2>/dev/null || true
     [ "$(cat "${STUBDIR}/cosmic-ray-session.sqlite")" = "S" ]
     [ -z "$(ls -A "${SCRATCH_T}")" ]
-}
-
-@test "python mutants cleans up on the failure path with a relative TMPDIR" {
-    _py_stub_setup
-    mkdir -p "${STUBDIR}/reltmp"
-    run env TMPDIR=reltmp STUB_EXEC_SESSION=1 STUB_EXEC_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
-    [ "${status}" -ne 0 ]
-    [ "$(cat "${STUBDIR}/cosmic-ray-session.sqlite")" = "S" ]
-    [ -z "$(ls -A "${STUBDIR}/reltmp")" ]
-}
-
-@test "python mutants cleans up on the failure path with CDPATH set and a relative TMPDIR" {
-    _py_stub_setup
-    mkdir -p "${STUBDIR}/reltmp"
-    run env CDPATH=.: TMPDIR=reltmp STUB_EXEC_SESSION=1 STUB_EXEC_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
-    [ "${status}" -ne 0 ]
-    [ "$(cat "${STUBDIR}/cosmic-ray-session.sqlite")" = "S" ]
-    [ -z "$(ls -A "${STUBDIR}/reltmp")" ]
 }
 
 @test "python mutants keeps the scratch copy when the session copy-back fails" {

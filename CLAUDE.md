@@ -130,18 +130,18 @@ When adding a new Python sub-project, add `pyrightconfig.json` (copy from any `s
 
 ### Mutation testing (Python)
 
-Python `make mutants` runs a capped `cosmic-ray baseline` (8 GiB `ulimit -v`, `MUTANTS_UNCAPPED=1` escape, as Rust), then the session, then `scripts/cosmic_ray_cell_status.py`; cosmic-ray stores outcomes uppercase (`SURVIVED`).
+Python `make mutants` runs a capped `cosmic-ray baseline` (as Rust), then the session, then `scripts/cosmic_ray_cell_status.py`; cosmic-ray stores outcomes uppercase (`SURVIVED`).
 `mutation-testing-python.yml` runs 10 shards per project (`scripts/mutation-python-cell.sh`), reports survivors on the `mutation-report-python` issue (artifact `mutants-survivors-python`); `mutation-pr.yml` runs `mutants-baseline` for Python.
 
 ### Mutation testing (Rust)
 
 Rust mutation testing uses `cargo-mutants` (`cargo install cargo-mutants --locked`); run `make mutants` in a crate directory; a kill rate above 80% is good. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
-Mutation CI is `mutation-testing.yml` (monthly, `workflow_dispatch`) calling `make -C <crate> mutants`, one 60-minute job per crate from `git ls-files '*/*-rs/Cargo.toml'`.
+Mutation CI is `mutation-testing.yml` (monthly, `workflow_dispatch`): `make -C <crate> mutants`, one 60-minute job per crate from `git ls-files '*/*-rs/Cargo.toml'`.
 `mutation-pr.yml` runs `scripts/mutation-pr-run.sh "origin/${GITHUB_BASE_REF}" <rs_dirs>` per crate whose `src/**/*.rs` the PR changes (`scripts/mutation-pr-detect.sh`): missed limit 0 on changed-line mutants, timeouts green, plus an amicable-rs canary (`--min-caught 1`) on gate-file changes; repro `scripts/mutation-pr-diff.sh origin/master <crate> /tmp/d.diff && make -C <crate> mutants-diff DIFF=/tmp/d.diff`. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
 
 Never put a fixed `--timeout` back (#95): keep `--timeout-multiplier 5 --minimum-test-timeout 30` in each crate's `Makefile` `mutants` target, not the workflow (a fixed value capped the baseline and tested zero mutants); `tests/scripts/makefile.bats` pins both halves. → ai-config/docs/knowledge/math-testing-policy.md § Mutation timeout
 
-Keep `ulimit -v 8388608` (8 GiB) in the same `mutants` recipe; macOS needs `MUTANTS_UNCAPPED=1` set deliberately. → ai-config/docs/knowledge/math-testing-policy.md § Mutation memory cap
+Keep `ulimit -v 8388608` (8 GiB) in the same `mutants` recipe; macOS needs `MUTANTS_UNCAPPED=1` set deliberately. Both cap files at 256 MiB (`ulimit -f 262144`, even uncapped); `TMPDIR` is `target/mutants-tmp` (Rust) or a per-run `.mutants-tmp/` dir (Python), removed on exit (kept if copy-back fails; `make mutants-clean`). → ai-config/docs/knowledge/math-testing-policy.md § Mutation memory cap
 
 A sweep leg is red when any mutant is missed, `caught < 1`, `outcomes.json` or `mutants.out/exit-code` is missing, the baseline fails or the runner dies; timeouts are green beside a catch (`scripts/mutation-classify.sh ... 0 1`, ADR-0042). → ai-config/docs/knowledge/math-testing-policy.md § Mutation green/red
 
