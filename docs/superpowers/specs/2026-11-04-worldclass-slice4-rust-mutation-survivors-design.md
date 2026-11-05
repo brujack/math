@@ -306,5 +306,5 @@ N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
 
 ### Verifications
 
-- V1: Pending: dispatch mutation-testing.yml per crate after merge; baseline run 41769558239 missed pi 43, e 45, prime 32, twin-primes 12, collatz 4.
+- V1: Met 2026-11-05. Full sweep run 41952665142 at 0d28038 (math#204; attempt 2 reran collatz and fib after a runner shutdown cancelled both): missed 0 in all five; caught/missed/timeout/unviable pi 159/0/4/3, e 122/0/12/3, prime 144/0/12/0, twin-primes 115/0/4/2, collatz 36/0/6/1 (baseline run 41769558239 missed pi 43, e 45, prime 32, twin-primes 12, collatz 4). The first post-merge sweep, run 41948343321 at 821acb1, left one host-dependent survivor each in pi-rs and e-rs on 2-vCPU runners; math#204 fixed both.
 - V2: Local CARGO_MUTANTS_JOBS=8 make mutants at the branch: missed 0 in all five; caught pi 159, e 129, prime 149, twin-primes 115, collatz 42 (timeouts 4/6/7/4/0); every exclude_re entry matches exactly one listed mutant.
