@@ -42,7 +42,8 @@ mutants-baseline:
 	@bash -c '$(MUTANTS_CAP); \
 	  mkdir -p "$$(pwd)/.mutants-tmp" || exit 1; \
 	  b="$$(mktemp -d "$$(pwd)/.mutants-tmp/baseline.XXXXXX")" || exit 1; \
-	  trap "rm -rf -- \"$$b\"" EXIT; \
+	  cleanup() { trap "" TERM HUP INT; rm -rf -- "$$b"; }; \
+	  trap cleanup EXIT; trap "exit 143" TERM; trap "exit 129" HUP; \
 	  export TMPDIR="$$b"; \
 	  cosmic-ray baseline cosmic-ray.toml || { python3 -m unittest test_collatz; exit 1; }'
 

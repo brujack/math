@@ -335,6 +335,73 @@ for e in json.load(open('${REPO_ROOT}/renovate.json')).get('extends', []):
     [ -z "${bad}" ] || { printf 'mutants-diff problems: %s\n' "${bad}" >&2; return 1; }
 }
 
+# rm that stalls ~1 s on a TMPDIR removal once the hang stub is ready (STUB_RM_SLOW set), so a
+# second SIGTERM lands while the cleanup rm is running. It logs the path it was asked to remove
+# to ${BATS_TEST_TMPDIR}/rm-log, so a test can tell "dir removed" from "dir never there".
+_stub_slow_rm() {
+    cat > "$1/rm" <<'STUB'
+#!/bin/bash
+case "$*" in
+    *mutants-tmp*)
+        if [ -n "${STUB_RM_SLOW}" ] && [ -e "${BATS_TEST_TMPDIR}/hang-ready" ]; then
+            printf '%s\n' "$*" >> "${BATS_TEST_TMPDIR}/rm-log"
+            : > "${BATS_TEST_TMPDIR}/rm-started"
+            sleep 1
+        fi ;;
+esac
+exec /bin/rm "$@"
+STUB
+    chmod +x "$1/rm"
+}
+
+# Waits up to $2 tenths of a second for $1 to exist; fails naming the wait on timeout.
+_wait_for_file() {
+    local i
+    for i in $(seq 1 "$2"); do
+        [ -e "$1" ] && return 0
+        sleep 0.1
+    done
+    printf 'timed out waiting for %s\n' "$1" >&2
+    return 1
+}
+
+# Runs `make <args>` in $1 as its own process group with the hang stubs, sends the group SIGTERM
+# once the stub hangs, and again once the cleanup rm has started. Fails with a named message on
+# any timed-out wait. Env (STUB_*, TMPDIR) is inherited from the caller.
+_term_group_twice() {
+    local dir="$1" pid
+    shift
+    rm -f "${BATS_TEST_TMPDIR}/hang-ready" "${BATS_TEST_TMPDIR}/rm-started" "${BATS_TEST_TMPDIR}/rm-log"
+    setsid env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${dir}" "$@" >/dev/null 2>&1 </dev/null &
+    pid=$!
+    if ! _wait_for_file "${BATS_TEST_TMPDIR}/hang-ready" 100; then
+        kill -KILL -- "-${pid}" 2>/dev/null
+        wait "${pid}" 2>/dev/null || true
+        printf 'wait failed: stub never reached hang-ready\n' >&2
+        return 1
+    fi
+    kill -TERM -- "-${pid}"
+    if ! _wait_for_file "${BATS_TEST_TMPDIR}/rm-started" 100; then
+        kill -KILL -- "-${pid}" 2>/dev/null
+        wait "${pid}" 2>/dev/null || true
+        printf 'wait failed: cleanup rm never started after first TERM\n' >&2
+        return 1
+    fi
+    kill -TERM -- "-${pid}" 2>/dev/null
+    local i
+    for i in $(seq 1 100); do
+        kill -0 "${pid}" 2>/dev/null || break
+        sleep 0.1
+    done
+    if kill -0 "${pid}" 2>/dev/null; then
+        kill -KILL -- "-${pid}" 2>/dev/null
+        wait "${pid}" 2>/dev/null || true
+        printf 'wait failed: make did not exit after second TERM\n' >&2
+        return 1
+    fi
+    wait "${pid}" 2>/dev/null || true
+}
+
 # Behavioural harness: a copy of fib-rs's rendered Makefile and a stub cargo that logs its argv
 # and the address-space limit it runs under, and exits STUB_CARGO_RC. An optional
 # STUB_CARGO_WRITE makes it write mutants.out/outcomes.json as cargo-mutants would.
@@ -364,8 +431,14 @@ if [ -n "${STUB_CARGO_WRITE}" ]; then
     mkdir -p mutants.out
     printf 'NEW\n' > mutants.out/outcomes.json
 fi
+# Hang after the TMPDIR is populated, as a cancelled CI job would find cargo-mutants.
+if [ -n "${STUB_CARGO_HANG}" ]; then
+    : > "${BATS_TEST_TMPDIR}/hang-ready"
+    sleep 30
+fi
 exit "${STUB_CARGO_RC:-0}"
 STUB
+    _stub_slow_rm "${bin}"
     chmod +x "${bin}/cargo"
     export PATH="${bin}:${PATH}"
 }
@@ -385,6 +458,22 @@ _tmpdir_run() {
     local args=("${recipe}")
     [ "${recipe}" = "mutants-diff" ] && args+=("DIFF=${BATS_TEST_TMPDIR}/pr.diff")
     TMPDIR="${OUTER}" run _rs_make "${args[@]}"
+}
+
+# A CI cancel signals the whole group more than once; the second TERM must not kill the cleanup rm.
+@test "make mutants removes target/mutants-tmp when the whole process group gets SIGTERM twice" {
+    _rs_stub_setup
+    STUB_CARGO_HANG=1 STUB_RM_SLOW=1 _term_group_twice "${CRATE}" mutants
+    [ -s "${BATS_TEST_TMPDIR}/rm-log" ]
+    [ ! -e "${CRATE}/target/mutants-tmp" ]
+}
+
+@test "make mutants-diff removes target/mutants-tmp when the whole process group gets SIGTERM twice" {
+    _rs_stub_setup
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    STUB_CARGO_HANG=1 STUB_RM_SLOW=1 _term_group_twice "${CRATE}" mutants-diff "DIFF=${BATS_TEST_TMPDIR}/pr.diff"
+    [ -s "${BATS_TEST_TMPDIR}/rm-log" ]
+    [ ! -e "${CRATE}/target/mutants-tmp" ]
 }
 
 @test "make mutants runs cargo with TMPDIR under the crate's target dir" {
@@ -1074,6 +1163,10 @@ case "$1" in
     baseline)
         # The baseline runs the tests too; whatever it leaks must land under its TMPDIR, not /tmp.
         printf x > "${TMPDIR}/baseline-leak"
+        if [ -n "${STUB_BASELINE_HANG}" ]; then
+            : > "${BATS_TEST_TMPDIR}/hang-ready"
+            sleep 30
+        fi
         exit "${STUB_BASELINE_RC:-0}" ;;
     init)
         # The real init creates the session; later steps and the copy-back depend on it.
@@ -1144,6 +1237,7 @@ case "$*" in
 esac
 exec /bin/cp "$@"
 STUB
+    _stub_slow_rm "${bin}"
     chmod +x "${bin}/cosmic-ray" "${bin}/python3" "${bin}/cr-report" "${bin}/cp"
     export CALLS PWDS STUBDIR
     export PATH="${bin}:${PATH}"
@@ -1482,6 +1576,15 @@ _scratch_tmp() {
     fi
     wait "${pid}" 2>/dev/null || true
     [ "$(cat "${STUBDIR}/cosmic-ray-session.sqlite")" = "S" ]
+    [ -z "$(ls -A "${SCRATCH_T}")" ]
+}
+
+@test "python mutants-baseline removes its scratch dir when the whole process group gets SIGTERM twice" {
+    _py_stub_setup
+    _scratch_tmp
+    STUB_BASELINE_HANG=1 STUB_RM_SLOW=1 _term_group_twice "${STUBDIR}" mutants-baseline
+    # The rm was asked to remove a baseline dir, and nothing is left of it.
+    grep -q 'baseline\.' "${BATS_TEST_TMPDIR}/rm-log"
     [ -z "$(ls -A "${SCRATCH_T}")" ]
 }
 
