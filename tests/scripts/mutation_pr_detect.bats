@@ -188,3 +188,11 @@ rs_setup() {
     run -0 bash "${SCRIPT}" origin/master
     grep -qF "ls-files */*-rs/Cargo.toml" "${MOCK_CALLS_FILE}"
 }
+
+@test "only listed crates under src/ are selected" {
+    export MOCK_GIT_LS_FILES=$'pi/pi-rs/Cargo.toml\nfib/fib-rs/Cargo.toml'
+    export MOCK_GIT_DIFF_NAMES=$'pi/pi-rs/src.rs\npi/pi-rs/srcx/a.rs\nx/x-rs/src/a.rs'
+    run -0 bash "${SCRIPT}" origin/master
+    [ "${lines[2]}" = "rs_dirs=" ]
+    [ "${lines[3]}" = "has_rs=false" ]
+}
