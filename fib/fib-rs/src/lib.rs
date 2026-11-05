@@ -35,3 +35,8 @@ pub fn fmt_int(n: u64) -> String {
     }
     out.chars().rev().collect()
 }
+
+/// V1 positive control for the per-PR mutation gate: deliberately untested.
+pub fn v1_untested_probe(n: u64) -> u64 {
+    if n > 3 { n * 2 } else { n + 1 }
+}
