@@ -1,6 +1,8 @@
 #!/usr/bin/env bats
 # The real mutation-pr-diff.sh and mutation-classify.sh run here; only `make` is stubbed.
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
     export HOME="${BATS_TEST_TMPDIR}"
@@ -290,10 +292,10 @@ GREEN='{"caught":3,"missed":0,"timeout":0,"unviable":1}'
     [[ "${output}" == *"red: a/a-rs"* ]]
 }
 
-@test "exit-code with leading zero is red" {
+@test "exit-code 00 is red, not read as 0" {
     _change a/a-rs
     _commit
-    _cfg a/a-rs 08 "${GREEN}"
+    _cfg a/a-rs 00 "${GREEN}"
     _run_script main a/a-rs
     [ "${status}" -eq 1 ]
     [[ "${output}" == *"red: a/a-rs"* ]]
