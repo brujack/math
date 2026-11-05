@@ -777,11 +777,13 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn test_write_pi_file_sized_multi_chunk_exact_bytes() {
-        // 45 bytes with min_chunk 7: several chunks, last one partial (45 % 7 != 0).
+        // An 8-thread pool fixes chunk = max(7, 45 / 8) = 7 on any host: 7 chunks,
+        // the last partial (45 % 7 = 3), so offset arithmetic is exercised.
         let pi_str = "3.1415926535897932384626433832795028841971693";
         assert_eq!(pi_str.len(), 45);
         let dir = tempdir().unwrap();
-        let path = write_pi_file_sized(dir.path(), pi_str, 43, 7).unwrap();
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(8).build().unwrap();
+        let path = pool.install(|| write_pi_file_sized(dir.path(), pi_str, 43, 7)).unwrap();
         let expected = format!(
             "π calculated to {} decimal places using Chudnovsky/Rayon\n{}\n\n{}\n\nTotal decimal places: {}",
             fmt_int(43),
