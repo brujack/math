@@ -141,7 +141,7 @@ Mutation CI is `mutation-testing.yml` (monthly, `workflow_dispatch`) calling `ma
 
 Never put a fixed `--timeout` back (#95): keep `--timeout-multiplier 5 --minimum-test-timeout 30` in each crate's `Makefile` `mutants` target, not the workflow (a fixed value capped the baseline and tested zero mutants); `tests/scripts/makefile.bats` pins both halves. → ai-config/docs/knowledge/math-testing-policy.md § Mutation timeout
 
-Keep `ulimit -v 8388608` (8 GiB) in the same `mutants` recipe; macOS needs `MUTANTS_UNCAPPED=1` set deliberately. → ai-config/docs/knowledge/math-testing-policy.md § Mutation memory cap
+Keep `ulimit -v 8388608` (8 GiB) in the same `mutants` recipe; macOS needs `MUTANTS_UNCAPPED=1` set deliberately. Both recipes set `TMPDIR` to `target/mutants-tmp`, removed on exit. → ai-config/docs/knowledge/math-testing-policy.md § Mutation memory cap
 
 A sweep leg is red when any mutant is missed, `caught < 1`, `outcomes.json` or `mutants.out/exit-code` is missing, the baseline fails or the runner dies; timeouts are green beside a catch (`scripts/mutation-classify.sh ... 0 1`, ADR-0042). → ai-config/docs/knowledge/math-testing-policy.md § Mutation green/red
 

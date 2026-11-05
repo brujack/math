@@ -351,6 +351,11 @@ _rs_stub_setup() {
 printf 'cargo %s ulimit=%s\n' "$*" "$(ulimit -v)" >> "${CALLS}"
 # One argument per line, so a test can tell one quoted argument from several.
 for arg in "$@"; do printf 'arg %s\n' "${arg}" >> "${CALLS}.args"; done
+# Simulate a killed timeout test: its TempDir is never dropped, so it leaves a dir in TMPDIR.
+printf 'tmpdir %s\n' "${TMPDIR}" >> "${CALLS}"
+if [ -n "${TMPDIR}" ]; then
+    mkdir -p "${TMPDIR}/.tmpLEAK" && printf x > "${TMPDIR}/.tmpLEAK/primes_1e7.txt"
+fi
 if [ -n "${STUB_CARGO_WRITE}" ]; then
     mkdir -p mutants.out
     printf 'NEW\n' > mutants.out/outcomes.json
@@ -363,6 +368,79 @@ STUB
 
 _rs_make() {
     env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u MUTANTS_UNCAPPED make -C "${CRATE}" "$@"
+}
+
+# cargo-mutants kills a timed-out test, so its TempDir never drops; /tmp is tmpfs (RAM).
+# Both recipes must point TMPDIR at the crate's own target dir and remove it on exit.
+_tmpdir_run() {
+    local recipe="$1"
+    _rs_stub_setup
+    OUTER="${BATS_TEST_TMPDIR}/outer"
+    mkdir -p "${OUTER}"
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    local args=("${recipe}")
+    [ "${recipe}" = "mutants-diff" ] && args+=("DIFF=${BATS_TEST_TMPDIR}/pr.diff")
+    TMPDIR="${OUTER}" run _rs_make "${args[@]}"
+}
+
+@test "make mutants runs cargo with TMPDIR under the crate's target dir" {
+    _tmpdir_run mutants
+    [ "${status}" -eq 0 ]
+    grep -qxF "tmpdir ${CRATE}/target/mutants-tmp" "${CALLS}"
+}
+
+@test "make mutants-diff runs cargo with TMPDIR under the crate's target dir" {
+    _tmpdir_run mutants-diff
+    [ "${status}" -eq 0 ]
+    grep -qxF "tmpdir ${CRATE}/target/mutants-tmp" "${CALLS}"
+}
+
+@test "make mutants removes target/mutants-tmp and leaves the caller's TMPDIR empty" {
+    _tmpdir_run mutants
+    [ "${status}" -eq 0 ]
+    [ ! -e "${CRATE}/target/mutants-tmp" ]
+    [ -z "$(ls -A "${OUTER}")" ]
+}
+
+@test "make mutants-diff removes target/mutants-tmp and leaves the caller's TMPDIR empty" {
+    _tmpdir_run mutants-diff
+    [ "${status}" -eq 0 ]
+    [ ! -e "${CRATE}/target/mutants-tmp" ]
+    [ -z "$(ls -A "${OUTER}")" ]
+}
+
+@test "make mutants cleans target/mutants-tmp and still propagates cargo's exit code 3" {
+    _rs_stub_setup
+    STUB_CARGO_RC=3 run _rs_make mutants
+    [ "${status}" -ne 0 ]
+    [ "$(cat "${CRATE}/mutants.out/exit-code")" = "3" ]
+    [ ! -e "${CRATE}/target/mutants-tmp" ]
+}
+
+@test "make mutants-diff cleans target/mutants-tmp and still propagates cargo's exit code 3" {
+    _rs_stub_setup
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    STUB_CARGO_RC=3 run _rs_make mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -ne 0 ]
+    [ "$(cat "${CRATE}/mutants.out/exit-code")" = "3" ]
+    [ ! -e "${CRATE}/target/mutants-tmp" ]
+}
+
+@test "make mutants clears a stale target/mutants-tmp left by a killed run" {
+    _rs_stub_setup
+    mkdir -p "${CRATE}/target/mutants-tmp/old"
+    run _rs_make mutants
+    [ "${status}" -eq 0 ]
+    [ ! -e "${CRATE}/target/mutants-tmp" ]
+}
+
+@test "make mutants-diff clears a stale target/mutants-tmp left by a killed run" {
+    _rs_stub_setup
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    mkdir -p "${CRATE}/target/mutants-tmp/old"
+    run _rs_make mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -eq 0 ]
+    [ ! -e "${CRATE}/target/mutants-tmp" ]
 }
 
 @test "make mutants records cargo's exit code in mutants.out/exit-code and propagates it" {

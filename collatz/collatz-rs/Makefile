@@ -19,8 +19,10 @@ test: lint
 bench:
 	cargo bench
 
+# Killed timeout tests never drop their TempDir and /tmp is tmpfs (RAM), so TMPDIR is a dir under target, removed on exit.
 mutants:
 	@bash -c 'rm -rf mutants.out; \
+	  t="$$(pwd)/target/mutants-tmp"; rm -rf -- "$$t"; mkdir -p "$$t"; export TMPDIR="$$t"; trap '"'"'rm -rf -- "$$t"'"'"' EXIT; \
 	  if [ -n "$${MUTANTS_UNCAPPED}" ]; then \
 	    printf "warning: MUTANTS_UNCAPPED set — running without a memory cap.\n" >&2; \
 	  else \
@@ -40,6 +42,7 @@ mutants-diff:
 	    printf "usage: make mutants-diff DIFF=<readable diff file> (DIFF unset or unreadable)\n" >&2; exit 2; \
 	  fi; \
 	  rm -rf mutants.out; \
+	  t="$$(pwd)/target/mutants-tmp"; rm -rf -- "$$t"; mkdir -p "$$t"; export TMPDIR="$$t"; trap '"'"'rm -rf -- "$$t"'"'"' EXIT; \
 	  if [ -n "$${MUTANTS_UNCAPPED}" ]; then \
 	    printf "warning: MUTANTS_UNCAPPED set — running without a memory cap.\n" >&2; \
 	  else \
