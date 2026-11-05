@@ -121,3 +121,29 @@ it puts the work on Renovate's schedule rather than on a PR's.
 - **N2.** No committed per-crate missed count or baseline file.
 - **N3.** The Python sweep's verdict rules do not change: `mutation-testing-python.yml` and `scripts/mutation-python-cell.sh` are not modified.
 - **N4.** `scripts/mutation-classify.sh` is not modified.
+
+## Multi-Lens Review
+
+Reviewed at commit: `397479c` (Step 7 self-review commit, before Step 8 dispatch)
+
+### Goal-Fit
+
+Finding: Worth building; cheap and closes a real blind spot. F1 (load-bearing): the slice makes the only existing Rust survivor consumer structurally dead and the spec does not name it. ai-config `mutation-review.yml` (cron `0 12 2 * *`) runs `mutation_review.py --repo brujack/math --workflow mutation-testing.yml --tool cargo-mutants`, which selects the latest run with `conclusion == "success"` (`mutation_review.py:656`, verified). After this slice every sweep with a survivor is `failure`, so the consumer only ever reads missed=0 runs. It already never fired: the 2026-11-02 run fell back to a 31-day-old run, and no `mutation-review` PR exists. It also drafts `exclude_re` entries for survivors, which CLAUDE.md reserves for true equivalents. F2: component 2 duplicates `build_units_body` (`scripts/mutation-notify.sh:108-117`), which already emits `- <unit>: <first red line>`.
+Assumption: V1 can measure e-rs's 12 timeouts; slice 5's method failed there (baseline under the 8 GiB cap on the 48-core host). If V1 runs uncapped, the spec must say so.
+Disposition:
+
+### Ergonomics
+
+Finding: F1: the issue body omits which mutant survived, and the stated reason is wrong. Python status files never contain `  missed:` lines (Python survivors go to `mutation-report-python`), so printing every line of a red status file costs Python nothing and puts `src/lib.rs:LINE:COL: replace X with Y` in the issue. F2: duplicate loop; on the missing-status path with RESULT != success, `check_expected_units` concatenates `build_body` and `build_units_body`, so red reasons print twice. F3: "Renovate's schedule" is wrong: the sweep resolves `stable` rustc at run time (no PR behind a rustc change), and cargo-mutants `27.1.0` is hand-pinned with no Renovate custom manager. Record `rustc -V` and `cargo mutants --version` where the red is read, and state the cargo-mutants bump procedure (full sweep dispatched on the bump branch). F4: the fix-to-close loop is undocumented: the per-PR gate does not prove a kill on an unchanged line, a single-crate dispatch only comments, and only a full dispatch closes. F5: V1's method is the one that already failed for e-rs.
+Assumption: a mutant's verdict on the CI runner is stable run to run. collatz-rs flipped caught=40/timeout=2 to caught=36/timeout=6 with unchanged code; math#204 was a survivor decided by vCPU count. Refute by dispatching the full sweep 2-3 times on one SHA and diffing the per-crate tuples.
+Disposition:
+
+### Risk
+
+Finding: Sound, not over-engineered. Enumerated `0 1` against `classify_mutation_run`: newly red is missed>0 (intended) and missing `outcomes.json` with exit 0 (unreachable behind the exit-code guard); caught=0/timeout>0 stays red with message `caught=0 below min_caught=1`; nothing newly green. F1: caught/timeout flips are harmless (both green), but caught/missed flips have happened (math#204: survived on 2 vCPUs), so runner-shape drift is a third red trigger the Consequence section should name. Premise 2's "every mutant of `collatz_next` timed out" is true of run 41952665142 only; all-timeout is a host property. F2: V2 (empty `crate`, `FULL_SWEEP=true`) on a branch closes an open `mutation-failure` issue on green or posts on red, and re-uploads `mutants-output` that ai-config reads. F3: same duplicate/double-listing as above; no R4 case covers that path. Steady state: run 41948343321 had e-rs and pi-rs missed=1, fixed by math#204 (orchestrator verified: `821acb1..0d28038` is math#204 plus docs), so 0 missed rests on one run of current code.
+Assumption: no mutant on today's code flips between missed and caught/timeout across ubuntu-latest runs. Refute by diffing each crate's `missed.txt`/`caught.txt` between the V2 run and 41952665142 and comparing `nproc`.
+Disposition:
+
+### Adversarial Spec Review (comparison/judge designs only)
+
+N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
