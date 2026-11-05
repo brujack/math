@@ -54,7 +54,17 @@ things this slice could resemble:
   completed sweep. This design is blocking, runs only crates the PR changes with one
   `cargo install`, and the precondition is met (ADR-0040; run 41952665142).
 
-The monthly sweep stays exactly as it is, so the report-blanking objection does not arise.
+The monthly sweep's verdict rules stay as they are, so the report-blanking objection does not
+arise. Its exit-code source changes (component 1), which can only turn a broken run red.
+
+### Make hides cargo-mutants' exit code
+
+Both workflows pass `make`'s status to the classifier, and GNU make exits 2 whenever a recipe
+fails: a recipe ending `exit 4` makes `make` exit 2 (measured 2026-11-05). 2 is in the
+classifier's green set, so cargo-mutants' exit 1 (usage), 3 (timeouts), 4 (baseline failed)
+and a memory-cap kill all reach it as "survivors found". A run cut short that left a partial
+`outcomes.json` with missed 0 would read green with mutants untested. This affects the
+monthly sweep today and would affect the new gate.
 
 ## Design
 
@@ -73,6 +83,11 @@ a PR that deletes tests (deleted test lines yield no mutants, and `tests/` selec
 a rustc update, or a cargo-mutants bump that adds mutation operators. The monthly sweep still
 scores those green (N2). That half stays open as a narrowed Backlog row (R8).
 
+Timeouts are green on the assumption that a timed-out mutant never terminates. A mutant that is
+slow but correct would time out on a slow runner and be missed on a faster one, a host-dependent
+false red. The 56 sweep timeouts of run 41952665142 are classified below (Timeout
+classification) so that the assumption is measured, not assumed.
+
 ### Components
 
 1. **`mutants-diff` Makefile target.** Added to `scripts/crate_templates/Makefile` and
@@ -81,7 +96,10 @@ scores those green (N2). That half stays open as a narrowed Backlog row (R8).
    closed where the cap cannot be set) and runs
    `cargo mutants --in-diff "$(DIFF)" --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle`.
    It exits 2 with a usage message naming `DIFF` when `DIFF` is unset or not a readable file,
-   before invoking cargo-mutants. The target joins the `.PHONY` list.
+   before invoking cargo-mutants. The target joins the `.PHONY` list. Both `mutants` and
+   `mutants-diff` stop `exec`-ing cargo-mutants: each runs it, then writes its exit status to
+   `mutants.out/exit-code` (creating `mutants.out/` when cargo-mutants wrote none) and exits
+   with that status. Callers classify on the file's value, never on `make`'s status.
 2. **Per-crate diff.** `scripts/mutation-pr-diff.sh <base-ref> <crate-dir> <out-file>`
    writes `git diff --relative=<crate-dir>/ <base-ref>...HEAD -- <crate-dir>` to `<out-file>`,
    so every path reads `src/...` as cargo-mutants expects when it runs inside the crate. It
@@ -111,13 +129,29 @@ dirs>` and `has_rs=true|false`. A crate dir `<p>/<p>-rs` is selected when the PR
    - A GMP key step and a read-only `actions/cache/restore` step, the same shape as
      `scripts/crate_templates/ci.yml` (`scripts/gmp-cache-key.sh`, non-strict, so a bad key
      degrades to a cold build), run when `has_rs` is true.
-   - One step loops over `rs_dirs`: `scripts/mutation-pr-diff.sh origin/<base> <dir> <tmp>`,
+   - One step loops over `rs_dirs` (and over the canary, component 6): `scripts/mutation-pr-diff.sh origin/<base> <dir> <tmp>`,
      `make -C <dir> mutants-diff DIFF=<tmp>`, then
-     `mutation-classify.sh <rc> <dir>/mutants.out/outcomes.json <dir> 0`. It runs every crate
+     `mutation-classify.sh <code> <dir>/mutants.out/outcomes.json <dir> 0`, where `<code>` is
+     read from `<dir>/mutants.out/exit-code`. A missing `exit-code` file is red, and so is a
+     selected crate whose per-crate diff is empty, since detect has just reported a changed
+     `src/*.rs` file in it. It runs every crate
      even after a red one, prints each verdict to `$GITHUB_STEP_SUMMARY`, and exits 1 at the
      end when any crate was red.
    - `timeout-minutes` rises from 30 to 60, since a PR touching several crates now runs
      several in-diff passes in one job.
+   - `mutation-testing.yml`'s "Run mutants" step reads its code from
+     `<crate>/mutants.out/exit-code` the same way, red when the file is missing, and still
+     calls the classifier without a limit.
+6. **Gate canary.** A change to a file the gate is made of selects no crate by itself, so the
+   PR that breaks the gate would merge green. When a PR changes `mutation-pr.yml`,
+   `scripts/mutation-pr-diff.sh`, `scripts/mutation-pr-canary.sh`,
+   `scripts/mutation-classify.sh` or `scripts/crate_templates/Makefile`, detect prints
+   `rs_canary=true`. `scripts/mutation-pr-canary.sh <out-file>` then appends a trailing space
+   to the single line of `amicable/amicable-rs/src/lib.rs` matching `let mut m = 2 * d;`
+   (exit 1 when not exactly one line matches), writes the crate-relative working-tree diff to
+   `<out-file>`, and restores the file. The loop runs amicable-rs on that diff and requires
+   an `outcomes.json` with caught at least 1 and missed 0. amicable-rs's full sweep takes
+   57 s (run 41952665142).
 
 ### Error handling
 
@@ -130,6 +164,35 @@ dirs>` and `has_rs=true|false`. A crate dir `<p>/<p>-rs` is selected when the PR
 - A dependency-only PR (Renovate `Cargo.lock`) changes no `src/` file, selects no crate, and
   skips the Rust step.
 
+### Timeout classification
+
+Measured 2026-11-05 on `claude`: each of the 56 timeout mutants of run 41952665142 was re-run
+from a `git archive` copy at `7f9cd29`, filtered by exact name, with `--timeout 180` and the
+8 GiB cap. 40 were measured and none came back missed:
+
+| Crate | Timeouts | Re-run result |
+| --- | --- | --- |
+| collatz-rs | 6 | 6 caught |
+| sq-rs | 4 | 4 caught |
+| fib-rs | 4 | 3 caught, 1 timeout |
+| factorial-rs | 4 | 2 caught, 2 timeout |
+| goldbach-rs | 3 | 1 caught, 2 timeout |
+| perfect-numbers-rs | 2 | 1 caught, 1 timeout |
+| twin-primes-rs | 4 | 4 timeout |
+| amicable-rs | 1 | 1 timeout |
+| prime-rs | 12 | 10 measured: 6 caught, 4 timeout; run then interrupted |
+| pi-rs | 4 | 2 measured: 2 caught; run then interrupted |
+| e-rs | 12 | not measured: baseline failed (below) |
+
+Most "caught" results are nextest's own 45 s `slow-timeout` kill reported as a test failure, so
+those mutants are loops, caught by a different clock. The population is the sweep's timeout set
+on one host; the 16 unmeasured mutants (e-rs 12, prime-rs 2, pi-rs 2) remain unclassified. The
+e-rs baseline failed because `test_write_e_file_default_chunk_when_threads_exceed_bytes`
+(math#204) could not build its 64-thread pool under the cap on a 48-core host:
+`ThreadPoolBuildError { kind: IOError(Os { code: 11, kind: WouldBlock }) }`. The same test passes
+alone under the cap with `cargo test` and with nextest, so it is load-dependent; it is recorded
+as a Backlog row (R14), not fixed here.
+
 ## Testing
 
 The suite must be able to fail when the gate measures nothing, since every per-crate verdict
@@ -139,7 +202,14 @@ the mutant-listing test.
 - `tests/scripts/mutation_pr_detect.bats`: a `src/` change selects its crate; a nested
   `src/a/b.rs` change selects it; a crate `Cargo.toml`, `.cargo/mutants.toml` or `tests/`
   change selects nothing; two crates sort; no Rust change prints `has_rs=false` and an empty
-  `rs_dirs`; `has_rs=true` never appears with an empty `rs_dirs`; Python outputs unchanged.
+  `rs_dirs`; `has_rs=true` never appears with an empty `rs_dirs`; each of the five gate files
+  prints `rs_canary=true` and an unrelated file prints `rs_canary=false`; Python outputs
+  unchanged.
+- `tests/scripts/mutation_pr_canary.bats` (fixture copy of `amicable/amicable-rs/src/lib.rs`):
+  the diff has one `-`/`+` pair on the matching line, the file is byte-identical afterwards,
+  and zero or two matching lines exit 1.
+- `tests/scripts/makefile.bats`: a stub `cargo` exiting 4 leaves `mutants.out/exit-code`
+  containing `4` for both `mutants` and `mutants-diff`, and `make` exits non-zero.
 - `tests/scripts/mutation_pr_diff.bats` (fixture git repo): a change to
   `<crate>/src/lib.rs` yields a diff whose `+++` line is exactly `+++ b/src/lib.rs`; a change
   in another crate yields an empty diff; bad arguments exit 2.
@@ -156,26 +226,32 @@ the mutant-listing test.
   missed 0 timeout 1 is red, as today.
 - `tests/scripts/makefile.bats`: all 11 crates' `mutants-diff` carry the cap, the multiplier
   pair, `--in-diff`, no fixed `--timeout`, and exit 2 naming `DIFF` when it is unset.
-- `tests/test_mutation_workflows.py`: the Rust step calls `mutants-diff`, passes `0` as the
-  classifier limit, contains no `--timeout ` flag, and the factorial-only step is gone.
+- `tests/test_mutation_workflows.py`: the Rust step calls `scripts/mutation-pr-diff.sh` and
+  passes its output file as `DIFF=` to `mutants-diff`, passes `0` as the classifier limit,
+  reads `mutants.out/exit-code`, contains no `--timeout ` flag, and the factorial-only step is
+  gone; `mutation-testing.yml` reads `mutants.out/exit-code` and passes no limit.
 - `tests/test_crate_uniformity.py` keeps the 11 Makefiles identical to the template.
 
 ## Requirements
 
-- **R1.** `scripts/crate_templates/Makefile` has a `mutants-diff` target, rendered into all 11 crate `Makefile`s and listed in `.PHONY`, that keeps the `mutants` recipe's `ulimit -v 8388608` cap and `MUTANTS_UNCAPPED` escape and runs `cargo mutants --in-diff "$(DIFF)" --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle`.
+- **R1.** `scripts/crate_templates/Makefile` has a `mutants-diff` target, rendered into all 11 crate `Makefile`s and listed in `.PHONY`, that keeps the `mutants` recipe's `ulimit -v 8388608` cap and `MUTANTS_UNCAPPED` escape and runs `cargo mutants --in-diff "$(DIFF)" --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle`; both `mutants` and `mutants-diff` write cargo-mutants' exit status to `mutants.out/exit-code` and exit with it.
 - **R2.** `make mutants-diff` exits 2 with a message naming `DIFF` when `DIFF` is unset or not a readable file, without invoking cargo-mutants.
 - **R3.** `scripts/mutation-pr-detect.sh` prints `rs_dirs=` (sorted crate dirs, derived from `git ls-files '*/*-rs/Cargo.toml'`) and `has_rs=`, selecting a crate only when a changed path is a `.rs` file under that crate's `src/`.
 - **R4.** `scripts/mutation-classify.sh` with no fourth argument behaves as before; with a fourth argument `max_missed` it reports red when `missed > max_missed`, naming each survivor from `mutants.out/missed.txt`, reports red on a non-integer `max_missed`, and in that mode treats `caught + missed + timeout == 0` as nothing evaluated.
-- **R5.** `mutation-pr.yml` runs `scripts/mutation-pr-diff.sh` then `make -C <dir> mutants-diff` on that per-crate diff for every dir in `rs_dirs`, classifies each with limit `0`, continues past a red crate, and fails the step when any crate is red.
+- **R5.** `mutation-pr.yml` runs `scripts/mutation-pr-diff.sh` then `make -C <dir> mutants-diff` on that per-crate diff for every dir in `rs_dirs`, classifies each with limit `0` using the code from `mutants.out/exit-code`, treats a missing `exit-code` file or an empty per-crate diff as red, continues past a red crate, and fails the step when any crate is red.
 - **R6.** `mutation-pr.yml` no longer contains the factorial-only detection grep, the `Run cargo mutants (factorial-rs)` step, or any fixed `--timeout` flag for cargo-mutants.
 - **R7.** `mutation-pr.yml` restores the GMP/MPFR build cache read-only via `scripts/gmp-cache-key.sh` when `has_rs` is true, and its job `timeout-minutes` is 60.
 - **R8.** Root `CLAUDE.md` and the math knowledge entries that describe `mutation-pr.yml` describe the per-PR gate and the local repro in the same change, and the Backlog row "Rust mutation leg has no missed-count ratchet" is rewritten to cover only drift the per-PR gate cannot see (deleted tests, rustc or cargo-mutants updates).
 - **R9.** `scripts/mutation-pr-diff.sh <base-ref> <crate-dir> <out-file>` writes `git diff --relative=<crate-dir>/ <base-ref>...HEAD -- <crate-dir>`, so every path in it starts `src/`, and exits 2 on a wrong argument count or a crate dir without `Cargo.toml`.
 - **R10.** A test builds a diff with `scripts/mutation-pr-diff.sh` from a one-line `sieve` change in a copy of factorial-rs and requires `cargo mutants --list --in-diff` to list at least one `sieve` mutant; it skips when cargo-mutants is absent outside CI and fails when absent under `CI=true`.
+- **R11.** `mutation-testing.yml` classifies each crate on the code in `mutants.out/exit-code`, red when the file is missing, still with no limit argument.
+- **R12.** `scripts/mutation-pr-detect.sh` prints `rs_canary=true` when the PR changes `mutation-pr.yml`, `scripts/mutation-pr-diff.sh`, `scripts/mutation-pr-canary.sh`, `scripts/mutation-classify.sh` or `scripts/crate_templates/Makefile`, and `mutation-pr.yml` then runs amicable-rs on the diff from `scripts/mutation-pr-canary.sh`, red unless `outcomes.json` shows caught at least 1 and missed 0.
+- **R13.** `scripts/mutation-pr-canary.sh <out-file>` writes a one-line crate-relative diff from a trailing space appended to the single `let mut m = 2 * d;` line of `amicable/amicable-rs/src/lib.rs`, restores the file byte-for-byte, and exits 1 unless exactly one line matches.
+- **R14.** `docs/superpowers/README.md`'s Backlog gains a row for the load-dependent EAGAIN failure of the 64-thread default-chunk write tests in e-rs and pi-rs under the 8 GiB cap, citing this spec's Timeout classification.
 - **V1.** Positive control, before the slice PR is marked ready: a throwaway draft PR built on the slice branch, adding an untested branch to one crate's `src/`, shows `mutation-pr` red naming that mutant; the PR is then closed and its branch deleted.
-- **V2.** Negative control: this slice's own PR, which changes no crate `src/` file, shows `mutation-pr` green with the Rust step skipped (its `mutation-pr.yml` change still selects every Python dir, as today).
+- **V2.** This slice's own PR changes gate files and no crate `src/` file, so `mutation-pr` runs only the amicable-rs canary and is green with caught at least 1 and missed 0 (its `mutation-pr.yml` change still selects every Python dir, as today).
 - **N1.** No committed per-crate missed, timeout or unviable baseline file.
-- **N2.** The monthly `mutation-testing.yml` sweep's classification does not change: it calls `mutation-classify.sh` without a fourth argument.
+- **N2.** The monthly `mutation-testing.yml` sweep's verdict rules do not change: it calls `mutation-classify.sh` without a fourth argument, and only the source of the exit code it passes changes (R11).
 - **N3.** The local pre-push hook evaluates no mutants: nothing on the push path runs `cargo mutants` without `--list`.
 - **N4.** No change to the Python mutation path in `mutation-pr.yml` or elsewhere.
 
@@ -204,4 +280,10 @@ Disposition: Addressed (operator, 2026-11-05): as Goal-Fit.
 ### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+### Round 2 (commit `b860b21`, all three lenses re-run after design changes)
+
+- Goal-Fit (r2). Finding: `make` exits 2 for any failed recipe and 2 is green, so cargo-mutants' 1/3/4 and a cap kill reach the classifier as survivors; a partial `outcomes.json` with missed 0 would read green. Orchestrator confirmed: a recipe `exit 4` gives `make` 2. Assumption: an all-excluded changed line exits 0 without `outcomes.json`. Partly probed by the orchestrator (pi-rs `106:50`: the excluded mutant was dropped, the line's 3 other mutants ran, 3 caught) and by Ergonomics (e-rs `main.rs:129`: the enclosing function's replacement mutant still lists). Disposition: Addressed (operator, 2026-11-05, "Fix both now"): both recipes write `mutants.out/exit-code` and both workflows classify on it (R1, R5, R11; N2 amended).
+- Ergonomics (r2). Finding: a change to the gate's own files selects no crate, so the PR that breaks the gate merges green and V2 never exercises the new path. Assumption: the loop keeps producing a non-empty measurement after V1. Disposition: Addressed (operator, 2026-11-05): gate-file changes run the amicable-rs canary (component 6, R12, R13); V2 now expects the canary green.
+- Risk (r2). Finding: an empty diff file gives `Diff file is empty`, exit 0, so a detect/diff mismatch reads green; unit tests do not cover the wiring. Assumption: every in-scope timeout mutant never terminates. Disposition: Addressed (operator, 2026-11-05): selected crate with an empty diff is red, workflow test pins the wiring (R5); timeouts classified now (operator: "Classify timeouts now"), see Timeout classification.
 
