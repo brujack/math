@@ -93,3 +93,15 @@ _run_script() {
     _run_script no-such-ref a/a-rs "${OUT}"
     [ "${status}" -eq 1 ]
 }
+
+@test "user git config (color.ui=always, diff.noprefix) does not change the diff" {
+    printf '[color]\n\tui = always\n[diff]\n\tnoprefix = true\n' >"${HOME}/.gitconfig"
+    printf 'pub fn f() -> u32 { 2 }\n' >"${FIXTURE}/a/a-rs/src/lib.rs"
+    _git commit -q -am change
+    _run_script main a/a-rs "${OUT}"
+    [ "${status}" -eq 0 ]
+    run grep -c '^+++ b/src/lib.rs$' "${OUT}"
+    [ "${output}" = "1" ]
+    run grep -c $'\033' "${OUT}"
+    [ "${output}" = "0" ]
+}
