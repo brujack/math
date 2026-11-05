@@ -568,6 +568,7 @@ mod tests {
     #[test]
     fn test_shows_preview_bounds() {
         assert!(shows_preview(1));
+        assert!(shows_preview(999_999));
         assert!(shows_preview(1_000_000));
         assert!(!shows_preview(1_000_001));
     }
@@ -575,6 +576,7 @@ mod tests {
     #[test]
     fn test_auto_saves_bounds() {
         assert!(!auto_saves(1));
+        assert!(!auto_saves(9_999));
         assert!(!auto_saves(10_000));
         assert!(auto_saves(10_001));
     }
