@@ -286,3 +286,25 @@ Disposition: Addressed — R9 now runs on crate `src/` and `mutants.toml` change
 ### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+## Spec alignment (2026-11-05)
+
+- spec: docs/superpowers/specs/2026-11-04-worldclass-slice4-rust-mutation-survivors-design.md
+- anchor: 45f032f6a9b9f651290e377e7023606cffe44a96
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8, R9
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+
+### Reviewed
+
+- N1 reviewed: Phase 2 deletes two pieces of dead code instead of excluding their mutants: the twin-primes small-prime pair guard `w[1] < limit` (always true, since small primes stop at sqrt(limit) + 1, below every limit of 5 or more) and the prime-rs post-block parity step `if block_lo.is_multiple_of(2) { block_lo += 1 }` (with an even block size it can fire only after the final block, where the loop ends either way). Neither changes output; tests pin the output at the affected limits. Operator's choice, 2026-11-04.
+- R3 reviewed: fixed in 99d0b1c — e-rs `test_shows_preview_bounds` and `test_auto_saves_bounds` now also assert 999_999 and 9_999.
+
+### Verifications
+
+- V1: Pending: dispatch mutation-testing.yml per crate after merge; baseline run 41769558239 missed pi 43, e 45, prime 32, twin-primes 12, collatz 4.
+- V2: Local CARGO_MUTANTS_JOBS=8 make mutants at the branch: missed 0 in all five; caught pi 159, e 129, prime 149, twin-primes 115, collatz 42 (timeouts 4/6/7/4/0); every exclude_re entry matches exactly one listed mutant.
