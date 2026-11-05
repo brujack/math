@@ -1,6 +1,6 @@
 # ADR-0024: Mutation testing memory cap and stateless classification
 
-**Status:** Accepted
+**Status:** Accepted; the survivors-green half of its exit-code consequence is superseded by ADR-0042
 **Date:** 2026-08-01
 
 ## Context

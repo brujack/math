@@ -181,6 +181,11 @@ the third.
 - **N3.** The Python sweep's verdict rules do not change: `mutation-testing-python.yml` and `scripts/mutation-python-cell.sh` are not modified.
 - **N4.** `scripts/mutation-classify.sh` is not modified.
 
+
+## Amendments
+
+- adds R10: The `notify` job of `.github/workflows/mutation-testing.yml` neither downloads `mutants-output-*` nor uploads a merged `mutants-output` artifact, `tests/test_mutation_workflows.py` asserts both absences, ADR-0042 records that it supersedes ADR-0040 decision 6, and `docs/superpowers/README.md` no longer contains the Backlog row "One corrupt per-crate output turns the Rust sweep red". — V4 retired that artifact's only reader (ai-config mutation-review's cargo-mutants leg), and the download's `digest-mismatch: error` was the corrupt-output failure mode; operator 2026-11-05: "Remove in this PR".
+
 ## Multi-Lens Review
 
 Reviewed at commit: `397479c` (Step 7 self-review commit, before Step 8 dispatch)

@@ -1,7 +1,7 @@
 # ADR-0040: One mutation job per Rust crate
 
 **Date:** 2026-11-03
-**Status:** Accepted
+**Status:** Accepted; decision 6 (`mutants-output` re-aggregated in `notify`) is superseded by ADR-0042
 
 ## Context
 

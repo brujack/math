@@ -83,12 +83,17 @@ were ok.
   them apart.
 - The ai-config mutation-review cargo-mutants leg is retired in a coordinated ai-config change,
   because it reads only successful runs and a red sweep now has none to read.
+- `notify` no longer downloads the per-crate `mutants-output-<slug>` artifacts or re-uploads a
+  merged `mutants-output`: that artifact existed only for the retired leg. This supersedes
+  ADR-0040 decision 6, and it removes the failure mode where one corrupt per-crate output
+  (`digest-mismatch: error` on that download) turned the whole sweep red. The per-crate
+  artifacts are still uploaded and are where `missed.txt` lives.
 - The Backlog row "Rust survivor drift across rustc releases" tracks measuring how often
   rustc releases move survivors.
 
 ## Related
 
 - ADR-0024 (memory cap and stateless classification; survivors half superseded)
-- ADR-0040 (one mutation job per Rust crate)
+- ADR-0040 (one mutation job per Rust crate; decision 6 superseded)
 - ADR-0041 (per-PR Rust mutation ratchet)
 - `docs/superpowers/specs/2026-11-05-worldclass-slice6-rust-sweep-ratchet-design.md`

@@ -994,8 +994,6 @@ class RustMutantsJobTests(unittest.TestCase):
 
 class RustNotifyJobTests(unittest.TestCase):
     ISSUE = "File, comment, or close the tracking issue"
-    DOWNLOAD = "Download crate outputs"
-    UPLOAD = "Upload mutants output"
 
     def test_job_shape(self):
         job = rs_job("notify")
@@ -1023,34 +1021,23 @@ class RustNotifyJobTests(unittest.TestCase):
         self.assertEqual(env["ISSUE_LABEL"], "mutation-failure")
         self.assertEqual(step["run"], "scripts/mutation-notify.sh")
 
-    def test_output_download_and_upload(self):
-        dl = rs_step("notify", self.DOWNLOAD)
-        self.assertEqual(dl["with"]["pattern"], "mutants-output-*")
-        self.assertIs(dl["with"]["merge-multiple"], True)
-        self.assertEqual(dl["with"]["path"], "outputs")
-        self.assertEqual(dl["with"]["digest-mismatch"], "error")
-        self.assertNotIn("continue-on-error", dl)
-        up = rs_step("notify", self.UPLOAD)
-        self.assertEqual(up["with"]["name"], "mutants-output")
-        self.assertEqual(up["with"]["path"], "outputs/")
-        self.assertIs(up["with"]["overwrite"], True)
-        self.assertEqual(up["with"]["retention-days"], 30)
-        self.assertNotIn("continue-on-error", up)
+    def test_notify_does_not_reaggregate_outputs(self):
+        # Slice 6 (ADR-0042): ai-config's mutation-review, the only reader of a
+        # merged `mutants-output` artifact, no longer runs on this workflow, so
+        # notify neither downloads the per-crate outputs nor re-uploads them.
+        for step in rs_job("notify")["steps"]:
+            with_ = step.get("with") or {}
+            self.assertNotEqual(with_.get("pattern"), "mutants-output-*", step)
+            self.assertNotEqual(with_.get("name"), "mutants-output", step)
+        names = [s.get("name") for s in rs_job("notify")["steps"]]
+        self.assertEqual(names[-1], self.ISSUE)
 
-    def test_order_and_always(self):
-        steps = rs_job("notify")["steps"]
-        names = [s.get("name") for s in steps]
-        idx = [names.index(n) for n in (self.ISSUE, self.DOWNLOAD, self.UPLOAD)]
-        self.assertEqual(idx, sorted(idx))
-        self.assertEqual(len(set(idx)), 3)
-        for n in (self.ISSUE, self.DOWNLOAD, self.UPLOAD):
-            self.assertEqual(rs_step("notify", n)["if"], "always()")
+    def test_issue_step_runs_always(self):
+        self.assertEqual(rs_step("notify", self.ISSUE)["if"], "always()")
 
-    def test_patterns_do_not_overlap(self):
+    def test_status_pattern_does_not_match_outputs(self):
         status = rs_step("notify", "dl")["with"]["pattern"]
-        output = rs_step("notify", self.DOWNLOAD)["with"]["pattern"]
         self.assertFalse(fnmatch.fnmatch("mutants-output-x", status))
-        self.assertFalse(fnmatch.fnmatch("mutants-status-x", output))
 
     def test_only_dl_step_continues_on_error(self):
         for step in rs_job("notify")["steps"]:
