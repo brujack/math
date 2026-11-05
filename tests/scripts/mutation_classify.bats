@@ -258,3 +258,29 @@ _write_outcomes() {
     [ "${status}" -eq 1 ]
     [ "${stderr}" = "red: e/e-rs - max_missed '12345678901234567890' is not a non-negative integer" ]
 }
+
+@test "sweep 0 1: caught=5 missed=1 exit 2 -> red naming the survivor" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    _write_outcomes "${outcomes}" '{"caught":5,"missed":1,"timeout":0,"unviable":0}'
+    _write_outcomes "${BATS_TEST_TMPDIR}/missed.txt" 'src/lib.rs:5:5: replace sieve -> Vec<u32> with vec![]'
+    run --separate-stderr "${SCRIPT}" 2 "${outcomes}" "prime/prime-rs" 0 1
+    [ "${status}" -eq 1 ]
+    [[ "${stderr}" == *"missed=1 exceeds max_missed=0"* ]]
+    [[ "${stderr}" == *"  missed: src/lib.rs:5:5: replace sieve -> Vec<u32> with vec![]"* ]]
+}
+
+@test "sweep 0 1: caught=5 missed=0 timeout=2 exit 3 -> green" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    _write_outcomes "${outcomes}" '{"caught":5,"missed":0,"timeout":2,"unviable":0}'
+    run --separate-stderr "${SCRIPT}" 3 "${outcomes}" "prime/prime-rs" 0 1
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == green:\ prime/prime-rs* ]]
+}
+
+@test "sweep 0 1: caught=0 missed=0 timeout=3 exit 3 -> red below min_caught" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    _write_outcomes "${outcomes}" '{"caught":0,"missed":0,"timeout":3,"unviable":0}'
+    run --separate-stderr "${SCRIPT}" 3 "${outcomes}" "prime/prime-rs" 0 1
+    [ "${status}" -eq 1 ]
+    [[ "${stderr}" == *"caught=0 below min_caught=1"* ]]
+}

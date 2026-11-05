@@ -102,10 +102,11 @@ jobs:
           SLUG: ${{ matrix.slug }}
         run: |
           mkdir -p "${GITHUB_WORKSPACE}/status"
-          # make exits 2 for ANY failed recipe, which the classifier reads as
-          # survivors (green). The recipe records cargo-mutants' own exit code
-          # in mutants.out/exit-code; classify on that, and fail closed when
-          # it is missing (the recipe died before cargo-mutants ran).
+          # make exits 2 for ANY failed recipe, which the classifier would
+          # read as cargo-mutants' survivors code. The recipe records
+          # cargo-mutants' own exit code in mutants.out/exit-code; classify
+          # on that, and fail closed when it is missing (the recipe died
+          # before cargo-mutants ran).
           make -C "${CRATE_DIR}" mutants || true
           code_file="${CRATE_DIR}/mutants.out/exit-code"
           if [[ ! -f "${code_file}" ]]; then
@@ -130,11 +131,13 @@ jobs:
           # takes the command's exit status, so under GitHub's `bash -e` a red
           # verdict would abort the block here instead of being recorded.
           cls=0
+          # Trailing `0 1` = max_missed 0, min_caught 1 (ADR-0042): any survivor
+          # is red, caught < 1 is red, and timeouts stay green beside a catch.
           # 2>&1: the classifier prints green verdicts to stdout and red ones
           # to stderr. Capturing stdout alone leaves status/<slug> empty for
           # exactly the crates the notify job needs to name.
           verdict=$("${GITHUB_WORKSPACE}/scripts/mutation-classify.sh" \
-            "${rc}" "${CRATE_DIR}/mutants.out/outcomes.json" "${CRATE_DIR}" 2>&1) || cls=$?
+            "${rc}" "${CRATE_DIR}/mutants.out/outcomes.json" "${CRATE_DIR}" 0 1 2>&1) || cls=$?
           printf '%s\n' "${verdict}" \
             | tee -a "${GITHUB_STEP_SUMMARY}" "${GITHUB_WORKSPACE}/status/${SLUG}"
           exit "${cls}"
@@ -166,7 +169,7 @@ jobs:
         with:
           name: mutants-output-${{ matrix.slug }}
           # marker/ keeps the artifact root at the workspace, so the crate
-          # prefix survives and eleven trees do not collide when merged.
+          # prefix survives: the artifact unpacks to <crate>/mutants.out/.
           path: |
             ${{ matrix.crate }}/mutants.out/
             marker/
@@ -205,22 +208,3 @@ jobs:
           REPO: ${{ github.repository }}
           FULL_SWEEP: ${{ format('{0}', inputs.crate) == '' && 'true' || 'false' }}
         run: scripts/mutation-notify.sh
-      # ai-config's mutation-review.yml downloads the exact name mutants-output.
-      # Into outputs/, never artifact/: mutation-notify.sh reads extra root
-      # entries there as a different attestation cause.
-      - name: Download crate outputs
-        if: always()
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        with:
-          pattern: mutants-output-*
-          merge-multiple: true
-          path: outputs
-          digest-mismatch: error
-      - name: Upload mutants output
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: mutants-output
-          path: outputs/
-          retention-days: 30
-          overwrite: true

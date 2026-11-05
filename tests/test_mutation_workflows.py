@@ -748,16 +748,19 @@ class RustSetupJobTests(unittest.TestCase):
 
 
 class JobResult(tuple):  # type: ignore[type-arg]
-    """The (proc, make calls, statuses, summary) tuple plus `classifier_argc`.
+    """The (proc, make calls, statuses, summary) tuple plus classifier records.
 
-    `classifier_argc` lists the argument count of each mutation-classify.sh call.
+    `classifier_argc` lists the argument count of each mutation-classify.sh call;
+    `classifier_args` lists its fourth and fifth arguments, one string per call.
     """
 
     classifier_argc: list[str]
+    classifier_args: list[str]
 
-    def __new__(cls, fields, classifier_argc):
+    def __new__(cls, fields, classifier_argc, classifier_args):
         self = super().__new__(cls, fields)
         self.classifier_argc = classifier_argc
+        self.classifier_args = classifier_args
         return self
 
 
@@ -811,6 +814,7 @@ def run_crate_job(
         classify.write_text(
             "#!/bin/sh\n"
             f'printf \'%s\\n\' "$#" >> "{root / "classify-argc"}"\n'
+            f'printf \'%s\\n\' "$4 $5" >> "{root / "classify-args"}"\n'
             'if [ "$RED" = "1" ]; then printf "red: %s rc=%s %s\\n" "$3" "$1" "$2" >&2; exit 1; fi\n'
             'printf \'green: %s rc=%s %s\\n\' "$3" "$1" "$2"\n'
         )
@@ -854,7 +858,9 @@ def run_crate_job(
         statuses = {p.name: p.read_text() for p in (workspace / "status").glob("*")}
         argc_file = root / "classify-argc"
         argc = argc_file.read_text().split() if argc_file.exists() else []
-        return JobResult((proc, made, statuses, summary.read_text()), argc)
+        args_file = root / "classify-args"
+        args = args_file.read_text().splitlines() if args_file.exists() else []
+        return JobResult((proc, made, statuses, summary.read_text()), argc, args)
 
 
 class RustMutantsJobTests(unittest.TestCase):
@@ -889,10 +895,12 @@ class RustMutantsJobTests(unittest.TestCase):
         self.assertEqual(statuses, {"a-a-rs": line})
         self.assertEqual(summary, line)
 
-    def test_classifier_gets_exactly_three_arguments(self):
-        # N2: the sweep's verdict rules stay put, so no limit/min_caught 4th arg.
+    def test_classifier_gets_limit_zero_and_min_caught_one(self):
+        # Worldclass slice 6 / ADR-0042: survivors are red in the sweep, so the
+        # classifier gets max_missed 0 and min_caught 1 after the crate dir.
         result = run_crate_job("a/a-rs", "a-a-rs")
-        self.assertEqual(result.classifier_argc, ["3"])
+        self.assertEqual(result.classifier_argc, ["5"])
+        self.assertEqual(result.classifier_args, ["0 1"])
 
     def test_non_integer_exit_code_is_red_and_never_classified(self):
         # '' and 'x' both read as 0 inside the classifier's `-eq`, which turns
@@ -986,8 +994,6 @@ class RustMutantsJobTests(unittest.TestCase):
 
 class RustNotifyJobTests(unittest.TestCase):
     ISSUE = "File, comment, or close the tracking issue"
-    DOWNLOAD = "Download crate outputs"
-    UPLOAD = "Upload mutants output"
 
     def test_job_shape(self):
         job = rs_job("notify")
@@ -1015,34 +1021,24 @@ class RustNotifyJobTests(unittest.TestCase):
         self.assertEqual(env["ISSUE_LABEL"], "mutation-failure")
         self.assertEqual(step["run"], "scripts/mutation-notify.sh")
 
-    def test_output_download_and_upload(self):
-        dl = rs_step("notify", self.DOWNLOAD)
-        self.assertEqual(dl["with"]["pattern"], "mutants-output-*")
-        self.assertIs(dl["with"]["merge-multiple"], True)
-        self.assertEqual(dl["with"]["path"], "outputs")
-        self.assertEqual(dl["with"]["digest-mismatch"], "error")
-        self.assertNotIn("continue-on-error", dl)
-        up = rs_step("notify", self.UPLOAD)
-        self.assertEqual(up["with"]["name"], "mutants-output")
-        self.assertEqual(up["with"]["path"], "outputs/")
-        self.assertIs(up["with"]["overwrite"], True)
-        self.assertEqual(up["with"]["retention-days"], 30)
-        self.assertNotIn("continue-on-error", up)
+    def test_notify_does_not_reaggregate_outputs(self):
+        # Slice 6 (ADR-0042): the only reader of a merged `mutants-output`
+        # artifact was ai-config's mutation-review cargo-mutants leg, retired by
+        # a coordinated ai-config change that merges first, so notify neither
+        # downloads the per-crate outputs nor re-uploads them.
+        for step in rs_job("notify")["steps"]:
+            with_ = step.get("with") or {}
+            self.assertNotEqual(with_.get("pattern"), "mutants-output-*", step)
+            self.assertNotEqual(with_.get("name"), "mutants-output", step)
+        names = [s.get("name") for s in rs_job("notify")["steps"]]
+        self.assertEqual(names[-1], self.ISSUE)
 
-    def test_order_and_always(self):
-        steps = rs_job("notify")["steps"]
-        names = [s.get("name") for s in steps]
-        idx = [names.index(n) for n in (self.ISSUE, self.DOWNLOAD, self.UPLOAD)]
-        self.assertEqual(idx, sorted(idx))
-        self.assertEqual(len(set(idx)), 3)
-        for n in (self.ISSUE, self.DOWNLOAD, self.UPLOAD):
-            self.assertEqual(rs_step("notify", n)["if"], "always()")
+    def test_issue_step_runs_always(self):
+        self.assertEqual(rs_step("notify", self.ISSUE)["if"], "always()")
 
-    def test_patterns_do_not_overlap(self):
+    def test_status_pattern_does_not_match_outputs(self):
         status = rs_step("notify", "dl")["with"]["pattern"]
-        output = rs_step("notify", self.DOWNLOAD)["with"]["pattern"]
         self.assertFalse(fnmatch.fnmatch("mutants-output-x", status))
-        self.assertFalse(fnmatch.fnmatch("mutants-status-x", output))
 
     def test_only_dl_step_continues_on_error(self):
         for step in rs_job("notify")["steps"]:

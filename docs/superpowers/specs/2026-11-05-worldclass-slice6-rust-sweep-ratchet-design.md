@@ -181,6 +181,11 @@ the third.
 - **N3.** The Python sweep's verdict rules do not change: `mutation-testing-python.yml` and `scripts/mutation-python-cell.sh` are not modified.
 - **N4.** `scripts/mutation-classify.sh` is not modified.
 
+
+## Amendments
+
+- adds R10: The `notify` job of `.github/workflows/mutation-testing.yml` neither downloads `mutants-output-*` nor uploads a merged `mutants-output` artifact, `tests/test_mutation_workflows.py` asserts both absences, ADR-0042 records that it supersedes ADR-0040 decision 6, and `docs/superpowers/README.md` no longer contains the Backlog row "One corrupt per-crate output turns the Rust sweep red". — V4 retired that artifact's only reader (ai-config mutation-review's cargo-mutants leg), and the download's `digest-mismatch: error` was the corrupt-output failure mode; operator 2026-11-05: "Remove in this PR".
+
 ## Multi-Lens Review
 
 Reviewed at commit: `397479c` (Step 7 self-review commit, before Step 8 dispatch)
@@ -232,3 +237,26 @@ Disposition: Addressed (operator, 2026-11-05: "Drop it"; "All of (a)-(d)"; "Aren
 Finding: F1 (load-bearing): V1's `--re '<exact name>'` reads the name as an unanchored regex, and the timeout names contain `+`, `*`, `+=` and `[1]`, so each selects zero mutants; V1 would pass vacuously, the e-rs baseline would never run, and ADR-0042 would record unmeasured rows. Orchestrator measured on a `git archive` copy of `0d28038` `e/e-rs` (cargo-mutants 27.1.0): raw name 0 lines, `^src/lib\.rs:144:13: replace \+ with \* in compute_e$` 1 line. F2: a fence indented two spaces renders correctly only if every content line also carries the prefix; one unprefixed line ends the list item, strips `<T>`, and swallows the next unit into a code block (render-verified); R6 as written passes both shapes. Minor: the helper's empty-list fallbacks (`- (none flagged; see run log)`, pinned at `mutation_notify.bats:99`, and `- (none)`, unpinned) are not stated. Checked clean: no fence breakout (0 backticks in crate sources; status lines come only from the classifier and fixed `printf`s), no bats inversions beyond the two named, `ulimit` subshell scope, env inheritance under `systemd-run --scope`.
 Assumption: cargo-mutants 27.1.0 matches `--re` against the full name including the location prefix. Settled by the orchestrator's `--list` probe above: it does.
 Disposition: Addressed (operator, 2026-11-05: "Apply all three") — V1 escapes and anchors each name with a 1-line `--list` pre-check and `total_mutants` 1 post-check; R4 requires the two-space prefix on every block line and keeps both fallbacks; R6 asserts exact multi-line substrings and both fallbacks. Review stops here: the remaining findings sat in the verification apparatus, and the design shrank across rounds.
+
+## Spec alignment (2026-11-05)
+
+- spec: docs/superpowers/specs/2026-11-05-worldclass-slice6-rust-sweep-ratchet-design.md
+- anchor: 83c8b69fbadc5abca5f90e968102d07e483bb996
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8, R9, R10
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+
+### Reviewed
+
+- none
+
+### Verifications
+
+- V1: 2026-11-05 on claude, git archive of 0d28038, cargo-mutants 27.1.0: all 28 timeouts of pi-rs (4), prime-rs (12), e-rs (12), a superset of the 16 unmeasured; each escaped anchored name --list = 1 line, combined = n, total_mutants = n; ulimit -v 8388608 (e-rs also MALLOC_ARENA_MAX=2; baseline ok); result 21 caught, 7 timeout, 0 missed. Table in ADR-0042.
+- V2: Pending: runs after the draft push (two full sweep dispatches on the branch SHA plus missed/caught diffs).
+- V3: amicable-rs git-archive copy with run_* unit tests and tests/cli.rs removed: cargo-mutants 20 mutants, 9 missed; mutation-classify.sh ... 0 1 exited 1 naming all 9; notify body rendered via gh api /markdown keeps io::Result<()>. A first attempt removing two assertions stayed green (cli.rs still kills those mutants).
+- V4: ai-config#350 merged 2026-11-05 (7c4183f4): mutation-review.yml cargo-mutants leg removed; math-testing-policy.md Mutation green/red and notification sections updated.
