@@ -785,23 +785,30 @@ mod tests {
         assert!(res.is_err());
     }
 
+    /// Expected file bytes for `write_e_file`, built independently of the code.
     #[cfg(unix)]
-    #[test]
-    fn test_write_e_file_sized_multi_chunk_is_byte_exact() {
-        // 43 bytes, chunk size 7: 6 chunks, last one short (43 % 7 != 0).
-        let e_str = "2.7182818284590452353602874713526624977572470";
-        let digits = e_str.len() - 2;
-        let dir = tempdir().unwrap();
-        let path = write_e_file_sized(dir.path(), e_str, digits, 7).unwrap();
+    fn expected_e_file(e_str: &str, digits: usize) -> String {
         let header = format!(
             "e calculated to {} decimal places using Taylor/Rayon\n{}\n\n",
             fmt_int(digits),
             "=".repeat(60),
         );
         let footer = format!("\n\nTotal decimal places: {}", fmt_int(digits));
-        let expected = format!("{header}{e_str}{footer}");
-        assert!(e_str.len() >= 40 && !e_str.len().is_multiple_of(7));
-        assert_eq!(std::fs::read_to_string(path).unwrap(), expected);
+        format!("{header}{e_str}{footer}")
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_write_e_file_sized_multi_chunk_is_byte_exact() {
+        // 45 bytes. The pool is pinned to 8 threads so chunk = max(7, 45 / 8) = 7
+        // regardless of RAYON_NUM_THREADS: 7 chunks, the last one short (45 % 7 = 3).
+        let e_str = "2.7182818284590452353602874713526624977572470";
+        assert_eq!(e_str.len(), 45);
+        let digits = e_str.len() - 2;
+        let dir = tempdir().unwrap();
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(8).build().unwrap();
+        let path = pool.install(|| write_e_file_sized(dir.path(), e_str, digits, 7)).unwrap();
+        assert_eq!(std::fs::read_to_string(path).unwrap(), expected_e_file(e_str, digits));
     }
 
     #[cfg(unix)]
@@ -809,8 +816,7 @@ mod tests {
     fn test_write_e_file_sized_chunk_larger_than_data_is_byte_exact() {
         let dir = tempdir().unwrap();
         let path = write_e_file_sized(dir.path(), "2.7", 1, 1 << 20).unwrap();
-        let contents = std::fs::read_to_string(path).unwrap();
-        assert!(contents.contains("\n\n2.7\n\nTotal decimal places: 1"));
+        assert_eq!(std::fs::read_to_string(path).unwrap(), expected_e_file("2.7", 1));
     }
 
     // --- save_e ---
