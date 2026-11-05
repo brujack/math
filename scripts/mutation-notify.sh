@@ -52,6 +52,49 @@ attribute() {
     printf 'died-before-loop'
 }
 
+# Red units from ${ARTIFACT_DIR}/status/*, one list item per unit: the first
+# line starting with red is the reason, and any lines after it are detail in a
+# fenced block capped at 20 lines (the rest is counted, not printed). Every
+# line of the block, fences included, is indented two spaces: an unindented
+# line ends the list item in GitHub's renderer and strips <u32>-style text.
+# Prints nothing when no unit is red.
+render_red_units() {
+    local _file _line _found _ndetail _extra
+    local -r _max=20
+    local _fence='  ```'
+
+    for _file in "${ARTIFACT_DIR}"/status/*; do
+        [[ -f "${_file}" ]] || continue
+        _found=0
+        _ndetail=0
+        _extra=0
+        while IFS= read -r _line || [[ -n "${_line}" ]]; do
+            if [[ "${_found}" == "0" ]]; then
+                if [[ "${_line}" == red* ]]; then
+                    _found=1
+                    printf -- '- %s: %s\n' "${_file##*/}" "${_line}"
+                fi
+                continue
+            fi
+            _ndetail=$((_ndetail + 1))
+            if [[ "${_ndetail}" -le "${_max}" ]]; then
+                if [[ "${_ndetail}" -eq 1 ]]; then
+                    printf '%s\n' "${_fence}"
+                fi
+                printf '  %s\n' "${_line}"
+            else
+                _extra=$((_extra + 1))
+            fi
+        done < "${_file}"
+        if [[ "${_ndetail}" -gt 0 ]]; then
+            if [[ "${_extra}" -gt 0 ]]; then
+                printf '  ... %s more lines in the run\n' "${_extra}"
+            fi
+            printf '%s\n' "${_fence}"
+        fi
+    done
+}
+
 build_body() {
     local _token="${1}"
     local _detail
@@ -59,7 +102,7 @@ build_body() {
     case "${_token}" in
         verdicts-present)
             local _names
-            _names=$(grep -l '^red' "${ARTIFACT_DIR}"/status/* 2>/dev/null | sed 's|.*/|- |')
+            _names=$(render_red_units)
             _detail="Failing ${UNIT_NOUN}s:"$'\n'"${_names:-- (none flagged; see run log)}"
             ;;
         loop-began-no-verdict)
@@ -97,24 +140,18 @@ post_issue() {
 }
 
 # Units section of the EXPECTED_STATUS_UNITS report: units that wrote no status
-# file, units rejected for containing a slash, and red units with the first
-# line of their status file as the reason.
+# file, units rejected for containing a slash, and red units (render_red_units:
+# first red line plus a capped, fenced detail block). The fourth parameter,
+# omit_red, is 1 when the caller's build_body already lists the red units, so
+# the Red section is left out and no unit is named twice.
 build_units_body() {
     local _missing="${1}"
     local _invalid="${2}"
     local _empty="${3}"
-    local _red="" _file _line _detail
+    local _omit_red="${4:-0}"
+    local _red _detail
 
-    for _file in "${ARTIFACT_DIR}"/status/*; do
-        [[ -f "${_file}" ]] || continue
-        # First line starting with red is the reason, wherever it sits.
-        while IFS= read -r _line || [[ -n "${_line}" ]]; do
-            if [[ "${_line}" == red* ]]; then
-                _red+="- ${_file##*/}: ${_line}"$'\n'
-                break
-            fi
-        done < "${_file}"
-    done
+    _red=$(render_red_units)
 
     if [[ "${_empty}" == "1" ]]; then
         _detail="The expected list was empty, so no ${UNIT_NOUN} could be verified."
@@ -124,8 +161,12 @@ build_units_body() {
     if [[ -n "${_invalid}" ]]; then
         _detail+=$'\n\n'"Invalid ${UNIT_NOUN}s (a name may not contain a slash):"$'\n'"${_invalid}"
     fi
-    printf 'Cause: missing-status\n\nThe run reported %s but not every expected %s wrote a verdict.\n\n%s\n\nRed %ss:\n%s\n\nRun: %s\n' \
-        "${RESULT}" "${UNIT_NOUN}" "${_detail}" "${UNIT_NOUN}" "${_red:-- (none)}" "${RUN_URL}"
+    printf 'Cause: missing-status\n\nThe run reported %s but not every expected %s wrote a verdict.\n\n%s\n\n' \
+        "${RESULT}" "${UNIT_NOUN}" "${_detail}"
+    if [[ "${_omit_red}" != "1" ]]; then
+        printf 'Red %ss:\n%s\n\n' "${UNIT_NOUN}" "${_red:-- (none)}"
+    fi
+    printf 'Run: %s\n' "${RUN_URL}"
 }
 
 # Returns 0 when every expected unit has a status file. Otherwise posts a
@@ -136,7 +177,7 @@ build_units_body() {
 check_expected_units() {
     local _existing="${1}"
     local -a _units
-    local _unit _missing="" _invalid="" _empty=0 _body _cause
+    local _unit _missing="" _invalid="" _empty=0 _body _cause _omit_red
 
     # read -d '' always returns 1 at EOF, so the || true is not hiding a failure.
     read -rd '' -a _units <<< "${EXPECTED_STATUS_UNITS}" || true
@@ -151,9 +192,16 @@ check_expected_units() {
     done
     [[ "${_empty}" == "0" && -z "${_missing}" && -z "${_invalid}" ]] && return 0
 
-    _body=$(build_units_body "${_missing%$'\n'}" "${_invalid%$'\n'}" "${_empty}") || return 2
+    # A non-success run prepends build_body. Its verdicts-present case already
+    # lists the red units, so the units body then omits its own Red section;
+    # any other cause lists none, so the units body keeps it.
+    _omit_red=0
     if [[ "${RESULT}" != "success" ]]; then
         _cause=$(attribute) || return 2
+        [[ "${_cause}" == "verdicts-present" ]] && _omit_red=1
+    fi
+    _body=$(build_units_body "${_missing%$'\n'}" "${_invalid%$'\n'}" "${_empty}" "${_omit_red}") || return 2
+    if [[ "${RESULT}" != "success" ]]; then
         _body="$(build_body "${_cause}")"$'\n\n'"${_body}"
     fi
     post_issue "${_existing}" "${_body}" || return 2

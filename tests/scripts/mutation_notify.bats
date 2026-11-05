@@ -703,7 +703,9 @@ print("\n".join(out))
     [ "${status}" -eq 1 ]
 
     grep -qF -- "- pi-3: red: pi-3 -- 2 work items without a result" "${MOCK_CALLS_FILE}"
-    run ! grep -qF -- "second line" "${MOCK_CALLS_FILE}"
+    grep -qF -- "second line" "${MOCK_CALLS_FILE}"
+    _block=$'- pi-3: red: pi-3 -- 2 work items without a result\n  ```\n  second line\n  ```'
+    [[ "$(cat "${MOCK_CALLS_FILE}")" == *"${_block}"* ]]
 }
 
 @test "EXPECTED_STATUS_UNITS: a glob unit is matched literally, not expanded against the cwd" {
@@ -774,7 +776,9 @@ print("\n".join(out))
     [ "${status}" -eq 1 ]
 
     grep -qF -- "- pi: red: pi -- late verdict" "${MOCK_CALLS_FILE}"
-    run ! grep -qF -- "second red" "${MOCK_CALLS_FILE}"
+    _block=$'- pi: red: pi -- late verdict\n  ```\n  red: second red\n  ```'
+    [[ "$(cat "${MOCK_CALLS_FILE}")" == *"${_block}"* ]]
+    run ! grep -qF -- "note: preamble" "${MOCK_CALLS_FILE}"
 }
 
 # FULL_SWEEP: only a run over every unit may close the tracking issue. A green
@@ -877,4 +881,156 @@ print("\n".join(out))
     run ! grep -q '<MISSING>' <<< "${_exprs}"
     printf '%s\n' "${_exprs}" | grep -qxF ".github/workflows/mutation-testing.yml|\${{ format('{0}', inputs.crate) == '' && 'true' || 'false' }}"
     printf '%s\n' "${_exprs}" | grep -qxF ".github/workflows/mutation-testing-python.yml|\${{ format('{0}', inputs.subproject) == '' && 'true' || 'false' }}"
+}
+
+# render_red_units: one fenced, capped detail block per red unit. Every line of
+# a block starts with two spaces, or GitHub ends the list item and strips <u32>.
+
+@test "render_red_units: two red units get fenced detail, the green unit is absent" {
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'red: pi-3 -- bad\nd1\nd2\n' > "${ARTIFACT_DIR}/status/pi-3"
+    printf 'red: e-1 -- worse\nx1\n' > "${ARTIFACT_DIR}/status/e-1"
+    printf 'green: fib\n' > "${ARTIFACT_DIR}/status/fib"
+
+    run render_red_units
+    [ "${status}" -eq 0 ]
+    _a=$'- e-1: red: e-1 -- worse\n  ```\n  x1\n  ```'
+    _b=$'- pi-3: red: pi-3 -- bad\n  ```\n  d1\n  d2\n  ```'
+    [[ "${output}" == "${_a}"$'\n'"${_b}" ]]
+    [[ "${output}" != *"fib"* ]]
+}
+
+@test "render_red_units: a red unit with no detail lines gets no fence" {
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'red: pi-3 -- bad\n' > "${ARTIFACT_DIR}/status/pi-3"
+
+    run render_red_units
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "- pi-3: red: pi-3 -- bad" ]
+}
+
+@test "render_red_units: no red file prints nothing" {
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'green: fib\n' > "${ARTIFACT_DIR}/status/fib"
+
+    run render_red_units
+    [ "${status}" -eq 0 ]
+    [ -z "${output}" ]
+}
+
+@test "render_red_units: 25 detail lines print exactly 20 plus a 5-more line, angle brackets intact" {
+    mkdir -p "${ARTIFACT_DIR}/status"
+    {
+        printf 'red: pi-3 -- bad\n'
+        printf 'line1 Vec<u32>\n'
+        for i in $(seq 2 25); do printf 'line%s\n' "${i}"; done
+    } > "${ARTIFACT_DIR}/status/pi-3"
+
+    run render_red_units
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *$'  ```\n  line1 Vec<u32>\n  line2\n'* ]]
+    [[ "${output}" == *$'  line20\n  ... 5 more lines in the run\n  ```' ]]
+    [[ "${output}" != *"line21"* ]]
+    [[ "${output}" != *"line25"* ]]
+}
+
+@test "render_red_units: exactly 20 detail lines print all of them with no more-lines line" {
+    mkdir -p "${ARTIFACT_DIR}/status"
+    {
+        printf 'red: pi-3 -- bad\n'
+        for i in $(seq 1 20); do printf 'line%s\n' "${i}"; done
+    } > "${ARTIFACT_DIR}/status/pi-3"
+
+    run render_red_units
+    [[ "${output}" == *$'  line20\n  ```' ]]
+    [[ "${output}" != *"more lines"* ]]
+}
+
+@test "render_red_units: every line of the block starts with two spaces except the list item" {
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'red: pi-3 -- bad\nd1\nd2\n' > "${ARTIFACT_DIR}/status/pi-3"
+
+    run render_red_units
+    [ -n "${output}" ]
+    _bad=$(printf '%s\n' "${output}" | tail -n +2 | grep -vc '^  ' || true)
+    [ "${_bad}" -eq 0 ]
+}
+
+@test "build_body verdicts-present uses the fenced block" {
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'red: pi-3 -- bad\nd1\n' > "${ARTIFACT_DIR}/status/pi-3"
+
+    run build_body verdicts-present
+    [[ "${output}" == *$'Failing crates:\n- pi-3: red: pi-3 -- bad\n  ```\n  d1\n  ```\n\nRun: '* ]]
+}
+
+@test "build_body verdicts-present with no red file keeps the none-flagged fallback" {
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'green: fib\n' > "${ARTIFACT_DIR}/status/fib"
+
+    run build_body verdicts-present
+    [[ "${output}" == *$'Failing crates:\n- (none flagged; see run log)\n\nRun: '* ]]
+}
+
+@test "build_units_body with no red file keeps the none fallback" {
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'green: fib\n' > "${ARTIFACT_DIR}/status/fib"
+
+    run build_units_body "- pi" "" 0
+    [[ "${output}" == *$'Red crates:\n- (none)\n\nRun: '* ]]
+}
+
+@test "build_units_body with an empty expected list keeps the none fallback for missing and red" {
+    mkdir -p "${ARTIFACT_DIR}/status"
+
+    run build_units_body "" "" 1
+    [[ "${output}" == *"The expected list was empty"* ]]
+    [[ "${output}" == *$'Red crates:\n- (none)\n\nRun: '* ]]
+}
+
+@test "build_units_body renders the fenced block under the Red section" {
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'red: pi-3 -- bad\nd1\n' > "${ARTIFACT_DIR}/status/pi-3"
+
+    run build_units_body "- fib" "" 0
+    [[ "${output}" == *$'Red crates:\n- pi-3: red: pi-3 -- bad\n  ```\n  d1\n  ```\n\nRun: '* ]]
+}
+
+@test "build_units_body with omit_red=1 prints no Red section" {
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'red: pi-3 -- bad\nd1\n' > "${ARTIFACT_DIR}/status/pi-3"
+
+    run build_units_body "- fib" "" 0 1
+    [[ "${output}" != *"Red crates"* ]]
+    [[ "${output}" == *$'Missing crates:\n- fib\n\nRun: '* ]]
+}
+
+@test "EXPECTED_STATUS_UNITS: failure + verdicts-present + missing unit names each red unit exactly once" {
+    export RESULT="failure"
+    export MOCK_GH_ISSUE_LIST=""
+    export EXPECTED_STATUS_UNITS="pi-3 e-1 fib"
+    mkdir -p "${ARTIFACT_DIR}/marker" "${ARTIFACT_DIR}/status"
+    printf 'red: pi-3 -- bad\nd1\n' > "${ARTIFACT_DIR}/status/pi-3"
+    printf 'red: e-1 -- worse\nx1\n' > "${ARTIFACT_DIR}/status/e-1"
+
+    run main
+    [ "${status}" -eq 1 ]
+
+    [ "$(grep -c -- '^- pi-3: ' "${MOCK_CALLS_FILE}")" -eq 1 ]
+    [ "$(grep -c -- '^- e-1: ' "${MOCK_CALLS_FILE}")" -eq 1 ]
+    grep -qF -- "Cause: verdicts-present" "${MOCK_CALLS_FILE}"
+    grep -qF -- "- fib" "${MOCK_CALLS_FILE}"
+}
+
+@test "EXPECTED_STATUS_UNITS: failure with a non-verdict cause keeps the Red section" {
+    export RESULT="failure"
+    export MOCK_GH_ISSUE_LIST=""
+    export EXPECTED_STATUS_UNITS="pi-3 fib"
+    # Empty status/ plus a root-level entry attributes loop-began-no-verdict.
+    mkdir -p "${ARTIFACT_DIR}/marker" "${ARTIFACT_DIR}/status" "${ARTIFACT_DIR}/pi-3/mutants.out"
+
+    run main
+    [ "${status}" -eq 1 ]
+    grep -qF -- "Cause: loop-began-no-verdict" "${MOCK_CALLS_FILE}"
+    grep -qF -- "Red crates:" "${MOCK_CALLS_FILE}"
 }
