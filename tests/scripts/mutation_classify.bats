@@ -218,3 +218,35 @@ _write_outcomes() {
     [ "${status}" -eq 0 ]
     [ "${output}" = "green: amicable/amicable-rs - caught=1 missed=0 timeout=0 unviable=0" ]
 }
+
+@test "max_missed with leading zero 08 -> red (invalid octal must not fail open)" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    _write_outcomes "${outcomes}" '{"total_mutants":13,"caught":4,"missed":9,"timeout":0,"unviable":0}'
+    run --separate-stderr "${SCRIPT}" 2 "${outcomes}" "e/e-rs" 08
+    [ "${status}" -eq 1 ]
+    [ "${stderr}" = "red: e/e-rs - max_missed '08' is not a non-negative integer" ]
+}
+
+@test "min_caught with leading zero 09 -> red" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    _write_outcomes "${outcomes}" '{"total_mutants":1,"caught":0,"missed":0,"timeout":1,"unviable":0}'
+    run --separate-stderr "${SCRIPT}" 3 "${outcomes}" "e/e-rs" 0 09
+    [ "${status}" -eq 1 ]
+    [ "${stderr}" = "red: e/e-rs - min_caught '09' is not a non-negative integer" ]
+}
+
+@test "max_missed 010 -> red (would silently read as octal 8)" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    _write_outcomes "${outcomes}" '{"total_mutants":10,"caught":2,"missed":8,"timeout":0,"unviable":0}'
+    run --separate-stderr "${SCRIPT}" 2 "${outcomes}" "e/e-rs" 010
+    [ "${status}" -eq 1 ]
+    [ "${stderr}" = "red: e/e-rs - max_missed '010' is not a non-negative integer" ]
+}
+
+@test "20-digit max_missed -> red (absurd length rejected)" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    _write_outcomes "${outcomes}" '{"total_mutants":5,"caught":5,"missed":0,"timeout":0,"unviable":0}'
+    run --separate-stderr "${SCRIPT}" 0 "${outcomes}" "e/e-rs" 12345678901234567890
+    [ "${status}" -eq 1 ]
+    [ "${stderr}" = "red: e/e-rs - max_missed '12345678901234567890' is not a non-negative integer" ]
+}

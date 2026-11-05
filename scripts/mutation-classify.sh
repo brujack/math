@@ -34,11 +34,11 @@ classify_mutation_run() {
     local max_missed="${4-}"
     local min_caught="${5-}"
 
-    if [[ $# -ge 4 && ! "${max_missed}" =~ ^[0-9]+$ ]]; then
+    if [[ $# -ge 4 && ! "${max_missed}" =~ ^(0|[1-9][0-9]{0,8})$ ]]; then
         printf "red: %s - max_missed '%s' is not a non-negative integer\n" "${label}" "${max_missed}" >&2
         return 1
     fi
-    if [[ $# -ge 5 && ! "${min_caught}" =~ ^[0-9]+$ ]]; then
+    if [[ $# -ge 5 && ! "${min_caught}" =~ ^(0|[1-9][0-9]{0,8})$ ]]; then
         printf "red: %s - min_caught '%s' is not a non-negative integer\n" "${label}" "${min_caught}" >&2
         return 1
     fi
