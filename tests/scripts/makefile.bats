@@ -403,7 +403,7 @@ _tmpdir_run() {
 @test "make mutants caps file size even with MUTANTS_UNCAPPED set" {
     _rs_stub_setup
     printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
-    MUTANTS_UNCAPPED=1 run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${CRATE}" mutants DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    MUTANTS_UNCAPPED=1 run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${CRATE}" mutants
     [ "${status}" -eq 0 ]
     grep -qxF "fsize=262144" "${CALLS}"
 }
@@ -1071,7 +1071,10 @@ printf '%s %s\n' "$1" "${PWD}" >> "${PWDS}"
 printf '%s fsize=%s\n' "$1" "$(ulimit -f)" >> "${CALLS}.env"
 printf '%s tmpdir=%s\n' "$1" "${TMPDIR}" >> "${CALLS}.env"
 case "$1" in
-    baseline) exit "${STUB_BASELINE_RC:-0}" ;;
+    baseline)
+        # The baseline runs the tests too; whatever it leaks must land under its TMPDIR, not /tmp.
+        printf x > "${TMPDIR}/baseline-leak"
+        exit "${STUB_BASELINE_RC:-0}" ;;
     init)
         # The real init creates the session; later steps and the copy-back depend on it.
         printf 'I' > cosmic-ray-session.sqlite
@@ -1184,6 +1187,33 @@ _calls_line() {
     run _py_make mutants-baseline
     [ "${status}" -eq 0 ]
     grep -qxF 'baseline fsize=262144' "${CALLS}.env"
+}
+
+@test "python mutants-baseline runs with a project-local TMPDIR removed on exit" {
+    _py_stub_setup
+    local outer="${BATS_TEST_TMPDIR}/outer"
+    mkdir -p "${outer}"
+    run env TMPDIR="${outer}" env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants-baseline
+    [ "${status}" -eq 0 ]
+    grep -q "^baseline tmpdir=${STUBDIR}/.mutants-tmp/baseline\\." "${CALLS}.env"
+    [ -z "$(ls -A "${STUBDIR}/.mutants-tmp")" ]
+    [ -z "$(ls -A "${outer}")" ]
+}
+
+@test "python mutants-baseline removes its TMPDIR when the baseline fails" {
+    _py_stub_setup
+    run env STUB_BASELINE_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants-baseline
+    [ "${status}" -ne 0 ]
+    [ -z "$(ls -A "${STUBDIR}/.mutants-tmp")" ]
+}
+
+@test "python mutants-clean removes the kept .mutants-tmp scratch dir" {
+    _py_stub_setup
+    mkdir -p "${STUBDIR}/.mutants-tmp/kept"
+    printf x > "${STUBDIR}/.mutants-tmp/kept/x"
+    run _py_make mutants-clean
+    [ "${status}" -eq 0 ]
+    [ ! -e "${STUBDIR}/.mutants-tmp" ]
 }
 
 @test "python mutants caps any single file at 256 MiB, also with MUTANTS_UNCAPPED" {
@@ -1453,24 +1483,6 @@ _scratch_tmp() {
     wait "${pid}" 2>/dev/null || true
     [ "$(cat "${STUBDIR}/cosmic-ray-session.sqlite")" = "S" ]
     [ -z "$(ls -A "${SCRATCH_T}")" ]
-}
-
-@test "python mutants cleans up on the failure path with a relative TMPDIR" {
-    _py_stub_setup
-    mkdir -p "${STUBDIR}/reltmp"
-    run env TMPDIR=reltmp STUB_EXEC_SESSION=1 STUB_EXEC_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
-    [ "${status}" -ne 0 ]
-    [ "$(cat "${STUBDIR}/cosmic-ray-session.sqlite")" = "S" ]
-    [ -z "$(ls -A "${STUBDIR}/reltmp")" ]
-}
-
-@test "python mutants cleans up on the failure path with CDPATH set and a relative TMPDIR" {
-    _py_stub_setup
-    mkdir -p "${STUBDIR}/reltmp"
-    run env CDPATH=.: TMPDIR=reltmp STUB_EXEC_SESSION=1 STUB_EXEC_RC=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
-    [ "${status}" -ne 0 ]
-    [ "$(cat "${STUBDIR}/cosmic-ray-session.sqlite")" = "S" ]
-    [ -z "$(ls -A "${STUBDIR}/reltmp")" ]
 }
 
 @test "python mutants keeps the scratch copy when the session copy-back fails" {

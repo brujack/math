@@ -36,7 +36,7 @@ mutants:
 	  cargo mutants --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle; rc=$$?; \
 	  mkdir -p mutants.out && printf "%s\n" "$${rc}" > mutants.out/exit-code; exit "$${rc}"'
 
-# PR-scoped run: only mutants inside DIFF, same memory cap and timeout scaling as mutants.
+# PR-scoped run: only mutants inside DIFF, same memory cap, file cap, TMPDIR handling and timeout scaling as mutants.
 mutants-diff:
 	@bash -c 'd="$${DIFF}"; \
 	  if [ -z "$${d}" ] || [ ! -f "$${d}" ] || [ ! -r "$${d}" ]; then \

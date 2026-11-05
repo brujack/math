@@ -25,7 +25,7 @@ coverage:
 CELL_LABEL ?= e
 export CELL_LABEL STATUS_OUT SURVIVORS_OUT MUTANT_SHARD
 
-# The memory and file-size caps, shared by every recipe that runs cosmic-ray (same text as the Rust
+# The memory and file-size caps, shared by every recipe that runs cosmic-ray (same caps as the Rust
 # template). ulimit -f (1 KiB units in bash -c) ends a mutant writing unbounded output at 256 MiB.
 MUTANTS_CAP = ulimit -f 262144 2>/dev/null || { printf "error: cannot set the 256 MiB file-size cap (ulimit -f).\n" >&2; exit 1; }; if [ -n "$${MUTANTS_UNCAPPED}" ]; then \
 	    printf "warning: MUTANTS_UNCAPPED set — running without a memory cap.\n" >&2; \
@@ -40,6 +40,10 @@ MUTANTS_CAP = ulimit -f 262144 2>/dev/null || { printf "error: cannot set the 25
 mutants-baseline:
 	@command -v cosmic-ray >/dev/null || { printf "cosmic-ray not installed: pip install cosmic-ray\n" >&2; exit 1; }
 	@bash -c '$(MUTANTS_CAP); \
+	  mkdir -p "$$(pwd)/.mutants-tmp" || exit 1; \
+	  b="$$(mktemp -d "$$(pwd)/.mutants-tmp/baseline.XXXXXX")" || exit 1; \
+	  trap "rm -rf -- \"$$b\"" EXIT; \
+	  export TMPDIR="$$b"; \
 	  cosmic-ray baseline cosmic-ray.toml || { python3 -m unittest test_e; exit 1; }'
 
 # Runs in a scratch copy of the module, its test and the config only: the project
@@ -52,7 +56,6 @@ mutants: mutants-baseline
 	  rm -f cosmic-ray-session.sqlite cosmic-ray-session.sqlite-journal mutants-report.txt || exit 1; \
 	  mkdir -p "$$proj/.mutants-tmp" || exit 1; \
 	  work="$$(mktemp -d "$$proj/.mutants-tmp/mutants-e.XXXXXX")" || exit 1; \
-	  work="$$(CDPATH="" cd -- "$$work" >/dev/null && pwd)" || exit 1; \
 	  cleanup() { \
 	    trap "" TERM HUP INT; \
 	    ok=1; \
@@ -97,6 +100,7 @@ mutants-report:
 
 mutants-clean:
 	rm -f cosmic-ray-session.sqlite cosmic-ray-session.sqlite-journal mutants-report.txt
+	rm -rf .mutants-tmp
 
 clean: mutants-clean
 	rm -rf __pycache__ .coverage e_*.txt
