@@ -353,8 +353,12 @@ printf 'cargo %s ulimit=%s\n' "$*" "$(ulimit -v)" >> "${CALLS}"
 for arg in "$@"; do printf 'arg %s\n' "${arg}" >> "${CALLS}.args"; done
 # Simulate a killed timeout test: its TempDir is never dropped, so it leaves a dir in TMPDIR.
 printf 'tmpdir %s\n' "${TMPDIR}" >> "${CALLS}"
+printf 'fsize=%s\n' "$(ulimit -f)" >> "${CALLS}"
+# The recipe must create TMPDIR itself and wipe a stale one before cargo runs.
+if [ -n "${TMPDIR}" ] && [ ! -d "${TMPDIR}" ]; then printf 'tmpdir-missing\n' >> "${CALLS}"; fi
+if [ -n "${TMPDIR}" ] && [ -e "${TMPDIR}/old" ]; then printf 'stale\n' >> "${CALLS}"; fi
 if [ -n "${TMPDIR}" ]; then
-    mkdir -p "${TMPDIR}/.tmpLEAK" && printf x > "${TMPDIR}/.tmpLEAK/primes_1e7.txt"
+    mkdir "${TMPDIR}/.tmpLEAK" && printf x > "${TMPDIR}/.tmpLEAK/primes_1e7.txt"
 fi
 if [ -n "${STUB_CARGO_WRITE}" ]; then
     mkdir -p mutants.out
@@ -387,12 +391,42 @@ _tmpdir_run() {
     _tmpdir_run mutants
     [ "${status}" -eq 0 ]
     grep -qxF "tmpdir ${CRATE}/target/mutants-tmp" "${CALLS}"
+    _assert_no_call "^tmpdir-missing$"
+}
+
+@test "make mutants caps any single file at 256 MiB" {
+    _tmpdir_run mutants
+    [ "${status}" -eq 0 ]
+    grep -qxF "fsize=262144" "${CALLS}"
+}
+
+@test "make mutants caps file size even with MUTANTS_UNCAPPED set" {
+    _rs_stub_setup
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    MUTANTS_UNCAPPED=1 run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${CRATE}" mutants DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -eq 0 ]
+    grep -qxF "fsize=262144" "${CALLS}"
 }
 
 @test "make mutants-diff runs cargo with TMPDIR under the crate's target dir" {
     _tmpdir_run mutants-diff
     [ "${status}" -eq 0 ]
     grep -qxF "tmpdir ${CRATE}/target/mutants-tmp" "${CALLS}"
+    _assert_no_call "^tmpdir-missing$"
+}
+
+@test "make mutants-diff caps any single file at 256 MiB" {
+    _tmpdir_run mutants-diff
+    [ "${status}" -eq 0 ]
+    grep -qxF "fsize=262144" "${CALLS}"
+}
+
+@test "make mutants-diff caps file size even with MUTANTS_UNCAPPED set" {
+    _rs_stub_setup
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    MUTANTS_UNCAPPED=1 run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${CRATE}" mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -eq 0 ]
+    grep -qxF "fsize=262144" "${CALLS}"
 }
 
 @test "make mutants removes target/mutants-tmp and leaves the caller's TMPDIR empty" {
@@ -432,6 +466,7 @@ _tmpdir_run() {
     run _rs_make mutants
     [ "${status}" -eq 0 ]
     [ ! -e "${CRATE}/target/mutants-tmp" ]
+    _assert_no_call "^stale$"
 }
 
 @test "make mutants-diff clears a stale target/mutants-tmp left by a killed run" {
@@ -441,6 +476,7 @@ _tmpdir_run() {
     run _rs_make mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
     [ "${status}" -eq 0 ]
     [ ! -e "${CRATE}/target/mutants-tmp" ]
+    _assert_no_call "^stale$"
 }
 
 @test "make mutants records cargo's exit code in mutants.out/exit-code and propagates it" {
@@ -1032,6 +1068,8 @@ _py_stub_setup() {
 #!/bin/bash
 printf 'cosmic-ray %s ulimit=%s\n' "$*" "$(ulimit -v)" >> "${CALLS}"
 printf '%s %s\n' "$1" "${PWD}" >> "${PWDS}"
+printf '%s fsize=%s\n' "$1" "$(ulimit -f)" >> "${CALLS}.env"
+printf '%s tmpdir=%s\n' "$1" "${TMPDIR}" >> "${CALLS}.env"
 case "$1" in
     baseline) exit "${STUB_BASELINE_RC:-0}" ;;
     init)
@@ -1039,6 +1077,8 @@ case "$1" in
         printf 'I' > cosmic-ray-session.sqlite
         exit "${STUB_INIT_RC:-0}" ;;
     exec)
+        # A killed test never drops its tempfile dir; it must land under TMPDIR, not /tmp.
+        if [ -n "${STUB_EXEC_LEAK}" ]; then mkdir "${TMPDIR}/tmpLEAK" && printf x > "${TMPDIR}/tmpLEAK/fib_1e5.txt"; fi
         [ -n "${STUB_EXEC_MUTATE}" ] && printf 'MUTATED\n' >> fib.py
         [ -n "${STUB_EXEC_SESSION}" ] && printf 'S' > cosmic-ray-session.sqlite
         [ -n "${STUB_EXEC_LS}" ] && ls -A | grep -v '^cosmic-ray-session' | tr '\n' ' ' > "${BATS_TEST_TMPDIR}/ls"
@@ -1137,6 +1177,50 @@ _calls_line() {
     run _py_make mutants-baseline
     [ "${status}" -eq 0 ]
     grep -q '^cosmic-ray baseline cosmic-ray.toml ulimit=8388608$' "${CALLS}"
+}
+
+@test "python mutants-baseline caps any single file at 256 MiB" {
+    _py_stub_setup
+    run _py_make mutants-baseline
+    [ "${status}" -eq 0 ]
+    grep -qxF 'baseline fsize=262144' "${CALLS}.env"
+}
+
+@test "python mutants caps any single file at 256 MiB, also with MUTANTS_UNCAPPED" {
+    _py_stub_setup
+    run _py_make mutants
+    [ "${status}" -eq 0 ]
+    grep -qxF 'baseline fsize=262144' "${CALLS}.env"
+    grep -qxF 'exec fsize=262144' "${CALLS}.env"
+    : > "${CALLS}.env"
+    MUTANTS_UNCAPPED=1 run _py_make mutants
+    [ "${status}" -eq 0 ]
+    grep -qxF 'exec fsize=262144' "${CALLS}.env"
+}
+
+@test "python mutants runs cosmic-ray exec with TMPDIR inside the project-local work dir" {
+    _py_stub_setup
+    run _py_make mutants
+    [ "${status}" -eq 0 ]
+    grep -qE "^exec tmpdir=${STUBDIR}/\.mutants-tmp/mutants-fib\.[^/]+/tmp\$" "${CALLS}.env"
+}
+
+@test "python mutants leaves .mutants-tmp empty after a successful run" {
+    _py_stub_setup
+    run _py_make mutants
+    [ "${status}" -eq 0 ]
+    [ -d "${STUBDIR}/.mutants-tmp" ]
+    [ -z "$(ls -A "${STUBDIR}/.mutants-tmp")" ]
+}
+
+@test "python mutants removes tempfile dirs a killed test left in TMPDIR" {
+    _py_stub_setup
+    mkdir -p "${BATS_TEST_TMPDIR}/outer"
+    run env TMPDIR="${BATS_TEST_TMPDIR}/outer" STUB_EXEC_LEAK=1 env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants
+    [ "${status}" -eq 0 ]
+    [ -d "${STUBDIR}/.mutants-tmp" ]
+    [ -z "$(ls -A "${STUBDIR}/.mutants-tmp")" ]
+    [ -z "$(ls -A "${BATS_TEST_TMPDIR}/outer")" ]
 }
 
 @test "python mutants-baseline with MUTANTS_UNCAPPED runs uncapped and warns" {
@@ -1249,9 +1333,10 @@ _calls_line() {
     grep -qF "cosmic_ray_cell_status.py cosmic-ray-session.sqlite fib 'x\$y\"z --out out/s.txt --survivors out/v.txt " "${CALLS}"
 }
 
-# Scratch-copy cases. TMPDIR points at an empty directory so "scratch removed" is observable.
+# Scratch-copy cases. The recipe's work dir is project-local (.mutants-tmp), whatever the caller's
+# TMPDIR says, so "scratch removed" is observed there.
 _scratch_tmp() {
-    SCRATCH_T="${BATS_TEST_TMPDIR}/t"
+    SCRATCH_T="${STUBDIR}/.mutants-tmp"
     mkdir -p "${SCRATCH_T}"
 }
 
