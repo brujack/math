@@ -269,8 +269,8 @@ for e in json.load(open('${REPO_ROOT}/renovate.json')).get('extends', []):
 # already-working crates don't fall below their current 30s budget.
 #
 # The mocks directory is stripped from PATH before the `git ls-files` call:
-# tests/mocks/git has no ls-files branch, so an inherited mock silently
-# returns an empty list and every assertion below would pass vacuously
+# tests/mocks/git answers ls-files with MOCK_GIT_LS_FILES (empty by default),
+# so an inherited mock silently returns an empty list and every assertion below would pass vacuously
 # (math#95 -- see shell.md's PATH-mock-shadowing pitfall).
 #
 # --timeout-multiplier and --minimum-test-timeout both contain the substring
@@ -303,6 +303,191 @@ for e in json.load(open('${REPO_ROOT}/renovate.json')).get('extends', []):
         printf 'mutants recipe does not scale the baseline timeout: %s\n' "${bad}" >&2
         return 1
     fi
+}
+
+# Every crate Makefile carries the PR-scoped mutants-diff target next to mutants, under the
+# same memory cap. The mocks directory is stripped from PATH before git ls-files for the
+# reason given above (math#95).
+@test "every crate Makefile has a capped mutants-diff target using --in-diff" {
+    local _clean_path
+    _clean_path="$(printf '%s' "${PATH}" | tr ':' '\n' | grep -v 'tests/mocks' | tr '\n' ':' | sed 's/:$//')"
+
+    local makefiles count=0 bad="" body
+    makefiles="$(cd "${REPO_ROOT}" && PATH="${_clean_path}" command git ls-files '*/*-rs/Makefile')"
+    [ -n "${makefiles}" ]
+
+    while IFS= read -r mf; do
+        [[ -z "${mf}" ]] && continue
+        count=$((count + 1))
+        grep -qE '^\.PHONY:.* mutants-diff( |$)' "${REPO_ROOT}/${mf}" || bad="${bad}${mf}(not PHONY) "
+        grep -q '^mutants-diff:' "${REPO_ROOT}/${mf}" || { bad="${bad}${mf}(no target) "; continue; }
+        body="$(sed -n '/^mutants-diff:/,/^[a-z]/p' "${REPO_ROOT}/${mf}")"
+        [[ "${body}" == *"--in-diff"* ]] || bad="${bad}${mf}(no --in-diff) "
+        [[ "${body}" == *"--timeout-multiplier 5"* ]] || bad="${bad}${mf}(no --timeout-multiplier 5 in mutants-diff) "
+        [[ "${body}" == *"--minimum-test-timeout 30"* ]] || bad="${bad}${mf}(no --minimum-test-timeout 30 in mutants-diff) "
+        [[ "${body}" == *"ulimit -v 8388608"* ]] || bad="${bad}${mf}(no ulimit in mutants-diff) "
+        if grep -qE -- '--timeout[[:space:]]+[0-9]' "${REPO_ROOT}/${mf}"; then
+            bad="${bad}${mf}(fixed --timeout) "
+        fi
+    done <<< "${makefiles}"
+
+    [ "${count}" -eq 11 ]
+    [ -z "${bad}" ] || { printf 'mutants-diff problems: %s\n' "${bad}" >&2; return 1; }
+}
+
+# Behavioural harness: a copy of fib-rs's rendered Makefile and a stub cargo that logs its argv
+# and the address-space limit it runs under, and exits STUB_CARGO_RC. An optional
+# STUB_CARGO_WRITE makes it write mutants.out/outcomes.json as cargo-mutants would.
+_rs_stub_setup() {
+    CALLS="${BATS_TEST_TMPDIR}/calls"
+    : > "${CALLS}"
+    export CALLS
+    CRATE="${BATS_TEST_TMPDIR}/fib-rs"
+    local bin="${BATS_TEST_TMPDIR}/bin"
+    mkdir -p "${CRATE}" "${bin}"
+    cp "${REPO_ROOT}/fib/fib-rs/Makefile" "${CRATE}/Makefile"
+    cat > "${bin}/cargo" <<'STUB'
+#!/bin/bash
+printf 'cargo %s ulimit=%s\n' "$*" "$(ulimit -v)" >> "${CALLS}"
+# One argument per line, so a test can tell one quoted argument from several.
+for arg in "$@"; do printf 'arg %s\n' "${arg}" >> "${CALLS}.args"; done
+if [ -n "${STUB_CARGO_WRITE}" ]; then
+    mkdir -p mutants.out
+    printf 'NEW\n' > mutants.out/outcomes.json
+fi
+exit "${STUB_CARGO_RC:-0}"
+STUB
+    chmod +x "${bin}/cargo"
+    export PATH="${bin}:${PATH}"
+}
+
+_rs_make() {
+    env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u MUTANTS_UNCAPPED make -C "${CRATE}" "$@"
+}
+
+@test "make mutants records cargo's exit code in mutants.out/exit-code and propagates it" {
+    _rs_stub_setup
+    STUB_CARGO_RC=4 run _rs_make mutants
+    [ "${status}" -ne 0 ]
+    [ "$(cat "${CRATE}/mutants.out/exit-code")" = "4" ]
+}
+
+@test "make mutants with cargo exit 0 writes 0 and succeeds" {
+    _rs_stub_setup
+    STUB_CARGO_RC=0 run _rs_make mutants
+    [ "${status}" -eq 0 ]
+    [ "$(cat "${CRATE}/mutants.out/exit-code")" = "0" ]
+}
+
+@test "make mutants runs cargo mutants with the scaled timeout under the 8 GiB cap" {
+    _rs_stub_setup
+    run _rs_make mutants
+    [ "${status}" -eq 0 ]
+    grep -qF 'cargo mutants --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle ulimit=8388608' "${CALLS}"
+    ! command grep -q -- '--in-diff' "${CALLS}"
+}
+
+@test "make mutants-diff passes --in-diff and records the exit code" {
+    _rs_stub_setup
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    STUB_CARGO_RC=4 run _rs_make mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -ne 0 ]
+    [ "$(cat "${CRATE}/mutants.out/exit-code")" = "4" ]
+    grep -qF "cargo mutants --in-diff ${BATS_TEST_TMPDIR}/pr.diff --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle ulimit=8388608" "${CALLS}"
+}
+
+@test "make mutants-diff with cargo exit 0 writes 0 and succeeds" {
+    _rs_stub_setup
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    STUB_CARGO_RC=0 run _rs_make mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -eq 0 ]
+    [ "$(cat "${CRATE}/mutants.out/exit-code")" = "0" ]
+}
+
+@test "stale mutants.out is removed before the run" {
+    _rs_stub_setup
+    mkdir -p "${CRATE}/mutants.out"
+    printf 'STALE\n' > "${CRATE}/mutants.out/outcomes.json"
+    run _rs_make mutants
+    [ "${status}" -eq 0 ]
+    [ ! -e "${CRATE}/mutants.out/outcomes.json" ]
+}
+
+@test "stale mutants.out is removed before a mutants-diff run" {
+    _rs_stub_setup
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    mkdir -p "${CRATE}/mutants.out"
+    printf 'STALE\n' > "${CRATE}/mutants.out/outcomes.json"
+    run _rs_make mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -eq 0 ]
+    [ ! -e "${CRATE}/mutants.out/outcomes.json" ]
+}
+
+@test "a fresh outcomes.json written by cargo survives the exit-code write" {
+    _rs_stub_setup
+    STUB_CARGO_WRITE=1 run _rs_make mutants
+    [ "${status}" -eq 0 ]
+    [ "$(cat "${CRATE}/mutants.out/outcomes.json")" = "NEW" ]
+}
+
+@test "make mutants-diff without DIFF exits non-zero naming DIFF and never calls cargo" {
+    _rs_stub_setup
+    run _rs_make mutants-diff
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"DIFF"* ]]
+    [[ "${output}" == *"Error 2"* ]]
+    [ ! -s "${CALLS}" ]
+    [ ! -e "${CRATE}/mutants.out" ]
+}
+
+@test "make mutants-diff with a nonexistent DIFF exits non-zero naming DIFF and never calls cargo" {
+    _rs_stub_setup
+    run _rs_make mutants-diff DIFF=/nonexistent/pr.diff
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"DIFF"* ]]
+    [[ "${output}" == *"Error 2"* ]]
+    [ ! -s "${CALLS}" ]
+}
+
+@test "make mutants-diff with a directory as DIFF is refused without calling cargo" {
+    _rs_stub_setup
+    run _rs_make mutants-diff DIFF="${BATS_TEST_TMPDIR}"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"DIFF"* ]]
+    [[ "${output}" == *"Error 2"* ]]
+    [ ! -s "${CALLS}" ]
+}
+
+@test "make mutants-diff passes a DIFF path with a space and a quote to cargo as one argument" {
+    _rs_stub_setup
+    local odd="${BATS_TEST_TMPDIR}/it's a.diff"
+    printf 'diff\n' > "${odd}"
+    run _rs_make mutants-diff DIFF="${odd}"
+    [ "${status}" -eq 0 ]
+    # The argument right after --in-diff must be the whole odd path.
+    run command grep -xF -A1 -- 'arg --in-diff' "${CALLS}.args"
+    [ "${status}" -eq 0 ]
+    [ "${lines[1]}" = "arg ${odd}" ]
+}
+
+@test "make mutants fails closed when the memory cap cannot be enforced" {
+    _rs_stub_setup
+    # A limit below the 8 GiB cap makes `ulimit -v 8388608` fail, as on macOS.
+    run bash -c 'ulimit -v 1000000 && env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u MUTANTS_UNCAPPED make -C "$1" mutants' _ "${CRATE}"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"cannot enforce a memory cap"* ]]
+    [ ! -s "${CALLS}" ]
+    [ ! -e "${CRATE}/mutants.out/exit-code" ]
+}
+
+@test "make mutants-diff fails closed when the memory cap cannot be enforced" {
+    _rs_stub_setup
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    run bash -c 'ulimit -v 1000000 && env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u MUTANTS_UNCAPPED make -C "$1" mutants-diff DIFF="$2"' _ "${CRATE}" "${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"cannot enforce a memory cap"* ]]
+    [ ! -s "${CALLS}" ]
+    [ ! -e "${CRATE}/mutants.out/exit-code" ]
 }
 
 # install-deps must invoke pip through `python3 -m pip`, never a bare `pip` --

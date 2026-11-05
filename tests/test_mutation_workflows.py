@@ -323,8 +323,116 @@ class MutationPrTests(unittest.TestCase):
     def test_detect_calls_script(self):
         found = [s for s in pr_steps() if s.get("id") == "detect"]
         self.assertEqual(len(found), 1)
-        self.assertIn("scripts/mutation-pr-detect.sh", found[0]["run"])
-        self.assertIn("has_rs", found[0]["run"])
+        self.assertEqual(
+            found[0]["run"].strip(),
+            'scripts/mutation-pr-detect.sh "origin/${GITHUB_BASE_REF}" >> "${GITHUB_OUTPUT}"',
+        )
+        self.assertEqual(found[0]["env"]["GITHUB_BASE_REF"], "${{ github.base_ref }}")
+
+    def test_no_factorial_only_rust_step_or_fixed_timeout(self):
+        text = PR_WORKFLOW.read_text()
+        self.assertNotIn("factorial-rs", text)
+        self.assertNotIn("/tmp/pr.diff", text)
+        self.assertIsNone(re.search(r"--timeout\s+\d", text))
+        for step in pr_steps():
+            self.assertNotIn("Get PR diff", step.get("name", ""))
+
+    def test_job_timeout_is_sixty_minutes(self):
+        self.assertEqual(
+            load(PR_WORKFLOW)["jobs"]["mutation-pr"]["timeout-minutes"], 60
+        )
+
+    def test_skip_step_waits_for_canary_too(self):
+        found = [s for s in pr_steps() if s.get("name", "").startswith("Skip")]
+        self.assertEqual(len(found), 1)
+        cond = found[0]["if"]
+        for output in ("has_rs", "has_py", "rs_canary"):
+            self.assertIn(f"steps.detect.outputs.{output} == 'false'", cond)
+
+    def test_gmp_cache_restored_for_rust_or_canary(self):
+        need = "steps.detect.outputs.has_rs == 'true' || steps.detect.outputs.rs_canary == 'true'"
+        key = next(s for s in pr_steps() if s.get("id") == "gmpkey")
+        self.assertEqual(key["if"], need)
+        self.assertIn("scripts/gmp-cache-key.sh", key["run"])
+        self.assertIn("GMP_MPFR_SYS_CACHE", key["run"])
+        restore = next(s for s in pr_steps() if "cache/restore" in s.get("uses", ""))
+        self.assertEqual(
+            restore["if"], f"({need}) && steps.gmpkey.outputs.enabled == 'true'"
+        )
+        self.assertEqual(restore["with"]["key"], "${{ steps.gmpkey.outputs.key }}")
+        names = [s.get("name") for s in pr_steps()]
+        self.assertLess(
+            names.index(restore["name"]),
+            names.index("Run Rust mutants on changed crates"),
+        )
+
+    def test_rust_step_wiring(self):
+        step = pr_rs_step("Run Rust mutants on changed crates")
+        self.assertEqual(step["if"], "steps.detect.outputs.has_rs == 'true'")
+        self.assertEqual(step["env"]["RS_DIRS"], "${{ steps.detect.outputs.rs_dirs }}")
+        self.assertEqual(step["env"]["GITHUB_BASE_REF"], "${{ github.base_ref }}")
+        self.assertNotIn("continue-on-error", step)
+
+    def test_canary_step_wiring(self):
+        step = pr_rs_step("Gate canary (amicable-rs)")
+        self.assertEqual(step["if"], "steps.detect.outputs.rs_canary == 'true'")
+        self.assertNotIn("continue-on-error", step)
+
+    def test_no_expression_syntax_in_any_run_block(self):
+        for step in pr_steps():
+            self.assertNotIn("${{", step.get("run", ""), step)
+
+    def test_rust_step_passes_base_ref_dirs_and_log_to_summary(self):
+        proc, calls, summary = run_pr_rust_step(RS_STEP, dirs="a/a-rs b/b-rs")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(calls, ["origin/master", "a/a-rs", "b/b-rs"])
+        self.assertEqual(summary, "stub verdict\n")
+
+    def test_rust_step_propagates_red_after_logging(self):
+        proc, calls, summary = run_pr_rust_step(RS_STEP, dirs="a/a-rs", run_rc=1)
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(calls, ["origin/master", "a/a-rs"])
+        self.assertEqual(summary, "stub verdict\n")
+
+    def test_rust_step_propagates_usage_error(self):
+        proc, _calls, _summary = run_pr_rust_step(RS_STEP, dirs="a/a-rs", run_rc=2)
+        self.assertEqual(proc.returncode, 2)
+
+    def test_canary_edits_commits_only_the_file_and_runs_loop(self):
+        res = run_canary()
+        self.assertEqual(res.proc.returncode, 0, res.proc.stderr)
+        self.assertEqual(
+            res.calls, ["HEAD~1", "--min-caught", "1", "amicable/amicable-rs"]
+        )
+        # At call time HEAD~1 is the clean tree: the canary commit must precede it.
+        # The staged unrelated file shows in the tree-vs-HEAD~1 diff, but the commit
+        # itself holds only the canary file (asserted below).
+        self.assertEqual(res.diff_at_call, [CANARY_FILE, "other.txt"])
+        self.assertEqual(res.committed, [CANARY_FILE])
+        self.assertEqual(res.summary, "stub verdict\n")
+        self.assertIn("let mut m = 2 * d; \n", res.lib)
+        self.assertEqual(res.lib.count("let mut m = 2 * d;"), 1)
+        self.assertEqual(res.staged_other, ["other.txt"])
+
+    def test_canary_stub_failure_fails_step(self):
+        res = run_canary(run_rc=1)
+        self.assertEqual(res.proc.returncode, 1)
+        self.assertEqual(res.calls[0], "HEAD~1")
+
+    def test_canary_zero_matches_is_red_without_edit_or_call(self):
+        res = run_canary(lib="fn main() {}\n")
+        self.assertNotEqual(res.proc.returncode, 0)
+        self.assertEqual(res.calls, [])
+        self.assertEqual(res.commit_count, 1)
+        self.assertEqual(res.lib, "fn main() {}\n")
+
+    def test_canary_two_matches_is_red_without_edit_or_call(self):
+        lib = "let mut m = 2 * d;\nlet mut m = 2 * d;\n"
+        res = run_canary(lib=lib)
+        self.assertNotEqual(res.proc.returncode, 0)
+        self.assertEqual(res.calls, [])
+        self.assertEqual(res.commit_count, 1)
+        self.assertEqual(res.lib, lib)
 
     def test_pip_line_matches_template(self):
         lines = pip_lines(PR_WORKFLOW)
@@ -336,6 +444,147 @@ class MutationPrTests(unittest.TestCase):
         found = pr_step("cargo install cargo-mutants --locked --version 27.1.0")
         self.assertEqual(len(found), 1)
         self.assertNotIn("if", found[0])
+
+
+RS_STEP = "Run Rust mutants on changed crates"
+CANARY_STEP = "Gate canary (amicable-rs)"
+CANARY_FILE = "amicable/amicable-rs/src/lib.rs"
+CANARY_LIB = "fn f() {\n    let mut m = 2 * d;\n}\n"
+
+
+def pr_rs_step(name):
+    found = [s for s in pr_steps() if s.get("name") == name]
+    assert len(found) == 1, name
+    return found[0]
+
+
+def stub_run_script(path, log, rc_env="RUN_RC"):
+    """A mutation-pr-run.sh stub that exits $RUN_RC after logging, at call time:
+
+    - `log`: one argument per line, so a regrouped argument list is visible;
+    - `log.diff`: `git diff --name-only HEAD~1` (empty outside a git repo), so a
+      test can tell whether the canary commit happened before the call.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "#!/bin/sh\n"
+        f'printf \'%s\\n\' "$@" >> "{log}"\n'
+        f'git diff --name-only HEAD~1 >> "{log}.diff" 2>/dev/null\n'
+        "printf 'stub verdict\\n'\n"
+        f'exit "${rc_env}"\n'
+    )
+    path.chmod(0o755)
+
+
+def run_pr_step_block(name, cwd, env):
+    return subprocess.run(
+        [
+            "bash",
+            "--noprofile",
+            "--norc",
+            "-eo",
+            "pipefail",
+            "-c",
+            pr_rs_step(name)["run"],
+        ],
+        env=env,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        check=False,
+    )
+
+
+def run_pr_rust_step(name, dirs, run_rc=0):
+    """Run the Rust loop step against a stub run script; returns (proc, argv lines, summary)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        log = root / "calls"
+        stub_run_script(root / "repo" / "scripts" / "mutation-pr-run.sh", log)
+        (root / "temp").mkdir()
+        summary = root / "summary"
+        summary.touch()
+        env = {
+            "PATH": os.environ["PATH"],
+            "RS_DIRS": dirs,
+            "GITHUB_BASE_REF": "master",
+            "RUNNER_TEMP": str(root / "temp"),
+            "GITHUB_STEP_SUMMARY": str(summary),
+            "RUN_RC": str(run_rc),
+        }
+        proc = run_pr_step_block(name, root / "repo", env)
+        calls = log.read_text().splitlines() if log.exists() else []
+        return proc, calls, summary.read_text()
+
+
+class CanaryRun(NamedTuple):
+    proc: subprocess.CompletedProcess[str]
+    calls: list[str]
+    summary: str
+    lib: str
+    committed: list[str]
+    staged_other: list[str]
+    commit_count: int
+    diff_at_call: list[str]
+
+
+def run_canary(lib=CANARY_LIB, run_rc=0):
+    """Run the canary step in a real throwaway git repo with a stub run script."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        repo = root / "repo"
+        env = clean_git_env()
+        git = ["git", "-c", "user.name=t", "-c", "user.email=t@t"]
+
+        def run_git(*args):
+            return subprocess.run(
+                [*git, *args],
+                cwd=repo,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+
+        lib_path = repo / CANARY_FILE
+        lib_path.parent.mkdir(parents=True)
+        lib_path.write_text(lib)
+        log = root / "calls"
+        stub_run_script(repo / "scripts" / "mutation-pr-run.sh", log)
+        run_git("init", "-q")
+        run_git("add", ".")
+        run_git("commit", "-q", "-m", "base")
+        # A staged unrelated file: a commit that is not path-limited would sweep it in.
+        (repo / "other.txt").write_text("x\n")
+        run_git("add", "other.txt")
+        (root / "temp").mkdir()
+        summary = root / "summary"
+        summary.touch()
+        env.update(
+            {
+                "RUNNER_TEMP": str(root / "temp"),
+                "GITHUB_STEP_SUMMARY": str(summary),
+                "RUN_RC": str(run_rc),
+            }
+        )
+        proc = run_pr_step_block(CANARY_STEP, repo, env)
+        count = int(run_git("rev-list", "--count", "HEAD").strip())
+        committed = run_git("show", "--name-only", "--format=", "HEAD").split()
+        staged = run_git("diff", "--cached", "--name-only").split()
+        calls = log.read_text().splitlines() if log.exists() else []
+        diff_log = pathlib.Path(f"{log}.diff")
+        at_call = diff_log.read_text().split() if diff_log.exists() else []
+        return CanaryRun(
+            proc,
+            calls,
+            summary.read_text(),
+            lib_path.read_text(),
+            committed,
+            staged,
+            count,
+            at_call,
+        )
 
 
 RS_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "mutation-testing.yml"
@@ -498,17 +747,49 @@ class RustSetupJobTests(unittest.TestCase):
         self.assertNotIn("${{", rs_step("setup", "plan")["run"])
 
 
+class JobResult(tuple):  # type: ignore[type-arg]
+    """The (proc, make calls, statuses, summary) tuple plus `classifier_argc`.
+
+    `classifier_argc` lists the argument count of each mutation-classify.sh call.
+    """
+
+    classifier_argc: list[str]
+
+    def __new__(cls, fields, classifier_argc):
+        self = super().__new__(cls, fields)
+        self.classifier_argc = classifier_argc
+        return self
+
+
+_SAME = object()  # exit-code file holds the same value as the make stub's status
+
+
+class CrateStub(NamedTuple):
+    """Behaviour of the stubbed make and classifier for one `mutants` job run."""
+
+    red: bool = False
+    make_rc: int = 0
+    exit_code: object = _SAME  # int or str to write, None for no file, _SAME
+
+
 def run_crate_job(
-    crate, slug, red=False, pre_status=None, step="Run mutants", make_rc=0
+    crate,
+    slug,
+    stub: CrateStub | None = None,
+    pre_status=None,
+    step="Run mutants",
 ):
     """Execute a `mutants` job step against stub make/classifier.
 
     Returns (proc, make_calls, {status filename: content}, step summary). The
-    make stub exits `make_rc` (cargo-mutants exits 2 for survivors, 3 for
-    timeouts, both green by policy). The classifier stub echoes the exit code
-    and outcomes path it was given, and reports red (exit 1) when `red`, green
+    make stub exits `stub.make_rc` (cargo-mutants exits 2 for survivors, 3 for
+    timeouts, both green by policy) and writes `<crate>/mutants.out/exit-code`
+    holding `stub.exit_code` (default: `make_rc`; None writes no file, as when the
+    recipe died before cargo-mutants ran). The classifier stub echoes the exit code
+    and outcomes path it was given, and reports red (exit 1) when `stub.red`, green
     otherwise. `pre_status` seeds status/<slug> before the step runs.
     """
+    red, make_rc, exit_code = stub or CrateStub()
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
         bindir = root / "bin"
@@ -516,7 +797,12 @@ def run_crate_job(
         calls = root / "make-calls"
         make = bindir / "make"
         make.write_text(
-            f'#!/bin/sh\nprintf \'%s\\n\' "$2" >> "{calls}"\nexit "$MAKE_RC"\n'
+            f'#!/bin/sh\nprintf \'%s\\n\' "$2" >> "{calls}"\n'
+            'if [ -n "${EXIT_CODE_FILE_VALUE+x}" ]; then\n'
+            '  mkdir -p "$2/mutants.out"\n'
+            '  printf \'%s\\n\' "$EXIT_CODE_FILE_VALUE" > "$2/mutants.out/exit-code"\n'
+            "fi\n"
+            'exit "$MAKE_RC"\n'
         )
         make.chmod(0o755)
         workspace = root / "ws"
@@ -524,6 +810,7 @@ def run_crate_job(
         classify = workspace / "scripts" / "mutation-classify.sh"
         classify.write_text(
             "#!/bin/sh\n"
+            f'printf \'%s\\n\' "$#" >> "{root / "classify-argc"}"\n'
             'if [ "$RED" = "1" ]; then printf "red: %s rc=%s %s\\n" "$3" "$1" "$2" >&2; exit 1; fi\n'
             'printf \'green: %s rc=%s %s\\n\' "$3" "$1" "$2"\n'
         )
@@ -542,6 +829,10 @@ def run_crate_job(
             "RED": "1" if red else "0",
             "MAKE_RC": str(make_rc),
         }
+        if exit_code is not None:
+            env["EXIT_CODE_FILE_VALUE"] = str(
+                make_rc if exit_code is _SAME else exit_code
+            )
         proc = subprocess.run(
             [
                 "bash",
@@ -561,7 +852,9 @@ def run_crate_job(
         )
         made = calls.read_text().splitlines() if calls.exists() else []
         statuses = {p.name: p.read_text() for p in (workspace / "status").glob("*")}
-        return proc, made, statuses, summary.read_text()
+        argc_file = root / "classify-argc"
+        argc = argc_file.read_text().split() if argc_file.exists() else []
+        return JobResult((proc, made, statuses, summary.read_text()), argc)
 
 
 class RustMutantsJobTests(unittest.TestCase):
@@ -576,16 +869,57 @@ class RustMutantsJobTests(unittest.TestCase):
     def test_make_failure_rc_reaches_classifier_and_status(self):
         # cargo-mutants exits 2 when mutants survive; under `bash -e` the step
         # must capture it, hand it to the classifier and still write status.
-        proc, made, statuses, summary = run_crate_job("a/a-rs", "a-a-rs", make_rc=2)
+        proc, made, statuses, summary = run_crate_job(
+            "a/a-rs", "a-a-rs", CrateStub(make_rc=2)
+        )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(made, ["a/a-rs"])
         line = "green: a/a-rs rc=2 a/a-rs/mutants.out/outcomes.json\n"
         self.assertEqual(statuses, {"a-a-rs": line})
         self.assertEqual(summary, line)
 
+    def test_classifier_reads_exit_code_file_not_make_status(self):
+        # make exits 2 for ANY failed recipe; the true cargo-mutants code (4,
+        # baseline failed) is only in mutants.out/exit-code.
+        proc, _made, statuses, summary = run_crate_job(
+            "a/a-rs", "a-a-rs", CrateStub(make_rc=2, exit_code=4)
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        line = "green: a/a-rs rc=4 a/a-rs/mutants.out/outcomes.json\n"
+        self.assertEqual(statuses, {"a-a-rs": line})
+        self.assertEqual(summary, line)
+
+    def test_classifier_gets_exactly_three_arguments(self):
+        # N2: the sweep's verdict rules stay put, so no limit/min_caught 4th arg.
+        result = run_crate_job("a/a-rs", "a-a-rs")
+        self.assertEqual(result.classifier_argc, ["3"])
+
+    def test_non_integer_exit_code_is_red_and_never_classified(self):
+        # '' and 'x' both read as 0 inside the classifier's `-eq`, which turns
+        # a garbage file into a green verdict.
+        for bad in ("", "x", "4x", "-1", "0004", "1000"):
+            with self.subTest(bad=bad):
+                result = run_crate_job("a/a-rs", "a-a-rs", CrateStub(exit_code=bad))
+                proc, _made, statuses, summary = result
+                self.assertEqual(proc.returncode, 1)
+                line = "red: a/a-rs - mutants.out/exit-code is not an integer\n"
+                self.assertEqual(statuses, {"a-a-rs": line})
+                self.assertEqual(summary, line)
+                self.assertEqual(result.classifier_argc, [])
+
+    def test_missing_exit_code_file_is_red_and_never_classified(self):
+        proc, made, statuses, summary = run_crate_job(
+            "a/a-rs", "a-a-rs", CrateStub(make_rc=2, exit_code=None)
+        )
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(made, ["a/a-rs"])
+        line = "red: a/a-rs - no mutants.out/exit-code\n"
+        self.assertEqual(statuses, {"a-a-rs": line})
+        self.assertEqual(summary, line)
+
     def test_red_crate_fails_step_and_writes_red_status(self):
         proc, made, statuses, summary = run_crate_job(
-            "a/a-rs", "a-a-rs", red=True, make_rc=1
+            "a/a-rs", "a-a-rs", CrateStub(red=True, make_rc=1)
         )
         self.assertEqual(proc.returncode, 1)
         self.assertEqual(made, ["a/a-rs"])

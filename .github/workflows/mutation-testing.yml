@@ -102,8 +102,25 @@ jobs:
           SLUG: ${{ matrix.slug }}
         run: |
           mkdir -p "${GITHUB_WORKSPACE}/status"
-          rc=0
-          make -C "${CRATE_DIR}" mutants || rc=$?
+          # make exits 2 for ANY failed recipe, which the classifier reads as
+          # survivors (green). The recipe records cargo-mutants' own exit code
+          # in mutants.out/exit-code; classify on that, and fail closed when
+          # it is missing (the recipe died before cargo-mutants ran).
+          make -C "${CRATE_DIR}" mutants || true
+          code_file="${CRATE_DIR}/mutants.out/exit-code"
+          if [[ ! -f "${code_file}" ]]; then
+            printf 'red: %s - no mutants.out/exit-code\n' "${CRATE_DIR}" \
+              | tee -a "${GITHUB_STEP_SUMMARY}" "${GITHUB_WORKSPACE}/status/${SLUG}"
+            exit 1
+          fi
+          rc=$(<"${code_file}")
+          # The classifier's `-eq` reads '' or text as 0 (green), so reject
+          # anything but a plain integer before it can see the value.
+          if [[ ! "${rc}" =~ ^(0|[1-9][0-9]{0,2})$ ]]; then
+            printf 'red: %s - mutants.out/exit-code is not an integer\n' "${CRATE_DIR}" \
+              | tee -a "${GITHUB_STEP_SUMMARY}" "${GITHUB_WORKSPACE}/status/${SLUG}"
+            exit 1
+          fi
           # Capture the verdict and its exit code BEFORE any pipe. Piping the
           # classifier into tee makes the pipeline's status tee's, which always
           # succeeds -- so a red crate was printed, written to status/, and

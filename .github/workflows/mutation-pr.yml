@@ -11,9 +11,11 @@ env:
 jobs:
   mutation-pr:
     runs-on: ubuntu-latest
-    # 10 minutes only fits a diff touching one or two sub-projects. A change
-    # spanning every sub-project runs the capped baseline once for each.
-    timeout-minutes: 30
+    # One job runs the Python baselines, the Rust diff mutation loop and the
+    # gate canary. The Rust loop builds each changed crate from a cold GMP
+    # cache in the worst case, so the budget covers a change spanning several
+    # crates plus the baselines.
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -36,18 +38,7 @@ jobs:
 
       - name: Detect changed sub-projects
         id: detect
-        run: |
-          changed=$(git diff --name-only "origin/${GITHUB_BASE_REF}...HEAD") || exit 1
-
-          has_rs=false
-
-          # Rust: only factorial-rs
-          if printf '%s\n' "${changed}" | grep -q '^factorial/factorial-rs/.*\.rs$'; then
-            has_rs=true
-          fi
-
-          echo "has_rs=${has_rs}" >> "${GITHUB_OUTPUT}"
-          scripts/mutation-pr-detect.sh "origin/${GITHUB_BASE_REF}" >> "${GITHUB_OUTPUT}"
+        run: scripts/mutation-pr-detect.sh "origin/${GITHUB_BASE_REF}" >> "${GITHUB_OUTPUT}"
         env:
           GITHUB_BASE_REF: ${{ github.base_ref }}
 
@@ -60,20 +51,59 @@ jobs:
         run: pip install mpmath==1.4.1 gmpy2==2.3.2 coverage==7.16.2 cosmic-ray==8.7.0 hypothesis==6.168.5 pytest==9.1.1 pytest-cov==7.1.0 ruff==0.16.4 pyright==1.1.411 pip-audit==2.10.1
 
       - name: Skip — no mutation-covered files changed
-        if: steps.detect.outputs.has_rs == 'false' && steps.detect.outputs.has_py == 'false'
+        if: steps.detect.outputs.has_rs == 'false' && steps.detect.outputs.has_py == 'false' && steps.detect.outputs.rs_canary == 'false'
         run: echo "No mutation-covered files changed — skipping."
 
-      - name: Get PR diff (for Rust)
-        if: steps.detect.outputs.has_rs == 'true'
-        run: git diff "origin/${GITHUB_BASE_REF}...HEAD" > /tmp/pr.diff
-        env:
-          GITHUB_BASE_REF: ${{ github.base_ref }}
-
-      - name: Run cargo mutants (factorial-rs)
-        if: steps.detect.outputs.has_rs == 'true'
+      - name: GMP cache key
+        id: gmpkey
+        if: steps.detect.outputs.has_rs == 'true' || steps.detect.outputs.rs_canary == 'true'
+        working-directory: ${{ github.workspace }}
         run: |
-          cd factorial/factorial-rs
-          cargo mutants --in-diff /tmp/pr.diff --timeout 30 --no-shuffle
+          printf 'GMP_MPFR_SYS_CACHE=%s\n' "${RUNNER_TEMP}/gmp-mpfr-sys" >> "$GITHUB_ENV"
+          scripts/gmp-cache-key.sh >> "$GITHUB_OUTPUT"
+
+      - name: Restore GMP/MPFR build cache
+        if: (steps.detect.outputs.has_rs == 'true' || steps.detect.outputs.rs_canary == 'true') && steps.gmpkey.outputs.enabled == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/gmp-mpfr-sys
+          key: ${{ steps.gmpkey.outputs.key }}
+          restore-keys: ${{ steps.gmpkey.outputs.prefix }}
+
+      - name: Run Rust mutants on changed crates
+        if: steps.detect.outputs.has_rs == 'true'
+        env:
+          RS_DIRS: ${{ steps.detect.outputs.rs_dirs }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: |
+          # The script owns every red rule; this step only relays its status.
+          # Capture it BEFORE the pipe: `cat | tee` would report tee's status.
+          # RS_DIRS is a space-separated list of crate dirs from git ls-files.
+          read -ra rs_dirs <<< "${RS_DIRS}"
+          rc=0
+          scripts/mutation-pr-run.sh "origin/${GITHUB_BASE_REF}" "${rs_dirs[@]}" > "${RUNNER_TEMP}/rs.log" 2>&1 || rc=$?
+          cat "${RUNNER_TEMP}/rs.log" | tee -a "${GITHUB_STEP_SUMMARY}"
+          exit "${rc}"
+
+      - name: Gate canary (amicable-rs)
+        if: steps.detect.outputs.rs_canary == 'true'
+        run: |
+          # A change to the gate's own files selects no crate, so it would merge
+          # green untested. Prove the gate still catches a survivor: append a
+          # space to the one `m = 2 * d` line, commit that path alone so HEAD~1
+          # is the clean tree, and require at least one caught mutant.
+          f=amicable/amicable-rs/src/lib.rs
+          n=$(grep -c 'let mut m = 2 \* d;' "${f}") || n=0
+          if [ "${n}" != "1" ]; then
+            printf 'red: canary line count is %s, expected exactly 1 in %s\n' "${n}" "${f}" | tee -a "${GITHUB_STEP_SUMMARY}" >&2
+            exit 1
+          fi
+          sed -i 's/let mut m = 2 \* d;$/& /' "${f}"
+          git -c user.name=ci -c user.email=ci@localhost commit -q -m canary -- "${f}"
+          rc=0
+          scripts/mutation-pr-run.sh HEAD~1 --min-caught 1 amicable/amicable-rs > "${RUNNER_TEMP}/canary.log" 2>&1 || rc=$?
+          cat "${RUNNER_TEMP}/canary.log" | tee -a "${GITHUB_STEP_SUMMARY}"
+          exit "${rc}"
 
       - name: Run Python mutation baseline on changed sub-projects
         if: steps.detect.outputs.has_py == 'true'
