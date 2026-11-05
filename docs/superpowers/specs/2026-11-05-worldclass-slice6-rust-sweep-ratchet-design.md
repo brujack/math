@@ -190,3 +190,23 @@ Disposition: Addressed (operator, 2026-11-05: "All of (a)-(f)"; "Two runs + diff
 ### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+### Round 2 (all three lenses, reviewed at `56985db`)
+
+#### Goal-Fit
+
+Finding: Worth building; component 3 and the cap are justified. F1: the toolchain line (component 2, R7) cannot do what the Consequence section claims. Separating a rustc change from a runner change needs the previous green run's rustc and the runner shape, and the line records neither. The image (`Image: ubuntu-26.04`, `Version: 20261101.186.1`) and `rustc 1.99.1` are already in every job log (90-day retention), and the cargo-mutants version is pinned in git. It also forces rewrites of the single-line status assertions in `tests/test_mutation_workflows.py` and adds a `bash -e` abort path. Fix: drop component 2 and R7; point the Consequence at the run log.
+Assumption: reds with no math commit behind them stay rare, rather than each ~6-weekly stable rustc moving survivors. V2 holds the toolchain fixed, so it cannot test this; a full sweep on the V2 SHA after the next stable rustc, diffed against V2, can.
+Disposition:
+
+#### Ergonomics
+
+Finding: F1 (verified by the orchestrator with `gh api -X POST /markdown`, mode `gfm`): raw `missed:` lines in a list lose generic arguments, so `replace sieve -> Vec<u32> with vec![]` renders as `replace sieve -> Vec with vec![]`. Return-value replacements are a main cargo-mutants mutation kind. Fix (render-verified by the lens): put detail lines in a fenced block indented two spaces under the list item; R4 and R6 pin the fence, and the 25-line case includes a `<T>` line. F2: the 20-line cap drops the toolchain line in the mass-survivor month it exists for. F3: R7 passes on `toolchain: ; ` because `run_crate_job` does not stub `rustc` or `cargo`. Red-month path is 6 steps with one ~15-minute wait; V2 costs ~150 runner-minutes (public repo, free) and ~30 minutes wall time; V1 under an hour.
+Assumption: 0 missed is reproducible run to run on CI's 2-vCPU runners. Refute with V2's diffs, or now by dispatching on `0d28038` and diffing against 41952665142.
+Disposition:
+
+#### Risk
+
+Finding: F1: same as Ergonomics F2 (toolchain line truncated). F2: existing tests contradict R4 and the spec lists only additions: `tests/scripts/mutation_notify.bats:706` (`run ! grep -qF -- "second line"`) and `:777` (`note: preamble` / `red: pi -- late verdict` / `red: second red`, asserting `second red` absent) invert, and R4 leaves open whether "other lines" include lines before the first `red` line. F3: same as Ergonomics F3, plus the failure path of `$(cargo mutants --version)` under `bash -e` is unspecified. F4: V1 running e-rs uncapped on `claude` (48 threads, 157 GiB available, peer sessions co-resident) can reach the OOM killer, which picks by RSS and may kill a peer session. The cap likely failed on VSZ from glibc malloc arenas (8 × 48 × 64 MiB; inference, not measured). Remedies: `MALLOC_ARENA_MAX=2` under the existing `ulimit -v 8388608`, or `systemd-run --user --scope -p MemoryMax=16G -p MemorySwapMax=0` (caps RSS; user cgroup has `memory` delegated). V1 should give the exact command, since `cargo mutants -F` bypasses the Makefile cap. F5 (minor): nothing caps total body bytes; an oversize body fails `gh` loudly.
+Assumption: missed vs caught/timeout is deterministic run to run on ubuntu-latest. Precedent against: e-rs `.cargo/mutants.toml` already excludes `src/lib.rs:112:49` because one run caught it and run 41948343321 missed it; math#204 was vCPU-decided. Refute by diffing every retained run's `missed.txt` against `caught.txt`/`timeout.txt` on source-identical SHAs.
+Disposition:
