@@ -1,5 +1,7 @@
 # Worldclass Slice 6: Monthly Rust Sweep Holds 0 Missed Implementation Plan
 
+> **Status: DONE** (math#208, c886752)
+
 spec: docs/superpowers/specs/2026-11-05-worldclass-slice6-rust-sweep-ratchet-design.md
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

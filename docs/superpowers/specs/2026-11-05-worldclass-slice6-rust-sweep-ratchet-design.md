@@ -257,6 +257,6 @@ Disposition: Addressed (operator, 2026-11-05: "Apply all three") — V1 escapes 
 ### Verifications
 
 - V1: 2026-11-05 on claude, git archive of 0d28038, cargo-mutants 27.1.0: all 28 timeouts of pi-rs (4), prime-rs (12), e-rs (12), a superset of the 16 unmeasured; each escaped anchored name --list = 1 line, combined = n, total_mutants = n; ulimit -v 8388608 (e-rs also MALLOC_ARENA_MAX=2; baseline ok); result 21 caught, 7 timeout, 0 missed. Table in ADR-0042.
-- V2: Pending: runs after the draft push (two full sweep dispatches on the branch SHA plus missed/caught diffs).
+- V2: accepted by operator with caveat (2026-11-05). Runs 42087535763 and 42087540288 on 81b4602: every crate missed=0 in every run, 0 mutants flipped between missed and caught across both runs and baseline 41952665142 (caught counts move only caught<->timeout). Run 2 complete (11/11, fib-rs leg re-run after a lost runner); run 1 has 10/11, its pi-rs leg lost the hosted runner on both attempts; pi-rs covered by run 2 (153 caught, 0 missed) and the baseline.
 - V3: amicable-rs git-archive copy with run_* unit tests and tests/cli.rs removed: cargo-mutants 20 mutants, 9 missed; mutation-classify.sh ... 0 1 exited 1 naming all 9; notify body rendered via gh api /markdown keeps io::Result<()>. A first attempt removing two assertions stayed green (cli.rs still kills those mutants).
 - V4: ai-config#350 merged 2026-11-05 (7c4183f4): mutation-review.yml cargo-mutants leg removed; math-testing-policy.md Mutation green/red and notification sections updated.
