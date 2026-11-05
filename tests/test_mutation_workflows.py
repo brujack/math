@@ -761,25 +761,35 @@ class JobResult(tuple):  # type: ignore[type-arg]
         return self
 
 
+_SAME = object()  # exit-code file holds the same value as the make stub's status
+
+
+class CrateStub(NamedTuple):
+    """Behaviour of the stubbed make and classifier for one `mutants` job run."""
+
+    red: bool = False
+    make_rc: int = 0
+    exit_code: object = _SAME  # int or str to write, None for no file, _SAME
+
+
 def run_crate_job(
     crate,
     slug,
-    red=False,
+    stub: CrateStub | None = None,
     pre_status=None,
     step="Run mutants",
-    make_rc=0,
-    exit_code: int | str | None = "same",
 ):
     """Execute a `mutants` job step against stub make/classifier.
 
     Returns (proc, make_calls, {status filename: content}, step summary). The
-    make stub exits `make_rc` (cargo-mutants exits 2 for survivors, 3 for
+    make stub exits `stub.make_rc` (cargo-mutants exits 2 for survivors, 3 for
     timeouts, both green by policy) and writes `<crate>/mutants.out/exit-code`
-    holding `exit_code` (default: `make_rc`; None writes no file, as when the
+    holding `stub.exit_code` (default: `make_rc`; None writes no file, as when the
     recipe died before cargo-mutants ran). The classifier stub echoes the exit code
-    and outcomes path it was given, and reports red (exit 1) when `red`, green
+    and outcomes path it was given, and reports red (exit 1) when `stub.red`, green
     otherwise. `pre_status` seeds status/<slug> before the step runs.
     """
+    red, make_rc, exit_code = stub or CrateStub()
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
         bindir = root / "bin"
@@ -821,7 +831,7 @@ def run_crate_job(
         }
         if exit_code is not None:
             env["EXIT_CODE_FILE_VALUE"] = str(
-                make_rc if exit_code == "same" else exit_code
+                make_rc if exit_code is _SAME else exit_code
             )
         proc = subprocess.run(
             [
@@ -859,7 +869,9 @@ class RustMutantsJobTests(unittest.TestCase):
     def test_make_failure_rc_reaches_classifier_and_status(self):
         # cargo-mutants exits 2 when mutants survive; under `bash -e` the step
         # must capture it, hand it to the classifier and still write status.
-        proc, made, statuses, summary = run_crate_job("a/a-rs", "a-a-rs", make_rc=2)
+        proc, made, statuses, summary = run_crate_job(
+            "a/a-rs", "a-a-rs", CrateStub(make_rc=2)
+        )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(made, ["a/a-rs"])
         line = "green: a/a-rs rc=2 a/a-rs/mutants.out/outcomes.json\n"
@@ -870,7 +882,7 @@ class RustMutantsJobTests(unittest.TestCase):
         # make exits 2 for ANY failed recipe; the true cargo-mutants code (4,
         # baseline failed) is only in mutants.out/exit-code.
         proc, _made, statuses, summary = run_crate_job(
-            "a/a-rs", "a-a-rs", make_rc=2, exit_code=4
+            "a/a-rs", "a-a-rs", CrateStub(make_rc=2, exit_code=4)
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         line = "green: a/a-rs rc=4 a/a-rs/mutants.out/outcomes.json\n"
@@ -887,7 +899,7 @@ class RustMutantsJobTests(unittest.TestCase):
         # a garbage file into a green verdict.
         for bad in ("", "x", "4x", "-1", "0004", "1000"):
             with self.subTest(bad=bad):
-                result = run_crate_job("a/a-rs", "a-a-rs", exit_code=bad)
+                result = run_crate_job("a/a-rs", "a-a-rs", CrateStub(exit_code=bad))
                 proc, _made, statuses, summary = result
                 self.assertEqual(proc.returncode, 1)
                 line = "red: a/a-rs - mutants.out/exit-code is not an integer\n"
@@ -897,7 +909,7 @@ class RustMutantsJobTests(unittest.TestCase):
 
     def test_missing_exit_code_file_is_red_and_never_classified(self):
         proc, made, statuses, summary = run_crate_job(
-            "a/a-rs", "a-a-rs", make_rc=2, exit_code=None
+            "a/a-rs", "a-a-rs", CrateStub(make_rc=2, exit_code=None)
         )
         self.assertEqual(proc.returncode, 1)
         self.assertEqual(made, ["a/a-rs"])
@@ -907,7 +919,7 @@ class RustMutantsJobTests(unittest.TestCase):
 
     def test_red_crate_fails_step_and_writes_red_status(self):
         proc, made, statuses, summary = run_crate_job(
-            "a/a-rs", "a-a-rs", red=True, make_rc=1
+            "a/a-rs", "a-a-rs", CrateStub(red=True, make_rc=1)
         )
         self.assertEqual(proc.returncode, 1)
         self.assertEqual(made, ["a/a-rs"])
