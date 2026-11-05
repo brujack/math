@@ -35,7 +35,7 @@ mutants:
 
 # PR-scoped run: only mutants inside DIFF, same memory cap and timeout scaling as mutants.
 mutants-diff:
-	@bash -c 'd="$(DIFF)"; \
+	@bash -c 'd="$${DIFF}"; \
 	  if [ -z "$${d}" ] || [ ! -f "$${d}" ] || [ ! -r "$${d}" ]; then \
 	    printf "usage: make mutants-diff DIFF=<readable diff file> (DIFF unset or unreadable)\n" >&2; exit 2; \
 	  fi; \

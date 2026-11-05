@@ -269,8 +269,8 @@ for e in json.load(open('${REPO_ROOT}/renovate.json')).get('extends', []):
 # already-working crates don't fall below their current 30s budget.
 #
 # The mocks directory is stripped from PATH before the `git ls-files` call:
-# tests/mocks/git has no ls-files branch, so an inherited mock silently
-# returns an empty list and every assertion below would pass vacuously
+# tests/mocks/git answers ls-files with MOCK_GIT_LS_FILES (empty by default),
+# so an inherited mock silently returns an empty list and every assertion below would pass vacuously
 # (math#95 -- see shell.md's PATH-mock-shadowing pitfall).
 #
 # --timeout-multiplier and --minimum-test-timeout both contain the substring
@@ -323,6 +323,8 @@ for e in json.load(open('${REPO_ROOT}/renovate.json')).get('extends', []):
         grep -q '^mutants-diff:' "${REPO_ROOT}/${mf}" || { bad="${bad}${mf}(no target) "; continue; }
         body="$(sed -n '/^mutants-diff:/,/^[a-z]/p' "${REPO_ROOT}/${mf}")"
         [[ "${body}" == *"--in-diff"* ]] || bad="${bad}${mf}(no --in-diff) "
+        [[ "${body}" == *"--timeout-multiplier 5"* ]] || bad="${bad}${mf}(no --timeout-multiplier 5 in mutants-diff) "
+        [[ "${body}" == *"--minimum-test-timeout 30"* ]] || bad="${bad}${mf}(no --minimum-test-timeout 30 in mutants-diff) "
         [[ "${body}" == *"ulimit -v 8388608"* ]] || bad="${bad}${mf}(no ulimit in mutants-diff) "
         if grep -qE -- '--timeout[[:space:]]+[0-9]' "${REPO_ROOT}/${mf}"; then
             bad="${bad}${mf}(fixed --timeout) "
@@ -431,6 +433,7 @@ _rs_make() {
     run _rs_make mutants-diff
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"DIFF"* ]]
+    [[ "${output}" == *"Error 2"* ]]
     [ ! -s "${CALLS}" ]
     [ ! -e "${CRATE}/mutants.out" ]
 }
@@ -440,6 +443,7 @@ _rs_make() {
     run _rs_make mutants-diff DIFF=/nonexistent/pr.diff
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"DIFF"* ]]
+    [[ "${output}" == *"Error 2"* ]]
     [ ! -s "${CALLS}" ]
 }
 
@@ -448,7 +452,37 @@ _rs_make() {
     run _rs_make mutants-diff DIFF="${BATS_TEST_TMPDIR}"
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"DIFF"* ]]
+    [[ "${output}" == *"Error 2"* ]]
     [ ! -s "${CALLS}" ]
+}
+
+@test "make mutants-diff passes a DIFF path with a space and a quote to cargo as one argument" {
+    _rs_stub_setup
+    local odd="${BATS_TEST_TMPDIR}/it's a.diff"
+    printf 'diff\n' > "${odd}"
+    run _rs_make mutants-diff DIFF="${odd}"
+    [ "${status}" -eq 0 ]
+    grep -qF "cargo mutants --in-diff ${odd} --timeout-multiplier" "${CALLS}"
+}
+
+@test "make mutants fails closed when the memory cap cannot be enforced" {
+    _rs_stub_setup
+    # A limit below the 8 GiB cap makes `ulimit -v 8388608` fail, as on macOS.
+    run bash -c 'ulimit -v 1000000 && env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u MUTANTS_UNCAPPED make -C "$1" mutants' _ "${CRATE}"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"cannot enforce a memory cap"* ]]
+    [ ! -s "${CALLS}" ]
+    [ ! -e "${CRATE}/mutants.out/exit-code" ]
+}
+
+@test "make mutants-diff fails closed when the memory cap cannot be enforced" {
+    _rs_stub_setup
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    run bash -c 'ulimit -v 1000000 && env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u MUTANTS_UNCAPPED make -C "$1" mutants-diff DIFF="$2"' _ "${CRATE}" "${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"cannot enforce a memory cap"* ]]
+    [ ! -s "${CALLS}" ]
+    [ ! -e "${CRATE}/mutants.out/exit-code" ]
 }
 
 # install-deps must invoke pip through `python3 -m pip`, never a bare `pip` --
