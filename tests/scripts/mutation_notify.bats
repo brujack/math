@@ -943,8 +943,10 @@ print("\n".join(out))
 
     run render_red_units
     [ "${status}" -eq 0 ]
-    [[ "${output}" == *$'  line20\n  ~~~~~' ]]
-    [[ "${output}" != *"more lines"* ]]
+    _expected=$'- pi-3: red: pi-3 -- bad\n  ~~~~~'
+    for i in $(seq 1 20); do _expected+=$'\n'"  line${i}"; done
+    _expected+=$'\n  ~~~~~'
+    [ "${output}" = "${_expected}" ]
 }
 
 @test "render_red_units: a final detail line with no trailing newline is kept" {
