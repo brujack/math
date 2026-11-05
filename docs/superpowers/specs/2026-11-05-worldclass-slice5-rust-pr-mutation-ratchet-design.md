@@ -136,7 +136,7 @@ dirs>` and `has_rs=true|false`. A crate dir `<p>/<p>-rs` is selected when the PR
    `<dir>/mutants.out/exit-code` (a missing file is red), and calls
    `mutation-classify.sh <code> <dir>/mutants.out/outcomes.json <dir> 0 [N]`. It continues
    past a red crate, prints each verdict on stdout, and exits 1 when any crate was red, 2 on
-   bad arguments. Its `--min-caught` value is passed through as the classifier's fifth
+   bad arguments or no crate dirs. Its `--min-caught` value is passed through as the classifier's fifth
    argument.
 6. **Workflow.** In `mutation-pr.yml`, the inline factorial-only grep and the
    `Run cargo mutants (factorial-rs)` step are replaced:
@@ -167,7 +167,7 @@ dirs>` and `has_rs=true|false`. A crate dir `<p>/<p>-rs` is selected when the PR
    `rs_canary=true`, and a workflow step, after the crate step, appends a trailing space to
    the single line of `amicable/amicable-rs/src/lib.rs` matching `let mut m = 2 * d;` (red
    unless exactly one line matches), commits it in the runner's disposable checkout
-   (`git -c user.name=ci -c user.email=ci@localhost commit`), and runs
+   (`git -c user.name=ci -c user.email=ci@localhost commit -- amicable/amicable-rs/src/lib.rs`, that path only), and runs
    `scripts/mutation-pr-run.sh HEAD~1 --min-caught 1 amicable/amicable-rs`. The canary thus
    goes through the same diff script, make target, exit-code read and classifier as every
    crate. Measured 2026-11-05 on a `git archive` copy with exactly that sequence under the
@@ -224,13 +224,14 @@ the mutant-listing test.
 - `tests/scripts/mutation_pr_detect.bats`: a `src/` change selects its crate; a nested
   `src/a/b.rs` change selects it; a crate `Cargo.toml`, `.cargo/mutants.toml` or `tests/`
   change selects nothing; two crates sort; no Rust change prints `has_rs=false` and an empty
-  `rs_dirs`; `has_rs=true` never appears with an empty `rs_dirs`; each of the five gate files
-  prints `rs_canary=true` and an unrelated file prints `rs_canary=false`; Python outputs
+  `rs_dirs`; `has_rs=true` never appears with an empty `rs_dirs`; each of the seven R12 trigger
+  paths, enumerated from that list, prints `rs_canary=true` and an unrelated file prints `rs_canary=false`; Python outputs
   unchanged.
 - `tests/scripts/mutation_pr_run.bats` (fixture git repo with two crate dirs, PATH-stubbed
   `make` writing chosen `mutants.out/` contents): an empty per-crate diff is red; a missing
   `exit-code` is red; a red first crate still runs the second and the script exits 1; two
-  green crates exit 0; `--min-caught 1` with caught 0 is red; bad arguments exit 2; the stub
+  green crates exit 0; `--min-caught 1` with caught 0 is red; bad arguments and zero crate dirs
+  exit 2; the stub runs exactly once per crate; the stub
   receives an absolute `DIFF` whose `+++` line starts `b/src/`.
 - `tests/scripts/makefile.bats`: a stub `cargo` exiting 4 leaves `mutants.out/exit-code`
   containing `4` for both `mutants` and `mutants-diff`, and `make` exits non-zero.
@@ -263,15 +264,15 @@ the mutant-listing test.
 - **R2.** `make mutants-diff` exits 2 with a message naming `DIFF` when `DIFF` is unset or not a readable file, without invoking cargo-mutants.
 - **R3.** `scripts/mutation-pr-detect.sh` prints `rs_dirs=` (sorted crate dirs, derived from `git ls-files '*/*-rs/Cargo.toml'`) and `has_rs=`, selecting a crate only when a changed path is a `.rs` file under that crate's `src/`.
 - **R4.** `scripts/mutation-classify.sh` with no fourth argument behaves as before; with a fourth argument `max_missed` it reports red when `missed > max_missed`, naming each survivor from `mutants.out/missed.txt`, reports red on a non-integer `max_missed`, and in that mode treats `caught + missed + timeout == 0` as nothing evaluated; an optional fifth argument `min_caught` makes the run red when `caught < min_caught` or when `outcomes.json` is missing.
-- **R5.** `scripts/mutation-pr-run.sh <base-ref> [--min-caught N] <crate-dir>...` builds each crate's diff with `scripts/mutation-pr-diff.sh`, treats an empty diff as red, runs `make -C <dir> mutants-diff` on it, classifies with limit `0` (and `N` as `min_caught`) using the code from `mutants.out/exit-code`, treats a missing `exit-code` file as red, continues past a red crate, and exits 1 when any crate is red; `mutation-pr.yml` runs it with `origin/${GITHUB_BASE_REF}` over `rs_dirs`.
+- **R5.** `scripts/mutation-pr-run.sh <base-ref> [--min-caught N] <crate-dir>...` builds each crate's diff with `scripts/mutation-pr-diff.sh`, treats an empty diff as red, runs `make -C <dir> mutants-diff` on it, classifies with limit `0` (and `N` as `min_caught`) using the code from `mutants.out/exit-code`, treats a missing `exit-code` file as red, continues past a red crate, exits 1 when any crate is red and 2 when given no crate dirs; `mutation-pr.yml` runs it with `origin/${GITHUB_BASE_REF}` over `rs_dirs`.
 - **R6.** `mutation-pr.yml` no longer contains the factorial-only detection grep, the `Run cargo mutants (factorial-rs)` step, or any fixed `--timeout` flag for cargo-mutants.
-- **R7.** `mutation-pr.yml` restores the GMP/MPFR build cache read-only via `scripts/gmp-cache-key.sh` when `has_rs` is true, and its job `timeout-minutes` is 60.
+- **R7.** `mutation-pr.yml` restores the GMP/MPFR build cache read-only via `scripts/gmp-cache-key.sh` when `has_rs` or `rs_canary` is true, and its job `timeout-minutes` is 60.
 - **R8.** Root `CLAUDE.md` and the math knowledge entries that describe `mutation-pr.yml` describe the per-PR gate and the local repro in the same change, and the Backlog row "Rust mutation leg has no missed-count ratchet" is rewritten to cover only drift the per-PR gate cannot see (deleted tests, rustc or cargo-mutants updates); root `CLAUDE.md`'s "investigate surviving mutants in logic code, not main glue" is replaced by: every missed mutant on a changed line gets a killing test, glue included, and `exclude_re` is only for true equivalents.
 - **R9.** `scripts/mutation-pr-diff.sh <base-ref> <crate-dir> <out-file>` writes `git diff --relative=<crate-dir>/ <base-ref>...HEAD -- <crate-dir>`, so every path in it starts `src/`, and exits 2 on a wrong argument count or a crate dir without `Cargo.toml`.
 - **R10.** A test builds a diff with `scripts/mutation-pr-diff.sh` from a one-line `sieve` change in a copy of factorial-rs and requires `cargo mutants --list --in-diff` to list at least one `sieve` mutant; it skips when cargo-mutants is absent outside CI and fails when absent under `CI=true`.
 - **R11.** `mutation-testing.yml` classifies each crate on the code in `mutants.out/exit-code`, red when the file is missing, still with no limit argument.
 - **R12.** `scripts/mutation-pr-detect.sh` prints `rs_canary=true` when the PR changes `mutation-pr.yml`, `scripts/mutation-pr-detect.sh`, `scripts/mutation-pr-diff.sh`, `scripts/mutation-pr-run.sh`, `scripts/mutation-classify.sh`, `scripts/crate_templates/Makefile` or `amicable/amicable-rs/src/lib.rs`.
-- **R13.** When `rs_canary` is true, `mutation-pr.yml` appends a trailing space to the single `let mut m = 2 * d;` line of `amicable/amicable-rs/src/lib.rs` (red unless exactly one line matches), commits it in the runner checkout, and runs `scripts/mutation-pr-run.sh HEAD~1 --min-caught 1 amicable/amicable-rs`, failing the step when it exits non-zero.
+- **R13.** When `rs_canary` is true, `mutation-pr.yml` appends a trailing space to the single `let mut m = 2 * d;` line of `amicable/amicable-rs/src/lib.rs` (red unless exactly one line matches), commits that path alone in the runner checkout, and runs `scripts/mutation-pr-run.sh HEAD~1 --min-caught 1 amicable/amicable-rs`, failing the step when it exits non-zero.
 - **R14.** The default-chunk write tests in `e/e-rs/src/main.rs` and `pi/pi-rs/src/main.rs` use a 4-thread pool and an input shorter than 4 bytes, so `len / threads` is still 0 and the zero-chunk mutant still fails them, without building a 64-thread pool.
 - **V1.** Positive control, before the slice PR is marked ready: a throwaway draft PR built on the slice branch, adding an untested branch to one crate's `src/`, shows `mutation-pr` red naming that mutant; the PR is then closed and its branch deleted.
 - **V2.** This slice's own PR changes gate files, so `mutation-pr` runs the amicable-rs canary green with caught at least 1 and missed 0 shown in the step summary; its R14 test-only changes select e-rs and pi-rs, which report `No mutants to filter` or caught-only results (its `mutation-pr.yml` change still selects every Python dir, as today).
@@ -324,3 +325,8 @@ N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
 - Goal-Fit (r4). Finding: the canary built its own diff and called `make` directly, so it skipped `mutation-pr-diff.sh` and the workflow loop, the two places the original bug lived; the loop's red rules sat in untested YAML. Assumption: survivors arrive mainly through `src/` PRs (math#204's host-dependent survivors and the unpinned toolchain argue otherwise); the next monthly sweep settles it. Disposition: Addressed (operator, 2026-11-05): loop moved into `scripts/mutation-pr-run.sh` with bats on every red rule (component 5, R5); the canary commits its edit and runs that script with `HEAD~1` (component 7, R13).
 - Ergonomics (r4). Finding: root `CLAUDE.md` says to investigate survivors "in logic code, not main glue", while the gate blocks on any changed-line survivor, glue included; same untested-loop gap. Assumption: the canary's mutants are caught under the cap. Confirmed by the orchestrator 2026-11-05: `6 mutants tested in 10s: 6 caught`. Disposition: Addressed (operator, 2026-11-05): R8 replaces the glue rule.
 - Risk (r4). Finding: the canary exercised two of its six trigger files and its anchor line was not a trigger, so an edit there would break the next gate-file PR. Assumption: a multi-crate PR fits in 60 minutes with cold builds per crate. Disposition: Addressed (operator, 2026-11-05): canary goes through the loop script; `amicable/amicable-rs/src/lib.rs` joins the trigger list (R12); the per-crate baseline estimate is labelled an extrapolation, a timeout fails closed.
+
+### Scoped re-review (commit `b529362`, Risk lens over components 5-7, R5, R8, R12, R13)
+
+Finding: no new false-green path. Wording gaps: the detect bats bullet said "five" gate files against seven R12 triggers; zero crate dirs was undefined for the loop script; R7 said `has_rs` only while component 6 restores the GMP cache for `has_rs` or `rs_canary`. Assumption: the canary commit holds exactly the one-line change; it depends on committing the path alone. Disposition: Addressed (orchestrator, wording-level, within the operator's 2026-11-05 "Scoped Risk, then approve"): the bullet enumerates the R12 list, zero crate dirs exits 2 (R5, bats), R7 matches component 6, the canary commits `amicable/amicable-rs/src/lib.rs` alone (R13), and the bats case checks the stub runs once per crate.
+
