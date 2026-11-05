@@ -103,7 +103,7 @@ jobs:
         run: |
           mkdir -p "${GITHUB_WORKSPACE}/status"
           # make exits 2 for ANY failed recipe, which the classifier reads as
-          # survivors (green). The recipe records cargo-mutants' own exit code
+          # cargo-mutants' survivors code. The recipe records cargo-mutants' own exit code
           # in mutants.out/exit-code; classify on that, and fail closed when
           # it is missing (the recipe died before cargo-mutants ran).
           make -C "${CRATE_DIR}" mutants || true
