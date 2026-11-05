@@ -115,6 +115,11 @@ GREEN='{"caught":3,"missed":0,"timeout":0,"unviable":1}'
     [ "${status}" -eq 2 ]
 }
 
+@test "--min-caught with 20 digits exits 2" {
+    _run_script main --min-caught 12345678901234567890 a/a-rs
+    [ "${status}" -eq 2 ]
+}
+
 @test "--min-caught without a value exits 2" {
     _run_script main a/a-rs --min-caught
     [ "${status}" -eq 2 ]

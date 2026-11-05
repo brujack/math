@@ -243,6 +243,14 @@ _write_outcomes() {
     [ "${stderr}" = "red: e/e-rs - max_missed '010' is not a non-negative integer" ]
 }
 
+@test "20-digit min_caught -> red (absurd length rejected)" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    _write_outcomes "${outcomes}" '{"total_mutants":5,"caught":5,"missed":0,"timeout":0,"unviable":0}'
+    run --separate-stderr "${SCRIPT}" 0 "${outcomes}" "e/e-rs" 0 12345678901234567890
+    [ "${status}" -eq 1 ]
+    [ "${stderr}" = "red: e/e-rs - min_caught '12345678901234567890' is not a non-negative integer" ]
+}
+
 @test "20-digit max_missed -> red (absurd length rejected)" {
     local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
     _write_outcomes "${outcomes}" '{"total_mutants":5,"caught":5,"missed":0,"timeout":0,"unviable":0}'

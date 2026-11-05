@@ -349,6 +349,8 @@ _rs_stub_setup() {
     cat > "${bin}/cargo" <<'STUB'
 #!/bin/bash
 printf 'cargo %s ulimit=%s\n' "$*" "$(ulimit -v)" >> "${CALLS}"
+# One argument per line, so a test can tell one quoted argument from several.
+for arg in "$@"; do printf 'arg %s\n' "${arg}" >> "${CALLS}.args"; done
 if [ -n "${STUB_CARGO_WRITE}" ]; then
     mkdir -p mutants.out
     printf 'NEW\n' > mutants.out/outcomes.json
@@ -462,7 +464,10 @@ _rs_make() {
     printf 'diff\n' > "${odd}"
     run _rs_make mutants-diff DIFF="${odd}"
     [ "${status}" -eq 0 ]
-    grep -qF "cargo mutants --in-diff ${odd} --timeout-multiplier" "${CALLS}"
+    # The argument right after --in-diff must be the whole odd path.
+    run command grep -xF -A1 -- 'arg --in-diff' "${CALLS}.args"
+    [ "${status}" -eq 0 ]
+    [ "${lines[1]}" = "arg ${odd}" ]
 }
 
 @test "make mutants fails closed when the memory cap cannot be enforced" {

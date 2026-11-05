@@ -95,7 +95,10 @@ _run_script() {
 }
 
 @test "user git config (color.ui=always, diff.noprefix) does not change the diff" {
-    printf '[color]\n\tui = always\n[diff]\n\tnoprefix = true\n' >"${HOME}/.gitconfig"
+    local ext="${BATS_TEST_TMPDIR}/ext-diff.sh"
+    printf '#!/bin/sh\necho JUNK\n' >"${ext}"
+    chmod +x "${ext}"
+    printf '[color]\n\tui = always\n[diff]\n\tnoprefix = true\n\texternal = %s\n' "${ext}" >"${HOME}/.gitconfig"
     printf 'pub fn f() -> u32 { 2 }\n' >"${FIXTURE}/a/a-rs/src/lib.rs"
     _git commit -q -am change
     _run_script main a/a-rs "${OUT}"
@@ -103,5 +106,7 @@ _run_script() {
     run grep -c '^+++ b/src/lib.rs$' "${OUT}"
     [ "${output}" = "1" ]
     run grep -c $'\033' "${OUT}"
+    [ "${output}" = "0" ]
+    run grep -c JUNK "${OUT}"
     [ "${output}" = "0" ]
 }
