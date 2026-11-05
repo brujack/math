@@ -9,6 +9,12 @@ exclude_re = [
     # parallel recursion compute the same merge; only scheduling differs.
     "^src/lib\\.rs:42:14: replace <= with > in bs$",
     "^src/lib\\.rs:42:10: replace - with \\+ in bs$",
+    # digits + 5 margin in e_to_string: guard digits that are trimmed away;
+    # a different margin (digits * 5) only renders more digits before truncation.
+    # Mirrors pi-rs's pi_to_string entry. The whole suite passes with the mutant
+    # applied at 1 and 2 threads; a local run once reported it caught, a host-timing
+    # effect, while CI run 41948343321 reported it missed.
+    "^src/lib\\.rs:112:49: replace \\+ with \\* in e_to_string$",
     # e-rs term count (compute_e, n = number of series terms): the
     # estimate has a safety margin: every mutated formula still gives at least as
     # many Taylor terms as `digits` needs, and extra terms cannot change correct

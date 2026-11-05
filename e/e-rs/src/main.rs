@@ -821,6 +821,19 @@ mod tests {
         assert_eq!(std::fs::read_to_string(path).unwrap(), expected_e_file("2.7", 1));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn test_write_e_file_default_chunk_when_threads_exceed_bytes() {
+        // 64 threads and a 52-byte string make len / threads = 0, so the default
+        // WRITE_MIN_CHUNK alone keeps the chunk size positive. The pool is pinned so
+        // the result does not depend on the host's core count.
+        assert!(E_REF.len() < 64);
+        let dir = tempdir().unwrap();
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(64).build().unwrap();
+        let path = pool.install(|| write_e_file(dir.path(), E_REF, 50)).unwrap();
+        assert_eq!(std::fs::read_to_string(path).unwrap(), expected_e_file(E_REF, 50));
+    }
+
     // --- save_e ---
 
     #[test]
