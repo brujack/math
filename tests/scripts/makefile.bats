@@ -1550,14 +1550,17 @@ _scratch_tmp() {
     if [ ! -e "${BATS_TEST_TMPDIR}/exec-ready" ]; then
         kill -KILL -- "-${pid}" 2>/dev/null
         wait "${pid}" 2>/dev/null || true
+        printf 'wait failed: exec stub never reached exec-ready\n' >&2
         return 1
     fi
     kill -TERM -- "-${pid}"
     # Once cleanup is inside its (stalled) copy-back, a second TERM must not abort it.
-    for i in $(seq 1 100); do
-        [ -e "${BATS_TEST_TMPDIR}/cp-started" ] && break
-        sleep 0.05
-    done
+    if ! _wait_for_file "${BATS_TEST_TMPDIR}/cp-started" 50; then
+        kill -KILL -- "-${pid}" 2>/dev/null
+        wait "${pid}" 2>/dev/null || true
+        printf 'wait failed: copy-back never started (cp-started) after first TERM\n' >&2
+        return 1
+    fi
     # GNU make ignores a repeated TERM, so also signal its recipe shell, which is what make's
     # own forwarded TERM reaches.
     local child
@@ -1572,6 +1575,7 @@ _scratch_tmp() {
     if kill -0 "${pid}" 2>/dev/null; then
         kill -KILL -- "-${pid}" 2>/dev/null
         wait "${pid}" 2>/dev/null || true
+        printf 'wait failed: make did not exit after the second TERM\n' >&2
         return 1
     fi
     wait "${pid}" 2>/dev/null || true

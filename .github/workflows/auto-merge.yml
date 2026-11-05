@@ -135,7 +135,16 @@ jobs:
       # condition and its message, so raising it is a one-line change.
       - name: Run bash coverage (bootstrap gate)
         run: |
-          make bash-coverage > /tmp/bash-cov-out.txt 2>&1 || { cat /tmp/bash-cov-out.txt; exit 1; }
+          # On a red suite the script prints only `not ok N name`; the cause is in the bats log,
+          # so print each failing block (the `not ok` line and its `#` lines) before failing.
+          make bash-coverage > /tmp/bash-cov-out.txt 2>&1 || {
+            cat /tmp/bash-cov-out.txt
+            if [ -f coverage/bats_run.log ]; then
+              printf '%s\n' "--- failing test diagnostics (coverage/bats_run.log) ---"
+              awk '/^not ok /{p=1; print; next} /^ok /{p=0} p && /^#/{print}' coverage/bats_run.log
+            fi
+            exit 1
+          }
           cat /tmp/bash-cov-out.txt
           # Single source of truth for the floor -- referenced by the gate,
           # the placeholder reminder, and its message. Raising the floor is
