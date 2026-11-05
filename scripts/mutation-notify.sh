@@ -57,11 +57,13 @@ attribute() {
 # fenced block capped at 20 lines (the rest is counted, not printed). Every
 # line of the block, fences included, is indented two spaces: an unindented
 # line ends the list item in GitHub's renderer and strips <u32>-style text.
+# The fence is tildes, not backticks: a detail line of three or more backticks
+# would close a backtick fence early and swallow the lines after the block.
 # Prints nothing when no unit is red.
 render_red_units() {
     local _file _line _found _ndetail _extra
     local -r _max=20
-    local _fence='  ```'
+    local _fence='  ~~~~~'
 
     for _file in "${ARTIFACT_DIR}"/status/*; do
         [[ -f "${_file}" ]] || continue

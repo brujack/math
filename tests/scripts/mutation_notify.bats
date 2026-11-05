@@ -704,7 +704,7 @@ print("\n".join(out))
 
     grep -qF -- "- pi-3: red: pi-3 -- 2 work items without a result" "${MOCK_CALLS_FILE}"
     grep -qF -- "second line" "${MOCK_CALLS_FILE}"
-    _block=$'- pi-3: red: pi-3 -- 2 work items without a result\n  ```\n  second line\n  ```'
+    _block=$'- pi-3: red: pi-3 -- 2 work items without a result\n  ~~~~~\n  second line\n  ~~~~~'
     [[ "$(cat "${MOCK_CALLS_FILE}")" == *"${_block}"* ]]
 }
 
@@ -776,7 +776,7 @@ print("\n".join(out))
     [ "${status}" -eq 1 ]
 
     grep -qF -- "- pi: red: pi -- late verdict" "${MOCK_CALLS_FILE}"
-    _block=$'- pi: red: pi -- late verdict\n  ```\n  red: second red\n  ```'
+    _block=$'- pi: red: pi -- late verdict\n  ~~~~~\n  red: second red\n  ~~~~~'
     [[ "$(cat "${MOCK_CALLS_FILE}")" == *"${_block}"* ]]
     run ! grep -qF -- "note: preamble" "${MOCK_CALLS_FILE}"
 }
@@ -894,8 +894,8 @@ print("\n".join(out))
 
     run render_red_units
     [ "${status}" -eq 0 ]
-    _a=$'- e-1: red: e-1 -- worse\n  ```\n  x1\n  ```'
-    _b=$'- pi-3: red: pi-3 -- bad\n  ```\n  d1\n  d2\n  ```'
+    _a=$'- e-1: red: e-1 -- worse\n  ~~~~~\n  x1\n  ~~~~~'
+    _b=$'- pi-3: red: pi-3 -- bad\n  ~~~~~\n  d1\n  d2\n  ~~~~~'
     [[ "${output}" == "${_a}"$'\n'"${_b}" ]]
     [[ "${output}" != *"fib"* ]]
 }
@@ -928,10 +928,10 @@ print("\n".join(out))
 
     run render_red_units
     [ "${status}" -eq 0 ]
-    [[ "${output}" == *$'  ```\n  line1 Vec<u32>\n  line2\n'* ]]
-    [[ "${output}" == *$'  line20\n  ... 5 more lines in the run\n  ```' ]]
-    [[ "${output}" != *"line21"* ]]
-    [[ "${output}" != *"line25"* ]]
+    _expected=$'- pi-3: red: pi-3 -- bad\n  ~~~~~\n  line1 Vec<u32>'
+    for i in $(seq 2 20); do _expected+=$'\n'"  line${i}"; done
+    _expected+=$'\n  ... 5 more lines in the run\n  ~~~~~'
+    [ "${output}" = "${_expected}" ]
 }
 
 @test "render_red_units: exactly 20 detail lines print all of them with no more-lines line" {
@@ -942,8 +942,26 @@ print("\n".join(out))
     } > "${ARTIFACT_DIR}/status/pi-3"
 
     run render_red_units
-    [[ "${output}" == *$'  line20\n  ```' ]]
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *$'  line20\n  ~~~~~' ]]
     [[ "${output}" != *"more lines"* ]]
+}
+
+@test "render_red_units: a final detail line with no trailing newline is kept" {
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'red: pi-3 -- bad\nd1\nd2' > "${ARTIFACT_DIR}/status/pi-3"
+
+    run render_red_units
+    [ "${status}" -eq 0 ]
+    [ "${output}" = $'- pi-3: red: pi-3 -- bad\n  ~~~~~\n  d1\n  d2\n  ~~~~~' ]
+}
+
+@test "render_red_units: a detail line of three backticks cannot close the block" {
+    mkdir -p "${ARTIFACT_DIR}/status"
+    printf 'red: d\n```\nafter\n' > "${ARTIFACT_DIR}/status/pi-3"
+
+    run build_body verdicts-present
+    [[ "${output}" == *$'- pi-3: red: d\n  ~~~~~\n  ```\n  after\n  ~~~~~\n\nRun: '* ]]
 }
 
 @test "render_red_units: every line of the block starts with two spaces except the list item" {
@@ -961,7 +979,7 @@ print("\n".join(out))
     printf 'red: pi-3 -- bad\nd1\n' > "${ARTIFACT_DIR}/status/pi-3"
 
     run build_body verdicts-present
-    [[ "${output}" == *$'Failing crates:\n- pi-3: red: pi-3 -- bad\n  ```\n  d1\n  ```\n\nRun: '* ]]
+    [[ "${output}" == *$'Failing crates:\n- pi-3: red: pi-3 -- bad\n  ~~~~~\n  d1\n  ~~~~~\n\nRun: '* ]]
 }
 
 @test "build_body verdicts-present with no red file keeps the none-flagged fallback" {
@@ -993,7 +1011,7 @@ print("\n".join(out))
     printf 'red: pi-3 -- bad\nd1\n' > "${ARTIFACT_DIR}/status/pi-3"
 
     run build_units_body "- fib" "" 0
-    [[ "${output}" == *$'Red crates:\n- pi-3: red: pi-3 -- bad\n  ```\n  d1\n  ```\n\nRun: '* ]]
+    [[ "${output}" == *$'Red crates:\n- pi-3: red: pi-3 -- bad\n  ~~~~~\n  d1\n  ~~~~~\n\nRun: '* ]]
 }
 
 @test "build_units_body with omit_red=1 prints no Red section" {
@@ -1016,8 +1034,8 @@ print("\n".join(out))
     run main
     [ "${status}" -eq 1 ]
 
-    [ "$(grep -c -- '^- pi-3: ' "${MOCK_CALLS_FILE}")" -eq 1 ]
-    [ "$(grep -c -- '^- e-1: ' "${MOCK_CALLS_FILE}")" -eq 1 ]
+    [ "$(grep -cE -- '^- pi-3(:|$)' "${MOCK_CALLS_FILE}")" -eq 1 ]
+    [ "$(grep -cE -- '^- e-1(:|$)' "${MOCK_CALLS_FILE}")" -eq 1 ]
     grep -qF -- "Cause: verdicts-present" "${MOCK_CALLS_FILE}"
     grep -qF -- "- fib" "${MOCK_CALLS_FILE}"
 }
