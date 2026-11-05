@@ -21,6 +21,8 @@ on:
       - "*/pyrightconfig.json"
       - "*/cosmic-ray.toml"
       - "*/*-rs/rustfmt.toml"
+      - "*/*-rs/src/**"
+      - "*/*-rs/.cargo/mutants.toml"
       - "*/*-rs/.config/nextest.toml"
       - "*/*-rs/install_deps.sh"
       - ".github/workflows/*-rs.yml"
@@ -78,6 +80,10 @@ jobs:
         with:
           tool: cargo-deny@0.20.2
           fallback: none
+      # Source-built (as in mutation-testing.yml): test_tool_pins.py only admits
+      # CI-only taiki-e tools from its own list, which this change may not edit.
+      - name: Install cargo-mutants
+        run: cargo install cargo-mutants --locked --version 27.1.0
       - name: Lint hooks, scripts and bats suites
         run: make lint
       - name: Run hook and script tests

@@ -147,8 +147,8 @@ A mutation leg is red only when `caught + missed == 0`, the baseline fails or th
 `notify` is separate (`needs: [setup, mutants], if: always()`), label `mutation-failure` (`-python` via `ISSUE_LABEL`); `mutation-notify.sh` reads `marker/job-began`; needs `FULL_SWEEP`; only a full sweep closes. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
 Add `mutants` to a new Rust crate's `Makefile` `.PHONY` list and target; investigate surviving mutants in logic code, not main glue. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
 
-Exclude equivalent mutants via the crate's `.cargo/mutants.toml` `exclude_re` regexes matched against `src/lib.rs:<line>:<col>: <description>`; `// mutants::skip` is not recognized (cargo-mutants ≥27.x), only `#[mutants::skip]` on items. → ai-config/docs/knowledge/math-testing-policy.md § Equivalent mutations
-`exclude_re` patterns embed line numbers; update them when surrounding code shifts (worked example `factorial/factorial-rs/.cargo/mutants.toml`). → ai-config/docs/knowledge/math-testing-policy.md § Equivalent mutations
+Exclude equivalent mutants via the crate's `.cargo/mutants.toml` `exclude_re` regexes matched against `src/lib.rs:<line>:<col>: <description>`; only `#[mutants::skip]` on items works, not `// mutants::skip`; `tests/test_mutants_exclusions.py` checks drift (also pre-push). → ai-config/docs/knowledge/math-testing-policy.md § Equivalent mutations
+`exclude_re` patterns embed line numbers; update them when code shifts (e.g. `factorial-rs`). → ai-config/docs/knowledge/math-testing-policy.md § Equivalent mutations
 
 A mutation on a comparison that algebraic identity makes always true (e.g. `verify_perfect`) is a dead-code equivalent; exclude it in `.cargo/mutants.toml`. → ai-config/docs/knowledge/math-testing-policy.md § Algebraic-identity equivalents
 
