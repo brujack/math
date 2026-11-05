@@ -42,7 +42,7 @@ Premises verified on master `7d55c62` before design:
    slice 5's per-PR gate keeps changed lines at 0, so a red sweep now means a new survivor rather
    than the standing population. ADR-0024's noise concern still applies to the issue body:
    `build_body`'s `verdicts-present` case (`scripts/mutation-notify.sh:61-63`) lists only the red
-   unit names, so a survivor red and a runner failure read the same. Component 3 answers that.
+   unit names, so a survivor red and a runner failure read the same. Component 2 answers that.
    The 2026-08-01 per-project spec also rejected a committed per-crate missed baseline (ADR-0041,
    Context); this design adds none (N2). The steady state is young: run 41948343321 (`821acb1`)
    had e-rs and pi-rs at missed=1, and `821acb1..0d28038` is math#204 (which killed them) plus
@@ -74,25 +74,27 @@ Premises verified on master `7d55c62` before design:
      which a full crate cannot legitimately produce);
    - timeouts are green when caught ≥ 1 and missed is 0;
    - a non-green exit code (baseline failed, runner died) is red, as today.
-2. **Toolchain line in each crate's status file.** After the verdict, the `Run mutants` step
-   appends one line `toolchain: <rustc -V>; <cargo mutants --version>` to `status/<slug>`. The
-   verdict stays the first line. The sweep resolves `stable` rustc at run time, so a red with no
-   code change names the compiler that produced it.
-3. **Issue body carries each red unit's status, from one helper.** A single function in
+2. **Issue body carries each red unit's status, from one helper.** A single function in
    `scripts/mutation-notify.sh` renders the red units. For each status file containing a line
    that starts with `red`, it prints `- <unit>: <line>`, where `<line>` is that first `red`
-   line, then the file's other lines indented by two spaces, at most 20 of them, followed by
-   `  ... <K> more lines in the run` when K > 0. Both `build_body`'s `verdicts-present` case and
+   line. The detail lines are every line after it (a preamble before the first `red` line is not
+   printed); when there are any, they follow inside a fenced code block indented two spaces under
+   the list item, at most 20 of them, with `... <K> more lines in the run` as the block's last
+   line when K > 0. The fence is required: GitHub renders a raw `replace sieve -> Vec<u32> with
+   vec![]` in a list item as `replace sieve -> Vec with vec![]` (measured 2026-11-05 with
+   `gh api -X POST /markdown`, mode `gfm`), and return-value replacements are a main
+   cargo-mutants mutation kind. Both `build_body`'s `verdicts-present` case and
    `build_units_body` call it, replacing `build_units_body`'s own loop. A posted body lists each
    red unit once: when `check_expected_units` prefixes a `verdicts-present` body to the
    missing-status report, the red list is not printed a second time. For a Rust crate the body
    thus carries the reason (`missed=N exceeds max_missed=0`, `caught=0 below min_caught=1`, an
-   exit code), the `missed: src/lib.rs:LINE:COL: ...` lines, and the toolchain line. The cap
+   exit code) and the `missed: src/lib.rs:LINE:COL: ...` lines. The cap
    keeps a mass-survivor month (a cargo-mutants bump adding an operator) under GitHub's
-   65,536-character comment limit: 11 units of 22 lines at about 200 bytes stays near 50 KB.
+   65,536-character comment limit: 11 units of 24 lines at about 200 bytes stays near 53 KB. No
+   total byte cap: an oversize body fails `gh` loudly (accepted, operator 2026-11-05).
    Python status files are single `red: <label> — <reason>` lines (`mutation-python-cell.sh`,
    `cosmic_ray_cell_status.py`), so the Python body gains only the reason.
-4. **ADR-0042: the Rust sweep holds 0 missed; a timeout counts as caught.** Records component 1,
+3. **ADR-0042: the Rust sweep holds 0 missed; a timeout counts as caught.** Records component 1,
    supersedes the survivors half of ADR-0024's "Exit codes 2 and 3 are green" consequence, states
    the timeout rule for both the per-PR gate and the sweep, and carries the timeout
    classification table: slice 5's 40 measured plus the 16 measured under V1. It also states two
@@ -101,9 +103,12 @@ Premises verified on master `7d55c62` before design:
    `mutation-testing.yml` with no `crate` input; a single-crate dispatch only comments, and only
    a green full sweep closes the issue. cargo-mutants bump: the version is hand-pinned (no
    Renovate manager), so a bump PR dispatches a full sweep on its branch before merge.
-5. **Documentation.** Root `CLAUDE.md`'s "A sweep leg is red only when ..." line is rewritten in
+4. **Documentation.** Root `CLAUDE.md`'s "A sweep leg is red only when ..." line is rewritten in
    place to the component 1 rules, at no more than its current 400 bytes. The two Backlog rows
-   are removed. The ADR index gains the 0042 row and marks 0024 partially superseded.
+   are removed, and one Backlog row is added: on the first full sweep after a stable rustc newer
+   than 1.99.1, diff each crate's `missed.txt` against V2's to measure whether rustc releases move
+   survivors (Step 8 round 2 goal-fit assumption, accepted). The ADR index gains the 0042 row and
+   marks 0024 partially superseded.
 
 ### What is deliberately not done
 
@@ -125,7 +130,9 @@ gets a killing test (or, for a true equivalent, an `exclude_re` entry):
 - a runner-shape change (vCPU count, image), which decided a survivor before (math#204: caught
   only where threads exceeded test bytes, surviving on CI's 2 vCPUs).
 
-That is the ratchet working. The toolchain line (component 2) separates the first from the third.
+That is the ratchet working. The issue links the run, whose job logs carry the rustc version
+(`rust-toolchain` step) and the runner image (`Image:`, `Version:`), which separate the first from
+the third.
 
 ### Testing
 
@@ -137,26 +144,33 @@ That is the ratchet working. The toolchain line (component 2) separates the firs
   and asserts the fourth and fifth arguments are `0` and `1` (the classifier stub records its
   arguments).
 - `tests/scripts/mutation_notify.bats` asserts the `verdicts-present` body lists a red unit with
-  its status file's first `red` line and its indented detail lines, a second red unit with its own
-  line, and no line for a green unit; that a red file with 25 detail lines prints 20 and
-  `  ... 5 more lines in the run`; and that the missing-status body with RESULT `failure` names
-  each red unit once.
-- `tests/test_mutation_workflows.py` asserts the `Run mutants` step's status file has the verdict
-  first and a `toolchain:` line after it.
+  its status file's first `red` line and its detail lines inside an indented fence, a second red
+  unit with its own line, and no line for a green unit; that a red file with 25 detail lines, one
+  of them containing `Vec<u32>`, prints 20 inside the fence with `... 5 more lines in the run`;
+  that a red file with no detail lines prints no fence; and that the missing-status body with
+  RESULT `failure` names each red unit once.
+- Two existing `mutation_notify.bats` cases invert, and change as follows.
+  "red units are listed with their first-line reason" (status `red: pi-3 -- ...\nsecond line`):
+  `second line` is now asserted present, inside the fence under `- pi-3: red: pi-3 -- ...`.
+  "a red line that is not the first line is still detected ..." (status
+  `note: preamble\nred: pi -- late verdict\nred: second red`): `- pi: red: pi -- late verdict`
+  stays, `red: second red` is now asserted present inside the fence, and `note: preamble` is
+  asserted absent.
+- `tests/test_mutation_workflows.py`'s single-line status assertions are unchanged (the status
+  file format does not change).
 
 ## Requirements
 
 - **R1.** The `Run mutants` step of `.github/workflows/mutation-testing.yml` calls `scripts/mutation-classify.sh` with five arguments, the fourth `0` and the fifth `1`.
 - **R2.** `tests/test_mutation_workflows.py` asserts the sweep's classifier call has 5 arguments and that the fourth and fifth are `0` and `1`.
 - **R3.** `tests/scripts/mutation_classify.bats` asserts, with arguments `0 1`: caught 5 missed 1 exit 2 is red and stderr contains the `missed.txt` line; caught 5 missed 0 timeout 2 exit 3 is green; caught 0 missed 0 timeout 3 exit 3 is red.
-- **R4.** `scripts/mutation-notify.sh` renders red units in one function, called by both `build_body`'s `verdicts-present` case and `build_units_body`: `- <unit>: <line>` with `<line>` the file's first `red` line, then its other lines indented two spaces, at most 20, then `  ... <K> more lines in the run` when K > 0.
+- **R4.** `scripts/mutation-notify.sh` renders red units in one function, called by both `build_body`'s `verdicts-present` case and `build_units_body`: `- <unit>: <line>` with `<line>` the file's first `red` line, then, when the file has lines after it, a fenced code block indented two spaces holding at most 20 of those lines and `... <K> more lines in the run` when K > 0; lines before the first `red` line are not printed.
 - **R5.** A body posted by `check_expected_units` with RESULT not `success` names each red unit exactly once.
-- **R6.** `tests/scripts/mutation_notify.bats` asserts R4 for two red units with detail lines and a green unit, the 25-line truncation to 20 plus `  ... 5 more lines in the run`, and R5.
-- **R7.** The `Run mutants` step appends `toolchain: <rustc -V>; <cargo mutants --version>` to `status/<slug>` after the verdict, and `tests/test_mutation_workflows.py` asserts the verdict is the first line and the `toolchain:` line follows.
-- **R8.** `docs/adr/0042-*.md` records the sweep's 0-missed rule, the timeout-counts-as-caught rule with the 56-mutant classification table, the fix-to-close procedure and the cargo-mutants bump procedure, and `docs/adr/README.md` lists 0042 and marks 0024 partially superseded.
-- **R9.** Root `CLAUDE.md`'s sweep red/green line states the component 1 rules and the file stays at or under 30,000 bytes.
-- **R10.** `docs/superpowers/README.md` no longer contains the Backlog rows "Rust mutation sweep drift the per-PR gate cannot see" and "Per-PR Rust gate passes an all-timeout run".
-- **V1.** Re-run the 16 unmeasured timeout mutants of run 41952665142 (e-rs 12, prime-rs 2, pi-rs 2) by exact name with `--timeout 180` on `claude`; prime-rs and pi-rs under the 8 GiB cap as in slice 5, e-rs with `MUTANTS_UNCAPPED=1` because its 64-thread-pool test cannot build under the cap on that 48-core host. Record each result, the host and the cap mode in ADR-0042. Any that comes back missed gets a killing test in this slice.
+- **R6.** `tests/scripts/mutation_notify.bats` asserts R4 for two red units with detail lines and a green unit, a red unit with no detail lines (no fence), the 25-line truncation to 20 plus `... 5 more lines in the run` with a `Vec<u32>` line inside the fence, and R5; and its two existing cases are inverted as the Testing section states (`second line` and `red: second red` present, `note: preamble` absent).
+- **R7.** `docs/adr/0042-*.md` records the sweep's 0-missed rule, the timeout-counts-as-caught rule with the 56-mutant classification table, the fix-to-close procedure and the cargo-mutants bump procedure, and `docs/adr/README.md` lists 0042 and marks 0024 partially superseded.
+- **R8.** Root `CLAUDE.md`'s sweep red/green line states the component 1 rules and the file stays at or under 30,000 bytes.
+- **R9.** `docs/superpowers/README.md` no longer contains the Backlog rows "Rust mutation sweep drift the per-PR gate cannot see" and "Per-PR Rust gate passes an all-timeout run", and contains a row for measuring survivor drift on the first sweep after a stable rustc newer than 1.99.1.
+- **V1.** Re-run the 16 unmeasured timeout mutants of run 41952665142 (e-rs 12, prime-rs 2, pi-rs 2) on `claude` from a `git archive` copy, each by exact name, as `(ulimit -v 8388608; cargo mutants --no-shuffle --timeout 180 --re '<exact name>')` in the crate directory (calling cargo-mutants directly bypasses the Makefile cap, so the `ulimit` is explicit). For e-rs, first add `MALLOC_ARENA_MAX=2` under the same `ulimit` (the cap likely failed on glibc malloc-arena address space, not real use); if its baseline still fails, run without `ulimit` inside `systemd-run --user --scope -p MemoryMax=16G -p MemorySwapMax=0`, never fully uncapped, because an OOM kill on the shared host may take a peer session's process. Record each result, the host and which bound ran in ADR-0042. Any that comes back missed gets a killing test in this slice.
 - **V2.** Before dispatch, `gh issue list --label mutation-failure --state open` is empty (a full dispatch from the branch has `FULL_SWEEP=true`, so green closes and red posts; accepted, operator 2026-11-05). Dispatch two full `mutation-testing.yml` sweeps on the same branch SHA. Each is green with 11 crate status lines, each caught ≥ 1 and missed 0. Diff each crate's sorted `missed.txt` and `caught.txt` between the two runs and against run 41952665142, and record `nproc`; a mutant missed in one run and not another stops the slice for an operator decision.
 - **V3.** On a local copy, delete one assertion that kills a known mutant in one crate, run `make mutants`, and run the classifier with `0 1` on the result: red, naming the survivor.
 - **V4.** In an ai-config change coordinated with that repo's session: the knowledge entry `math-testing-policy.md` § Mutation green/red describes the new sweep rule, and `.github/workflows/mutation-review.yml` no longer runs the math cargo-mutants leg.
@@ -197,16 +211,16 @@ N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
 
 Finding: Worth building; component 3 and the cap are justified. F1: the toolchain line (component 2, R7) cannot do what the Consequence section claims. Separating a rustc change from a runner change needs the previous green run's rustc and the runner shape, and the line records neither. The image (`Image: ubuntu-26.04`, `Version: 20261101.186.1`) and `rustc 1.99.1` are already in every job log (90-day retention), and the cargo-mutants version is pinned in git. It also forces rewrites of the single-line status assertions in `tests/test_mutation_workflows.py` and adds a `bash -e` abort path. Fix: drop component 2 and R7; point the Consequence at the run log.
 Assumption: reds with no math commit behind them stay rare, rather than each ~6-weekly stable rustc moving survivors. V2 holds the toolchain fixed, so it cannot test this; a full sweep on the V2 SHA after the next stable rustc, diffed against V2, can.
-Disposition:
+Disposition: Addressed (operator, 2026-11-05: "Drop it"; "Accept both") — component 2 and R7 removed, Consequence points at the run log; assumption accepted and carried as a Backlog row (component 4, R9) for the first sweep after rustc 1.99.1.
 
 #### Ergonomics
 
 Finding: F1 (verified by the orchestrator with `gh api -X POST /markdown`, mode `gfm`): raw `missed:` lines in a list lose generic arguments, so `replace sieve -> Vec<u32> with vec![]` renders as `replace sieve -> Vec with vec![]`. Return-value replacements are a main cargo-mutants mutation kind. Fix (render-verified by the lens): put detail lines in a fenced block indented two spaces under the list item; R4 and R6 pin the fence, and the 25-line case includes a `<T>` line. F2: the 20-line cap drops the toolchain line in the mass-survivor month it exists for. F3: R7 passes on `toolchain: ; ` because `run_crate_job` does not stub `rustc` or `cargo`. Red-month path is 6 steps with one ~15-minute wait; V2 costs ~150 runner-minutes (public repo, free) and ~30 minutes wall time; V1 under an hour.
 Assumption: 0 missed is reproducible run to run on CI's 2-vCPU runners. Refute with V2's diffs, or now by dispatching on `0d28038` and diffing against 41952665142.
-Disposition:
+Disposition: Addressed (operator, 2026-11-05: "All of (a)-(d)"; "Drop it") — detail lines fenced and indented under the list item (component 2, R4, R6 with a `Vec<u32>` line); F2/F3 moot with the toolchain line dropped; assumption tested by V2.
 
 #### Risk
 
 Finding: F1: same as Ergonomics F2 (toolchain line truncated). F2: existing tests contradict R4 and the spec lists only additions: `tests/scripts/mutation_notify.bats:706` (`run ! grep -qF -- "second line"`) and `:777` (`note: preamble` / `red: pi -- late verdict` / `red: second red`, asserting `second red` absent) invert, and R4 leaves open whether "other lines" include lines before the first `red` line. F3: same as Ergonomics F3, plus the failure path of `$(cargo mutants --version)` under `bash -e` is unspecified. F4: V1 running e-rs uncapped on `claude` (48 threads, 157 GiB available, peer sessions co-resident) can reach the OOM killer, which picks by RSS and may kill a peer session. The cap likely failed on VSZ from glibc malloc arenas (8 × 48 × 64 MiB; inference, not measured). Remedies: `MALLOC_ARENA_MAX=2` under the existing `ulimit -v 8388608`, or `systemd-run --user --scope -p MemoryMax=16G -p MemorySwapMax=0` (caps RSS; user cgroup has `memory` delegated). V1 should give the exact command, since `cargo mutants -F` bypasses the Makefile cap. F5 (minor): nothing caps total body bytes; an oversize body fails `gh` loudly.
 Assumption: missed vs caught/timeout is deterministic run to run on ubuntu-latest. Precedent against: e-rs `.cargo/mutants.toml` already excludes `src/lib.rs:112:49` because one run caught it and run 41948343321 missed it; math#204 was vCPU-decided. Refute by diffing every retained run's `missed.txt` against `caught.txt`/`timeout.txt` on source-identical SHAs.
-Disposition:
+Disposition: Addressed (operator, 2026-11-05: "Drop it"; "All of (a)-(d)"; "Arena cap, then cgroup"; "Accept both") — F1/F3 moot; F2 by the Testing section listing both inverted cases and R4 excluding the preamble; F4 by V1's exact commands, `MALLOC_ARENA_MAX=2` under the cap, then a 16G `systemd-run` scope, never fully uncapped; F5 accepted (fails loud); assumption tested by V2.
