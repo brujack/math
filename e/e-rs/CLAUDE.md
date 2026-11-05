@@ -43,7 +43,7 @@ Integer::from(&l.q * &r.p) + &r.q
 - `fn bs_merge(l, r)`: combines two adjacent ranges
 - `fn compute_e(digits)`: resets `BS_LEAF_COUNT`, spawns a progress thread that prints series completion % every 200 ms, runs `bs(0, n)`, joins the thread, then builds `rug::Float` and calls `e_to_string`
 - `fn e_to_string(e, digits)`: uses `e.to_string_radix(10, Some(digits+5))`, trims to exact decimal places
-- `fn write_e_file(dir, e_str, digits)`: `#[cfg(unix)]` -- delegates to `write_e_file_sized(dir, e_str, digits, min_chunk)` with `MIN_WRITE_CHUNK` (4 MiB); the sized form builds `dir/e_<digits>_digits.txt`, pre-allocates with `file.set_len()`, spawns a progress thread reporting write % and MB/s every 200 ms, parallel pwrite via rayon `par_chunks` (each chunk updates an `Arc<AtomicU64>` byte counter), joins thread and prints final MB/s; returns the written `PathBuf`
+- `fn write_e_file(dir, e_str, digits)`: `#[cfg(unix)]` -- delegates to `write_e_file_sized(dir, e_str, digits, min_chunk)` with `WRITE_MIN_CHUNK` (4 MiB); the sized form builds `dir/e_<digits>_digits.txt`, pre-allocates with `file.set_len()`, spawns a progress thread reporting write % and MB/s every 200 ms, parallel pwrite via rayon `par_chunks` (each chunk updates an `Arc<AtomicU64>` byte counter), joins thread and prints final MB/s; returns the written `PathBuf`
 - `fn warn_large_digits(d)` (`d > 1_000_000`), `fn shows_preview(d)` (`d <= 1_000_000`), `fn auto_saves(d)` (`d > 10_000`): pure thresholds used by `run` and `prompt_digits_with`
 - `fn format_write_done(total_bytes, elapsed)`: pure formatter for the final write summary line (caller prints the leading `\r`)
 - `fn save_e(dir, e_str, digits, out)`: `#[cfg(unix)]` -- announces the filename then delegates to `write_e_file`

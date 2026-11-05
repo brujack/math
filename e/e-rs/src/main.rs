@@ -84,13 +84,13 @@ fn format_write_done(total_bytes: u64, elapsed: f64) -> String {
 }
 
 /// Default lower bound on the parallel write chunk size.
-const MIN_WRITE_CHUNK: usize = 4 * 1024 * 1024;
+const WRITE_MIN_CHUNK: usize = 4 * 1024 * 1024;
 
 /// Write e to a file using parallel pwrite(2) chunks, reporting progress and
 /// write speed. Returns the absolute path written.
 #[cfg(unix)]
 fn write_e_file(dir: &Path, e_str: &str, digits: usize) -> io::Result<PathBuf> {
-    write_e_file_sized(dir, e_str, digits, MIN_WRITE_CHUNK)
+    write_e_file_sized(dir, e_str, digits, WRITE_MIN_CHUNK)
 }
 
 /// `write_e_file` with an explicit minimum chunk size, so tests can force
