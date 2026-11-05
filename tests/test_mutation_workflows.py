@@ -748,16 +748,19 @@ class RustSetupJobTests(unittest.TestCase):
 
 
 class JobResult(tuple):  # type: ignore[type-arg]
-    """The (proc, make calls, statuses, summary) tuple plus `classifier_argc`.
+    """The (proc, make calls, statuses, summary) tuple plus classifier records.
 
-    `classifier_argc` lists the argument count of each mutation-classify.sh call.
+    `classifier_argc` lists the argument count of each mutation-classify.sh call;
+    `classifier_args` lists its fourth and fifth arguments, one string per call.
     """
 
     classifier_argc: list[str]
+    classifier_args: list[str]
 
-    def __new__(cls, fields, classifier_argc):
+    def __new__(cls, fields, classifier_argc, classifier_args):
         self = super().__new__(cls, fields)
         self.classifier_argc = classifier_argc
+        self.classifier_args = classifier_args
         return self
 
 
@@ -811,6 +814,7 @@ def run_crate_job(
         classify.write_text(
             "#!/bin/sh\n"
             f'printf \'%s\\n\' "$#" >> "{root / "classify-argc"}"\n'
+            f'printf \'%s\\n\' "$4 $5" >> "{root / "classify-args"}"\n'
             'if [ "$RED" = "1" ]; then printf "red: %s rc=%s %s\\n" "$3" "$1" "$2" >&2; exit 1; fi\n'
             'printf \'green: %s rc=%s %s\\n\' "$3" "$1" "$2"\n'
         )
@@ -854,7 +858,9 @@ def run_crate_job(
         statuses = {p.name: p.read_text() for p in (workspace / "status").glob("*")}
         argc_file = root / "classify-argc"
         argc = argc_file.read_text().split() if argc_file.exists() else []
-        return JobResult((proc, made, statuses, summary.read_text()), argc)
+        args_file = root / "classify-args"
+        args = args_file.read_text().splitlines() if args_file.exists() else []
+        return JobResult((proc, made, statuses, summary.read_text()), argc, args)
 
 
 class RustMutantsJobTests(unittest.TestCase):
@@ -889,10 +895,12 @@ class RustMutantsJobTests(unittest.TestCase):
         self.assertEqual(statuses, {"a-a-rs": line})
         self.assertEqual(summary, line)
 
-    def test_classifier_gets_exactly_three_arguments(self):
-        # N2: the sweep's verdict rules stay put, so no limit/min_caught 4th arg.
+    def test_classifier_gets_limit_zero_and_min_caught_one(self):
+        # Worldclass slice 6 / ADR-0042: survivors are red in the sweep, so the
+        # classifier gets max_missed 0 and min_caught 1 after the crate dir.
         result = run_crate_job("a/a-rs", "a-a-rs")
-        self.assertEqual(result.classifier_argc, ["3"])
+        self.assertEqual(result.classifier_argc, ["5"])
+        self.assertEqual(result.classifier_args, ["0 1"])
 
     def test_non_integer_exit_code_is_red_and_never_classified(self):
         # '' and 'x' both read as 0 inside the classifier's `-eq`, which turns

@@ -130,11 +130,13 @@ jobs:
           # takes the command's exit status, so under GitHub's `bash -e` a red
           # verdict would abort the block here instead of being recorded.
           cls=0
+          # Trailing `0 1` = max_missed 0, min_caught 1 (ADR-0042): any survivor
+          # is red, caught < 1 is red, and timeouts stay green beside a catch.
           # 2>&1: the classifier prints green verdicts to stdout and red ones
           # to stderr. Capturing stdout alone leaves status/<slug> empty for
           # exactly the crates the notify job needs to name.
           verdict=$("${GITHUB_WORKSPACE}/scripts/mutation-classify.sh" \
-            "${rc}" "${CRATE_DIR}/mutants.out/outcomes.json" "${CRATE_DIR}" 2>&1) || cls=$?
+            "${rc}" "${CRATE_DIR}/mutants.out/outcomes.json" "${CRATE_DIR}" 0 1 2>&1) || cls=$?
           printf '%s\n' "${verdict}" \
             | tee -a "${GITHUB_STEP_SUMMARY}" "${GITHUB_WORKSPACE}/status/${SLUG}"
           exit "${cls}"
