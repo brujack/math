@@ -59,6 +59,7 @@ Master status index for all specs and implementation plans in this directory.
 | 2026-11-03 | [worldclass-slice3-rust-mutation-matrix](plans/2026-11-03-worldclass-slice3-rust-mutation-matrix.md) | [spec](specs/2026-11-03-worldclass-slice3-rust-mutation-matrix-design.md) | Done (math#202) |
 | 2026-11-04 | [worldclass-slice4-rust-mutation-survivors](plans/2026-11-04-worldclass-slice4-rust-mutation-survivors.md) | [spec](specs/2026-11-04-worldclass-slice4-rust-mutation-survivors-design.md) | Done (math#203) |
 | 2026-11-05 | [worldclass-slice5-rust-pr-mutation-ratchet](plans/2026-11-05-worldclass-slice5-rust-pr-mutation-ratchet.md) | [spec](specs/2026-11-05-worldclass-slice5-rust-pr-mutation-ratchet-design.md) | Done |
+| 2026-11-05 | [worldclass-slice6-rust-sweep-ratchet](plans/2026-11-05-worldclass-slice6-rust-sweep-ratchet.md) | [spec](specs/2026-11-05-worldclass-slice6-rust-sweep-ratchet-design.md) | Planned |
 | 2026-10-31 | [shared-push-content-gate](plans/2026-10-31-shared-push-content-gate.md) | ai-config `2026-10-30-shared-push-content-gate-design.md` (cross-repo) | Done |
 
 ---
