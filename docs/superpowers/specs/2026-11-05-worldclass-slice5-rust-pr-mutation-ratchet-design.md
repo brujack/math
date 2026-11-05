@@ -332,3 +332,30 @@ N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
 
 Finding: no new false-green path. Wording gaps: the detect bats bullet said "five" gate files against seven R12 triggers; zero crate dirs was undefined for the loop script; R7 said `has_rs` only while component 6 restores the GMP cache for `has_rs` or `rs_canary`. Assumption: the canary commit holds exactly the one-line change; it depends on committing the path alone. Disposition: Addressed (orchestrator, wording-level, within the operator's 2026-11-05 "Scoped Risk, then approve"): the bullet enumerates the R12 list, zero crate dirs exits 2 (R5, bats), R7 matches component 6, the canary commits `amicable/amicable-rs/src/lib.rs` alone (R13), and the bats case checks the stub runs once per crate.
 
+
+## Amendments
+
+- finding R8 (2026-11-05, reviewer both): NOT-BUILT — Root CLAUDE.md describes the per-PR gate and repro, replaces the 'investigate surviving mutants in logic code, not main glue' line, and the Backlog row is rewritten, but the diff contains no change to any math knowledge entry (ai-config/docs/knowledge/math-*.md) that describes mutation-pr.yml, and only plans are excluded from this diff.
+- R8 -> Root `CLAUDE.md` describes the per-PR gate and the local repro in the same change, and the math knowledge entries that describe `mutation-pr.yml` (`ai-config/docs/knowledge/math-ci.md`, `math-testing-policy.md`) are updated by a direct ai-config commit made when this PR merges; the Backlog row "Rust mutation leg has no missed-count ratchet" is rewritten to cover only drift the per-PR gate cannot see (deleted tests, rustc or cargo-mutants updates); root `CLAUDE.md`'s "investigate surviving mutants in logic code, not main glue" is replaced by: every missed mutant on a changed line gets a killing test, glue included, and `exclude_re` is only for true equivalents. — the knowledge entries live in the ai-config repo, so no math diff can contain them; the ai-config owner session approved a direct commit there after merge.
+
+## Spec alignment (2026-11-05)
+
+- spec: docs/superpowers/specs/2026-11-05-worldclass-slice5-rust-pr-mutation-ratchet-design.md
+- anchor: 18633cab1526804f9e4ff01219346b74d3c915d3
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+| R8 | both | NOT-BUILT | Root CLAUDE.md describes the per-PR gate and repro, replaces the 'investigate surviving mutants in logic code, not main glue' line, and the Backlog row is rewritten, but the diff contains no change to any math knowledge entry (ai-config/docs/knowledge/math-*.md) that describes mutation-pr.yml, and only plans are excluded from this diff. | - R8 -> Root `CLAUDE.md` describes the per-PR gate and the local repro in the same change, and the math knowledge entries that describe `mutation-pr.yml` (`ai-config/docs/knowledge/math-ci.md`, `math-testing-policy.md`) are updated by a direct ai-config commit made when this PR merges; the Backlog row "Rust mutation leg has no missed-count ratchet" is rewritten to cover only drift the per-PR gate cannot see (deleted tests, rustc or cargo-mutants updates); root `CLAUDE.md`'s "investigate surviving mutants in logic code, not main glue" is replaced by: every missed mutant on a changed line gets a killing test, glue included, and `exclude_re` is only for true equivalents. — the knowledge entries live in the ai-config repo, so no math diff can contain them; the ai-config owner session approved a direct commit there after merge. |
+
+### Reviewed
+
+- none
+
+### Verifications
+
+- V1: Pending: positive-control draft PR runs after push, before gh pr ready.
+- V2: Pending: this PR's mutation-pr run. Local pre-push equivalents: unstubbed canary run in a scratch copy gave 6 mutants, 6 caught, missed 0 (spec review and bug-scan); scripts/mutation-pr-run.sh origin/master e/e-rs pi/pi-rs gave No mutants to filter, green, for both.
