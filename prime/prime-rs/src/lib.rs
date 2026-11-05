@@ -113,7 +113,7 @@ pub fn phase2_range(sqrt_limit: u64, limit: u64) -> (u64, u64) {
 /// Pure formatter for the final phase-2 line (the caller prints it with `eprintln!`).
 pub fn format_phase2_done(total: u64, elapsed: f64) -> String {
     let rate = if elapsed > 0.001 { total as f64 / elapsed / 1e6 } else { 0.0 };
-    format!("\r  Phase 2: 100%  ({} numbers sieved)  {:.1} M/s              ", fmt_int(total), rate,)
+    format!("\r  Phase 2: 100%  ({} numbers sieved)  {:.1} M/s              ", fmt_int(total), rate)
 }
 
 /// Pure formatter for the phase-2 progress line (allows unit testing of format).
@@ -218,10 +218,8 @@ pub fn find_primes_sized<W: Write>(
 
         processed.fetch_add(block_hi - block_lo + 1, Ordering::Relaxed);
 
+        // block is even and block_lo odd, so block_hi is even and block_lo stays odd.
         block_lo = block_hi + 1;
-        if block_lo.is_multiple_of(2) {
-            block_lo += 1;
-        }
     }
 
     let processed_total = processed.load(Ordering::Relaxed);

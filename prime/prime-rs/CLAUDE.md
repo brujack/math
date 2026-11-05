@@ -69,9 +69,10 @@ Driver:
 - `fn phase2_range(sqrt_limit, limit) -> (start, total)`: first odd number of phase 2 and how many numbers it covers.
 - `fn format_phase2_done(total, elapsed)`: pure formatter for the final phase-2 line (printed with `eprintln!`).
 - `fn find_primes_sized<W: Write>(limit, out, block, seg) -> io::Result<(count, processed)>`: the driver with explicit even block and segment sizes; tests use `block = 64, seg = 16` to cross block and segment boundaries against a naive trial-division reference.
-- `fn find_primes<W: Write>(limit, out)`: delegates to `find_primes_sized(limit, out, BLOCK_SIZE, SEG_SIZE)`; orchestrates both phases; spawns a progress thread; returns total prime count.
+- `fn find_primes<W: Write>(limit, out)`: delegates to `find_primes_sized(limit, out, BLOCK_SIZE, SEG_SIZE)` and returns the prime count.
+- `find_primes_sized` orchestrates both phases and spawns a progress thread:
   - Writes small primes directly after phase 1.
-  - Iterates `block_lo` from `phase2_start` (first odd > `sqrt_limit`) to `limit` in `BLOCK_SIZE` steps.
+  - Iterates `block_lo` from `phase2_start` (first odd > `sqrt_limit`) to `limit` in `block`-sized steps (`block_lo` stays odd because `block` is even).
   - Within each block: builds `seg_starts` Vec, runs `par_iter().map(sieve_segment).collect()`, writes results.
 
 Helpers:
@@ -165,7 +166,6 @@ cargo tarpaulin --out Stdout
 Uncovered lines (~7/186):
 
 - Phase-2 progress-thread loop body (timing-dependent — only fires after a 200 ms tick)
-- Block-advance `block_lo += 1` branch (only triggers when N ≥ 9, i.e. limit > BLOCK_SIZE = 100 M)
 - Final phase-2 rate `else 0.0` branch (elapsed always > 0.001 ms for real sieves)
 - Tarpaulin macro-expansion artifacts in `eprintln!` calls
 
