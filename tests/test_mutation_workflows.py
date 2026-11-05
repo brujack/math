@@ -1022,9 +1022,10 @@ class RustNotifyJobTests(unittest.TestCase):
         self.assertEqual(step["run"], "scripts/mutation-notify.sh")
 
     def test_notify_does_not_reaggregate_outputs(self):
-        # Slice 6 (ADR-0042): ai-config's mutation-review, the only reader of a
-        # merged `mutants-output` artifact, no longer runs on this workflow, so
-        # notify neither downloads the per-crate outputs nor re-uploads them.
+        # Slice 6 (ADR-0042): the only reader of a merged `mutants-output`
+        # artifact was ai-config's mutation-review cargo-mutants leg, retired by
+        # a coordinated ai-config change that merges first, so notify neither
+        # downloads the per-crate outputs nor re-uploads them.
         for step in rs_job("notify")["steps"]:
             with_ = step.get("with") or {}
             self.assertNotEqual(with_.get("pattern"), "mutants-output-*", step)

@@ -168,7 +168,7 @@ jobs:
         with:
           name: mutants-output-${{ matrix.slug }}
           # marker/ keeps the artifact root at the workspace, so the crate
-          # prefix survives and eleven trees do not collide when merged.
+          # prefix survives: the artifact unpacks to <crate>/mutants.out/.
           path: |
             ${{ matrix.crate }}/mutants.out/
             marker/

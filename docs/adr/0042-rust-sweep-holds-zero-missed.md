@@ -82,7 +82,9 @@ were ok.
   runner-shape change (the math#204 precedent). The run log's rustc and `Image:` lines tell
   them apart.
 - The ai-config mutation-review cargo-mutants leg is retired in a coordinated ai-config change,
-  because it reads only successful runs and a red sweep now has none to read.
+  because it reads only successful runs and a red sweep now has none to read. That change must
+  merge before this one: until it does, the leg still downloads the `mutants-output` artifact
+  that this change stops producing.
 - `notify` no longer downloads the per-crate `mutants-output-<slug>` artifacts or re-uploads a
   merged `mutants-output`: that artifact existed only for the retired leg. This supersedes
   ADR-0040 decision 6, and it removes the failure mode where one corrupt per-crate output
