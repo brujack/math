@@ -1,4 +1,5 @@
-"""Static pin of the signal handling in every `mutants*` recipe.
+"""Static pin of the signal handling in every recipe that owns a TMPDIR cleanup
+(Rust mutants/mutants-diff, Python mutants/mutants-baseline).
 
 The behavioural SIGTERM-twice tests in tests/scripts/makefile.bats prove the
 cleanup survives a repeated signal at runtime. These checks are the deterministic
@@ -65,14 +66,16 @@ def _python_makefiles() -> list[pathlib.Path]:
 class TestMutantsCleanupTraps(unittest.TestCase):
     def test_rust_makefiles_pin_signal_traps(self):
         files = _rust_makefiles()
-        self.assertEqual(len(files), 12)
+        # every crate plus the template
+        self.assertEqual(len(files), len(rcf.CRATES) + 1)
         for path in files:
             with self.subTest(makefile=str(path.relative_to(REPO_ROOT))):
                 self.assertEqual(trap_problems(path.read_text(), RUST_RECIPES), [])
 
     def test_python_makefiles_pin_signal_traps(self):
         files = _python_makefiles()
-        self.assertEqual(len(files), 10)
+        # every Python project plus the template
+        self.assertEqual(len(files), len(rcf.PYTHON_PROJECTS) + 1)
         for path in files:
             with self.subTest(makefile=str(path.relative_to(REPO_ROOT))):
                 self.assertEqual(trap_problems(path.read_text(), PYTHON_RECIPES), [])

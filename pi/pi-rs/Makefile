@@ -21,7 +21,8 @@ bench:
 
 # Killed timeout tests never drop their TempDir and /tmp is tmpfs (RAM), so TMPDIR is a dir under target, removed on exit.
 # ulimit -f (1 KiB units in bash -c) kills a mutant that writes unbounded output at 256 MiB.
-# cleanup ignores TERM/HUP/INT so a repeated signal (make forwards one) cannot stop the rm; the TERM/HUP traps route a first signal through EXIT.
+# cleanup ignores TERM/HUP/INT so a repeated signal (a group-wide TERM plus the one make forwards to this shell) cannot stop the rm;
+# the TERM/HUP traps route a first TERM/HUP through EXIT.
 mutants:
 	@bash -c 'rm -rf mutants.out; \
 	  t="$$(pwd)/target/mutants-tmp"; rm -rf -- "$$t"; mkdir -p "$$t"; export TMPDIR="$$t"; ulimit -f 262144 2>/dev/null || { printf "error: cannot set the 256 MiB file-size cap (ulimit -f).\n" >&2; exit 1; }; cleanup() { trap "" TERM HUP INT; rm -rf -- "$$t"; }; trap cleanup EXIT; trap "exit 143" TERM; trap "exit 129" HUP; \
@@ -37,7 +38,7 @@ mutants:
 	  cargo mutants --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle; rc=$$?; \
 	  mkdir -p mutants.out && printf "%s\n" "$${rc}" > mutants.out/exit-code; exit "$${rc}"'
 
-# PR-scoped run: only mutants inside DIFF, same memory cap, file cap, TMPDIR handling and timeout scaling as mutants.
+# PR-scoped run: only mutants inside DIFF, same memory cap, file cap, TMPDIR handling, signal-safe cleanup and timeout scaling as mutants.
 mutants-diff:
 	@bash -c 'd="$${DIFF}"; \
 	  if [ -z "$${d}" ] || [ ! -f "$${d}" ] || [ ! -r "$${d}" ]; then \

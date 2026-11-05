@@ -37,7 +37,8 @@ MUTANTS_CAP = ulimit -f 262144 2>/dev/null || { printf "error: cannot set the 25
 	      exit 1; }; \
 	  fi
 
-# cleanup ignores TERM/HUP/INT so a repeated signal (make forwards one) cannot stop the rm; the TERM/HUP traps route a first signal through EXIT.
+# cleanup ignores TERM/HUP/INT so a repeated signal (a group-wide TERM plus the one make forwards to this shell) cannot stop the rm;
+# here and in mutants below, the TERM/HUP traps route a first TERM/HUP through EXIT.
 mutants-baseline:
 	@command -v cosmic-ray >/dev/null || { printf "cosmic-ray not installed: pip install cosmic-ray\n" >&2; exit 1; }
 	@bash -c '$(MUTANTS_CAP); \
