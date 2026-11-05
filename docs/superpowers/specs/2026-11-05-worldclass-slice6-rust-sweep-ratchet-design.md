@@ -1,6 +1,7 @@
 # Worldclass slice 6: the monthly Rust sweep holds 0 missed
 
-- **Status:** Draft
+- **Status:** Approved
+- **Approved:** 2026-11-05
 - **Date:** 2026-11-05
 - **Backlog rows:** "Rust mutation sweep drift the per-PR gate cannot see", "Per-PR Rust gate passes an all-timeout run"
 
