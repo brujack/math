@@ -797,19 +797,19 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn test_write_pi_file_default_chunk_when_threads_exceed_bytes() {
-        // 64 threads and a 52-byte string make len / threads = 0, so the default
+        // 4 threads and a 3-byte string make len / threads = 0, so the default
         // WRITE_MIN_CHUNK alone keeps the chunk size positive. The pool is pinned so
         // the result does not depend on the host's core count.
-        assert!(PI_REF.len() < 64);
+        assert!("3.1".len() < 4);
         let dir = tempdir().unwrap();
-        let pool = rayon::ThreadPoolBuilder::new().num_threads(64).build().unwrap();
-        let path = pool.install(|| write_pi_file(dir.path(), PI_REF, 50)).unwrap();
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap();
+        let path = pool.install(|| write_pi_file(dir.path(), "3.1", 1)).unwrap();
         let expected = format!(
             "π calculated to {} decimal places using Chudnovsky/Rayon\n{}\n\n{}\n\nTotal decimal places: {}",
-            fmt_int(50),
+            fmt_int(1),
             "=".repeat(60),
-            PI_REF,
-            fmt_int(50),
+            "3.1",
+            fmt_int(1),
         );
         assert_eq!(std::fs::read(&path).unwrap(), expected.as_bytes());
     }

@@ -100,7 +100,7 @@ cargo tarpaulin --out Stdout
 | `read_line_from`                        | 3     | trims newline, empty input, trims whitespace                                                          |
 | `confirm_large_digits_with`             | 4     | "y", "yes", "n", other input                                                                          |
 | `prompt_digits_with`                    | 6     | valid, minimum=1, zero retry, non-numeric retry, large decline + accept                               |
-| `write_pi_file`                         | 7     | contents, filename format, idempotency, missing-dir error, `_sized` multi-chunk exact bytes, `_sized` missing dir, default chunk with a 64-thread pool |
+| `write_pi_file`                         | 7     | contents, filename format, idempotency, missing-dir error, `_sized` multi-chunk exact bytes, `_sized` missing dir, default chunk with a 4-thread pool and 3-byte input |
 | `save_pi`                               | 1     | writes file + announces                                                                               |
 | `run`                                   | 6     | digits=0 → exit 1, digits=1 → exit 0 + `π = 3.1…`, display=y, save=n, no-arg prompts, digits>10000 auto-saves |
 | `run_returns_err_on_stdout_failure`     | 1     | `run()` propagates Err when stdout write fails (FailWriter injection)                                 |
