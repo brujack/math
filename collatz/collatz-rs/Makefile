@@ -21,6 +21,7 @@ bench:
 
 # Killed timeout tests never drop their TempDir and /tmp is tmpfs (RAM), so TMPDIR is a dir under target, removed on exit.
 # ulimit -f (1 KiB units in bash -c) kills a mutant that writes unbounded output at 256 MiB.
+# cleanup ignores TERM/HUP/INT so a repeated signal (make forwards one) cannot stop the rm; the TERM/HUP traps route a first signal through EXIT.
 mutants:
 	@bash -c 'rm -rf mutants.out; \
 	  t="$$(pwd)/target/mutants-tmp"; rm -rf -- "$$t"; mkdir -p "$$t"; export TMPDIR="$$t"; ulimit -f 262144 2>/dev/null || { printf "error: cannot set the 256 MiB file-size cap (ulimit -f).\n" >&2; exit 1; }; cleanup() { trap "" TERM HUP INT; rm -rf -- "$$t"; }; trap cleanup EXIT; trap "exit 143" TERM; trap "exit 129" HUP; \

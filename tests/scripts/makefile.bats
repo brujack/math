@@ -337,14 +337,17 @@ for e in json.load(open('${REPO_ROOT}/renovate.json')).get('extends', []):
 
 # rm that stalls ~1 s on a TMPDIR removal once the hang stub is ready (STUB_RM_SLOW set), so a
 # second SIGTERM lands while the cleanup rm is running. It logs the path it was asked to remove
-# to ${BATS_TEST_TMPDIR}/rm-log, so a test can tell "dir removed" from "dir never there".
+# to ${BATS_TEST_TMPDIR}/rm-log only when that path (the last argument) is an existing directory at
+# call time, so a test can tell "dir removed" from "dir never there".
 _stub_slow_rm() {
     cat > "$1/rm" <<'STUB'
 #!/bin/bash
 case "$*" in
     *mutants-tmp*)
         if [ -n "${STUB_RM_SLOW}" ] && [ -e "${BATS_TEST_TMPDIR}/hang-ready" ]; then
-            printf '%s\n' "$*" >> "${BATS_TEST_TMPDIR}/rm-log"
+            if [ -d "${@: -1}" ]; then
+                printf '%s\n' "$*" >> "${BATS_TEST_TMPDIR}/rm-log"
+            fi
             : > "${BATS_TEST_TMPDIR}/rm-started"
             sleep 1
         fi ;;

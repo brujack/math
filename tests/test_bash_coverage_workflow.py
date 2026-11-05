@@ -32,10 +32,44 @@ def _failure_branch() -> str:
 
 
 class BashCoverageFailureBranchTest(unittest.TestCase):
-    def test_failure_branch_reads_bats_log_and_still_exits_1(self) -> None:
-        branch = _failure_branch()
-        self.assertIn("coverage/bats_run.log", branch)
-        self.assertRegex(branch, r"(?m)^\s*exit 1\s*$")
+    def _run_branch(self, log: str | None) -> subprocess.CompletedProcess[str]:
+        """Run the failure group after a failing command, under `bash -e`."""
+        with tempfile.TemporaryDirectory() as tmp:
+            out_file = Path(tmp) / "bash-cov-out.txt"
+            out_file.write_text("make output\n", encoding="utf-8")
+            if log is not None:
+                (Path(tmp) / "coverage").mkdir()
+                (Path(tmp) / "coverage" / "bats_run.log").write_text(
+                    log, encoding="utf-8"
+                )
+            branch = _failure_branch().replace("/tmp/bash-cov-out.txt", str(out_file))
+            script = "false || {\n" + branch + "\n}\necho REACHED_AFTER_GROUP\n"
+            return subprocess.run(
+                ["bash", "-e", "-c", script],
+                cwd=tmp,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+    def test_failure_branch_without_log_exits_1(self) -> None:
+        result = self._run_branch(None)
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("REACHED_AFTER_GROUP", result.stdout)
+
+    def test_failure_branch_with_log_prints_failing_block_and_exits_1(self) -> None:
+        log = (
+            "ok 1 first passes\n"
+            "not ok 2 second fails\n"
+            "# (in test file t.bats, line 9)\n"
+            "#   `false' failed\n"
+            "ok 3 third passes\n"
+        )
+        result = self._run_branch(log)
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("REACHED_AFTER_GROUP", result.stdout)
+        self.assertIn("not ok 2 second fails\n", result.stdout)
+        self.assertIn("#   `false' failed\n", result.stdout)
 
     def test_failure_branch_guards_on_log_existence(self) -> None:
         self.assertRegex(_failure_branch(), r"\[ -f coverage/bats_run\.log \]")
