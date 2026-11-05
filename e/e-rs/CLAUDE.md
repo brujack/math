@@ -90,7 +90,7 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-### Test coverage (92.59% line coverage, 79 tests: 73 unit + 6 integration)
+### Test coverage (92.59% line coverage, 80 tests: 74 unit + 6 integration)
 
 | Area                                    | Tests | Notes                                                                                                 |
 | --------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------- |
@@ -107,7 +107,7 @@ cargo tarpaulin --out Stdout
 | `read_line_from`                        | 3     | trims newline, empty input, trims whitespace                                                          |
 | `prompt_digits_with`                    | 8     | valid, minimum=1, zero retry, non-numeric retry, large decline + accept, 1,000,000 skips confirm, 1,000,001 confirms |
 | `confirm_large_digits_with`             | 4     | "y", "yes", "n", other input                                                                          |
-| `write_e_file`                          | 6     | contents, filename format, idempotency, missing-dir error, multi-chunk byte-exact (`min_chunk = 7`), oversize chunk |
+| `write_e_file`                          | 7     | contents, filename format, idempotency, missing-dir error, multi-chunk byte-exact (`min_chunk = 7`), oversize chunk, default chunk with a 64-thread pool |
 | `save_e`                                | 1     | writes file + announces                                                                               |
 | `run`                                   | 7     | digits=0 → exit 1, display=y, save=n, no-arg prompts, digits>10000 auto-saves, digits=1 exact preview, digits=10000 prompts |
 | `run_returns_err_on_stdout_failure`     | 1     | `run()` propagates Err when stdout write fails (FailWriter injection)                                 |
