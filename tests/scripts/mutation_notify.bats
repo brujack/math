@@ -949,6 +949,23 @@ print("\n".join(out))
     [ "${output}" = "${_expected}" ]
 }
 
+@test "render_red_units: the more-lines count does not carry into the next unit" {
+    mkdir -p "${ARTIFACT_DIR}/status"
+    {
+        printf 'red: a -- big\n'
+        for i in $(seq 1 25); do printf 'a%s\n' "${i}"; done
+    } > "${ARTIFACT_DIR}/status/a-rs"
+    printf 'red: b -- small\nb1\n' > "${ARTIFACT_DIR}/status/b-rs"
+
+    run render_red_units
+    [ "${status}" -eq 0 ]
+    _expected=$'- a-rs: red: a -- big\n  ~~~~~'
+    for i in $(seq 1 20); do _expected+=$'\n'"  a${i}"; done
+    _expected+=$'\n  ... 5 more lines in the run\n  ~~~~~'
+    _expected+=$'\n- b-rs: red: b -- small\n  ~~~~~\n  b1\n  ~~~~~'
+    [ "${output}" = "${_expected}" ]
+}
+
 @test "render_red_units: a final detail line with no trailing newline is kept" {
     mkdir -p "${ARTIFACT_DIR}/status"
     printf 'red: pi-3 -- bad\nd1\nd2' > "${ARTIFACT_DIR}/status/pi-3"
