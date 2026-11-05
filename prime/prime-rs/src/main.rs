@@ -451,6 +451,20 @@ mod tests {
     }
 
     #[test]
+    fn test_find_primes_sized_many_small_blocks() {
+        // block 8, seg 4: limit 1000 (sqrt_limit 32, start 33) is 968 numbers =
+        // 121 blocks of 8; limit 1001 (start 33) is 969 numbers = 121 blocks plus
+        // a final block of 1.  Many blocks keep block_hi = block_lo + block - 1
+        // well below the limit, so a wrong operator cannot hide behind `.min(limit)`.
+        let (primes, processed) = sized_primes(1_000, 8, 4);
+        assert_eq!(primes, naive_primes(1_000));
+        assert_eq!(processed, 968);
+        let (primes, processed) = sized_primes(1_001, 8, 4);
+        assert_eq!(primes, naive_primes(1_001));
+        assert_eq!(processed, 969);
+    }
+
+    #[test]
     fn test_find_primes_sized_no_phase2_returns_zero_processed() {
         // limit 2: sqrt_limit 2, so limit <= sqrt_limit and phase 2 never runs.
         let (primes, processed) = sized_primes(2, 64, 16);

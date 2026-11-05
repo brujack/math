@@ -143,7 +143,7 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-### Test coverage (91.48% line coverage, 68 tests: 62 unit + 6 integration)
+### Test coverage (91.48% line coverage, 69 tests: 63 unit + 6 integration)
 
 | Area                                    | Tests | Notes                                                                                                                                  |
 | --------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------- |
@@ -154,7 +154,7 @@ cargo tarpaulin --out Stdout
 | `format_phase2_done`                    | 1     | exact strings at elapsed 0.001, 0.002, 1.0                                                                                             |
 | `format_phase2_progress`                | 5     | zero, partial, complete, zero-total, exact strings at elapsed 0.001 / 0.002 / 1.0                                                      |
 | `find_primes`                           | 9     | below-2, limit=2 exactly, up-to-10 exact output, π(100), π(1000), π(10^6)=78498, last prime, no even non-2, write error propagates     |
-| `find_primes_sized`                     | 4     | naive reference at 1000 / 1001, limit on a block boundary, exact processed count, no-phase-2 returns 0 processed                       |
+| `find_primes_sized`                     | 5     | naive reference at 1000 / 1001, many small blocks (block 8), limit on a block boundary, exact processed count, no-phase-2 returns 0 processed                       |
 | `read_line_from`                        | 3     | trims newline, empty, trims whitespace                                                                                                 |
 | `confirm_large_n_with`                  | 4     | "y", "yes", "n", other input                                                                                                           |
 | `prompt_n_with`                         | 6     | valid, minimum=1, maximum=18, zero retry, non-numeric retry, above-max retry                                                           |
