@@ -1,5 +1,7 @@
 # Worldclass slice 5: per-PR Rust mutation ratchet
 
+- **Approved:** 2026-11-05
+
 ## Problem
 
 Slice 4 (math#203, math#204) brought all 11 Rust crates to 0 missed mutants. Full sweep run
