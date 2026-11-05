@@ -143,7 +143,7 @@ Never put a fixed `--timeout` back (#95): keep `--timeout-multiplier 5 --minimum
 
 Keep `ulimit -v 8388608` (8 GiB) in the same `mutants` recipe; macOS needs `MUTANTS_UNCAPPED=1` set deliberately. → ai-config/docs/knowledge/math-testing-policy.md § Mutation memory cap
 
-A sweep leg is red only when `caught + missed == 0`, the baseline fails, the runner dies or `mutants.out/exit-code` is missing (written by `make mutants` and `make mutants-diff`; make exits 2 on any failure); survivors (2) and timeouts (3) are green (`scripts/mutation-classify.sh`, optional `max_missed`, `min_caught` args). → ai-config/docs/knowledge/math-testing-policy.md § Mutation green/red
+A sweep leg is red when any mutant is missed, `caught < 1`, `outcomes.json` or `mutants.out/exit-code` is missing, the baseline fails or the runner dies; timeouts are green beside a catch (`scripts/mutation-classify.sh ... 0 1`, ADR-0042). → ai-config/docs/knowledge/math-testing-policy.md § Mutation green/red
 
 `notify` is separate (`needs: [setup, mutants], if: always()`), label `mutation-failure` (`-python` via `ISSUE_LABEL`); needs `FULL_SWEEP`; only a full sweep closes. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
 Add `mutants` to a new Rust crate's `Makefile` `.PHONY` list and target; every missed mutant on a changed line gets a killing test, glue included; `exclude_re` only for true equivalents. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
