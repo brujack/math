@@ -16,7 +16,8 @@ _usage() {
     printf 'Usage: %s <base-ref> [--min-caught N] <crate-dir>...\n' "${0##*/}" >&2
 }
 
-# Prints a red verdict to stdout and returns 1, so callers can `|| red=1`.
+# Prints `red: <crate> - <reason>` to stdout and returns 1. Every caller follows it with
+# `return 1` itself, so the verdict line is the only effect; the status is not consumed.
 _red() {
     printf 'red: %s - %s\n' "$1" "$2"
     return 1

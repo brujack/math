@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+# Usage: mutation-classify.sh <exit_code> <outcomes.json> <label> [max_missed [min_caught]]
+#
+# Without a 4th argument the verdict rules are the monthly sweep's: red only when nothing
+# was evaluated (caught + missed == 0), the baseline failed or the runner died; survivors
+# and timeouts are green.
+# With a 4th argument (per-PR mode) timeouts count as evaluated, and the verdict is red
+# when missed > max_missed, naming the missed.txt lines. A 5th argument additionally
+# reds caught < min_caught, or a missing outcomes.json.
 
 readonly GREEN_EXIT_CODES=(0 2 3)
 
