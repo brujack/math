@@ -51,7 +51,8 @@ def cargo_installs():
 INSTALL_ACTION = "taiki-e/install-action@"
 AUDITABLE = "cargo-auditable"
 DENY = "cargo-deny"
-CI_ONLY_TOOLS = (AUDITABLE, DENY)
+MUTANTS = "cargo-mutants"
+CI_ONLY_TOOLS = (AUDITABLE, DENY, MUTANTS)
 RUST_INSTALLERS = sorted(REPO_ROOT.glob("*/*-rs/install_deps.sh"))
 _ACTION_SHA = re.compile(r"^taiki-e/install-action@(?P<sha>[0-9a-f]{40})$")
 _TOOL_SPEC = re.compile(r"^(?P<name>[a-z][a-z0-9_-]*)@(?P<version>\d+\.\d+\.\d+)$")
@@ -264,7 +265,14 @@ class TestInstallActionPins(unittest.TestCase):
                     self.assertEqual(pins.get(match["name"]), {match["version"]})
         self.assertEqual(
             seen,
-            {"cargo-nextest", "cargo-machete", "cargo-tarpaulin", AUDITABLE, DENY},
+            {
+                "cargo-nextest",
+                "cargo-machete",
+                "cargo-tarpaulin",
+                AUDITABLE,
+                DENY,
+                MUTANTS,
+            },
         )
 
     def test_ci_only_tool_has_one_version(self):
@@ -277,6 +285,22 @@ class TestInstallActionPins(unittest.TestCase):
             }
             with self.subTest(tool=tool):
                 self.assertEqual(len(versions), 1, versions)
+
+    def test_taiki_cargo_mutants_matches_mutation_workflow_install(self):
+        """The scripts.yml prebuilt cargo-mutants and mutation-testing.yml's source build agree."""
+        taiki = {
+            _version_of(entry)
+            for _, step in install_action_steps()
+            for entry in action_tools(step)
+            if entry.startswith(MUTANTS + "@")
+        }
+        source = {
+            version
+            for name, crate, version, _ in cargo_installs()
+            if crate == MUTANTS and name == ".github/workflows/mutation-testing.yml"
+        }
+        self.assertEqual(len(source), 1, source)
+        self.assertEqual(taiki, source)
 
 
 class TestPyrightPins(unittest.TestCase):

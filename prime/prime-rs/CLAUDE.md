@@ -61,14 +61,18 @@ Constants:
 Sieve functions:
 
 - `fn small_sieve(limit)`: simple Eratosthenes sieve of `[2, limit]`; returns `Vec<u64>` of primes.
-- `fn sieve_segment(lo, limit, small_primes)`: sieves one segment `[lo, lo+SEG_SIZE) ∩ [lo, limit]` using a packed `Vec<u8>` bitset. `lo` must be odd and greater than all `small_primes`. Returns `Vec<u64>` of primes in the segment.
+- `fn sieve_segment(lo, limit, small_primes, seg)`: sieves one segment `[lo, lo+seg) ∩ [lo, limit]` (callers pass `SEG_SIZE`; `seg` must be even) using a packed `Vec<u8>` bitset. `lo` must be odd and greater than all `small_primes`. Returns `Vec<u64>` of primes in the segment.
 
 Driver:
 
 - `fn format_phase2_progress(n, phase2_total, elapsed)`: pure formatter for the phase-2 progress line; testable in isolation.
-- `fn find_primes<W: Write>(limit, out)`: orchestrates both phases; spawns a progress thread; returns total prime count.
+- `fn phase2_range(sqrt_limit, limit) -> (start, total)`: first odd number of phase 2 and how many numbers it covers.
+- `fn format_phase2_done(total, elapsed)`: pure formatter for the final phase-2 line (printed with `eprintln!`).
+- `fn find_primes_sized<W: Write>(limit, out, block, seg) -> io::Result<(count, processed)>`: the driver with explicit even block and segment sizes; tests use `block = 64, seg = 16` to cross block and segment boundaries against a naive trial-division reference.
+- `fn find_primes<W: Write>(limit, out)`: delegates to `find_primes_sized(limit, out, BLOCK_SIZE, SEG_SIZE)` and returns the prime count.
+- `find_primes_sized` orchestrates both phases and spawns a progress thread:
   - Writes small primes directly after phase 1.
-  - Iterates `block_lo` from `phase2_start` (first odd > `sqrt_limit`) to `limit` in `BLOCK_SIZE` steps.
+  - Iterates `block_lo` from `phase2_start` (first odd > `sqrt_limit`) to `limit` in `block`-sized steps (`block_lo` stays odd because `block` is even).
   - Within each block: builds `seg_starts` Vec, runs `par_iter().map(sieve_segment).collect()`, writes results.
 
 Helpers:
@@ -139,15 +143,18 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-### Test coverage (91.48% line coverage, 57 tests: 51 unit + 6 integration)
+### Test coverage (91.48% line coverage, 69 tests: 63 unit + 6 integration)
 
 | Area                                    | Tests | Notes                                                                                                                                  |
 | --------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `fmt_int`                               | 5     | zero, sub-thousand, thousands, millions, large                                                                                         |
 | `small_sieve`                           | 6     | empty, single prime, known lists, π(100)=25, π(1000)=168                                                                               |
-| `sieve_segment`                         | 5     | known range, no even numbers, empty when lo > limit, lo == limit (prime)                                                               |
-| `format_phase2_progress`                | 4     | zero, partial, complete, zero-total                                                                                                    |
+| `sieve_segment`                         | 6     | known range, no even numbers, empty when lo > limit, lo == limit (prime), `seg` bounds the range                                       |
+| `phase2_range`                          | 3     | even and odd `sqrt_limit`, single number                                                                                               |
+| `format_phase2_done`                    | 1     | exact strings at elapsed 0.001, 0.002, 1.0                                                                                             |
+| `format_phase2_progress`                | 5     | zero, partial, complete, zero-total, exact strings at elapsed 0.001 / 0.002 / 1.0                                                      |
 | `find_primes`                           | 9     | below-2, limit=2 exactly, up-to-10 exact output, π(100), π(1000), π(10^6)=78498, last prime, no even non-2, write error propagates     |
+| `find_primes_sized`                     | 5     | naive reference at 1000 / 1001, many small blocks (block 8), limit on a block boundary, exact processed count, no-phase-2 returns 0 processed                       |
 | `read_line_from`                        | 3     | trims newline, empty, trims whitespace                                                                                                 |
 | `confirm_large_n_with`                  | 4     | "y", "yes", "n", other input                                                                                                           |
 | `prompt_n_with`                         | 6     | valid, minimum=1, maximum=18, zero retry, non-numeric retry, above-max retry                                                           |
@@ -159,7 +166,6 @@ cargo tarpaulin --out Stdout
 Uncovered lines (~7/186):
 
 - Phase-2 progress-thread loop body (timing-dependent — only fires after a 200 ms tick)
-- Block-advance `block_lo += 1` branch (only triggers when N ≥ 9, i.e. limit > BLOCK_SIZE = 100 M)
 - Final phase-2 rate `else 0.0` branch (elapsed always > 0.001 ms for real sieves)
 - Tarpaulin macro-expansion artifacts in `eprintln!` calls
 

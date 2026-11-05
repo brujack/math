@@ -1,0 +1,21 @@
+# Equivalent mutations excluded from cargo-mutants testing.
+# Each produces identical observable behavior, so no test with input under
+# 10,000 can kill it.
+# Update line numbers if surrounding code changes shift these expressions.
+#
+# Format: regex matched against "src/<file>.rs:<line>:<col>: <description>"
+exclude_re = [
+    # small_sieve start: crossing off from i + i instead of i * i marks the same
+    # composites (everything below i * i was already marked by smaller primes).
+    "^src/lib\\.rs:16:13: replace \\* with \\+ in small_sieve$",
+    "^src/lib\\.rs:18:27: replace \\* with \\+ in small_sieve$",
+    # limit < 5 early return: for limit 1 to 4 the full path also finds no pair
+    # (no twin pair has its upper prime below 5), and at limit 5 the pair (3, 5)
+    # is excluded by the strict w[1] < limit rule, so `<=` and `==` print the
+    # same zero-pair output.
+    "^src/lib\\.rs:96:14: replace < with == in find_twin_primes_sized$",
+    "^src/lib\\.rs:96:14: replace < with <= in find_twin_primes_sized$",
+    # Margin on the sieving bound sqrt(limit) as u64 + 1: primes up to
+    # floor(sqrt(limit)) already suffice, so `* 1` yields the same pairs.
+    "^src/lib\\.rs:100:51: replace \\+ with \\* in find_twin_primes_sized$",
+]

@@ -21,6 +21,8 @@ on:
       - "*/pyrightconfig.json"
       - "*/cosmic-ray.toml"
       - "*/*-rs/rustfmt.toml"
+      - "*/*-rs/src/**"
+      - "*/*-rs/.cargo/mutants.toml"
       - "*/*-rs/.config/nextest.toml"
       - "*/*-rs/install_deps.sh"
       - ".github/workflows/*-rs.yml"
@@ -73,10 +75,10 @@ jobs:
 
       - name: Install Python dependencies
         run: pip install -r requirements-dev.txt ruff==0.16.4 pip-audit==2.10.1
-      - name: Install cargo-deny
+      - name: Install cargo-deny and cargo-mutants
         uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
         with:
-          tool: cargo-deny@0.20.2
+          tool: cargo-deny@0.20.2,cargo-mutants@27.1.0
           fallback: none
       - name: Lint hooks, scripts and bats suites
         run: make lint

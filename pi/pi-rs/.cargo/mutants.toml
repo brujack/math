@@ -1,0 +1,32 @@
+# Equivalent mutations excluded from cargo-mutants testing.
+# Each produces identical observable behavior (or is reachable only above the
+# 10,000-digit test bound), so no test with input under 10,000 can kill it.
+# Update line numbers if surrounding code changes shift these expressions.
+#
+# Format: regex matched against "src/<file>.rs:<line>:<col>: <description>"
+exclude_re = [
+    # bs serial/parallel threshold (b - a <= BS_PAR_THRESHOLD): serial and
+    # parallel recursion compute the same merge; only scheduling differs.
+    "^src/lib\\.rs:45:14: replace <= with > in bs$",
+    "^src/lib\\.rs:45:10: replace - with \\+ in bs$",
+    # digits + 5 margin in pi_to_string: guard digits that are trimmed away;
+    # a different margin (digits * 5) only renders more digits before truncation.
+    "^src/lib\\.rs:106:50: replace \\+ with \\* in pi_to_string$",
+    # WRITE_MIN_CHUNK default (4 * 1024 * 1024): reached only by the unsized
+    # write_pi_file wrapper; tests use write_pi_file_sized with a small chunk,
+    # and any mutated size still yields positive, non-overlapping, gap-free chunks.
+    "^src/main\\.rs:105:34: replace \\* with \\+$",
+    "^src/main\\.rs:105:41: replace \\* with \\+$",
+    "^src/main\\.rs:105:41: replace \\* with /$",
+    # Preallocation: set_len(total) only sizes the file up front; the footer
+    # write_at extends it to the same final length, so the output is identical.
+    "^src/main\\.rs:135:39: replace \\+ with - in write_pi_file_sized$",
+    # Partition arithmetic pi.len() / n_threads: every mutated chunk size stays
+    # positive (max with min_chunk) and the chunks stay non-overlapping and
+    # gap-free, so the file content cannot differ.
+    "^src/main\\.rs:146:45: replace / with % in write_pi_file_sized$",
+    "^src/main\\.rs:146:45: replace / with \\* in write_pi_file_sized$",
+    # Short-write retry offset (base + written): differs only after a partial
+    # write_at, which is unreachable without fault injection.
+    "^src/main\\.rs:169:62: replace \\+ with - in write_pi_file_sized$",
+]

@@ -56,6 +56,7 @@ teardown() {
 }
 
 @test "changed file in factorial/factorial-rs/ uses worktree root in make path" {
+    setup_harness_stub # crate src also triggers the (stubbed) mutants exclusion check
     export MOCK_GIT_DIFF_NAMES="factorial/factorial-rs/src/main.rs"
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
@@ -227,6 +228,7 @@ teardown() {
     # CI scopes pi.py with the single-level glob `pi/*.py`, which cannot match
     # a file under pi/pi-rs/. The hook must not be broader than the gate it
     # approximates.
+    setup_harness_stub # crate src also triggers the (stubbed) mutants exclusion check
     export MOCK_GIT_DIFF_NAMES="pi/pi-rs/src/lib.rs"
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
@@ -780,4 +782,45 @@ run_in_pgroup() {
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -qxF "python3 cwd=triangle args=../scripts/cli_contract.py triangle.py" "${MOCK_CALLS_FILE}"
+}
+
+# --- mutants exclusion drift check ------------------------------------------
+# A crate's src/ or .cargo/mutants.toml changing can stale an exclude_re line
+# number, so the push runs tests.test_mutants_exclusions (stubbed python3 here).
+@test "crate src push runs the mutants exclusion check" {
+    setup_harness_stub
+    export MOCK_GIT_DIFF_NAMES="pi/pi-rs/src/lib.rs"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -qxF "python3 cwd=$(basename "${MOCK_GIT_SHOW_TOPLEVEL}") args=-m unittest tests.test_mutants_exclusions" "${MOCK_CALLS_FILE}"
+}
+
+@test "mutants.toml push runs the mutants exclusion check" {
+    setup_harness_stub
+    export MOCK_GIT_DIFF_NAMES="e/e-rs/.cargo/mutants.toml"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [ "$(grep -c 'args=-m unittest tests.test_mutants_exclusions' "${MOCK_CALLS_FILE}")" -eq 1 ]
+}
+
+@test "unrelated push does not run the mutants exclusion check" {
+    setup_harness_stub
+    export MOCK_GIT_DIFF_NAMES="README.md"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    assert_no_match "tests.test_mutants_exclusions"
+}
+
+@test "failing mutants exclusion check refuses the push" {
+    setup_harness_stub
+    export MOCK_GIT_DIFF_NAMES="pi/pi-rs/src/lib.rs"
+    MOCK_PYTHON_FAIL_DIR="$(basename "${MOCK_GIT_SHOW_TOPLEVEL}")"
+    export MOCK_PYTHON_FAIL_DIR
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 1 ]
+    [[ "${output}" == *"mutants exclusion check failed"* ]]
 }

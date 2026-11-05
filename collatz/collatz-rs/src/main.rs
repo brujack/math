@@ -3,7 +3,7 @@ use std::path::Path;
 
 use clap::Parser;
 
-use collatz::generate_records;
+use collatz::{generate_records, warns_large_n};
 
 #[derive(Parser)]
 #[command(name = "collatz", about = "Find Collatz chain record-setters up to 10^N")]
@@ -46,7 +46,7 @@ fn run<R: BufRead, W: Write, E: Write>(
                 writeln!(err, "Error: N must be between 1 and 12.")?;
                 return Ok(1);
             }
-            if v > 9 {
+            if warns_large_n(v as u64) {
                 writeln!(err, "Warning: N={v} may require significant time and memory.")?;
             }
             v as u64
@@ -91,7 +91,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use collatz::{chain_length, collatz_next, generate_records};
+    use collatz::{chain_length, collatz_next, generate_records, warns_large_n};
     use proptest::prelude::*;
     use std::io::Cursor;
     use tempfile::tempdir;
@@ -184,6 +184,25 @@ mod tests {
         assert_eq!(records[3], (6, 8));
         assert_eq!(records[4], (7, 16));
         assert_eq!(records[5], (9, 19));
+    }
+
+    #[test]
+    fn test_generate_records_limit_19_excludes_tie() {
+        // 19 has chain length 20, equal to 18's: a tie is not a new record.
+        let mut out = Vec::new();
+        let mut err_buf = Vec::new();
+        let records = generate_records(19, &mut out, &mut err_buf).unwrap();
+        assert_eq!(records, vec![(1, 0), (2, 1), (3, 7), (6, 8), (7, 16), (9, 19), (18, 20)]);
+        assert_eq!(String::from_utf8_lossy(&out).lines().count(), 7);
+    }
+
+    // --- warns_large_n ---
+    #[test]
+    fn test_warns_large_n_boundary() {
+        assert!(!warns_large_n(8));
+        assert!(!warns_large_n(9));
+        assert!(warns_large_n(10));
+        assert!(warns_large_n(12));
     }
 
     // --- run ---

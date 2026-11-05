@@ -18,8 +18,9 @@ make lint      # cargo fmt --check + cargo clippy
 make test      # lint + cargo test
 ```
 
-## Code Layout (`src/main.rs`)
+## Code Layout (`src/lib.rs`, `src/main.rs`)
 
+- `warns_large_n(v: u64) -> bool` — `v > 9`; `run` prints the large-N warning when true
 - `collatz_next(n: u64) -> u64` — single Collatz step; uses `n.is_multiple_of(2)` per clippy
 - `chain_length(n: u64, cache: &mut [u32], limit: u64) -> u32` — walk, back-fill, return
 - `generate_records<W, E>(limit, out, err) -> io::Result<Vec<(u64, u32)>>` — scans 1..=limit, yields records
@@ -43,7 +44,8 @@ Current coverage: 96.72% (59/61 lines covered, macOS tarpaulin).
 |--------------------|-------|
 | `collatz_next`     | 2     |
 | `chain_length`     | 6     |
-| `generate_records` | 2     |
+| `generate_records` | 3     |
+| `warns_large_n`    | 1     |
 | `run`              | 7     |
 
 ## Cargo.toml notes

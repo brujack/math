@@ -37,8 +37,10 @@ Constants:
 Functions:
 
 - `fn small_sieve(limit)` → `Vec<u64>`: simple Eratosthenes sieve of [2, limit].
-- `fn sieve_segment(lo, limit, small_primes)` → `Vec<u64>`: sieves one segment [lo, lo+SEG_SIZE) ∩ [lo, limit]. `lo` must be odd.
-- `fn find_twin_primes<W: Write>(limit, out)` → `io::Result<u64>`: orchestrates both phases; writes `p | p+2\n` pairs; returns count.
+- `fn sieve_segment(lo, limit, small_primes, seg)` → `Vec<u64>`: sieves one segment [lo, lo+seg) ∩ [lo, limit]. `lo` must be odd, `seg` even (`debug_assert!`).
+- `fn segment_start(sqrt_limit)` → `u64`: first odd number above `sqrt_limit`, where phase 2 begins.
+- `fn find_twin_primes<W: Write>(limit, out)` → `io::Result<u64>`: calls `find_twin_primes_sized` with `SEG_SIZE`.
+- `fn find_twin_primes_sized<W: Write>(limit, out, seg)` → `io::Result<u64>`: orchestrates both phases with segment size `seg`; writes `p | p+2\n` pairs; returns count. Tests use a small `seg` to cross segment boundaries.
 - `fn fmt_int(n)` → `String`: formats u64 with thousands separators.
 - `fn run<W: Write, E: Write>(digits, out, err, dir)` → `io::Result<i32>`: validates digits (1–15), creates output file in `dir`, calls `find_twin_primes`, reports to `out`. Returns exit code.
 - `fn main()`: parses CLI via clap, calls `run` with locked stdio and `current_dir`.
@@ -47,27 +49,27 @@ Functions:
 
 - `last_prime` tracks the most recent prime seen across segment boundaries. At the start of each segment, check if `last_prime + 2 == first_prime_of_segment` to catch pairs spanning the boundary.
 - Twin pair condition: both `p` and `p+2` must be **strictly less than** `limit` — the check is `w[1] < limit` (where `w[1]` is `p+2`).
-- `lo` must always be odd. The formula `sqrt_limit + 1 + (sqrt_limit & 1)` guarantees this for the initial value. Since SEG_SIZE (2^19) is even, `lo += SEG_SIZE` preserves oddness.
+- `lo` must always be odd. `segment_start` (`sqrt_limit + 1 + (sqrt_limit & 1)`) guarantees this for the initial value. Since `seg` is even (SEG_SIZE is 2^19), `lo += seg` preserves oddness.
 - `find_twin_primes` returns early with 0 for `limit < 5` (no twin pairs possible).
 
 ## Testing
 
 Tests in `#[cfg(test)] mod tests`. Run with `make test`.
 
-### Test coverage (98.02% line coverage, 41 tests)
+### Test coverage (49 tests)
 
 | Area                                | Tests | Notes                                                                                         |
 | ----------------------------------- | ----- | --------------------------------------------------------------------------------------------- |
 | `fmt_int`                           | 4     | zero, sub-thousand, thousands, millions                                                       |
 | `small_sieve`                       | 6     | empty, n=2, n=10, n=30, π(100)=25, π(1000)=168                                                |
-| `sieve_segment`                     | 5     | known range, lo>limit, single prime, all-odd, small known                                     |
+| `sieve_segment`                     | 6     | known range, lo>limit, single prime, all-odd, small known, `idx == n` panic witness (seg 64) |
+| `segment_start`                     | 2     | odd and even input                                                                            |
+| `find_twin_primes_sized`            | 4     | seg 64 vs naive list: limits 13/1000/1001, boundary 2999-3002, spanning pair, limit 7 exact    |
 | `find_twin_primes`                  | 9     | limit<5, limit=5, limit=6, N=1, N=2, N=3, N=4, line-count, FailWriter, idempotent             |
 | `run` (unit)                        | 7     | invalid 0, invalid 16, valid N=1, stdout header+count, idempotent, boundary N=1, boundary N=2 |
 | `run_returns_err_on_stdout_failure` | 1     | `run()` propagates Err when stdout write fails (FailWriter injection)                         |
 | `run_returns_err_on_stderr_failure` | 1     | `run()` propagates Err when stderr write fails (FailWriter injection)                         |
 | `run` (integration)                 | 7     | invalid 0, invalid 16, N=1 file, N=2 file, stdout header, idempotent, unwritable dir          |
-
-Uncovered lines: 2 — two multi-line `writeln!` continuation artifacts.
 
 Known twin prime counts:
 
@@ -79,7 +81,8 @@ Known twin prime counts:
 ## Editing Guidance
 
 - Do not change `SEG_SIZE` without profiling — 2^19 keeps the 32 KB bitset in L2.
-- `sieve_segment` assumes `lo` is odd; callers must ensure this.
+- `sieve_segment` assumes `lo` is odd and `seg` even; callers must ensure this.
+- `test_sieve_segment_full_segment_progression_hits_end_index` is the mutation witness for `while idx < n`: keep a full segment with `n % 8 == 0` whose progression lands on `idx == n`.
 - Generated output files (`twin-primes_1e*.txt`) can be large — do not commit them.
 - Write the failing test first for all new or changed functions.
 

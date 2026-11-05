@@ -41,7 +41,10 @@ A `Makefile` is provided in `pi-rs/`:
 - `fn compute_pi(digits)`: resets `BS_LEAF_COUNT`, spawns a progress thread that prints series completion % every 200 ms (a `recv_timeout(200 ms)` loop on an `mpsc` channel, so it exits the moment `bs` finishes), runs `bs(0, n)`, joins the thread, then builds `rug::Float` and calls `pi_to_string`
 - `fn pi_to_string(pi, digits)`: uses `pi.to_string_radix(10, Some(digits+5))`, trims to exact decimal places
 - `fn format_write_progress(written, pi_total, elapsed)`: pure formatter for the write progress line (testable in isolation)
-- `fn write_pi_file(dir, pi_str, digits)`: `#[cfg(unix)]` — builds `dir/pi_<digits>_digits.txt`, pre-allocates with `file.set_len()`, spawns a progress thread reporting write % and MB/s every 200 ms, parallel pwrite via rayon `par_chunks` (each chunk updates an `Arc<AtomicU64>` byte counter), joins thread and prints final MB/s; returns the written `PathBuf`
+- `fn format_write_done(total_bytes, elapsed)`: pure formatter for the final write summary line (caller prints the leading `\r`)
+- `fn warn_large_digits(d)` (`d > 1_000_000`), `fn shows_preview(d)` (`d <= 1_000_000`), `fn auto_saves(d)` (`d > 10_000`): pure thresholds used by `run` and `prompt_digits_with`
+- `fn write_pi_file(dir, pi_str, digits)`: `#[cfg(unix)]` — delegates to `write_pi_file_sized` with `WRITE_MIN_CHUNK` (4 MiB)
+- `fn write_pi_file_sized(dir, pi_str, digits, min_chunk)`: `#[cfg(unix)]` — builds `dir/pi_<digits>_digits.txt`, pre-allocates with `file.set_len()`, spawns a progress thread reporting write % and MB/s every 200 ms, parallel pwrite via rayon `par_chunks` (each chunk updates an `Arc<AtomicU64>` byte counter), joins thread and prints final MB/s; returns the written `PathBuf`
 - `fn save_pi(dir, pi_str, digits, out)`: `#[cfg(unix)]` — announces the filename then delegates to `write_pi_file`
 - `fn fmt_int(n)`: formats with thousands separators
 - `fn read_line_from<R: BufRead>(reader)`: reads one trimmed line from any `BufRead`
@@ -80,7 +83,7 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-#### Test coverage (92.39% line coverage, 62 tests: 56 unit + 6 integration)
+#### Test coverage (92.39% line coverage, 72 tests: 66 unit + 6 integration)
 
 | Area                                    | Tests | Notes                                                                                                 |
 | --------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------- |
@@ -91,13 +94,15 @@ cargo tarpaulin --out Stdout
 | `pi_to_string`                          | 7     | format, exact length, no exponent, known digits, single decimal place, exponent strip, no-dot path    |
 | `compute_pi`                            | 2     | end-to-end accuracy at 10 and 50 decimal places                                                       |
 | `format_series_progress`                | 4     | zero/partial/complete/zero-total                                                                      |
-| `format_write_progress`                 | 4     | normal speed, zero-elapsed, zero-total, complete                                                      |
+| `format_write_progress`                 | 5     | normal speed, zero-elapsed, zero-total, complete, exact strings at elapsed 0.001 and 0.002            |
+| `format_write_done`                     | 1     | exact strings at elapsed 0.001, 0.002, 1.0                                                            |
+| `warn_large_digits`/`shows_preview`/`auto_saves` | 3 | each at bound and one either side                                                            |
 | `read_line_from`                        | 3     | trims newline, empty input, trims whitespace                                                          |
 | `confirm_large_digits_with`             | 4     | "y", "yes", "n", other input                                                                          |
 | `prompt_digits_with`                    | 6     | valid, minimum=1, zero retry, non-numeric retry, large decline + accept                               |
-| `write_pi_file`                         | 4     | contents, filename format, idempotency, missing-dir error                                             |
+| `write_pi_file`                         | 6     | contents, filename format, idempotency, missing-dir error, `_sized` multi-chunk exact bytes, `_sized` missing dir |
 | `save_pi`                               | 1     | writes file + announces                                                                               |
-| `run`                                   | 5     | digits=0 → exit 1, display=y, save=n, no-arg prompts, digits>10000 auto-saves                         |
+| `run`                                   | 6     | digits=0 → exit 1, digits=1 → exit 0 + `π = 3.1…`, display=y, save=n, no-arg prompts, digits>10000 auto-saves |
 | `run_returns_err_on_stdout_failure`     | 1     | `run()` propagates Err when stdout write fails (FailWriter injection)                                 |
 | `run_returns_err_on_stderr_failure`     | 1     | `run()` propagates Err when stderr write fails (FailWriter injection)                                 |
 | `tests/cli.rs` (subprocess integration) | 6     | arg=0 exit 1, arg=10 + "y" displays, arg=10 + "n" saves, no-arg + "10\\ny\\n" prompts, unwritable dir, 10,000,000 digits exits within 60 s with a progress tick (stderr-lock deadlock regression) |

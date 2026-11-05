@@ -49,9 +49,10 @@ pub fn small_sieve(limit: u64) -> Vec<u64> {
 // Phase 2 — one segment of the segmented sieve
 // ---------------------------------------------------------------------------
 
-/// Sieve odd numbers in [lo, lo + SEG_SIZE) ∩ [lo, limit] using `small_primes`.
-pub fn sieve_segment(lo: u64, limit: u64, small_primes: &[u64]) -> Vec<u64> {
-    let hi = (lo + SEG_SIZE).min(limit + 1); // exclusive
+/// Sieve odd numbers in [lo, lo + seg) ∩ [lo, limit] using `small_primes`.
+pub fn sieve_segment(lo: u64, limit: u64, small_primes: &[u64], seg: u64) -> Vec<u64> {
+    debug_assert!(seg.is_multiple_of(2), "seg must be even");
+    let hi = (lo + seg).min(limit + 1); // exclusive
     if lo >= hi {
         return vec![];
     }
@@ -103,6 +104,18 @@ pub fn fmt_int(n: u64) -> String {
     out.chars().rev().collect()
 }
 
+/// First odd number of phase 2 and how many numbers it covers, for `sqrt_limit < limit`.
+pub fn phase2_range(sqrt_limit: u64, limit: u64) -> (u64, u64) {
+    let start = sqrt_limit + 1 + (sqrt_limit & 1);
+    (start, limit - start + 1)
+}
+
+/// Pure formatter for the final phase-2 line (the caller prints it with `eprintln!`).
+pub fn format_phase2_done(total: u64, elapsed: f64) -> String {
+    let rate = if elapsed > 0.001 { total as f64 / elapsed / 1e6 } else { 0.0 };
+    format!("\r  Phase 2: 100%  ({} numbers sieved)  {:.1} M/s              ", fmt_int(total), rate)
+}
+
 /// Pure formatter for the phase-2 progress line (allows unit testing of format).
 pub fn format_phase2_progress(n: u64, phase2_total: u64, elapsed: f64) -> String {
     let pct = n * 100 / phase2_total.max(1);
@@ -123,8 +136,22 @@ pub fn format_phase2_progress(n: u64, phase2_total: u64, elapsed: f64) -> String
 /// Find all primes up to `limit`, writing one prime per line to `out`.
 /// Reports progress to stderr.  Returns the total prime count.
 pub fn find_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
+    find_primes_sized(limit, out, BLOCK_SIZE, SEG_SIZE).map(|(count, _)| count)
+}
+
+/// `find_primes` with explicit block and segment sizes (both even).  Returns
+/// (prime count, numbers processed in phase 2); tests use small sizes to cross
+/// block and segment boundaries.
+pub fn find_primes_sized<W: Write>(
+    limit: u64,
+    out: &mut W,
+    block: u64,
+    seg: u64,
+) -> io::Result<(u64, u64)> {
+    debug_assert!(block.is_multiple_of(2), "block must be even");
+    debug_assert!(seg.is_multiple_of(2), "seg must be even");
     if limit < 2 {
-        return Ok(0);
+        return Ok((0, 0));
     }
 
     let sqrt_limit = (limit as f64).sqrt() as u64 + 1;
@@ -146,12 +173,11 @@ pub fn find_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
     }
 
     if limit <= sqrt_limit {
-        return Ok(total);
+        return Ok((total, 0));
     }
 
     // ---- Phase 2 ----
-    let phase2_start = sqrt_limit + 1 + (sqrt_limit & 1);
-    let phase2_total = limit - phase2_start + 1;
+    let (phase2_start, phase2_total) = phase2_range(sqrt_limit, limit);
 
     let processed = Arc::new(AtomicU64::new(0));
     let processed_c = Arc::clone(&processed);
@@ -170,16 +196,18 @@ pub fn find_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
 
     let mut block_lo = phase2_start;
     while block_lo <= limit {
-        let block_hi = (block_lo + BLOCK_SIZE - 1).min(limit);
+        let block_hi = (block_lo + block - 1).min(limit);
 
         let seg_starts: Vec<u64> = std::iter::successors(Some(block_lo), |&s| {
-            let next = s + SEG_SIZE;
+            let next = s + seg;
             if next <= block_hi { Some(next) } else { None }
         })
         .collect();
 
-        let batch: Vec<Vec<u64>> =
-            seg_starts.par_iter().map(|&lo| sieve_segment(lo, block_hi, &small_primes)).collect();
+        let batch: Vec<Vec<u64>> = seg_starts
+            .par_iter()
+            .map(|&lo| sieve_segment(lo, block_hi, &small_primes, seg))
+            .collect();
 
         for seg_primes in batch {
             total += seg_primes.len() as u64;
@@ -190,22 +218,16 @@ pub fn find_primes<W: Write>(limit: u64, out: &mut W) -> io::Result<u64> {
 
         processed.fetch_add(block_hi - block_lo + 1, Ordering::Relaxed);
 
+        // block is even and block_lo odd, so block_hi is even and block_lo stays odd.
         block_lo = block_hi + 1;
-        if block_lo.is_multiple_of(2) {
-            block_lo += 1;
-        }
     }
 
+    let processed_total = processed.load(Ordering::Relaxed);
     let _ = done.send(());
     progress_thread.join().unwrap();
 
     let elapsed2 = t2.elapsed().as_secs_f64();
-    let rate2 = if elapsed2 > 0.001 { phase2_total as f64 / elapsed2 / 1e6 } else { 0.0 };
-    eprintln!(
-        "\r  Phase 2: 100%  ({} numbers sieved)  {:.1} M/s              ",
-        fmt_int(phase2_total),
-        rate2,
-    );
+    eprintln!("{}", format_phase2_done(phase2_total, elapsed2));
 
-    Ok(total)
+    Ok((total, processed_total))
 }

@@ -1,0 +1,40 @@
+# Equivalent mutations excluded from cargo-mutants testing.
+# Each produces identical observable behavior (or is reachable only above the
+# 10,000-digit test bound), so no test with input under 10,000 can kill it.
+# Update line numbers if surrounding code changes shift these expressions.
+#
+# Format: regex matched against "src/<file>.rs:<line>:<col>: <description>"
+exclude_re = [
+    # bs serial/parallel threshold (b - a <= BS_PAR_THRESHOLD): serial and
+    # parallel recursion compute the same merge; only scheduling differs.
+    "^src/lib\\.rs:42:14: replace <= with > in bs$",
+    "^src/lib\\.rs:42:10: replace - with \\+ in bs$",
+    # e-rs term count (compute_e, n = number of series terms): the
+    # estimate has a safety margin: every mutated formula still gives at least as
+    # many Taylor terms as `digits` needs, and extra terms cannot change correct
+    # digits (spec section Equivalents, measured at 2 to 10^9 digits).
+    "^src/lib\\.rs:139:28: replace > with >= in compute_e$",
+    "^src/lib\\.rs:141:25: replace \\+ with \\* in compute_e$",
+    "^src/lib\\.rs:141:20: replace / with % in compute_e$",
+    "^src/lib\\.rs:143:31: replace \\* with \\+ in compute_e$",
+    "^src/lib\\.rs:143:31: replace \\* with / in compute_e$",
+    "^src/lib\\.rs:143:26: replace - with \\+ in compute_e$",
+    "^src/lib\\.rs:144:23: replace / with \\* in compute_e$",
+    # WRITE_MIN_CHUNK default (4 * 1024 * 1024): reached only by the unsized
+    # write_e_file wrapper; tests use write_e_file_sized with a small chunk,
+    # and any mutated size still yields positive, non-overlapping, gap-free chunks.
+    "^src/main\\.rs:87:34: replace \\* with \\+$",
+    "^src/main\\.rs:87:41: replace \\* with \\+$",
+    "^src/main\\.rs:87:41: replace \\* with /$",
+    # Preallocation: set_len(total) only sizes the file up front; the footer
+    # write_at extends it to the same final length, so the output is identical.
+    "^src/main\\.rs:118:44: replace \\+ with - in write_e_file_sized$",
+    # Partition arithmetic e_bytes.len() / n_threads: every mutated chunk size
+    # stays positive (max with min_chunk) and the chunks stay non-overlapping
+    # and gap-free, so the file content cannot differ.
+    "^src/main\\.rs:129:50: replace / with % in write_e_file_sized$",
+    "^src/main\\.rs:129:50: replace / with \\* in write_e_file_sized$",
+    # Short-write retry offset (base + written): differs only after a partial
+    # write_at, which is unreachable without fault injection.
+    "^src/main\\.rs:152:62: replace \\+ with - in write_e_file_sized$",
+]
