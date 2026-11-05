@@ -47,15 +47,16 @@ plus=$(grep -m1 '^+++ ' "${diff}")
 printf 'make -C %s DIFF=%s PLUS=%s\n' "${dir}" "${diff}" "${plus}" >>"${STUB_LOG}"
 cfg="${STUB_CFG}/${dir//\//_}"
 mkdir -p "${dir}/mutants.out"
-rm -f "${dir}/mutants.out/exit-code" "${dir}/mutants.out/outcomes.json"
+status=0
 [[ -f "${cfg}" ]] || exit 0
 while IFS= read -r line; do
     case "${line}" in
         exit=*) printf '%s\n' "${line#exit=}" >"${dir}/mutants.out/exit-code" ;;
         outcomes=*) printf '%s\n' "${line#outcomes=}" >"${dir}/mutants.out/outcomes.json" ;;
+        status=*) status="${line#status=}" ;;
     esac
 done <"${cfg}"
-exit 0
+exit "${status}"
 STUB
     chmod +x "${STUBS}/make"
 }
@@ -80,6 +81,11 @@ _commit() {
 _run_script() {
     cd "${FIXTURE}" || return 1
     PATH="${STUBS}:${PATH}" run "${SCRIPT}" "$@"
+}
+
+_run_script_sep() {
+    cd "${FIXTURE}" || return 1
+    PATH="${STUBS}:${PATH}" run --separate-stderr "${SCRIPT}" "$@"
 }
 
 GREEN='{"caught":3,"missed":0,"timeout":0,"unviable":1}'
@@ -228,4 +234,81 @@ GREEN='{"caught":3,"missed":0,"timeout":0,"unviable":1}'
     _run_script main a/a-rs
     [ "${status}" -eq 0 ]
     [ -z "$(ls -A "${TMPDIR}")" ]
+}
+
+@test "stale green mutants.out is cleared: make writing nothing is red" {
+    _change a/a-rs
+    _commit
+    mkdir -p "${FIXTURE}/a/a-rs/mutants.out"
+    printf '0\n' >"${FIXTURE}/a/a-rs/mutants.out/exit-code"
+    printf '%s\n' "${GREEN}" >"${FIXTURE}/a/a-rs/mutants.out/outcomes.json"
+    printf 'status=2\n' >"${STUB_CFG}/a_a-rs"
+    _run_script main a/a-rs
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"red: a/a-rs - no mutants.out/exit-code"* ]]
+}
+
+@test "--min-caught reaches the classifier: caught 2 below 3 is red" {
+    _change a/a-rs
+    _commit
+    _cfg a/a-rs 0 '{"caught":2,"missed":0,"timeout":0,"unviable":0}'
+    _run_script main a/a-rs
+    [ "${status}" -eq 0 ]
+    _run_script main --min-caught 3 a/a-rs
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"caught=2 below min_caught=3"* ]]
+}
+
+@test "red classifier verdict goes to stdout, not stderr" {
+    _change a/a-rs
+    _commit
+    _cfg a/a-rs 2 '{"caught":3,"missed":1,"timeout":0,"unviable":0}'
+    _run_script_sep main a/a-rs
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"red: a/a-rs - missed=1"* ]]
+    [[ "${stderr}" != *"red:"* ]]
+}
+
+@test "relative TMPDIR still yields an absolute DIFF" {
+    _change a/a-rs
+    _commit
+    _cfg a/a-rs 0 "${GREEN}"
+    mkdir -p "${FIXTURE}/reltmp"
+    export TMPDIR="reltmp"
+    _run_script main a/a-rs
+    [ "${status}" -eq 0 ]
+    run grep -c 'DIFF=/' "${STUB_LOG}"
+    [ "${output}" = "1" ]
+}
+
+@test "exit-code beyond 255 is red" {
+    _change a/a-rs
+    _commit
+    _cfg a/a-rs 18446744073709551616 "${GREEN}"
+    _run_script main a/a-rs
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"red: a/a-rs"* ]]
+}
+
+@test "exit-code with leading zero is red" {
+    _change a/a-rs
+    _commit
+    _cfg a/a-rs 08 "${GREEN}"
+    _run_script main a/a-rs
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"red: a/a-rs"* ]]
+}
+
+@test "dash-prefixed base ref exits 2 with usage" {
+    _run_script --min-caught 1 HEAD~1 a/a-rs
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"Usage"* ]]
+    [ ! -s "${STUB_LOG}" ]
+}
+
+@test "unknown dash-prefixed argument exits 2 with usage" {
+    _run_script main --bogus a/a-rs
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"Usage"* ]]
+    [ ! -s "${STUB_LOG}" ]
 }

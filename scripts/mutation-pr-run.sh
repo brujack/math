@@ -41,6 +41,12 @@ run_crate() {
         return 1
     fi
 
+    # Clear leftovers so a make that never reaches its recipe cannot pass on a stale run.
+    if ! rm -rf -- "${dir}/mutants.out"; then
+        _red "${dir}" "cannot clear mutants.out"
+        return 1
+    fi
+
     # A failing make is judged by mutants.out/exit-code below, not by its own status.
     make -C "${dir}" mutants-diff DIFF="${diff_file}" || true
 
@@ -51,7 +57,7 @@ run_crate() {
     fi
     local code
     code="$(<"${code_file}")"
-    if [[ ! "${code}" =~ ^[0-9]+$ ]]; then
+    if [[ ! "${code}" =~ ^(0|[1-9][0-9]{0,2})$ ]]; then
         _red "${dir}" "mutants.out/exit-code '${code}' is not an integer"
         return 1
     fi
@@ -68,7 +74,7 @@ main() {
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || return 2
 
     local base_ref="${1-}"
-    if [[ -z "${base_ref}" ]]; then
+    if [[ -z "${base_ref}" || "${base_ref}" == -* ]]; then
         _usage
         return 2
     fi
@@ -84,6 +90,9 @@ main() {
             fi
             min_caught="$2"
             shift 2
+        elif [[ "$1" == -* ]]; then
+            _usage
+            return 2
         else
             dirs+=("$1")
             shift
@@ -94,20 +103,22 @@ main() {
         return 2
     fi
 
-    local tmp
-    tmp="$(mktemp -d)" || return 2
-    # Expand now: `tmp` is local and is gone by the time the EXIT trap fires.
-    # shellcheck disable=SC2064
-    trap "rm -rf -- $(printf '%q' "${tmp}")" EXIT
+    (
+        local tmp
+        tmp="$(mktemp -d)" || exit 1
+        tmp="$(cd "${tmp}" && pwd)" || exit 1
+        trap 'rm -rf -- "${tmp}"' EXIT
 
-    local index=0
-    local any_red=0
-    local dir
-    for dir in "${dirs[@]}"; do
-        index=$((index + 1))
-        run_crate "${script_dir}" "${base_ref}" "${min_caught}" "${tmp}" "${index}" "${dir}" || any_red=1
-    done
-    return "${any_red}"
+        local index=0
+        local any_red=0
+        local dir
+        for dir in "${dirs[@]}"; do
+            index=$((index + 1))
+            run_crate "${script_dir}" "${base_ref}" "${min_caught}" "${tmp}" "${index}" "${dir}" || any_red=1
+        done
+        exit "${any_red}"
+    )
+    return "$?"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
