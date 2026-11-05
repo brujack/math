@@ -114,6 +114,24 @@ argument`), so a local `make mutants` fails closed with an explicit override
   rejected — math PRs #83 and #84, the only work that has ever raised kill rate
   here, were local `make mutants` runs on macOS.
 
+## Amendment 2026-11-05: file-size cap and run-local TMPDIR (math#211)
+
+The address-space cap bounds memory a mutant can map, not disk it can write. `/tmp` on
+the development hosts is tmpfs, so a killed test's tempdir is RAM: cosmic-ray and
+cargo-mutants kill timed-out tests before `tempfile` cleanup runs, and 57 leaked dirs
+held 75.9 GB (53.6 GB Python, 22.2 GB Rust) before this fix.
+
+- Both mutation recipe templates also set `ulimit -f 262144` (256 MiB per file, 1 KiB
+  units under `bash -c`), even with `MUTANTS_UNCAPPED`. A runaway writer dies with
+  SIGXFSZ, which the mutation tool scores as caught. The largest legitimate file in any
+  test run is 34 MB, and every suite passes under a 1 GiB cap.
+- Each run sets `TMPDIR` to a directory it owns and removes on exit: `target/mutants-tmp`
+  for Rust (also wiped at start), a per-run directory under the gitignored
+  `.mutants-tmp/` for Python. A leaked tempdir now dies with its run instead of
+  accumulating in `/tmp`.
+- `SIGKILL` of the whole recipe still skips the EXIT trap. Rust clears its directory on
+  the next run; Python leftovers are cleared by `make mutants-clean`.
+
 ## Related
 
 - ADR-0022 — Python mutation testing via cosmic-ray
