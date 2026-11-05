@@ -102,9 +102,10 @@ pub fn find_twin_primes_sized<W: Write>(limit: u64, out: &mut W, seg: u64) -> io
 
     let mut count = 0u64;
 
-    // Twin pairs within the small_primes range (both must be < limit).
+    // Twin pairs within the small_primes range; sqrt_limit < limit for
+    // limit >= 5, so every prime here is already below limit.
     for w in small_primes.windows(2) {
-        if w[1] - w[0] == 2 && w[1] < limit {
+        if w[1] - w[0] == 2 {
             writeln!(out, "{} | {}", w[0], w[1])?;
             count += 1;
         }

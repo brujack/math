@@ -259,7 +259,7 @@ mod tests {
 
     #[test]
     fn test_find_twin_primes_sized_matches_naive_at_known_limits() {
-        for limit in [1000u64, 1001] {
+        for limit in [13u64, 1000, 1001] {
             let (count, text) = sized_output(limit, 64);
             assert_eq!(text, naive_twin_lines(limit), "limit {limit}");
             assert_eq!(count as usize, text.lines().count());
@@ -268,13 +268,21 @@ mod tests {
 
     #[test]
     fn test_find_twin_primes_sized_matches_naive_on_segment_boundary() {
-        // limit equal to the lo of the second segment, and one either side.
-        let sqrt_limit = (1000f64).sqrt() as u64 + 1;
-        let boundary = segment_start(sqrt_limit) + 64;
-        for limit in [boundary - 1, boundary, boundary + 1, boundary + 2] {
+        // Each limit derives its own first lo; limits 2999..=3002 share lo = 57,
+        // so 57 + 64 * 46 = 3001 is a segment start and the limits straddle it.
+        for limit in 2999u64..=3002 {
+            let lo = segment_start((limit as f64).sqrt() as u64 + 1);
+            assert_eq!(lo, 57, "limit {limit}");
+            assert!((3001 - lo).is_multiple_of(64));
             let (_, text) = sized_output(limit, 64);
             assert_eq!(text, naive_twin_lines(limit), "limit {limit}");
         }
+    }
+
+    #[test]
+    fn test_find_twin_primes_sized_excludes_pair_whose_upper_prime_is_limit() {
+        // 7 is the upper prime of (5, 7) and is sieved in the segment phase.
+        assert_eq!(sized_output(7, 64), (1, "3 | 5\n".to_string()));
     }
 
     #[test]

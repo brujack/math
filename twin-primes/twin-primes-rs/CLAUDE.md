@@ -56,7 +56,7 @@ Functions:
 
 Tests in `#[cfg(test)] mod tests`. Run with `make test`.
 
-### Test coverage (48 tests)
+### Test coverage (49 tests)
 
 | Area                                | Tests | Notes                                                                                         |
 | ----------------------------------- | ----- | --------------------------------------------------------------------------------------------- |
@@ -64,7 +64,7 @@ Tests in `#[cfg(test)] mod tests`. Run with `make test`.
 | `small_sieve`                       | 6     | empty, n=2, n=10, n=30, π(100)=25, π(1000)=168                                                |
 | `sieve_segment`                     | 6     | known range, lo>limit, single prime, all-odd, small known, `idx == n` panic witness (seg 64) |
 | `segment_start`                     | 2     | odd and even input                                                                            |
-| `find_twin_primes_sized`            | 3     | seg 64 vs naive list: limits 1000/1001, segment boundary, pair spanning two segments           |
+| `find_twin_primes_sized`            | 4     | seg 64 vs naive list: limits 13/1000/1001, boundary 2999-3002, spanning pair, limit 7 exact    |
 | `find_twin_primes`                  | 9     | limit<5, limit=5, limit=6, N=1, N=2, N=3, N=4, line-count, FailWriter, idempotent             |
 | `run` (unit)                        | 7     | invalid 0, invalid 16, valid N=1, stdout header+count, idempotent, boundary N=1, boundary N=2 |
 | `run_returns_err_on_stdout_failure` | 1     | `run()` propagates Err when stdout write fails (FailWriter injection)                         |
