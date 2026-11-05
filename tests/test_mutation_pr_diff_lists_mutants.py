@@ -43,7 +43,8 @@ def run(cmd, cwd, timeout=CARGO_TIMEOUT_S):
 
 def run_ok(cmd, cwd):
     proc = run(cmd, cwd)
-    assert proc.returncode == 0, f"{cmd} failed: {proc.stderr}"
+    if proc.returncode != 0:
+        raise AssertionError(f"{cmd} failed: {proc.stderr}")
     return proc
 
 
@@ -117,6 +118,7 @@ class InDiffListsMutantsTests(unittest.TestCase):
         diff.write_text(proc.stdout)
         self.assertIn(f"+++ b/{CRATE}/{LIB}", diff.read_text())
         listed = self._list_in_diff(diff)
+        self.assertEqual(listed.returncode, 0, listed.stderr)
         self.assertFalse(
             any("sieve" in ln for ln in listed.stdout.splitlines()), listed.stdout
         )
