@@ -92,7 +92,7 @@ Neither file is loaded at session start; read it before the work it governs:
 
 ### API-quality lints (all 11 Rust crates)
 
-Every `*-rs/Cargo.toml` enables `missing_debug_implementations = "warn"` (`[lints.rust]`) and `wrong_self_convention = "warn"` (`[lints.clippy]`); clippy runs `-D warnings`, so a `pub struct` without `#[derive(Debug)]` fails `make lint`. Every crate is edition 2024, sets `[lints.rust] unsafe_code = "forbid"` and declares no `rust-version` (nothing builds these binaries on an older toolchain; `tests/test_crate_uniformity.py` pins all three; see `docs/superpowers/specs/2026-10-31-rust-python-standards-tier1-design.md`). → ai-config/docs/knowledge/math-language-standards.md § API-quality lints in the Rust crates
+Every `*-rs/Cargo.toml` enables `missing_debug_implementations = "warn"` (`[lints.rust]`) and `wrong_self_convention = "warn"` (`[lints.clippy]`); clippy runs `-D warnings`, so a `pub struct` without `#[derive(Debug)]` fails `make lint`. Every crate is edition 2024, sets `[lints.rust] unsafe_code = "forbid"` and declares no `rust-version` (`tests/test_crate_uniformity.py` pins all three). → ai-config/docs/knowledge/math-language-standards.md § API-quality lints in the Rust crates
 Do not enable `missing_docs` in these crates (no cross-crate consumers). → ai-config/docs/knowledge/math-language-standards.md § API-quality lints in the Rust crates
 
 ## Testing Policy
@@ -130,25 +130,25 @@ When adding a new Python sub-project, add `pyrightconfig.json` (copy from any `s
 
 ### Mutation testing (Python)
 
-Python `make mutants` runs a capped `cosmic-ray baseline` first (8 GiB `ulimit -v`, `MUTANTS_UNCAPPED=1` escape, as Rust), then the session, then `scripts/cosmic_ray_cell_status.py`; cosmic-ray stores outcomes uppercase (`SURVIVED`, `KILLED`), and `MUTANT_SHARD=0/10` samples a tenth locally.
-`mutation-testing-python.yml` runs 10 shards per project (`scripts/mutation-python-cell.sh`), comments survivor counts on the `mutation-report-python` issue and keeps locations 90 days in artifact `mutants-survivors-python`; `mutation-pr.yml` runs only `mutants-baseline`.
+Python `make mutants` runs a capped `cosmic-ray baseline` (8 GiB `ulimit -v`, `MUTANTS_UNCAPPED=1` escape, as Rust), then the session, then `scripts/cosmic_ray_cell_status.py`; cosmic-ray stores outcomes uppercase (`SURVIVED`).
+`mutation-testing-python.yml` runs 10 shards per project (`scripts/mutation-python-cell.sh`), reports survivors on the `mutation-report-python` issue (artifact `mutants-survivors-python`); `mutation-pr.yml` runs `mutants-baseline` for Python.
 
 ### Mutation testing (Rust)
 
-Rust mutation testing uses `cargo-mutants` (`cargo install cargo-mutants --locked`); run `make mutants` in a crate directory; correctness over coverage %, a kill rate above 80% is good for math code. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
-Mutation CI is `mutation-testing.yml` (monthly `cron: "0 4 1 * *"`, `workflow_dispatch`) calling `make -C <crate> mutants`; `setup` lists crates via `git ls-files '*/*-rs/Cargo.toml'`, rejects unknown `crate`, fans out a 60-minute job per crate. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
+Rust mutation testing uses `cargo-mutants` (`cargo install cargo-mutants --locked`); run `make mutants` in a crate directory; a kill rate above 80% is good. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
+Mutation CI is `mutation-testing.yml` (monthly, `workflow_dispatch`) calling `make -C <crate> mutants`, one 60-minute job per crate from `git ls-files '*/*-rs/Cargo.toml'`.
+`mutation-pr.yml` runs `scripts/mutation-pr-run.sh "origin/${GITHUB_BASE_REF}" <rs_dirs>` per crate whose `src/**/*.rs` the PR changes (`scripts/mutation-pr-detect.sh`): missed limit 0 on changed-line mutants, timeouts green, plus an amicable-rs canary (`--min-caught 1`) on gate-file changes; repro `scripts/mutation-pr-diff.sh origin/master <crate> /tmp/d.diff && make -C <crate> mutants-diff DIFF=/tmp/d.diff`. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
 
-Never put a fixed `--timeout` back (#95): keep `--timeout-multiplier 5 --minimum-test-timeout 30` in each crate's `Makefile` `mutants` target, not the workflow, because a fixed value caps the unmutated baseline and evaluated zero mutants for a month; `tests/scripts/makefile.bats` pins both halves across all 11 crates. → ai-config/docs/knowledge/math-testing-policy.md § Mutation timeout
+Never put a fixed `--timeout` back (#95): keep `--timeout-multiplier 5 --minimum-test-timeout 30` in each crate's `Makefile` `mutants` target, not the workflow (a fixed value capped the baseline and tested zero mutants); `tests/scripts/makefile.bats` pins both halves. → ai-config/docs/knowledge/math-testing-policy.md § Mutation timeout
 
-Keep `ulimit -v 8388608` (8 GiB) in the same `mutants` recipe; macOS cannot enforce it, so set `MUTANTS_UNCAPPED=1` deliberately there (the recipe fails closed otherwise). → ai-config/docs/knowledge/math-testing-policy.md § Mutation memory cap
+Keep `ulimit -v 8388608` (8 GiB) in the same `mutants` recipe; macOS needs `MUTANTS_UNCAPPED=1` set deliberately. → ai-config/docs/knowledge/math-testing-policy.md § Mutation memory cap
 
-A mutation leg is red only when `caught + missed == 0`, the baseline fails or the runner dies; survivors (exit 2) and timeouts (exit 3) are green (`scripts/mutation-classify.sh`, `tests/scripts/mutation_classify.bats`). → ai-config/docs/knowledge/math-testing-policy.md § Mutation green/red
+A sweep leg is red only when `caught + missed == 0`, the baseline fails, the runner dies or `mutants.out/exit-code` is missing (written by `make mutants` and `make mutants-diff`; make exits 2 on any failure); survivors (2) and timeouts (3) are green (`scripts/mutation-classify.sh`, optional `max_missed`, `min_caught` args). → ai-config/docs/knowledge/math-testing-policy.md § Mutation green/red
 
-`notify` is separate (`needs: [setup, mutants], if: always()`), label `mutation-failure` (`-python` via `ISSUE_LABEL`); `mutation-notify.sh` reads `marker/job-began`; needs `FULL_SWEEP`; only a full sweep closes. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
-Add `mutants` to a new Rust crate's `Makefile` `.PHONY` list and target; investigate surviving mutants in logic code, not main glue. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
+`notify` is separate (`needs: [setup, mutants], if: always()`), label `mutation-failure` (`-python` via `ISSUE_LABEL`); needs `FULL_SWEEP`; only a full sweep closes. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
+Add `mutants` to a new Rust crate's `Makefile` `.PHONY` list and target; every missed mutant on a changed line gets a killing test, glue included; `exclude_re` only for true equivalents. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
 
-Exclude equivalent mutants via the crate's `.cargo/mutants.toml` `exclude_re` regexes matched against `src/lib.rs:<line>:<col>: <description>`; only `#[mutants::skip]` on items works, not `// mutants::skip`; `tests/test_mutants_exclusions.py` checks drift (also pre-push). → ai-config/docs/knowledge/math-testing-policy.md § Equivalent mutations
-`exclude_re` patterns embed line numbers; update them when code shifts (e.g. `factorial-rs`). → ai-config/docs/knowledge/math-testing-policy.md § Equivalent mutations
+Exclude equivalent mutants via the crate's `.cargo/mutants.toml` `exclude_re` regexes matched against `src/lib.rs:<line>:<col>: <description>`; only `#[mutants::skip]` on items works, not `// mutants::skip`; its patterns embed line numbers, so update them when code shifts; `tests/test_mutants_exclusions.py` checks drift (also pre-push). → ai-config/docs/knowledge/math-testing-policy.md § Equivalent mutations
 
 A mutation on a comparison that algebraic identity makes always true (e.g. `verify_perfect`) is a dead-code equivalent; exclude it in `.cargo/mutants.toml`. → ai-config/docs/knowledge/math-testing-policy.md § Algebraic-identity equivalents
 
@@ -172,7 +172,7 @@ Release and CI jobs run Node.js 24 with `actions/checkout@v7`; Rust builds `need
 
 Pre-commit: `scripts/pre-commit` (installed by `make install-hooks`) runs `make lint` on staged sub-projects and root `.py` and `ggshield secret scan pre-commit` (skipped if absent); install ggshield locally. → ai-config/docs/knowledge/math-ci.md § Pre-commit hook
 
-Pre-push: `scripts/pre-push` runs `make test` concurrently (`scripts/parallel-make-test.sh`, `PRE_PUSH_JOBS` default 8, one log and status file per sub-project, no skip at any count) for sub-projects with `.py`/`.rs` source changes, and the root `make test` (`lint test-hooks test-python`) when the push touches `scripts/`, `tests/`, `typings/`, `deny.toml` or the root `Makefile`, else root `make lint-hooks` when it touches any `.sh`, `scripts/cli_contract.py` alone over the Python CLIs when the push touches it, and `tests.test_mutants_exclusions` alone on crate `src/` or `mutants.toml` changes, and refuses a pushed commit that changes `CLAUDE.md` past the 30000-byte ceiling; it skips branch deletions and is permanent. → ai-config/docs/knowledge/math-ci.md § Pre-push hook
+Pre-push: `scripts/pre-push` runs `make test` concurrently (`scripts/parallel-make-test.sh`, `PRE_PUSH_JOBS` default 8, no skip at any count) for sub-projects with `.py`/`.rs` source changes, and the root `make test` (`lint test-hooks test-python`) when the push touches `scripts/`, `tests/`, `typings/`, `deny.toml` or the root `Makefile`, else root `make lint-hooks` when it touches any `.sh`, `scripts/cli_contract.py` alone over the Python CLIs when the push touches it, and `tests.test_mutants_exclusions` alone on crate `src/` or `mutants.toml` changes, and refuses a pushed commit that changes `CLAUDE.md` past the 30000-byte ceiling; it skips branch deletions and is permanent. → ai-config/docs/knowledge/math-ci.md § Pre-push hook
 math's hooks bypass root `test:`, so fix the hooks (not the root target) when lint or test coverage on push is wrong. → ai-config/docs/knowledge/math-ci.md § Pre-push hook
 
 Trigger pre-push tests on `.py`/`.rs` source changes only; Makefile, workflow and doc changes must not run the suites, and run each `make test < /dev/null` (the `resource_tracker` hang; measured not to recur concurrently, so there is no sub-project-count skip). → ai-config/docs/knowledge/math-ci.md § resource_tracker gotcha
