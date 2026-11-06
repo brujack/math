@@ -91,7 +91,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: write
+      contents: read
     defaults:
       run:
         working-directory: pi/pi-rs
@@ -128,7 +128,9 @@ jobs:
       - name: Check coverage (≥90%)
         run: cargo tarpaulin --out Json --fail-under 90
 
-      - name: Publish coverage badge
+      # Staged, not pushed: a pull_request run cannot know whether its PR will merge.
+      # auto-merge.yml runs scripts/publish-coverage-badges.sh after the merge.
+      - name: Stage coverage badge
         working-directory: ${{ github.workspace }}
         run: |
           PCT=$(python3 -c "import json,math; d=json.load(open('pi/pi-rs/tarpaulin-report.json')); print(math.floor(d['coverage']))")
@@ -138,27 +140,17 @@ jobs:
           elif [ "$PCT" -ge 60 ]; then COLOR="orange"
           else                         COLOR="red"
           fi
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config user.name "github-actions[bot]"
-          if git fetch origin coverage-data 2>/dev/null; then
-            git worktree add /tmp/cov-data coverage-data \
-              || { echo "coverage-data worktree unavailable; badge not published"; exit 0; }
-          else
-            git worktree add -b coverage-data --orphan /tmp/cov-data \
-              || { echo "coverage-data worktree unavailable; badge not published"; exit 0; }
-          fi
-          mkdir -p /tmp/cov-data/pi
+          mkdir -p coverage-badge/pi
           printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' \
-            "$PCT" "$COLOR" > /tmp/cov-data/pi/rust.json
-          cd /tmp/cov-data
-          git add .
-          git diff --staged --quiet && exit 0
-          for _ in 1 2 3; do
-            git pull origin coverage-data --rebase 2>/dev/null || true
-            git diff --staged --quiet || git commit -m "coverage: pi/rust.json → ${PCT}%"
-            git push origin coverage-data && break
-            sleep $((RANDOM % 5 + 1))
-          done
+            "$PCT" "$COLOR" > coverage-badge/pi/rust.json
+
+      - name: Upload coverage badge
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: coverage-badge-pi-rust
+          path: coverage-badge
+          retention-days: 7
+          if-no-files-found: error
 
   build:
     name: Build pi-rs

@@ -222,6 +222,7 @@ jobs:
     needs: [secret-scan, bash-coverage, claude-md-budget]
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
       pull-requests: write
       checks: read
@@ -303,5 +304,11 @@ jobs:
           PR=$(gh pr list --head "${HEAD_REF}" \
             --json number --jq '.[0].number' 2>/dev/null || echo "")
           if [[ -n "${PR}" ]]; then
-            ./scripts/ci-gate.sh "${PR}" && gh pr merge "${PR}" --squash
+            # Coverage badges are published here, not by the PR's own coverage jobs: a
+            # pull_request run cannot know whether its PR will merge, so it only uploads
+            # coverage-badge-* artifacts. The head SHA is read before the merge (the
+            # squash commit has no PR runs). A publish failure turns this job red.
+            head_sha=$(gh pr view "${PR}" --json headRefOid --jq '.headRefOid') || exit 1
+            ./scripts/ci-gate.sh "${PR}" && gh pr merge "${PR}" --squash \
+              && ./scripts/publish-coverage-badges.sh "${head_sha}"
           fi

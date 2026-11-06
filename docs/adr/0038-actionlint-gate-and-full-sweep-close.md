@@ -40,6 +40,8 @@ Spec: `docs/superpowers/specs/2026-11-03-worldclass-slice1-ci-monitors-design.md
    operator chose to enforce it in CI only.
 5. **The badge step stays advisory.** If a `coverage-data` worktree cannot be created, the
    step prints a message and exits 0 instead of turning a coverage job red.
+   Superseded: coverage jobs no longer push badges. They upload `coverage-badge-*` artifacts and
+   `scripts/publish-coverage-badges.sh` publishes them after the merge, failing visibly.
 
 ## Consequences
 
