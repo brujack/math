@@ -76,6 +76,15 @@ classify_mutation_run() {
     local caught missed timeout unviable
     IFS=$'\t' read -r caught missed timeout unviable <<<"${parsed}"
 
+    local field value
+    for field in caught missed timeout unviable; do
+        value="${!field}"
+        if [[ ! "${value}" =~ ^(0|[1-9][0-9]{0,8})$ ]]; then
+            printf "red: %s - outcomes.json %s '%s' is not a non-negative integer\n" "${label}" "${field}" "${value}" >&2
+            return 1
+        fi
+    done
+
     local evaluated=$((caught + missed))
     if [[ $# -ge 4 ]]; then
         evaluated=$((evaluated + timeout))
