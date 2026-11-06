@@ -43,7 +43,7 @@ make install-hooks   # installs pre-commit and pre-push hooks
 make install-deps    # Python deps + actionlint
 ```
 
-`make install-deps` refuses on PEP 668 interpreters; its actionlint step (CI's pin) only warns outside CI. Remedy: `python3 -m venv .venv && . .venv/bin/activate`. → ai-config/docs/knowledge/math-quick-reference.md § Setup
+`make install-deps` refuses on PEP 668 interpreters; its actionlint step (CI's pin) warns outside CI. Remedy: `python3 -m venv .venv && . .venv/bin/activate`. → ai-config/docs/knowledge/math-quick-reference.md § Setup
 
 ### Python (`<project>/`)
 
