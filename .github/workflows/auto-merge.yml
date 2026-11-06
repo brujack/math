@@ -302,6 +302,6 @@ jobs:
             # coverage-badge-* artifacts. The head SHA is read before the merge (the
             # squash commit has no PR runs). A publish failure turns this job red.
             head_sha=$(gh pr view "${PR}" --json headRefOid --jq '.headRefOid') || exit 1
-            ./scripts/ci-gate.sh "${PR}" && gh pr merge "${PR}" --squash \
+            ./scripts/ci-gate.sh "${PR}" && gh pr merge "${PR}" --squash --match-head-commit "${head_sha}" \
               && ./scripts/publish-coverage-badges.sh "${head_sha}"
           fi

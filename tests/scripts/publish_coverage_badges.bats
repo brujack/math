@@ -66,6 +66,29 @@ count_calls() { calls | command grep -c -- "${1}"; }
     [ "$(count_calls 'git ')" -eq 0 ]
 }
 
+@test "badge artifacts expired -> ::error:: naming them, exit 1, nothing downloaded or pushed" {
+    export MOCK_GH_WORKFLOW_RUNS=$'10\t100'
+    export MOCK_GH_ARTIFACTS_RAW='{"artifacts":[
+      {"name":"coverage-badge-fib-rust","expired":true},
+      {"name":"unrelated-artifact","expired":true}]}'
+    run "${SCRIPT}" abc123
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"::error::"* ]]
+    [[ "$output" == *"expired: coverage-badge-fib-rust"* ]]
+    [[ "$output" != *"unrelated-artifact"* ]]
+    [ "$(count_calls 'run download')" -eq 0 ]
+    [ "$(count_calls 'push')" -eq 0 ]
+}
+
+@test "unexpired artifacts in the API listing still publish" {
+    export MOCK_GH_WORKFLOW_RUNS=$'10\t100'
+    export MOCK_GH_ARTIFACTS_RAW='{"artifacts":[{"name":"coverage-badge-fib-rust","expired":false}]}'
+    add_badge 100 fib rust "95%" brightgreen
+    run "${SCRIPT}" abc123
+    [ "$status" -eq 0 ]
+    [ "$(count_calls 'push')" -eq 1 ]
+}
+
 @test "missing head sha -> usage error, exit 1" {
     run "${SCRIPT}"
     [ "$status" -eq 1 ]

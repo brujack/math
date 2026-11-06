@@ -9,7 +9,12 @@
 # only, from the PR's own coverage results. Artifact content is produced by the PR, so
 # every file is path- and shape-checked before anything is copied into the branch.
 #
-# Exit 0: published, or the PR ran no coverage (docs-only). Exit 1: any failure, loudly.
+# Exit 0: published, or the PR ran no coverage (docs-only). Exit 1: any failure, loudly,
+# including badge artifacts that exist but have expired (7-day retention).
+#
+# Only merges made by the auto-merge job call this: a manual or GitHub-native merge
+# publishes nothing. Publish order is not merge order: a PR that merged earlier but
+# publishes later overwrites the badge of a PR that merged after it.
 
 readonly BADGE_BRANCH="coverage-data"
 readonly BADGE_PREFIX="coverage-badge-"
@@ -51,12 +56,20 @@ latest_runs() {
     printf '%s\n' "${listing}" | sort -t $'\t' -k1,1n -k2,2nr | awk -F'\t' '!seen[$1]++ { print $2 }'
 }
 
-# Downloads one run's badge artifacts into $3. Returns 2 when the run has none.
+# Downloads one run's badge artifacts into $3. Returns 2 when the run has none, 3 when
+# any of them has expired (artifact retention is 7 days: a long-draft PR merged later has
+# nothing left to publish, and saying nothing would leave the README badges stale).
 download_run_badges() {
-    local repo="${1}" run="${2}" dest="${3}" names
-    names=$(gh api --paginate "repos/${repo}/actions/runs/${run}/artifacts?per_page=100" \
-        --jq ".artifacts[] | select(.name | startswith(\"${BADGE_PREFIX}\")) | .name") || return 1
-    [[ -n "${names}" ]] || return 2
+    local repo="${1}" run="${2}" dest="${3}" listing expired
+    listing=$(gh api --paginate "repos/${repo}/actions/runs/${run}/artifacts?per_page=100" \
+        --jq ".artifacts[] | select(.name | startswith(\"${BADGE_PREFIX}\"))
+              | [.name, (.expired // false)] | @tsv") || return 1
+    [[ -n "${listing}" ]] || return 2
+    expired=$(awk -F'\t' '$2 == "true" { printf "%s%s", sep, $1; sep = ", " }' <<< "${listing}")
+    if [[ -n "${expired}" ]]; then
+        badge_error "coverage badge artifacts of run ${run} have expired: ${expired}"
+        return 3
+    fi
     gh run download "${run}" --repo "${repo}" --pattern "${BADGE_PREFIX}*" --dir "${dest}" \
         > /dev/null || return 1
 }
@@ -155,6 +168,8 @@ run_publish() {
         rc=$?
         if ((rc == 2)); then
             continue
+        elif ((rc == 3)); then
+            return 1
         elif ((rc != 0)); then
             badge_error "could not download coverage artifacts of run ${run}"
             return 1

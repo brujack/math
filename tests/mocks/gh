@@ -24,7 +24,18 @@ if [[ -n "${MOCK_GH_ARTIFACT_ROOT:-}" && "$*" =~ actions/runs/([0-9]+)/artifacts
     _artifact_run="${BASH_REMATCH[1]}"
 fi
 
-if [[ -n "${_artifact_run}" ]]; then
+if [[ -n "${_artifact_run}" && -n "${MOCK_GH_ARTIFACTS_RAW:-}" ]]; then
+    # MOCK_GH_ARTIFACTS_RAW (opt-in): raw artifacts-API JSON run through the caller's real
+    # --jq filter, so a test can carry `expired` flags that the directory listing cannot.
+    _filter=""
+    for ((_i = 1; _i <= $#; _i++)); do
+        if [[ "${!_i}" == "--jq" ]]; then
+            _j=$((_i + 1))
+            _filter="${!_j}"
+        fi
+    done
+    printf '%s\n' "${MOCK_GH_ARTIFACTS_RAW}" | jq -r "${_filter}"
+elif [[ -n "${_artifact_run}" ]]; then
     ls -1 "${MOCK_GH_ARTIFACT_ROOT}/${_artifact_run}" 2>/dev/null
 elif [[ "$1" == "run" && "$2" == "download" && -n "${MOCK_GH_ARTIFACT_ROOT:-}" ]]; then
     _dest=""

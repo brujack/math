@@ -198,6 +198,15 @@ class TestAutoMergePublishes(unittest.TestCase):
             r"gh pr merge[^\n]*(?:\\\n)?\s*&&\s*\./scripts/publish-coverage-badges\.sh",
         )
 
+    def test_merge_is_pinned_to_the_gated_head(self):
+        # A push between the gate and the merge must not merge an unchecked head.
+        run = self.merge_step()
+        self.assertRegex(
+            run,
+            r'gh pr merge "\$\{PR\}" --squash --match-head-commit "\$\{head_sha\}"',
+        )
+        self.assertLess(run.index("headRefOid"), run.index("ci-gate.sh"))
+
     def test_head_sha_is_read_before_the_merge(self):
         run = self.merge_step()
         self.assertLess(run.index("headRefOid"), run.index("gh pr merge"))
