@@ -357,6 +357,30 @@ STUB
     chmod +x "$1/rm"
 }
 
+# On a timed-out wait, prints every process still in session $1 (the setsid'd make) with its
+# signal dispositions, so a failure in CI shows which process held up and whether TERM was
+# ignored, blocked or caught there. Diagnostic only; always returns 0.
+_dump_group_state() {
+    local p
+    printf 'process state in session %s:\n' "$1" >&2
+    for p in $(ps -e -o pid= -o sid= | awk -v s="$1" '$2 == s { print $1 }'); do
+        printf '  %s\n' "$(ps -o pid=,ppid=,stat=,args= -p "${p}" 2>/dev/null)" >&2
+        grep -E '^Sig(Blk|Ign|Cgt):' "/proc/${p}/status" 2>/dev/null | sed 's/^/    /' >&2
+    done
+    return 0
+}
+
+# The Python SIGTERM tests time out under CI's bash-coverage tracer only (math#212, run
+# 42126186260; not reproduced locally, including `make bash-coverage` on 2 CPUs). Makefile
+# recipes are outside the coverage denominator, so skipping them there loses no coverage;
+# they still run as real tests in the scripts job, and tests/test_mutants_cleanup_traps.py
+# pins the traps deterministically.
+_skip_under_coverage_tracer() {
+    if [ -n "${_COV_TRACE_FILE:-}" ]; then
+        skip "SIGTERM timing test is not run under the bash-coverage tracer"
+    fi
+}
+
 # Waits up to $2 tenths of a second for $1 to exist; fails naming the wait on timeout.
 _wait_for_file() {
     local i
@@ -378,6 +402,7 @@ _term_group_twice() {
     setsid env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${dir}" "$@" >/dev/null 2>&1 </dev/null &
     pid=$!
     if ! _wait_for_file "${BATS_TEST_TMPDIR}/hang-ready" 100; then
+        _dump_group_state "${pid}"
         kill -KILL -- "-${pid}" 2>/dev/null
         wait "${pid}" 2>/dev/null || true
         printf 'wait failed: stub never reached hang-ready\n' >&2
@@ -385,6 +410,7 @@ _term_group_twice() {
     fi
     kill -TERM -- "-${pid}"
     if ! _wait_for_file "${BATS_TEST_TMPDIR}/rm-started" 100; then
+        _dump_group_state "${pid}"
         kill -KILL -- "-${pid}" 2>/dev/null
         wait "${pid}" 2>/dev/null || true
         printf 'wait failed: cleanup rm never started after first TERM\n' >&2
@@ -397,6 +423,7 @@ _term_group_twice() {
         sleep 0.1
     done
     if kill -0 "${pid}" 2>/dev/null; then
+        _dump_group_state "${pid}"
         kill -KILL -- "-${pid}" 2>/dev/null
         wait "${pid}" 2>/dev/null || true
         printf 'wait failed: make did not exit after second TERM\n' >&2
@@ -1541,6 +1568,7 @@ _scratch_tmp() {
 }
 
 @test "python mutants copies the session back when the whole process group gets SIGTERM" {
+    _skip_under_coverage_tracer
     _py_stub_setup
     _scratch_tmp
     rm -f "${BATS_TEST_TMPDIR}/exec-ready" "${BATS_TEST_TMPDIR}/cp-started"
@@ -1551,6 +1579,7 @@ _scratch_tmp() {
         sleep 0.1
     done
     if [ ! -e "${BATS_TEST_TMPDIR}/exec-ready" ]; then
+        _dump_group_state "${pid}"
         kill -KILL -- "-${pid}" 2>/dev/null
         wait "${pid}" 2>/dev/null || true
         printf 'wait failed: exec stub never reached exec-ready\n' >&2
@@ -1559,6 +1588,7 @@ _scratch_tmp() {
     kill -TERM -- "-${pid}"
     # Once cleanup is inside its (stalled) copy-back, a second TERM must not abort it.
     if ! _wait_for_file "${BATS_TEST_TMPDIR}/cp-started" 50; then
+        _dump_group_state "${pid}"
         kill -KILL -- "-${pid}" 2>/dev/null
         wait "${pid}" 2>/dev/null || true
         printf 'wait failed: copy-back never started (cp-started) after first TERM\n' >&2
@@ -1576,6 +1606,7 @@ _scratch_tmp() {
         sleep 0.1
     done
     if kill -0 "${pid}" 2>/dev/null; then
+        _dump_group_state "${pid}"
         kill -KILL -- "-${pid}" 2>/dev/null
         wait "${pid}" 2>/dev/null || true
         printf 'wait failed: make did not exit after the second TERM\n' >&2
@@ -1587,6 +1618,7 @@ _scratch_tmp() {
 }
 
 @test "python mutants-baseline removes its scratch dir when the whole process group gets SIGTERM twice" {
+    _skip_under_coverage_tracer
     _py_stub_setup
     _scratch_tmp
     STUB_BASELINE_HANG=1 STUB_RM_SLOW=1 _term_group_twice "${STUBDIR}" mutants-baseline
