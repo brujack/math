@@ -363,7 +363,7 @@ STUB
 _dump_group_state() {
     local p
     printf 'process state in session %s:\n' "$1" >&2
-    for p in $(ps -e -o pid= -o sid= | awk -v s="$1" '$2 == s { print $1 }'); do
+    for p in $(ps -e -o pid= -o sid= 2>/dev/null | awk -v s="$1" '$2 == s { print $1 }'); do
         printf '  %s\n' "$(ps -o pid=,ppid=,stat=,args= -p "${p}" 2>/dev/null)" >&2
         grep -E '^Sig(Blk|Ign|Cgt):' "/proc/${p}/status" 2>/dev/null | sed 's/^/    /' >&2
     done
