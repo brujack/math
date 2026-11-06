@@ -51,15 +51,11 @@ run_crate() {
     # A failing make is judged by mutants.out/exit-code below, not by its own status.
     make -C "${dir}" mutants-diff DIFF="${diff_file}" || true
 
-    local code_file="${dir}/mutants.out/exit-code"
-    if [[ ! -f "${code_file}" ]]; then
-        _red "${dir}" "no mutants.out/exit-code"
-        return 1
-    fi
+    # The shared reader owns the missing-file and integer rules; its one red line comes
+    # back on stderr, so fold it into stdout where every verdict of this script goes.
     local code
-    code="$(<"${code_file}")"
-    if [[ ! "${code}" =~ ^(0|[1-9][0-9]{0,2})$ ]]; then
-        _red "${dir}" "mutants.out/exit-code '${code}' is not an integer"
+    if ! code="$(bash "${script_dir}/mutation-exit-code.sh" "${dir}" 2>&1)"; then
+        printf '%s\n' "${code}"
         return 1
     fi
 

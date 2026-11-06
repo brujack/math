@@ -108,17 +108,12 @@ jobs:
           # on that, and fail closed when it is missing (the recipe died
           # before cargo-mutants ran).
           make -C "${CRATE_DIR}" mutants || true
-          code_file="${CRATE_DIR}/mutants.out/exit-code"
-          if [[ ! -f "${code_file}" ]]; then
-            printf 'red: %s - no mutants.out/exit-code\n' "${CRATE_DIR}" \
-              | tee -a "${GITHUB_STEP_SUMMARY}" "${GITHUB_WORKSPACE}/status/${SLUG}"
-            exit 1
-          fi
-          rc=$(<"${code_file}")
-          # The classifier's `-eq` reads '' or text as 0 (green), so reject
-          # anything but a plain integer before it can see the value.
-          if [[ ! "${rc}" =~ ^(0|[1-9][0-9]{0,2})$ ]]; then
-            printf 'red: %s - mutants.out/exit-code is not an integer\n' "${CRATE_DIR}" \
+          # scripts/mutation-exit-code.sh owns the missing-file and plain-integer
+          # rules (the classifier's `-eq` reads '' or text as 0, i.e. green).
+          # Its red line arrives on stderr; 2>&1 puts it in rc so it reaches
+          # the summary and status/<slug> like every other verdict.
+          if ! rc=$(bash scripts/mutation-exit-code.sh "${CRATE_DIR}" 2>&1); then
+            printf '%s\n' "${rc}" \
               | tee -a "${GITHUB_STEP_SUMMARY}" "${GITHUB_WORKSPACE}/status/${SLUG}"
             exit 1
           fi
