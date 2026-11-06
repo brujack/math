@@ -34,14 +34,44 @@ def recipe_text(makefile: str, target: str) -> str:
     )
     if match is None:
         raise AssertionError(f"recipe {target!r} not found")
-    return re.sub(r"[ \t]*\\\n\s*", " ", match.group(1))
+    return _join_continuations(match.group(1))
+
+
+def _join_continuations(text: str) -> str:
+    return re.sub(r"[ \t]*\\\n\s*", " ", text)
+
+
+def macro_text(makefile: str, name: str) -> str:
+    """Joined body of the make variable `name` (`NAME = ...` to the next blank line), or ''."""
+    match = re.search(
+        rf"^{re.escape(name)}[ \t]*=[ \t]*(.*?)(?:\n[ \t]*\n|\Z)",
+        makefile,
+        re.DOTALL | re.MULTILINE,
+    )
+    return "" if match is None else _join_continuations(match.group(1))
+
+
+def expanded_recipe_text(makefile: str, target: str) -> str:
+    """recipe_text with each `$(NAME)` reference replaced by that macro's body.
+
+    A reference to a macro that is not defined is left in place, so a recipe cannot
+    satisfy the pin through a macro that does not exist. Because only the recipe's own
+    references are expanded, a recipe that stops using the macro loses the strings.
+    """
+    text = recipe_text(makefile, target)
+
+    def substitute(match: re.Match[str]) -> str:
+        body = macro_text(makefile, match.group(1))
+        return body if body else match.group(0)
+
+    return re.sub(r"\$\(([A-Z_]+)\)", substitute, text)
 
 
 def trap_problems(makefile: str, targets: tuple[str, ...]) -> list[str]:
     """Describe each recipe in `targets` that lacks the cleanup body or trap line."""
     problems = []
     for target in targets:
-        text = recipe_text(makefile, target)
+        text = expanded_recipe_text(makefile, target)
         if not CLEANUP_BODY.search(text):
             problems.append(
                 f'{target}: cleanup body does not begin with trap "" TERM HUP INT;'
@@ -88,29 +118,39 @@ class TestTrapProblems(unittest.TestCase):
         self.rust = (REPO_ROOT / rcf.TEMPLATE_DIR / "Makefile").read_text()
         self.python = (REPO_ROOT / rcf.TEMPLATE_DIR / "python" / "Makefile").read_text()
 
-    def test_removed_term_trap_in_one_rust_recipe_is_reported_for_that_recipe_only(
-        self,
-    ):
-        # Break only the first occurrence (the `mutants` recipe).
+    def test_removed_term_trap_in_the_shared_macro_is_reported_for_both_recipes(self):
         broken = self.rust.replace('trap "exit 143" TERM; ', "", 1)
         problems = trap_problems(broken, RUST_RECIPES)
-        self.assertEqual(len(problems), 1)
+        self.assertEqual(len(problems), 2)
         self.assertTrue(problems[0].startswith("mutants:"))
+        self.assertTrue(problems[1].startswith("mutants-diff:"))
 
-    def test_removed_term_trap_in_mutants_diff_is_reported_for_that_recipe_only(self):
+    def test_recipe_that_stops_using_the_macro_is_reported_for_that_recipe_only(self):
         head, sep, tail = self.rust.partition("mutants-diff:")
-        broken = head + sep + tail.replace('trap "exit 143" TERM; ', "", 1)
+        broken = head + sep + tail.replace("$(MUTANTS_SETUP)", "true", 1)
         problems = trap_problems(broken, RUST_RECIPES)
-        self.assertEqual(len(problems), 1)
-        self.assertTrue(problems[0].startswith("mutants-diff:"))
+        self.assertEqual(len(problems), 2)
+        self.assertTrue(all(p.startswith("mutants-diff:") for p in problems))
+
+    def test_mutants_recipe_that_stops_using_the_macro_is_reported_for_mutants_only(
+        self,
+    ):
+        broken = self.rust.replace("$(MUTANTS_SETUP)", "true", 1)
+        problems = trap_problems(broken, RUST_RECIPES)
+        self.assertEqual(len(problems), 2)
+        self.assertTrue(all(p.startswith("mutants:") for p in problems))
+
+    def test_reference_to_an_undefined_macro_does_not_satisfy_the_pin(self):
+        broken = self.rust.replace("$(MUTANTS_SETUP)", "$(NO_SUCH_MACRO)")
+        self.assertEqual(len(trap_problems(broken, RUST_RECIPES)), 4)
 
     def test_cleanup_body_without_leading_ignore_trap_is_reported(self):
         broken = self.rust.replace(
             'cleanup() { trap "" TERM HUP INT; ', "cleanup() { ", 1
         )
         problems = trap_problems(broken, RUST_RECIPES)
-        self.assertEqual(len(problems), 1)
-        self.assertIn("cleanup body", problems[0])
+        self.assertEqual(len(problems), 2)
+        self.assertTrue(all("cleanup body" in p for p in problems))
 
     def test_python_baseline_and_mutants_are_checked_separately(self):
         broken = self.python.replace('trap "exit 129" HUP;', "", 1)

@@ -325,7 +325,9 @@ for e in json.load(open('${REPO_ROOT}/renovate.json')).get('extends', []):
         [[ "${body}" == *"--in-diff"* ]] || bad="${bad}${mf}(no --in-diff) "
         [[ "${body}" == *"--timeout-multiplier 5"* ]] || bad="${bad}${mf}(no --timeout-multiplier 5 in mutants-diff) "
         [[ "${body}" == *"--minimum-test-timeout 30"* ]] || bad="${bad}${mf}(no --minimum-test-timeout 30 in mutants-diff) "
-        [[ "${body}" == *"ulimit -v 8388608"* ]] || bad="${bad}${mf}(no ulimit in mutants-diff) "
+        # The cap lives once in the MUTANTS_SETUP macro; mutants-diff must use it and the macro must hold the cap.
+        [[ "${body}" == *'$(MUTANTS_SETUP)'* ]] || bad="${bad}${mf}(mutants-diff does not use MUTANTS_SETUP) "
+        [[ "$(sed -n '/^MUTANTS_SETUP =/,/^$/p' "${REPO_ROOT}/${mf}")" == *"ulimit -v 8388608"* ]] || bad="${bad}${mf}(no ulimit in MUTANTS_SETUP) "
         if grep -qE -- '--timeout[[:space:]]+[0-9]' "${REPO_ROOT}/${mf}"; then
             bad="${bad}${mf}(fixed --timeout) "
         fi
