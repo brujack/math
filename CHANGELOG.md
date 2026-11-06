@@ -3,114 +3,120 @@
 
 ## Bug Fixes
 
-- install nextest and machete before tests (#157)
+- stop tempdir leaks, cap file size (#211)
 
-- ignore superseded check runs; record release backlog rows (#158)
+- signal-safe TMPDIR cleanup, diagnosable coverage flake (#212)
 
-- drop rejected CHANGELOG push; make SBOM monitor skips visible (#159)
+- read-only mutation-pr token, validated counts, gate ignores dispatch runs (#213)
 
-- stop continue-on-error hiding failures (#160)
+- classifier rejects non-number counts; pi/e drop equivalent max; crate list checked (#215)
 
-- handle closed stdin in fib.py and sq.py (#161)
-
-- hold draft PRs green instead of failing (#162)
-
-- stop building file paths from env and git output (#163)
-
-- pin and checksum the Snyk CLI (#164)
-
-- pin pyright and every cargo install to one version (#165)
-
-- make <crate> only builds; make install to ~/.local/bin (#166)
-
-- make all 11 Makefiles and rustfmt.toml identical (#167)
-
-- render Makefile, rustfmt and release workflows from templates (#168)
-
-- render the 11 CI workflows and nextest config from templates (#169)
-
-- one tested install_deps.sh for all 11 crates (#170)
-
-- keep mpmath precision through the spawn conversion worker (#174)
-
-- stop holding the stderr lock across run() in pi, prime and e (#175)
-
-- wake progress threads when work finishes instead of after a 200 ms sleep (#176)
-
-- scan the crate templates with the github-actions manager (#179)
+- badges publish after auto-merge; actionlint via install-deps; classifier rejects ambiguous outcomes (#216)
 
 
 
 ## CI
 
-- prebuilt CI tools, parallel coverage job and parallel bats (#177)
+- one rust mutation job per crate (#202)
+
+- per-PR Rust mutation ratchet on changed lines (#206)
+
+- Rust sweep holds zero missed (#208)
 
 
 
 ## Documentation
 
-- one CLI contract for all 19 programs, uniform Python files
+- approve worldclass slice 3
 
-- align math's direct-to-master docs rule with the fleet
+- worldclass slice 3 rust mutation matrix
 
-- record Step 8 multi-lens review, round 1
+- mark worldclass slice 3 done (math#202)
 
-- revision 2 after round-1 review dispositions
+- record first matrix sweep and V2 result
 
-- revision 3 after round-2 review dispositions
+- record slice 2 mutation V1 result
 
-- revision 4 after round-3 risk review
+- worldclass slice 4 rust mutation survivors
 
-- record operator approval of uniform Python CLI spec
+- slice 4 multi-lens review round 1
 
-- uniform Python CLI and project files, 19 tasks
+- slice 4 round-1 dispositions and fixes
 
-- collatz N>8 memory peak above its warning
+- slice 4 multi-lens review round 2
 
-- claude_md_budget gate takes a revision
+- slice 4 round-2 fixes to drift test
 
-- drop the pi/e closed-stdin row fixed by math#171
+- approve worldclass slice 4
 
-- mark uniform-python-cli Done
+- worldclass slice 4 rust mutation survivors
 
-- describe the rendered Python installer in three READMEs
+- mark worldclass slice 4 done (math#203)
 
-- uniform Rust CLI contract and Cargo.toml shape
+- correct e-rs cfg(unix) row line-shift note
 
-- Rust spec round-1 revisions and parallel local tests
+- record slice 4 V1 sweep result
 
-- Rust spec round-2 dispositions
+- worldclass slice 5 per-PR Rust mutation ratchet
 
-- Rust spec adds system GMP and MPFR (R20)
+- slice 5 round 1 lens revisions
 
-- Rust spec adds the nextest time bound (R21)
+- slice 5 round 2 lens revisions and timeout classification
 
-- Rust spec round-2 review record
+- slice 5 round 3 lens revisions
 
-- Rust spec round 3, drop system GMP, bound coverage job
+- slice 5 round 4 lens revisions
 
-- Rust spec bound sized from CI (15 s x 3)
+- slice 5 scoped re-review wording fixes
 
-- approve the Rust CLI contract and Cargo.toml spec
+- approve slice 5 rust PR mutation ratchet spec
 
-- uniform Rust CLI contract and Cargo.toml plan, non-goal check
+- slice 5 rust PR mutation ratchet plan
 
-- record math#180 P1 merge and the removed pre-push skip
+- mark slice 5 rust PR mutation ratchet done
 
+- worldclass slice 6 rust sweep ratchet
 
+- slice 6 round 1 multi-lens review
 
-## Features
+- slice 6 round 1 lens revisions and dispositions
 
-- one CLI contract for the 8 Python programs (#171)
+- slice 6 round 2 multi-lens review
 
-- run every Python project at standard via an exact gmpy2 stub (#172)
+- slice 6 round 2 lens revisions and dispositions
 
-- one Cargo.toml shape, crate CLAUDE.md, concurrent suites, bounded tests (#180)
+- slice 6 round 3 scoped review fixes
+
+- approve slice 6 rust sweep ratchet spec
+
+- slice 6 rust sweep ratchet plan
+
+- mark slice 6 rust sweep ratchet done
+
+- tracer-timing flake, runner-loss row update
+
+- amend 0024 with file cap and run-local TMPDIR
+
+- double-TERM can interrupt mutants TMPDIR cleanup
+
+- math#212 shipped; tracer flake and crate-list rows
+
+- math#213 shipped three rows; null/false count row
+
+- runner loss persists after the file cap (run 42157905568)
 
 
 
 ## Refactoring
 
-- render the 8 Python projects' files from templates (#173)
+- one exit-code reader and Rust setup macro; pin pi/e render values (#214)
+
+
+
+## Testing
+
+- kill surviving mutants in five crates (#203)
+
+- kill host-dependent mutation survivors (#204)
 
 
