@@ -41,7 +41,8 @@ classify_mutation_run() {
     local label="$3"
     local max_missed="${4-}"
     local min_caught="${5-}"
-    # Function-local: a file-level readonly would fail when this file is sourced twice.
+    # One pattern for the max_missed, min_caught and outcomes.json count checks; local
+    # because only this function uses it.
     local -r count_pattern='^(0|[1-9][0-9]{0,8})$'
 
     if [[ $# -ge 4 && ! "${max_missed}" =~ ${count_pattern} ]]; then
@@ -68,15 +69,13 @@ classify_mutation_run() {
 
     local parsed
     local jq_status
-    # An absent key counts as 0; a present key keeps its value. A non-number renders as
-    # non-empty text so the tab columns stay aligned and the integer check below names the
-    # right field: null and false as their JSON text, a string as itself, except a digit
-    # string, which is quoted so that "0" is not mistaken for the number 0.
+    # An absent key counts as 0; a present key keeps its value. Every non-number renders as
+    # its JSON text (null, false, "0", ""), which is never empty, so the tab columns stay
+    # aligned under the tab-IFS read and the integer check below names the right field; a
+    # quoted "0" cannot pass as the number 0.
     parsed=$(jq -e -r 'def count(k):
             if has(k) then
-                .[k] | if type == "number" then tostring
-                       elif type == "string" then (if test("^[0-9]+$") then tojson else . end)
-                       else tojson end
+                .[k] | if type == "number" then tostring else tojson end
             else "0" end;
         [count("caught"), count("missed"), count("timeout"), count("unviable")] | @tsv' "${outcomes}" 2>/dev/null)
     jq_status=$?
