@@ -958,6 +958,13 @@ class TestMirroredHelpers(unittest.TestCase):
             "Elapsed: 5.0s | ETA: 0.0s",
         )
 
+    def test_render_conversion_tick_eta_just_below_estimate(self):
+        self.assertEqual(
+            render_conversion_tick(1000, 4.9, 5.0),
+            "\rConverting 1,000 digits.   [█████████████████████████████░] 98.0% "
+            "Elapsed: 4.9s | ETA: 0.1s",
+        )
+
     def test_render_conversion_tick_zero_elapsed(self):
         self.assertEqual(
             render_conversion_tick(50, 0.0, 1.0),
