@@ -66,7 +66,17 @@ classify_mutation_run() {
 
     local parsed
     local jq_status
-    parsed=$(jq -e -r '[(.caught // 0), (.missed // 0), (.timeout // 0), (.unviable // 0)] | @tsv' "${outcomes}" 2>/dev/null)
+    # An absent key counts as 0; a present key keeps its value. A non-number renders as
+    # non-empty text so the tab columns stay aligned and the integer check below names the
+    # right field: null and false as their JSON text, a string as itself, except a digit
+    # string, which is quoted so that "0" is not mistaken for the number 0.
+    parsed=$(jq -e -r 'def count(k):
+            if has(k) then
+                .[k] | if type == "number" then tostring
+                       elif type == "string" then (if test("^[0-9]+$") then tojson else . end)
+                       else tojson end
+            else "0" end;
+        [count("caught"), count("missed"), count("timeout"), count("unviable")] | @tsv' "${outcomes}" 2>/dev/null)
     jq_status=$?
     if [[ "${jq_status}" -ne 0 ]]; then
         printf "red: %s - outcomes.json present but unparseable\n" "${label}" >&2

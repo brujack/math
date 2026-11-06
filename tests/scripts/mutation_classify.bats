@@ -334,3 +334,34 @@ _write_outcomes() {
     [[ "${output}" == "red: amicable/amicable-rs - outcomes.json caught '"* ]]
     [ ! -e "${marker}" ]
 }
+
+@test "present null or false count -> red naming that field" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    local field value
+    for field in caught missed timeout unviable; do
+        for value in null false; do
+            local body='{"caught":3,"missed":0,"timeout":0,"unviable":0}'
+            body="$(printf '%s' "${body}" | jq -c --arg f "${field}" --argjson v "${value}" '.[$f] = $v')"
+            _write_outcomes "${outcomes}" "${body}"
+            run "${SCRIPT}" 0 "${outcomes}" "m/m-rs" 0
+            [ "${status}" -eq 1 ]
+            [ "${output}" = "red: m/m-rs - outcomes.json ${field} '${value}' is not a non-negative integer" ]
+        done
+    done
+}
+
+@test "present string count -> red naming that field" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    _write_outcomes "${outcomes}" '{"caught":3,"missed":"0","timeout":0,"unviable":0}'
+    run "${SCRIPT}" 0 "${outcomes}" "m/m-rs" 0
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == "red: m/m-rs - outcomes.json missed '"*"' is not a non-negative integer" ]]
+}
+
+@test "absent count keys still read as 0 -> green" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    _write_outcomes "${outcomes}" '{"caught":3}'
+    run "${SCRIPT}" 0 "${outcomes}" "m/m-rs" 0
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "green: m/m-rs - caught=3 missed=0 timeout=0 unviable=0" ]
+}
