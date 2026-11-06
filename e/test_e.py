@@ -751,6 +751,36 @@ class TestMirroredHelpers(unittest.TestCase):
             "ETA: 0.0s | Rate: 0.0 MB/s",
         )
 
+    def test_render_conversion_tick_overrun_dots_cycle(self):
+        for elapsed, dots, shown in (
+            (6.0, "", "    "),
+            (6.5, ".", ".   "),
+            (7.0, "..", "..  "),
+            (7.6, "...", "... "),
+        ):
+            with self.subTest(elapsed=elapsed, dots=dots):
+                self.assertEqual(
+                    render_conversion_tick(10, elapsed, 5.0),
+                    f"\rConverting 10 digits{shown}[Still converting...] "
+                    f"Elapsed: {elapsed:.1f}s (longer than estimated)",
+                )
+
+    def test_render_write_progress_eta_uses_subtraction(self):
+        # total-done = 3 but total^done = 7, so a mutated operator shows 14.0s.
+        self.assertEqual(
+            render_write_progress(2, 5, 100, 50, 4.0),
+            "\rFile write progress: 40.0% | Written: 100/100 chars | "
+            "ETA: 6.0s | Rate: 0.0 MB/s",
+        )
+
+    def test_render_write_progress_rate_divisor_is_exact_mebibyte(self):
+        # 100 MiB in 1 s: a 1023 divisor would print 100.2, not 100.0.
+        self.assertEqual(
+            render_write_progress(1, 1, 104_857_600, 104_857_600, 1.0),
+            "\rFile write progress: 100.0% | Written: 104,857,600/104,857,600 chars | "
+            "ETA: 0.0s | Rate: 100.0 MB/s",
+        )
+
     def test_io_workers_clamp(self):
         for cpus, expected in ((1, 2), (2, 2), (3, 3), (8, 8), (9, 8)):
             with self.subTest(cpus=cpus):
