@@ -1,8 +1,11 @@
-"""Pin the structure of the monthly Python mutation workflow.
+"""Pin the structure and behaviour of the three mutation workflows.
 
-The workflow is `setup` -> per-project x 10 `mutants` matrix -> `notify`. Each assertion parses
-the file with `yaml.safe_load` so a comment cannot fake a directive. PyYAML parses
-the `on:` key as the boolean True, which these tests do not need.
+Covers mutation-testing-python.yml (monthly: `setup` -> per-project x 10 `mutants`
+matrix -> `notify`), mutation-pr.yml (per-PR Python baseline, Rust loop, canary and
+read-only token) and mutation-testing.yml (monthly Rust sweep: `setup` -> per-crate
+`mutants` -> `notify`). Each assertion parses the file with `yaml.safe_load` so a
+comment cannot fake a directive; PyYAML parses the `on:` key as the boolean True,
+which these tests do not need. Run blocks execute against stubs where noted.
 """
 
 import fnmatch
@@ -615,7 +618,7 @@ class SetupRun(NamedTuple):
 
 
 def run_rs_setup(crate="", path=None):
-    """Execute the setup job's `plan` step; return (proc, outputs, lines)."""
+    """Execute the setup job's `plan` step; return a `SetupRun` (proc, outputs dict, raw lines)."""
     with tempfile.TemporaryDirectory() as tmp:
         out = pathlib.Path(tmp) / "out"
         out.touch()
