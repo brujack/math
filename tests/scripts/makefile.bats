@@ -527,6 +527,33 @@ _tmpdir_run() {
     grep -qxF "fsize=262144" "${CALLS}"
 }
 
+# MUTANTS_UNCAPPED=1 skips only the memory cap: cargo must inherit this shell's own `ulimit -v`
+# (not 8 GiB), the operator must be warned, and the file-size cap must stay.
+@test "make mutants with MUTANTS_UNCAPPED leaves the memory cap off, warns, and keeps the file cap" {
+    _rs_stub_setup
+    local parent_v
+    parent_v="$(ulimit -v)"
+    MUTANTS_UNCAPPED=1 run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${CRATE}" mutants
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"warning: MUTANTS_UNCAPPED set"* ]]
+    grep -qE "^cargo mutants .* ulimit=${parent_v}$" "${CALLS}"
+    _assert_no_call "ulimit=8388608"
+    grep -qxF "fsize=262144" "${CALLS}"
+}
+
+@test "make mutants-diff with MUTANTS_UNCAPPED leaves the memory cap off, warns, and keeps the file cap" {
+    _rs_stub_setup
+    local parent_v
+    parent_v="$(ulimit -v)"
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    MUTANTS_UNCAPPED=1 run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${CRATE}" mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"warning: MUTANTS_UNCAPPED set"* ]]
+    grep -qE "^cargo mutants .* ulimit=${parent_v}$" "${CALLS}"
+    _assert_no_call "ulimit=8388608"
+    grep -qxF "fsize=262144" "${CALLS}"
+}
+
 @test "make mutants-diff runs cargo with TMPDIR under the crate's target dir" {
     _tmpdir_run mutants-diff
     [ "${status}" -eq 0 ]
