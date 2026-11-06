@@ -284,3 +284,34 @@ _write_outcomes() {
     [ "${status}" -eq 1 ]
     [[ "${stderr}" == *"caught=0 below min_caught=1"* ]]
 }
+
+@test "non-integer outcomes.json counts -> red naming the field" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    local field value
+    for field in caught missed timeout unviable; do
+        for value in '"1.5"' '-1' '"abc"' '1.5'; do
+            _write_outcomes "${outcomes}" "$(jq -c --argjson v "${value}" ".${field} = \$v" <<<'{"caught":3,"missed":0,"timeout":0,"unviable":0}')"
+            run "${SCRIPT}" 0 "${outcomes}" "amicable/amicable-rs"
+            [ "${status}" -eq 1 ]
+            [[ "${output}" == "red: amicable/amicable-rs - outcomes.json ${field} '"*"' is not a non-negative integer" ]]
+        done
+    done
+}
+
+@test "empty-string outcomes.json count -> red" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    _write_outcomes "${outcomes}" '{"caught":3,"missed":0,"timeout":0,"unviable":""}'
+    run "${SCRIPT}" 0 "${outcomes}" "amicable/amicable-rs"
+    [ "${status}" -eq 1 ]
+    [ "${output}" = "red: amicable/amicable-rs - outcomes.json unviable '' is not a non-negative integer" ]
+}
+
+@test "arithmetic injection in outcomes.json count -> red and not executed" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    local marker="${BATS_TEST_TMPDIR}/pwned"
+    printf '{"caught":"a[$(touch %s)]","missed":0,"timeout":0,"unviable":0}' "${marker}" >"${outcomes}"
+    run "${SCRIPT}" 0 "${outcomes}" "amicable/amicable-rs"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == "red: amicable/amicable-rs - outcomes.json caught '"* ]]
+    [ ! -e "${marker}" ]
+}
