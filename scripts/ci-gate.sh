@@ -43,9 +43,9 @@ ci_gate() {
         # Every gate-relevant workflow is pull_request-triggered, so check-runs from a
         # workflow_dispatch or schedule run (e.g. a manual mutation-testing run on the
         # PR branch) are dropped before grouping and can neither fail the gate nor
-        # supersede a PR run. Dropping is the unsafe direction: only those two exact
-        # events are dropped; a missing event, any other event, or a suite with no
-        # workflow run stays gated.
+        # supersede a PR run. Dropping fails open, so only those two exact events are
+        # dropped; a missing event, any other event, or a suite with no workflow run
+        # stays gated.
         check_runs=$(printf '%s' "${check_runs}" | jq -c -s \
             --argjson wf "$(printf '%s' "${workflow_runs}" | jq -s 'map({key: (.suite | tostring), value: .wf}) | from_entries')" \
             --argjson ev "$(printf '%s' "${workflow_runs}" | jq -s 'map({key: (.suite | tostring), value: .event}) | from_entries')" \

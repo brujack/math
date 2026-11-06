@@ -298,6 +298,25 @@ _write_outcomes() {
     done
 }
 
+# Without the 9-digit cap, 2^64 wraps to 0 in bash arithmetic and a huge missed count
+# would read as green under max_missed 0; a leading zero would be read as octal.
+@test "out-of-range or leading-zero outcomes.json counts -> red, 9-digit max -> green" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    local field value
+    for field in caught missed; do
+        for value in '1000000000' '"18446744073709551616"' '"010"'; do
+            _write_outcomes "${outcomes}" "$(jq -c --argjson v "${value}" ".${field} = \$v" <<<'{"caught":3,"missed":0,"timeout":0,"unviable":0}')"
+            run "${SCRIPT}" 0 "${outcomes}" "amicable/amicable-rs" 0
+            [ "${status}" -eq 1 ]
+            [[ "${output}" == "red: amicable/amicable-rs - outcomes.json ${field} '"*"' is not a non-negative integer" ]]
+        done
+    done
+    _write_outcomes "${outcomes}" '{"caught":999999999,"missed":999999999,"timeout":0,"unviable":0}'
+    run "${SCRIPT}" 0 "${outcomes}" "amicable/amicable-rs" 999999999
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == "green: amicable/amicable-rs - caught=999999999 missed=999999999"* ]]
+}
+
 @test "empty-string outcomes.json count -> red" {
     local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
     _write_outcomes "${outcomes}" '{"caught":3,"missed":0,"timeout":0,"unviable":""}'
