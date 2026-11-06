@@ -371,3 +371,78 @@ _write_outcomes() {
     [ "${status}" -eq 0 ]
     [ "${output}" = "green: m/m-rs - caught=3 missed=0 timeout=0 unviable=0" ]
 }
+
+@test "duplicate top-level count key -> red naming the key (jq keeps the last, so the first would hide)" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    local field
+    for field in caught missed timeout unviable; do
+        _write_outcomes "${outcomes}" "{\"caught\":3,\"missed\":5,\"${field}\":0,\"${field}\":0}"
+        run "${SCRIPT}" 0 "${outcomes}" "m/m-rs" 0
+        [ "${status}" -eq 1 ]
+        [ "${output}" = "red: m/m-rs - outcomes.json has duplicate key '${field}'" ]
+    done
+}
+
+@test "duplicate missed hiding a survivor behind the last value -> red" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    _write_outcomes "${outcomes}" '{"caught":3,"missed":5,"missed":0,"timeout":0,"unviable":0}'
+    run "${SCRIPT}" 0 "${outcomes}" "m/m-rs" 0
+    [ "${status}" -eq 1 ]
+    [ "${output}" = "red: m/m-rs - outcomes.json has duplicate key 'missed'" ]
+}
+
+@test "duplicate unrelated top-level key -> red naming the key" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    _write_outcomes "${outcomes}" '{"caught":3,"missed":0,"total_mutants":3,"total_mutants":4}'
+    run "${SCRIPT}" 0 "${outcomes}" "m/m-rs" 0
+    [ "${status}" -eq 1 ]
+    [ "${output}" = "red: m/m-rs - outcomes.json has duplicate key 'total_mutants'" ]
+}
+
+@test "duplicate top-level key holding nested containers -> red" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    _write_outcomes "${outcomes}" '{"caught":3,"missed":0,"outcomes":[{"a":1}],"outcomes":{"b":2}}'
+    run "${SCRIPT}" 0 "${outcomes}" "m/m-rs" 0
+    [ "${status}" -eq 1 ]
+    [ "${output}" = "red: m/m-rs - outcomes.json has duplicate key 'outcomes'" ]
+}
+
+@test "duplicate key inside a nested object is not red on that account" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    _write_outcomes "${outcomes}" '{"caught":3,"missed":0,"timeout":0,"unviable":0,"meta":{"k":1,"k":2}}'
+    run "${SCRIPT}" 0 "${outcomes}" "m/m-rs" 0
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "green: m/m-rs - caught=3 missed=0 timeout=0 unviable=0" ]
+}
+
+@test "two concatenated objects -> red (second document would hide)" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    _write_outcomes "${outcomes}" '{"caught":3,"missed":0}{"caught":3,"missed":99}'
+    run "${SCRIPT}" 0 "${outcomes}" "m/m-rs" 0
+    [ "${status}" -eq 1 ]
+    [ "${output}" = "red: m/m-rs - outcomes.json is not exactly one JSON object" ]
+}
+
+@test "object followed by a scalar -> red" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    _write_outcomes "${outcomes}" '{"caught":3,"missed":0} 7'
+    run "${SCRIPT}" 0 "${outcomes}" "m/m-rs" 0
+    [ "${status}" -eq 1 ]
+    [ "${output}" = "red: m/m-rs - outcomes.json is not exactly one JSON object" ]
+}
+
+@test "realistic cargo-mutants outcomes with repeated nested keys -> classified normally" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    _write_outcomes "${outcomes}" '{"outcomes":[{"scenario":"Baseline","summary":"Success","phase_results":[{"phase":"Build","exit":0},{"phase":"Test","exit":0}]},{"scenario":{"Mutant":{"name":"a","span":{"start":{"line":1,"column":2},"end":{"line":1,"column":3}}}},"summary":"CaughtMutant","phase_results":[{"phase":"Build","exit":0},{"phase":"Test","exit":1}]},{"scenario":{"Mutant":{"name":"b","span":{"start":{"line":4,"column":2},"end":{"line":4,"column":3}}}},"summary":"CaughtMutant","phase_results":[]}],"total_mutants":2,"missed":0,"caught":2,"timeout":0,"unviable":0,"success":2,"failure":0}'
+    run "${SCRIPT}" 0 "${outcomes}" "m/m-rs" 0
+    [ "${status}" -eq 0 ]
+    [ "${output}" = "green: m/m-rs - caught=2 missed=0 timeout=0 unviable=0" ]
+}
+
+@test "duplicate empty-string top-level key -> red (empty name must not fail open)" {
+    local outcomes="${BATS_TEST_TMPDIR}/outcomes.json"
+    _write_outcomes "${outcomes}" '{"caught":3,"missed":0,"":1,"":2}'
+    run "${SCRIPT}" 0 "${outcomes}" "m/m-rs" 0
+    [ "${status}" -eq 1 ]
+    [ "${output}" = "red: m/m-rs - outcomes.json has duplicate key ''" ]
+}
