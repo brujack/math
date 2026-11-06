@@ -41,12 +41,14 @@ classify_mutation_run() {
     local label="$3"
     local max_missed="${4-}"
     local min_caught="${5-}"
+    # Function-local: a file-level readonly would fail when this file is sourced twice.
+    local -r count_pattern='^(0|[1-9][0-9]{0,8})$'
 
-    if [[ $# -ge 4 && ! "${max_missed}" =~ ^(0|[1-9][0-9]{0,8})$ ]]; then
+    if [[ $# -ge 4 && ! "${max_missed}" =~ ${count_pattern} ]]; then
         printf "red: %s - max_missed '%s' is not a non-negative integer\n" "${label}" "${max_missed}" >&2
         return 1
     fi
-    if [[ $# -ge 5 && ! "${min_caught}" =~ ^(0|[1-9][0-9]{0,8})$ ]]; then
+    if [[ $# -ge 5 && ! "${min_caught}" =~ ${count_pattern} ]]; then
         printf "red: %s - min_caught '%s' is not a non-negative integer\n" "${label}" "${min_caught}" >&2
         return 1
     fi
@@ -89,7 +91,7 @@ classify_mutation_run() {
     local field value
     for field in caught missed timeout unviable; do
         value="${!field}"
-        if [[ ! "${value}" =~ ^(0|[1-9][0-9]{0,8})$ ]]; then
+        if [[ ! "${value}" =~ ${count_pattern} ]]; then
             printf "red: %s - outcomes.json %s '%s' is not a non-negative integer\n" "${label}" "${field}" "${value}" >&2
             return 1
         fi
