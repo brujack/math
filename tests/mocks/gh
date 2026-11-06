@@ -17,7 +17,26 @@ if [[ "$*" == *"actions/runs"* && "${MOCK_GH_EXIT_ACTIONS_RUNS:-0}" -ne 0 ]]; th
     exit "${MOCK_GH_EXIT_ACTIONS_RUNS}"
 fi
 
-if [[ "$*" == *"check-runs"* ]]; then
+# Artifact fixtures for publish-coverage-badges.sh: ${MOCK_GH_ARTIFACT_ROOT}/<run id>/
+# holds one directory per artifact (coverage-badge-<project>-<lang>/<project>/<lang>.json).
+_artifact_run=""
+if [[ -n "${MOCK_GH_ARTIFACT_ROOT:-}" && "$*" =~ actions/runs/([0-9]+)/artifacts ]]; then
+    _artifact_run="${BASH_REMATCH[1]}"
+fi
+
+if [[ -n "${_artifact_run}" ]]; then
+    ls -1 "${MOCK_GH_ARTIFACT_ROOT}/${_artifact_run}" 2>/dev/null
+elif [[ "$1" == "run" && "$2" == "download" && -n "${MOCK_GH_ARTIFACT_ROOT:-}" ]]; then
+    _dest=""
+    for ((_i = 1; _i <= $#; _i++)); do
+        if [[ "${!_i}" == "--dir" ]]; then
+            _j=$((_i + 1))
+            _dest="${!_j}"
+        fi
+    done
+    mkdir -p "${_dest}"
+    cp -R "${MOCK_GH_ARTIFACT_ROOT}/$3/." "${_dest}/"
+elif [[ "$*" == *"check-runs"* ]]; then
     _counter_file="${MOCK_GH_COUNTER_FILE:-/tmp/gh_counter}"
     _count=$(cat "${_counter_file}" 2>/dev/null || printf "0")
     _count=$((_count + 1))

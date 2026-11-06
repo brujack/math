@@ -3,6 +3,41 @@ printf "git %s\n" "$*" >> "${MOCK_CALLS_FILE:-/tmp/mock_calls}"
 if [[ "${MOCK_GIT_EXIT:-0}" -ne 0 ]]; then
     exit "${MOCK_GIT_EXIT}"
 fi
+# Per-subcommand failure: MOCK_GIT_EXIT_<SUBCOMMAND> (e.g. MOCK_GIT_EXIT_PUSH), where the
+# subcommand is the first word that is not a -C/-c option or its value.
+_sub=""
+_skip=0
+for _arg in "$@"; do
+    if [[ "${_skip}" -eq 1 ]]; then
+        _skip=0
+    elif [[ "${_arg}" == "-C" || "${_arg}" == "-c" ]]; then
+        _skip=1
+    elif [[ "${_arg}" != -* ]]; then
+        _sub="${_arg}"
+        break
+    fi
+done
+_key="MOCK_GIT_EXIT_$(printf '%s' "${_sub}" | tr 'a-z-' 'A-Z_')"
+if [[ -n "${_sub}" && "${!_key:-0}" -ne 0 ]]; then
+    exit "${!_key}"
+fi
+# MOCK_GIT_COMMIT_SNAPSHOT: copy the `-C <dir>` tree at commit time so a test can read
+# what the script staged after the script has removed its temporary worktree.
+if [[ "${_sub}" == "commit" && -n "${MOCK_GIT_COMMIT_SNAPSHOT:-}" ]]; then
+    _dir=""
+    _prev=""
+    for _arg in "$@"; do
+        [[ "${_prev}" == "-C" ]] && _dir="${_arg}"
+        _prev="${_arg}"
+    done
+    mkdir -p "${MOCK_GIT_COMMIT_SNAPSHOT}"
+    cp -R "${_dir}/." "${MOCK_GIT_COMMIT_SNAPSHOT}/"
+fi
+# `git diff --quiet` exits 1 when there is a change; publish-coverage-badges.sh reads it.
+if [[ "${_sub}" == "diff" && "$*" == *"--quiet"* && -n "${MOCK_GIT_DIFF_QUIET_RC:-}" ]]; then
+    exit "${MOCK_GIT_DIFF_QUIET_RC}"
+fi
+
 if [[ "$*" == *"--show-toplevel"* ]]; then
     printf '%s\n' "${MOCK_GIT_SHOW_TOPLEVEL:-}"
 elif [[ "$*" == *"merge-base"* ]]; then
