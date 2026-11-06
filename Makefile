@@ -72,6 +72,7 @@ install-deps:
 	    exit 1; \
 	  fi
 	python3 -m pip install -r requirements-dev.txt
+	bash scripts/install-actionlint.sh
 
 # Worker count for the parallel bats run (test-hooks) and the concurrent crate suites
 # (test-rust); override with `make test JOBS=N` or `make test-rust JOBS=N`.

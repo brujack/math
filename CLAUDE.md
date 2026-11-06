@@ -40,10 +40,10 @@ Root-scope Python has no `install_deps.sh` by design: `requirements-dev.txt` (`d
 
 ```bash
 make install-hooks   # installs pre-commit and pre-push hooks
-make install-deps    # installs root-scope Python's third-party imports
+make install-deps    # Python deps + actionlint
 ```
 
-`make install-deps` refuses on a PEP 668 externally-managed interpreter; remedy: `python3 -m venv .venv && . .venv/bin/activate`. → ai-config/docs/knowledge/math-quick-reference.md § Setup
+`make install-deps` refuses on PEP 668 interpreters; it runs `scripts/install-actionlint.sh` (CI's pin). Remedy: `python3 -m venv .venv && . .venv/bin/activate`. → ai-config/docs/knowledge/math-quick-reference.md § Setup
 
 ### Python (`<project>/`)
 

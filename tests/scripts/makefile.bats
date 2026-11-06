@@ -929,15 +929,32 @@ exit 0
 STUB
     chmod +x "${stub_dir}/python3"
 
+    # The recipe's last step installs actionlint. A fixture XDG_BIN_HOME already
+    # holding a 1.7.12 binary makes that a no-op: no network, no real ~/.local/bin.
+    local fixture_bin="${BATS_TEST_TMPDIR}/xdg-bin"
+    mkdir -p "${fixture_bin}"
+    printf '#!/bin/sh\nprintf "1.7.12\\n"\n' > "${fixture_bin}/actionlint"
+    chmod +x "${fixture_bin}/actionlint"
+
     local old_path="${PATH}"
     PATH="${stub_dir}:${PATH}"
     [ "$(command -v python3)" = "${stub_dir}/python3" ]
-    PIP_NO_INDEX=1 PIP_REQUIRE_VIRTUALENV=1 run make -C "${REPO_ROOT}" install-deps
+    HOME="${BATS_TEST_TMPDIR}" XDG_BIN_HOME="${fixture_bin}" \
+        PIP_NO_INDEX=1 PIP_REQUIRE_VIRTUALENV=1 run make -C "${REPO_ROOT}" install-deps
     PATH="${old_path}"
 
     [ "${status}" -eq 0 ]
     [ -f "${call_log}" ]
     grep -q 'requirements-dev.txt' "${call_log}"
+    [[ "${output}" == *"actionlint 1.7.12 already installed in ${fixture_bin}"* ]]
+}
+
+@test "install-deps installs actionlint after the pip install" {
+    run make -C "${REPO_ROOT}" -n install-deps --no-print-directory
+    [ "${status}" -eq 0 ]
+    local before="${output%%scripts/install-actionlint.sh*}"
+    [[ "${output}" == *"scripts/install-actionlint.sh"* ]]
+    [[ "${before}" == *"pip install -r requirements-dev.txt"* ]]
 }
 
 # The discriminator the Makefile comment above install-deps documents:
