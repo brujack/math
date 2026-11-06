@@ -187,8 +187,7 @@ GREEN='{"caught":3,"missed":0,"timeout":0,"unviable":1}'
     _cfg a/a-rs "oops" "${GREEN}"
     _run_script main a/a-rs
     [ "${status}" -eq 1 ]
-    [[ "${output}" == *"red: a/a-rs"* ]]
-    [[ "${output}" == *"oops"* ]]
+    [[ "${output}" == *"red: a/a-rs - mutants.out/exit-code 'oops' is not an integer"* ]]
 }
 
 @test "red first crate still runs the second and exits 1" {

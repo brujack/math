@@ -10,6 +10,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -810,6 +811,10 @@ def run_crate_job(
         make.chmod(0o755)
         workspace = root / "ws"
         (workspace / "scripts").mkdir(parents=True)
+        shutil.copy(
+            REPO_ROOT / "scripts" / "mutation-exit-code.sh",
+            workspace / "scripts" / "mutation-exit-code.sh",
+        )
         classify = workspace / "scripts" / "mutation-classify.sh"
         classify.write_text(
             "#!/bin/sh\n"
@@ -848,7 +853,7 @@ def run_crate_job(
                 rs_step("mutants", step)["run"],
             ],
             env=env,
-            cwd=root,
+            cwd=workspace,
             capture_output=True,
             text=True,
             stdin=subprocess.DEVNULL,
@@ -910,10 +915,18 @@ class RustMutantsJobTests(unittest.TestCase):
                 result = run_crate_job("a/a-rs", "a-a-rs", CrateStub(exit_code=bad))
                 proc, _made, statuses, summary = result
                 self.assertEqual(proc.returncode, 1)
-                line = "red: a/a-rs - mutants.out/exit-code is not an integer\n"
+                line = (
+                    f"red: a/a-rs - mutants.out/exit-code '{bad}' is not an integer\n"
+                )
                 self.assertEqual(statuses, {"a-a-rs": line})
                 self.assertEqual(summary, line)
                 self.assertEqual(result.classifier_argc, [])
+
+    def test_step_calls_shared_exit_code_helper_not_inline_rules(self):
+        run = rs_step("mutants", "Run mutants")["run"]
+        self.assertIn('bash scripts/mutation-exit-code.sh "${CRATE_DIR}"', run)
+        self.assertNotIn("code_file=", run)
+        self.assertNotIn("[0-9]{0,2}", run)
 
     def test_missing_exit_code_file_is_red_and_never_classified(self):
         proc, made, statuses, summary = run_crate_job(
