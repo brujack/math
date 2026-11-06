@@ -35,6 +35,38 @@ _print_missed_lines() {
     done <"${missed_file}"
 }
 
+# Reject an outcomes.json whose count keys a single jq pass would silently misread: more
+# than one JSON document (the count read takes only the first) or a repeated top-level key
+# (jq keeps the last, hiding an earlier survivor count). Prints the red line and returns 1;
+# returns 0 for one object with unique top-level keys. Invalid JSON is left to the caller's
+# "unparseable" path (returns 0 here).
+_reject_ambiguous_outcomes() {
+    local outcomes="$1"
+    local label="$2"
+    local shape
+    local dup_key
+
+    shape=$(jq -s 'length == 1 and (.[0] | type) == "object"' "${outcomes}" 2>/dev/null) || return 0
+    if [[ "${shape}" != "true" ]]; then
+        printf "red: %s - outcomes.json is not exactly one JSON object\n" "${label}" >&2
+        return 1
+    fi
+    # In --stream form a top-level key ends on a scalar or empty-container leaf event
+    # ([[k], v], path length 1) or on the closing event of its container value ([[k, ...]],
+    # path length 2); nested keys never reach those shapes, so only top-level keys are counted.
+    dup_key=$(jq -n -r --stream '
+        [inputs
+         | select((length == 2 and (.[0] | length) == 1)
+                  or (length == 1 and (.[0] | length) == 2))
+         | .[0][0]]
+        | group_by(.) | map(select(length > 1)) | (.[0][0] // empty) | tojson' "${outcomes}" 2>/dev/null) || return 0
+    if [[ -n "${dup_key}" ]]; then
+        printf "red: %s - outcomes.json has duplicate key '%s'\n" "${label}" "${dup_key:1:-1}" >&2
+        return 1
+    fi
+    return 0
+}
+
 classify_mutation_run() {
     local exit_code="$1"
     local outcomes="$2"
@@ -66,6 +98,8 @@ classify_mutation_run() {
         printf "red: %s - no outcomes.json and exit code %s\n" "${label}" "${exit_code}" >&2
         return 1
     fi
+
+    _reject_ambiguous_outcomes "${outcomes}" "${label}" || return 1
 
     local parsed
     local jq_status

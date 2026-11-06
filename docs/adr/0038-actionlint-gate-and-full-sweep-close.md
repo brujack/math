@@ -38,8 +38,14 @@ Spec: `docs/superpowers/specs/2026-11-03-worldclass-slice1-ci-monitors-design.md
 4. **There is no local pre-push trigger for workflow-only pushes.** The development
    machines do not install actionlint, so a local branch would only print a skip line. The
    operator chose to enforce it in CI only.
+   Superseded (2026-11-05, this PR): `make install-deps` now installs the pinned actionlint
+   (`scripts/install-actionlint.sh`), so development machines have it. Outside CI a failed
+   install only warns; `scripts/pre-push` still runs no `lint-workflows` on a workflow-only
+   push (Backlog row "Workflow-only pushes run no local lint-workflows").
 5. **The badge step stays advisory.** If a `coverage-data` worktree cannot be created, the
    step prints a message and exits 0 instead of turning a coverage job red.
+   Superseded: coverage jobs no longer push badges. They upload `coverage-badge-*` artifacts and
+   `scripts/publish-coverage-badges.sh` publishes them after the merge, failing visibly.
 
 ## Consequences
 
@@ -52,9 +58,19 @@ Spec: `docs/superpowers/specs/2026-11-03-worldclass-slice1-ci-monitors-design.md
   install fails `tests/test_actionlint_install.py`.
 - A workflow-only push gets actionlint feedback only from CI (Backlog row "Workflow-only
   push runs no local actionlint").
+  Superseded (2026-11-05, this PR): that row is deleted. actionlint installs locally, but a
+  workflow-only push still triggers no local run (Backlog row "Workflow-only pushes run no
+  local lint-workflows"), so local feedback needs a manual `make lint-workflows`.
 - Coverage badges can still go stale silently when a push fails, and they reflect PR
   branches. Both are in the Backlog row "Coverage badges reflect the last PR branch, not
   master".
+  Superseded (2026-11-05, this PR): badges now come from the merged PR's own coverage
+  artifacts, published after the merge by `scripts/publish-coverage-badges.sh`. A failed
+  publish or an expired badge artifact (7-day retention) turns the auto-merge job red, so
+  staleness is no longer silent. Two limits remain. Only merges made by the auto-merge job
+  publish: a manual or GitHub-native merge publishes nothing. Publish order is not merge
+  order: a PR that merged earlier but publishes later overwrites the badge of a PR that
+  merged after it.
 
 ## Related
 

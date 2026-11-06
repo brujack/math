@@ -72,6 +72,11 @@ install-deps:
 	    exit 1; \
 	  fi
 	python3 -m pip install -r requirements-dev.txt
+	@# Outside CI a failed actionlint install (offline, unsupported platform) only warns:
+	@# lint-workflows skips without the binary. CI calls the script directly and fails closed.
+	bash scripts/install-actionlint.sh \
+	  || { [ "$${CI:-}" = true ] && exit 1; \
+	       printf 'warning: actionlint not installed; lint-workflows will skip until it is (re-run make install-deps)\n' >&2; }
 
 # Worker count for the parallel bats run (test-hooks) and the concurrent crate suites
 # (test-rust); override with `make test JOBS=N` or `make test-rust JOBS=N`.

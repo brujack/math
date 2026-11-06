@@ -100,16 +100,9 @@ jobs:
           sudo install -m755 "/tmp/shellcheck-v${SC_VER}/shellcheck" /usr/local/bin/shellcheck
           shellcheck --version | grep -q "version: ${SC_VER}"
       - name: Install actionlint (pinned)
-        env:
-          AL_VER: "1.7.12"
-          AL_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
         run: |
-          curl -fsSL -o /tmp/actionlint.tar.gz \
-            "https://github.com/rhysd/actionlint/releases/download/v${AL_VER}/actionlint_${AL_VER}_linux_amd64.tar.gz"
-          echo "${AL_SHA256}  /tmp/actionlint.tar.gz" | sha256sum -c -
-          tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
-          sudo install -m755 /tmp/actionlint /usr/local/bin/actionlint
-          actionlint --version | head -1 | grep -qx "${AL_VER}"
+          XDG_BIN_HOME="${RUNNER_TEMP}/bin" bash scripts/install-actionlint.sh
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
 
       # The cargo-deny fixture tests in the bats suite fail closed when CI is
       # set and cargo-deny is missing; tests/test_deny_policy.py pins this.
@@ -222,6 +215,7 @@ jobs:
     needs: [secret-scan, bash-coverage, claude-md-budget]
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
       pull-requests: write
       checks: read
@@ -303,5 +297,11 @@ jobs:
           PR=$(gh pr list --head "${HEAD_REF}" \
             --json number --jq '.[0].number' 2>/dev/null || echo "")
           if [[ -n "${PR}" ]]; then
-            ./scripts/ci-gate.sh "${PR}" && gh pr merge "${PR}" --squash
+            # Coverage badges are published here, not by the PR's own coverage jobs: a
+            # pull_request run cannot know whether its PR will merge, so it only uploads
+            # coverage-badge-* artifacts. The head SHA is read before the merge (the
+            # squash commit has no PR runs). A publish failure turns this job red.
+            head_sha=$(gh pr view "${PR}" --json headRefOid --jq '.headRefOid') || exit 1
+            ./scripts/ci-gate.sh "${PR}" && gh pr merge "${PR}" --squash --match-head-commit "${head_sha}" \
+              && ./scripts/publish-coverage-badges.sh "${head_sha}"
           fi

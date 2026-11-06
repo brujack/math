@@ -19,14 +19,18 @@ sys.path.append(str(REPO_ROOT / "tests"))
 
 import workflow_jobs
 
-AL_VER = "1.7.12"
-AL_SHA256 = "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+INSTALLER = REPO_ROOT / "scripts" / "install-actionlint.sh"
+_VERSION_MATCH = re.search(
+    r'^readonly AL_VERSION="([\d.]+)"$', INSTALLER.read_text(), re.MULTILINE
+)
+assert _VERSION_MATCH, "scripts/install-actionlint.sh lost its AL_VERSION pin"
+AL_VER = _VERSION_MATCH.group(1)
 
 
 def _installs_actionlint(step):
-    return "actionlint" in (step.get("run") or "") and "sha256sum -c" in (
-        step.get("run") or ""
-    )
+    # The pin and its checksums live only in scripts/install-actionlint.sh, which
+    # verifies sha256 before extracting (tests/scripts/install_actionlint.bats).
+    return "scripts/install-actionlint.sh" in (step.get("run") or "")
 
 
 def _installs_shellcheck(step):
@@ -53,14 +57,14 @@ class TestBatsJobsInstallActionlint(unittest.TestCase):
                 self.assertTrue(al, f"{wf}:{job} installs no actionlint")
                 self.assertTrue(sc, f"{wf}:{job} has no shellcheck step")
                 self.assertGreater(al[0], sc[0], "actionlint must follow shellcheck")
-                env = steps[al[0]].get("env") or {}
-                self.assertEqual(str(env.get("AL_VER")), AL_VER)
-                self.assertEqual(str(env.get("AL_SHA256")), AL_SHA256)
+                run = steps[al[0]]["run"]
+                self.assertNotIn("curl", run, "download belongs in the script")
+                self.assertNotIn("AL_SHA256", run, "checksums belong in the script")
         self.assertGreaterEqual(checked, 2, "expected scripts.yml and auto-merge.yml")
 
 
 class TestMakefileVersionMatchesPin(unittest.TestCase):
-    def test_every_makefile_actionlint_version_equals_workflow_pin(self):
+    def test_every_makefile_actionlint_version_equals_installer_pin(self):
         text = (REPO_ROOT / "Makefile").read_text()
         versions = re.findall(
             r"actionlint (\d+\.\d+\.\d+)|releases/tag/v(\d+\.\d+\.\d+)", text

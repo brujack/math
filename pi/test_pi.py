@@ -965,6 +965,14 @@ class TestMirroredHelpers(unittest.TestCase):
             "Elapsed: 4.9s | ETA: 0.1s",
         )
 
+    def test_render_conversion_tick_bar_fill_divisor(self):
+        # 33.2% of 30 cells is 9.96 -> 9 filled; a /99 divisor gives 10.06 -> 10.
+        self.assertEqual(
+            render_conversion_tick(1000, 1.66, 5.0),
+            "\rConverting 1,000 digits... [█████████░░░░░░░░░░░░░░░░░░░░░] 33.2% "
+            "Elapsed: 1.7s | ETA: 3.3s",
+        )
+
     def test_render_conversion_tick_zero_elapsed(self):
         self.assertEqual(
             render_conversion_tick(50, 0.0, 1.0),
@@ -1054,6 +1062,15 @@ class TestMirroredHelpers(unittest.TestCase):
             render_write_progress(1, 1, 104_857_600, 104_857_600, 1.0),
             "\rFile write progress: 100.0% | Written: 104,857,600/104,857,600 chars | "
             "ETA: 0.0s | Rate: 100.0 MB/s",
+        )
+
+    def test_render_write_progress_rate_uses_true_division(self):
+        # 1.0500000954 MB/s prints 1.1; floor division at any of the three divisions
+        # lands just below 1.05 and prints 1.0.
+        self.assertEqual(
+            render_write_progress(1, 1, 11_010_049, 11_010_049, 10.0),
+            "\rFile write progress: 100.0% | Written: 11,010,049/11,010,049 chars | "
+            "ETA: 0.0s | Rate: 1.1 MB/s",
         )
 
     def test_io_workers_clamp(self):

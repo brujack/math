@@ -17,7 +17,37 @@ if [[ "$*" == *"actions/runs"* && "${MOCK_GH_EXIT_ACTIONS_RUNS:-0}" -ne 0 ]]; th
     exit "${MOCK_GH_EXIT_ACTIONS_RUNS}"
 fi
 
-if [[ "$*" == *"check-runs"* ]]; then
+# Artifact fixtures for publish-coverage-badges.sh: ${MOCK_GH_ARTIFACT_ROOT}/<run id>/
+# holds one directory per artifact (coverage-badge-<project>-<lang>/<project>/<lang>.json).
+_artifact_run=""
+if [[ -n "${MOCK_GH_ARTIFACT_ROOT:-}" && "$*" =~ actions/runs/([0-9]+)/artifacts ]]; then
+    _artifact_run="${BASH_REMATCH[1]}"
+fi
+
+if [[ -n "${_artifact_run}" && -n "${MOCK_GH_ARTIFACTS_RAW:-}" ]]; then
+    # MOCK_GH_ARTIFACTS_RAW (opt-in): raw artifacts-API JSON run through the caller's real
+    # --jq filter, so a test can carry `expired` flags that the directory listing cannot.
+    _filter=""
+    for ((_i = 1; _i <= $#; _i++)); do
+        if [[ "${!_i}" == "--jq" ]]; then
+            _j=$((_i + 1))
+            _filter="${!_j}"
+        fi
+    done
+    printf '%s\n' "${MOCK_GH_ARTIFACTS_RAW}" | jq -r "${_filter}"
+elif [[ -n "${_artifact_run}" ]]; then
+    ls -1 "${MOCK_GH_ARTIFACT_ROOT}/${_artifact_run}" 2>/dev/null
+elif [[ "$1" == "run" && "$2" == "download" && -n "${MOCK_GH_ARTIFACT_ROOT:-}" ]]; then
+    _dest=""
+    for ((_i = 1; _i <= $#; _i++)); do
+        if [[ "${!_i}" == "--dir" ]]; then
+            _j=$((_i + 1))
+            _dest="${!_j}"
+        fi
+    done
+    mkdir -p "${_dest}"
+    cp -R "${MOCK_GH_ARTIFACT_ROOT}/$3/." "${_dest}/"
+elif [[ "$*" == *"check-runs"* ]]; then
     _counter_file="${MOCK_GH_COUNTER_FILE:-/tmp/gh_counter}"
     _count=$(cat "${_counter_file}" 2>/dev/null || printf "0")
     _count=$((_count + 1))
@@ -26,7 +56,20 @@ if [[ "$*" == *"check-runs"* ]]; then
     _fallback="MOCK_GH_CHECK_RUNS"
     printf '%s\n' "${!_var:-${!_fallback:-}}"
 elif [[ "$*" == *"actions/runs"* ]]; then
-    printf '%s\n' "${MOCK_GH_WORKFLOW_RUNS:-}"
+    # MOCK_GH_WORKFLOW_RUNS_RAW (opt-in): raw workflow_runs JSON run through the caller's
+    # real --jq filter, so a test can prove which runs the filter keeps.
+    if [[ -n "${MOCK_GH_WORKFLOW_RUNS_RAW:-}" ]]; then
+        _filter=""
+        for ((_i = 1; _i <= $#; _i++)); do
+            if [[ "${!_i}" == "--jq" ]]; then
+                _j=$((_i + 1))
+                _filter="${!_j}"
+            fi
+        done
+        printf '%s\n' "${MOCK_GH_WORKFLOW_RUNS_RAW}" | jq -r "${_filter}"
+    else
+        printf '%s\n' "${MOCK_GH_WORKFLOW_RUNS:-}"
+    fi
 elif [[ "$*" == *"pulls"* ]]; then
     printf '%s\n' "${MOCK_GH_PR_SHA:-abc123def456}"
 elif [[ "$1" == "issue" ]]; then

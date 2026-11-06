@@ -929,15 +929,62 @@ exit 0
 STUB
     chmod +x "${stub_dir}/python3"
 
+    # The recipe's last step installs actionlint. A fixture XDG_BIN_HOME already
+    # holding a 1.7.12 binary makes that a no-op: no network, no real ~/.local/bin.
+    local fixture_bin="${BATS_TEST_TMPDIR}/xdg-bin"
+    mkdir -p "${fixture_bin}"
+    printf '#!/bin/sh\nprintf "1.7.12\\n"\n' > "${fixture_bin}/actionlint"
+    chmod +x "${fixture_bin}/actionlint"
+
     local old_path="${PATH}"
     PATH="${stub_dir}:${PATH}"
     [ "$(command -v python3)" = "${stub_dir}/python3" ]
-    PIP_NO_INDEX=1 PIP_REQUIRE_VIRTUALENV=1 run make -C "${REPO_ROOT}" install-deps
+    HOME="${BATS_TEST_TMPDIR}" XDG_BIN_HOME="${fixture_bin}" \
+        PIP_NO_INDEX=1 PIP_REQUIRE_VIRTUALENV=1 run make -C "${REPO_ROOT}" install-deps
     PATH="${old_path}"
 
     [ "${status}" -eq 0 ]
     [ -f "${call_log}" ]
     grep -q 'requirements-dev.txt' "${call_log}"
+    [[ "${output}" == *"actionlint 1.7.12 already installed in ${fixture_bin}"* ]]
+}
+
+# Installer-failure fixture: pip stub succeeds, curl always fails, empty bin dir.
+install_deps_with_failing_installer() {
+    local stub_dir="${BATS_TEST_TMPDIR}/stub-failing-installer"
+    mkdir -p "${stub_dir}" "${BATS_TEST_TMPDIR}/empty-bin"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "${stub_dir}/python3"
+    printf '#!/usr/bin/env bash\nexit 22\n' > "${stub_dir}/curl"
+    chmod +x "${stub_dir}/python3" "${stub_dir}/curl"
+
+    local old_path="${PATH}"
+    PATH="${stub_dir}:${PATH}"
+    HOME="${BATS_TEST_TMPDIR}" XDG_BIN_HOME="${BATS_TEST_TMPDIR}/empty-bin" \
+        PIP_NO_INDEX=1 PIP_REQUIRE_VIRTUALENV=1 run make -C "${REPO_ROOT}" install-deps
+    PATH="${old_path}"
+}
+
+@test "install-deps: actionlint installer failure only warns outside CI" {
+    unset CI
+    install_deps_with_failing_installer
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"warning: actionlint not installed"* ]]
+    [ ! -e "${BATS_TEST_TMPDIR}/empty-bin/actionlint" ]
+}
+
+@test "install-deps: actionlint installer failure is fatal when CI=true" {
+    export CI=true
+    install_deps_with_failing_installer
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"download failed"* ]]
+}
+
+@test "install-deps installs actionlint after the pip install" {
+    run make -C "${REPO_ROOT}" -n install-deps --no-print-directory
+    [ "${status}" -eq 0 ]
+    local before="${output%%scripts/install-actionlint.sh*}"
+    [[ "${output}" == *"scripts/install-actionlint.sh"* ]]
+    [[ "${before}" == *"pip install -r requirements-dev.txt"* ]]
 }
 
 # The discriminator the Makefile comment above install-deps documents:

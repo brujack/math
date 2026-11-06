@@ -68,7 +68,7 @@ class TestRustCiJobSplit(unittest.TestCase):
                 cov, test = step_text(jobs["coverage"]), step_text(jobs["test"])
                 self.assertIn("cargo tarpaulin --out Json --fail-under 90", cov)
                 self.assertIn("cargo-tarpaulin@", cov)
-                self.assertIn("Publish coverage badge", cov)
+                self.assertIn("Stage coverage badge", cov)
                 self.assertNotIn("tarpaulin", test)
                 self.assertNotIn("coverage", test.lower())
 
@@ -79,11 +79,11 @@ class TestRustCiJobSplit(unittest.TestCase):
                 for needle in ("cargo-nextest@", "make test", "test_metrics.py"):
                     self.assertIn(needle, test)
 
-    def test_only_coverage_job_may_write_contents(self):
+    def test_no_ci_job_may_write_contents(self):
         for path in CI_WORKFLOWS:
             with self.subTest(workflow=path.name):
                 jobs = jobs_of(path)
-                self.assertEqual(jobs["coverage"]["permissions"], {"contents": "write"})
+                self.assertEqual(jobs["coverage"]["permissions"], {"contents": "read"})
                 self.assertEqual(jobs["test"]["permissions"], {"contents": "read"})
 
     def test_coverage_job_has_its_own_toolchain_setup(self):
