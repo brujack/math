@@ -91,7 +91,7 @@ class TestRenderedCoverageJobs(unittest.TestCase):
                 self.assertEqual(with_["name"], f"coverage-badge-{project}-{lang}")
                 self.assertEqual(with_["retention-days"], 7)
                 self.assertEqual(with_["if-no-files-found"], "error")
-                self.assertIn("coverage-badge", str(with_["path"]))
+                self.assertEqual(with_["path"], "coverage-badge")
 
     def test_upload_follows_the_stage_step(self):
         for path in RENDERED:

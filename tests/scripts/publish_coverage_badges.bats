@@ -40,6 +40,23 @@ count_calls() { calls | command grep -c -- "${1}"; }
     [ "$(count_calls 'git ')" -eq 0 ]
 }
 
+@test "run listing asks for successful pull_request runs and the jq filter drops the rest" {
+    export MOCK_GH_WORKFLOW_RUNS_RAW='{"workflow_runs":[
+      {"id":100,"workflow_id":10,"event":"pull_request","conclusion":"success"},
+      {"id":101,"workflow_id":11,"event":"pull_request","conclusion":"failure"},
+      {"id":102,"workflow_id":12,"event":"push","conclusion":"success"}]}'
+    add_badge 100 fib rust "95%" brightgreen
+    add_badge 101 pi rust "95%" brightgreen
+    add_badge 102 sq rust "95%" brightgreen
+    run "${SCRIPT}" abc123
+    [ "$status" -eq 0 ]
+    calls | command grep 'api.*actions/runs?' | command grep -q 'event=pull_request'
+    calls | command grep 'api.*actions/runs?' | command grep -q 'status=success'
+    [ "$(count_calls 'run download 100')" -eq 1 ]
+    [ "$(count_calls 'run download 101')" -eq 0 ]
+    [ "$(count_calls 'run download 102')" -eq 0 ]
+}
+
 @test "runs without badge artifacts (docs-only PR) -> notice, exit 0" {
     export MOCK_GH_WORKFLOW_RUNS=$'10\t100'
     mkdir -p "${MOCK_GH_ARTIFACT_ROOT}/100"
@@ -131,6 +148,24 @@ FLAKY
     PATH="${BATS_TEST_TMPDIR}/flakybin:${PATH}" run "${SCRIPT}" abc123
     [ "$status" -eq 0 ]
     [ "$(count_calls 'push')" -eq 2 ]
+    # Lost race: re-fetch the tip, reset onto it, re-apply and re-commit (never rebase).
+    # fetch runs twice: once for the worktree, once for the retry.
+    [ "$(count_calls 'fetch origin coverage-data')" -eq 2 ]
+    [ "$(count_calls 'reset --hard -q FETCH_HEAD')" -eq 1 ]
+    [ "$(count_calls 'commit')" -eq 2 ]
+}
+
+@test "lost race and the reset onto the remote tip fails -> ::error::, exit 1, no stale push" {
+    export MOCK_GH_WORKFLOW_RUNS=$'10\t100'
+    add_badge 100 fib rust "95%" brightgreen
+    export MOCK_GIT_EXIT_PUSH=1
+    export MOCK_GIT_EXIT_RESET=1
+    run "${SCRIPT}" abc123
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"::error::"* ]]
+    [[ "$output" == *"could not reset"* ]]
+    [ "$(count_calls 'push')" -eq 1 ]
+    [ "$(count_calls 'commit')" -eq 1 ]
 }
 
 @test "worktree cannot be created -> ::error::, exit 1, nothing pushed" {
@@ -180,6 +215,7 @@ FLAKY
     run "${SCRIPT}" abc123
     [ "$status" -eq 1 ]
     [[ "$output" == *"::error::"* ]]
+    [[ "$output" == *"unexpected file in coverage artifact"* ]]
     [ "$(count_calls 'push')" -eq 0 ]
     [ "$(count_calls 'worktree')" -eq 0 ]
 }
@@ -191,6 +227,7 @@ FLAKY
     printf '{"schemaVersion":1,"label":"coverage","message":"95%%","color":"green"}\n' > "${dir}/rust.json"
     run "${SCRIPT}" abc123
     [ "$status" -eq 1 ]
+    [[ "$output" == *"unexpected file in coverage artifact"* ]]
     [ "$(count_calls 'push')" -eq 0 ]
 }
 
@@ -204,12 +241,16 @@ FLAKY
     [ "$(count_calls 'push')" -eq 0 ]
 }
 
-@test "symlink in an artifact -> rejected" {
+@test "symlink in an artifact -> rejected (target is a valid badge, only the -L check can refuse)" {
     export MOCK_GH_WORKFLOW_RUNS=$'10\t100'
-    add_badge 100 fib rust "95%" brightgreen
-    ln -s /etc/passwd "${MOCK_GH_ARTIFACT_ROOT}/100/coverage-badge-fib-rust/fib/python.json"
+    local target="${BATS_TEST_TMPDIR}/real-badge.json"
+    printf '{"schemaVersion":1,"label":"coverage","message":"95%%","color":"green"}\n' > "${target}"
+    local dir="${MOCK_GH_ARTIFACT_ROOT}/100/coverage-badge-fib-rust/fib"
+    mkdir -p "${dir}"
+    ln -s "${target}" "${dir}/rust.json"
     run "${SCRIPT}" abc123
     [ "$status" -eq 1 ]
+    [[ "$output" == *"malformed coverage badge: fib/rust.json"* ]]
     [ "$(count_calls 'push')" -eq 0 ]
 }
 

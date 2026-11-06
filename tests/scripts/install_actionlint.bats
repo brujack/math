@@ -46,7 +46,16 @@ case "$1" in
     -m) printf '%s\n' "${MOCK_UNAME_M}" ;;
 esac
 MOCK
-    chmod 755 "${MOCKS}/curl" "${MOCKS}/uname"
+    # tar logs each call, then runs the real one, so a test can prove it was never reached.
+    export TAR_LOG="${BATS_TEST_TMPDIR}/tar.log"
+    export REAL_TAR
+    REAL_TAR="$(command -v tar)"
+    cat > "${MOCKS}/tar" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${TAR_LOG}"
+exec "${REAL_TAR}" "$@"
+MOCK
+    chmod 755 "${MOCKS}/curl" "${MOCKS}/uname" "${MOCKS}/tar"
     export PATH="${MOCKS}:${PATH}"
 }
 
@@ -89,7 +98,9 @@ run_with_fixture_sha() {
     run bash "${SCRIPT}"
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"checksum"* ]]
+    [[ "$output" != *"installed binary reports"* ]]
     [ ! -e "${XDG_BIN_HOME}/actionlint" ]
+    [ ! -e "${TAR_LOG}" ]
 }
 
 @test "unknown platform fails nonzero before any download" {
@@ -128,7 +139,22 @@ run_with_fixture_sha() {
 @test "curl failure fails nonzero and installs nothing" {
     MOCK_CURL_FAIL=1 run_with_fixture_sha
     [ "${status}" -ne 0 ]
+    [[ "$output" == *"download failed"* ]]
+    [[ "$output" != *"installed binary reports"* ]]
     [ ! -e "${XDG_BIN_HOME}/actionlint" ]
+}
+
+@test "installed binary reporting another version fails nonzero" {
+    local src="${BATS_TEST_TMPDIR}/old"
+    mkdir -p "${src}"
+    printf '#!/bin/sh\nprintf "1.6.0\\n"\n' > "${src}/actionlint"
+    chmod 755 "${src}/actionlint"
+    tar -czf "${FIXTURE_TGZ}" -C "${src}" actionlint
+    FIXTURE_SHA="$(sha256sum "${FIXTURE_TGZ}" | cut -d' ' -f1)"
+    run_with_fixture_sha
+    [ "${status}" -ne 0 ]
+    [[ "$output" == *"installed binary reports"* ]]
+    [[ "$output" == *"1.6.0"* ]]
 }
 
 @test "refuses when neither XDG_BIN_HOME nor HOME is set" {

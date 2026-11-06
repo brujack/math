@@ -97,28 +97,27 @@ stage_badge_files() {
 # worktree is reset to the remote tip and the staged files are applied again, because two
 # badge commits touching one path would otherwise conflict.
 publish_staged() {
-    local stage="${1}" sha="${2}" wt="${3}" attempt reset_ok
+    local stage="${1}" sha="${2}" wt="${3}" attempt
     local ident=(-c "user.name=github-actions[bot]" -c "user.email=github-actions[bot]@users.noreply.github.com")
 
     for ((attempt = 1; attempt <= PUBLISH_ATTEMPTS; attempt++)); do
-        reset_ok=1
         if ((attempt > 1)); then
             sleep "${PUBLISH_RETRY_SLEEP:-$((RANDOM % 5 + 1))}"
-            reset_ok=0
-            if git -C "${wt}" fetch origin "${BADGE_BRANCH}" 2> /dev/null \
-                && git -C "${wt}" reset --hard -q FETCH_HEAD; then
-                reset_ok=1
+            # Without the reset the worktree still holds the rejected commit, and pushing
+            # it again would only repeat the failure (or publish stale content): stop.
+            if ! { git -C "${wt}" fetch origin "${BADGE_BRANCH}" 2> /dev/null \
+                && git -C "${wt}" reset --hard -q FETCH_HEAD; }; then
+                badge_error "could not reset ${BADGE_BRANCH} to the remote tip after a lost push race"
+                return 1
             fi
         fi
-        if ((reset_ok)); then
-            cp -R "${stage}/." "${wt}/" || continue
-            git -C "${wt}" add -- . || continue
-            if git -C "${wt}" diff --cached --quiet; then
-                printf 'coverage-data already has these badges for %s\n' "${sha}"
-                return 0
-            fi
-            git -C "${wt}" "${ident[@]}" commit -q -m "coverage: publish badges for ${sha}" || continue
+        cp -R "${stage}/." "${wt}/" || continue
+        git -C "${wt}" add -- . || continue
+        if git -C "${wt}" diff --cached --quiet; then
+            printf 'coverage-data already has these badges for %s\n' "${sha}"
+            return 0
         fi
+        git -C "${wt}" "${ident[@]}" commit -q -m "coverage: publish badges for ${sha}" || continue
         if git -C "${wt}" push origin "${BADGE_BRANCH}"; then
             return 0
         fi
