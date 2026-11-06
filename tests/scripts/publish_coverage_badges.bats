@@ -235,36 +235,53 @@ FLAKY
 
 # valid_badge_json: schemaVersion 1, label coverage, message N%, colour from the set.
 @test "valid_badge_json rejects each wrong field and accepts the good shape" {
+    # shellcheck source=/dev/null
     source "${SCRIPT}"
     local f="${BATS_TEST_TMPDIR}/b.json"
     printf '{"schemaVersion":1,"label":"coverage","message":"100%%","color":"red"}' > "${f}"
     valid_badge_json "${f}"
     printf '{"schemaVersion":2,"label":"coverage","message":"9%%","color":"red"}' > "${f}"
-    ! valid_badge_json "${f}"
+    run valid_badge_json "${f}"
+    [ "$status" -ne 0 ]
     printf '{"schemaVersion":1,"label":"other","message":"9%%","color":"red"}' > "${f}"
-    ! valid_badge_json "${f}"
+    run valid_badge_json "${f}"
+    [ "$status" -ne 0 ]
     printf '{"schemaVersion":1,"label":"coverage","message":"9","color":"red"}' > "${f}"
-    ! valid_badge_json "${f}"
+    run valid_badge_json "${f}"
+    [ "$status" -ne 0 ]
     printf '{"schemaVersion":1,"label":"coverage","message":"1000%%","color":"red"}' > "${f}"
-    ! valid_badge_json "${f}"
+    run valid_badge_json "${f}"
+    [ "$status" -ne 0 ]
     printf '{"schemaVersion":1,"label":"coverage","message":"9%%","color":"blue"}' > "${f}"
-    ! valid_badge_json "${f}"
+    run valid_badge_json "${f}"
+    [ "$status" -ne 0 ]
     printf '{"schemaVersion":1,"label":"coverage","message":"9%%","color":"red","x":1}' > "${f}"
-    ! valid_badge_json "${f}"
-    ! valid_badge_json "${BATS_TEST_TMPDIR}/missing.json"
+    run valid_badge_json "${f}"
+    [ "$status" -ne 0 ]
+    run valid_badge_json "${BATS_TEST_TMPDIR}/missing.json"
+    [ "$status" -ne 0 ]
 }
 
 # valid_badge_path: <project>/(rust|python).json and nothing else.
 @test "valid_badge_path rejects traversal, absolute, nested and wrong names" {
+    # shellcheck source=/dev/null
     source "${SCRIPT}"
     valid_badge_path "fib/rust.json"
     valid_badge_path "perfect-numbers/python.json"
-    ! valid_badge_path "../x/rust.json"
-    ! valid_badge_path "fib/../rust.json"
-    ! valid_badge_path "/etc/rust.json"
-    ! valid_badge_path "fib/evil.json"
-    ! valid_badge_path "a/b/rust.json"
-    ! valid_badge_path "rust.json"
-    ! valid_badge_path ".hidden/rust.json"
-    ! valid_badge_path ""
+    run valid_badge_path "../x/rust.json"
+    [ "$status" -ne 0 ]
+    run valid_badge_path "fib/../rust.json"
+    [ "$status" -ne 0 ]
+    run valid_badge_path "/etc/rust.json"
+    [ "$status" -ne 0 ]
+    run valid_badge_path "fib/evil.json"
+    [ "$status" -ne 0 ]
+    run valid_badge_path "a/b/rust.json"
+    [ "$status" -ne 0 ]
+    run valid_badge_path "rust.json"
+    [ "$status" -ne 0 ]
+    run valid_badge_path ".hidden/rust.json"
+    [ "$status" -ne 0 ]
+    run valid_badge_path ""
+    [ "$status" -ne 0 ]
 }
