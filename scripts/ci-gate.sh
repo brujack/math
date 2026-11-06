@@ -39,10 +39,18 @@ ci_gate() {
         # its own run id, so neither is ever collapsed. A newer "skipped" never
         # supersedes an older non-skipped run, since skipped counts as a pass below.
         workflow_runs=$(gh api --paginate "repos/${repo}/actions/runs?head_sha=${sha}&per_page=100" \
-            --jq '.workflow_runs[] | {suite: .check_suite_id, wf: .workflow_id}') || return 1
+            --jq '.workflow_runs[] | {suite: .check_suite_id, wf: .workflow_id, event: .event}') || return 1
+        # Every gate-relevant workflow is pull_request-triggered, so check-runs from a
+        # workflow_dispatch or schedule run (e.g. a manual mutation-testing run on the
+        # PR branch) are dropped before grouping and can neither fail the gate nor
+        # supersede a PR run. Dropping is the unsafe direction: only those two exact
+        # events are dropped; a missing event, any other event, or a suite with no
+        # workflow run stays gated.
         check_runs=$(printf '%s' "${check_runs}" | jq -c -s \
             --argjson wf "$(printf '%s' "${workflow_runs}" | jq -s 'map({key: (.suite | tostring), value: .wf}) | from_entries')" \
-            'group_by([($wf[.suite | tostring] // (if .suite == null then "id:\(.id)" else "suite:\(.suite)" end) | tostring), .name])
+            --argjson ev "$(printf '%s' "${workflow_runs}" | jq -s 'map({key: (.suite | tostring), value: .event}) | from_entries')" \
+            'map(select(($ev[.suite | tostring] // "") as $e | ["workflow_dispatch", "schedule"] | any(. == $e) | not))
+             | group_by([($wf[.suite | tostring] // (if .suite == null then "id:\(.id)" else "suite:\(.suite)" end) | tostring), .name])
              | map(([.[] | select(.conclusion != "skipped")] | max_by(.id)) // max_by(.id)) | .[]') || return 1
         non_terminal=$(printf '%s' "${check_runs}" | jq -r --argjson excl "${excluded_json}" \
             'select(.name as $n | $excl | any(. == $n) | not) | select(.status != "completed") | .name')
