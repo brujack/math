@@ -257,6 +257,25 @@ class TestRepoCratesMatchTemplates(unittest.TestCase):
             },
         )
 
+    def test_rust_crates_are_the_dirs_with_a_tracked_crate_makefile(self):
+        # git, not rcf.CRATES, decides which crates exist: a tracked
+        # <x>/<x>-rs/Makefile missing from rcf.CRATES would escape uniformity.
+        scrubbed = {
+            k: v
+            for k, v in os.environ.items()
+            if k not in {"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"}
+        }
+        out = subprocess.run(
+            ["git", "ls-files", "*/*-rs/Makefile"],
+            cwd=REPO_ROOT,
+            env=scrubbed,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split()
+        derived = sorted(pathlib.PurePosixPath(f).parts[0] for f in out)
+        self.assertEqual(sorted(rcf.CRATES), derived)
+
     def test_python_workflow_is_a_rendered_python_kind(self):
         self.assertIn("python/py.yml", rcf.PYTHON_KINDS)
         self.assertEqual(

@@ -41,12 +41,15 @@ classify_mutation_run() {
     local label="$3"
     local max_missed="${4-}"
     local min_caught="${5-}"
+    # One pattern for the max_missed, min_caught and outcomes.json count checks; local
+    # because only this function uses it.
+    local -r count_pattern='^(0|[1-9][0-9]{0,8})$'
 
-    if [[ $# -ge 4 && ! "${max_missed}" =~ ^(0|[1-9][0-9]{0,8})$ ]]; then
+    if [[ $# -ge 4 && ! "${max_missed}" =~ ${count_pattern} ]]; then
         printf "red: %s - max_missed '%s' is not a non-negative integer\n" "${label}" "${max_missed}" >&2
         return 1
     fi
-    if [[ $# -ge 5 && ! "${min_caught}" =~ ^(0|[1-9][0-9]{0,8})$ ]]; then
+    if [[ $# -ge 5 && ! "${min_caught}" =~ ${count_pattern} ]]; then
         printf "red: %s - min_caught '%s' is not a non-negative integer\n" "${label}" "${min_caught}" >&2
         return 1
     fi
@@ -66,7 +69,15 @@ classify_mutation_run() {
 
     local parsed
     local jq_status
-    parsed=$(jq -e -r '[(.caught // 0), (.missed // 0), (.timeout // 0), (.unviable // 0)] | @tsv' "${outcomes}" 2>/dev/null)
+    # An absent key counts as 0; a present key keeps its value. Every non-number renders as
+    # its JSON text (null, false, "0", ""), which is never empty, so the tab columns stay
+    # aligned under the tab-IFS read and the integer check below names the right field; a
+    # quoted "0" cannot pass as the number 0.
+    parsed=$(jq -e -r 'def count(k):
+            if has(k) then
+                .[k] | if type == "number" then tostring else tojson end
+            else "0" end;
+        [count("caught"), count("missed"), count("timeout"), count("unviable")] | @tsv' "${outcomes}" 2>/dev/null)
     jq_status=$?
     if [[ "${jq_status}" -ne 0 ]]; then
         printf "red: %s - outcomes.json present but unparseable\n" "${label}" >&2
@@ -79,7 +90,7 @@ classify_mutation_run() {
     local field value
     for field in caught missed timeout unviable; do
         value="${!field}"
-        if [[ ! "${value}" =~ ^(0|[1-9][0-9]{0,8})$ ]]; then
+        if [[ ! "${value}" =~ ${count_pattern} ]]; then
             printf "red: %s - outcomes.json %s '%s' is not a non-negative integer\n" "${label}" "${field}" "${value}" >&2
             return 1
         fi

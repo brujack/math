@@ -90,7 +90,7 @@ def render_conversion_tick(digits, elapsed, estimated):
     """Return the conversion progress line show_one_tick prints."""
     # Mirrored in e/e.py (tests/test_pi_e_mirror.py); mutation scope is one file.
     if elapsed <= estimated:
-        remaining = max(0, estimated - elapsed)
+        remaining = estimated - elapsed
         pct = (elapsed / estimated) * 100
         bar_length = 30
         filled = int(bar_length * pct / 100)
