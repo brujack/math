@@ -1050,5 +1050,24 @@ class RustNotifyJobTests(unittest.TestCase):
             self.assertNotIn("${{", step.get("run", ""), step)
 
 
+class MutationPrPermissionsTests(unittest.TestCase):
+    """mutation-pr runs PR-authored code, so its token must be read-only."""
+
+    PR_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "mutation-pr.yml"
+
+    def test_top_level_permissions_are_contents_read(self):
+        self.assertEqual(
+            load(self.PR_WORKFLOW).get("permissions"), {"contents": "read"}
+        )
+
+    def test_no_job_overrides_with_write_scope(self):
+        for name, job in load(self.PR_WORKFLOW)["jobs"].items():
+            perms = job.get("permissions", {})
+            if isinstance(perms, str):
+                self.assertNotIn("write", perms, name)
+            else:
+                self.assertNotIn("write", perms.values(), name)
+
+
 if __name__ == "__main__":
     unittest.main()
