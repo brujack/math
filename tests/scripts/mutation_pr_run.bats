@@ -178,7 +178,9 @@ GREEN='{"caught":3,"missed":0,"timeout":0,"unviable":1}'
     _cfg a/a-rs "" "${GREEN}"
     _run_script main a/a-rs
     [ "${status}" -eq 1 ]
-    [[ "${output}" == *"red: a/a-rs - no mutants.out/exit-code"* ]]
+    # Exact: with run_crate's `return 1` dropped, the helper's text reaches the classifier,
+    # which also goes red and echoes it back inside its own "exit code" line.
+    [ "${output}" = "red: a/a-rs - no mutants.out/exit-code" ]
 }
 
 @test "non-integer exit-code is red" {
@@ -187,7 +189,7 @@ GREEN='{"caught":3,"missed":0,"timeout":0,"unviable":1}'
     _cfg a/a-rs "oops" "${GREEN}"
     _run_script main a/a-rs
     [ "${status}" -eq 1 ]
-    [[ "${output}" == *"red: a/a-rs - mutants.out/exit-code 'oops' is not an integer"* ]]
+    [ "${output}" = "red: a/a-rs - mutants.out/exit-code 'oops' is not an integer" ]
 }
 
 @test "red first crate still runs the second and exits 1" {
@@ -293,7 +295,7 @@ GREEN='{"caught":3,"missed":0,"timeout":0,"unviable":1}'
     _cfg a/a-rs 18446744073709551616 "${GREEN}"
     _run_script main a/a-rs
     [ "${status}" -eq 1 ]
-    [[ "${output}" == *"red: a/a-rs"* ]]
+    [ "${output}" = "red: a/a-rs - mutants.out/exit-code '18446744073709551616' is not an integer" ]
 }
 
 @test "exit-code 00 is red, not read as 0" {
@@ -302,7 +304,7 @@ GREEN='{"caught":3,"missed":0,"timeout":0,"unviable":1}'
     _cfg a/a-rs 00 "${GREEN}"
     _run_script main a/a-rs
     [ "${status}" -eq 1 ]
-    [[ "${output}" == *"red: a/a-rs"* ]]
+    [ "${output}" = "red: a/a-rs - mutants.out/exit-code '00' is not an integer" ]
 }
 
 @test "dash-prefixed base ref exits 2 with usage" {

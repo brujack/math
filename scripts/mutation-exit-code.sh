@@ -4,7 +4,8 @@
 # Usage: mutation-exit-code.sh <crate_dir>
 #
 # Prints the integer to stdout and exits 0. Otherwise prints one line
-# `red: <crate_dir> - <reason>` to stderr and exits 1. The file is the single
+# `red: <crate_dir> - <reason>` to stderr and exits 1; with no argument it prints
+# usage and exits 2. The file is the single
 # source of truth for the PR run (mutation-pr-run.sh) and the monthly sweep
 # (mutation-testing.yml): a missing file means the recipe died before
 # cargo-mutants ran, and anything but a plain 0-999 integer is rejected because

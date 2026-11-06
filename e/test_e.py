@@ -774,7 +774,7 @@ class TestMirroredHelpers(unittest.TestCase):
         )
 
     def test_render_write_progress_rate_divisor_is_exact_mebibyte(self):
-        # 100 MiB in 1 s: a 1023 divisor would print 100.2, not 100.0.
+        # 100 MiB in 1 s: a 1023 divisor would print 100.1, not 100.0.
         self.assertEqual(
             render_write_progress(1, 1, 104_857_600, 104_857_600, 1.0),
             "\rFile write progress: 100.0% | Written: 104,857,600/104,857,600 chars | "
