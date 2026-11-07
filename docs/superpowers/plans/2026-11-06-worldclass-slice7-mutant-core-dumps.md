@@ -1,5 +1,7 @@
 # Worldclass Slice 7: No Core Dumps From Mutation Runs Implementation Plan
 
+> **Status: DONE** (math#218, 8fb61f3; V1 sweep pending)
+
 spec: docs/superpowers/specs/2026-11-06-worldclass-slice7-mutant-core-dumps-design.md
 scope: PR1
 
