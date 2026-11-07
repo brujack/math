@@ -489,6 +489,16 @@ _raise_core_limit() {
     ulimit -Sc "${hard}"
 }
 
+# Fails unless the file holds at least one core= line (bare, or after a command name) and every one is core=0.
+_assert_cores_disabled() {
+    local lines
+    lines="$(grep -E '(^| )core=' "$1")" || { printf 'no core= line recorded\n' >&2; return 1; }
+    if printf '%s\n' "${lines}" | grep -vqE '(^| )core=0$'; then
+        printf 'core limit not 0:\n%s\n' "${lines}" >&2
+        return 1
+    fi
+}
+
 _rs_make() {
     env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u MUTANTS_UNCAPPED make -C "${CRATE}" "$@"
 }
@@ -627,7 +637,7 @@ _tmpdir_run() {
     _raise_core_limit
     run _rs_make mutants
     [ "${status}" -eq 0 ]
-    grep -qxF 'core=0' "${CALLS}"
+    _assert_cores_disabled "${CALLS}"
 }
 
 @test "make mutants runs cargo with no core dumps even with MUTANTS_UNCAPPED set" {
@@ -635,7 +645,7 @@ _tmpdir_run() {
     _raise_core_limit
     MUTANTS_UNCAPPED=1 run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${CRATE}" mutants
     [ "${status}" -eq 0 ]
-    grep -qxF 'core=0' "${CALLS}"
+    _assert_cores_disabled "${CALLS}"
 }
 
 @test "make mutants-diff runs cargo with no core dumps" {
@@ -644,7 +654,7 @@ _tmpdir_run() {
     printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
     run _rs_make mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
     [ "${status}" -eq 0 ]
-    grep -qxF 'core=0' "${CALLS}"
+    _assert_cores_disabled "${CALLS}"
 }
 
 @test "make mutants-diff runs cargo with no core dumps even with MUTANTS_UNCAPPED set" {
@@ -653,7 +663,7 @@ _tmpdir_run() {
     printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
     MUTANTS_UNCAPPED=1 run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${CRATE}" mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
     [ "${status}" -eq 0 ]
-    grep -qxF 'core=0' "${CALLS}"
+    _assert_cores_disabled "${CALLS}"
 }
 
 @test "make mutants clears a stale target/mutants-tmp left by a killed run" {
@@ -1417,22 +1427,12 @@ _calls_line() {
     grep -nE -- "$1" "${CALLS}" | head -1 | cut -d: -f1
 }
 
-# Fails unless the stub recorded at least one core= line and every one is core=0.
-_assert_cores_disabled() {
-    local lines
-    lines="$(grep -E ' core=' "${CALLS}.env")" || { printf 'no core= line recorded\n' >&2; return 1; }
-    if printf '%s\n' "${lines}" | grep -vqE ' core=0$'; then
-        printf 'core limit not 0:\n%s\n' "${lines}" >&2
-        return 1
-    fi
-}
-
 @test "python mutants-baseline runs cosmic-ray with no core dumps" {
     _py_stub_setup
     _raise_core_limit
     run _py_make mutants-baseline
     [ "${status}" -eq 0 ]
-    _assert_cores_disabled
+    _assert_cores_disabled "${CALLS}.env"
 }
 
 @test "python mutants-baseline runs cosmic-ray with no core dumps even with MUTANTS_UNCAPPED set" {
@@ -1440,7 +1440,7 @@ _assert_cores_disabled() {
     _raise_core_limit
     MUTANTS_UNCAPPED=1 run _py_make mutants-baseline
     [ "${status}" -eq 0 ]
-    _assert_cores_disabled
+    _assert_cores_disabled "${CALLS}.env"
 }
 
 @test "python mutants runs cosmic-ray with no core dumps" {
@@ -1448,7 +1448,7 @@ _assert_cores_disabled() {
     _raise_core_limit
     run _py_make mutants
     [ "${status}" -eq 0 ]
-    _assert_cores_disabled
+    _assert_cores_disabled "${CALLS}.env"
 }
 
 @test "python mutants runs cosmic-ray with no core dumps even with MUTANTS_UNCAPPED set" {
@@ -1456,7 +1456,7 @@ _assert_cores_disabled() {
     _raise_core_limit
     MUTANTS_UNCAPPED=1 run _py_make mutants
     [ "${status}" -eq 0 ]
-    _assert_cores_disabled
+    _assert_cores_disabled "${CALLS}.env"
 }
 
 @test "python make -n mutants executes nothing" {
