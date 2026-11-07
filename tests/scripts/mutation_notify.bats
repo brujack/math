@@ -704,6 +704,8 @@ print("\n".join(out))
     run main
     [ "${status}" -eq 1 ]
 
+    # Without this the ordering check below is vacuous: %% strips nothing.
+    grep -qF -- "Cause: missing-status" "${MOCK_CALLS_FILE}"
     _calls="$(cat "${MOCK_CALLS_FILE}")"
     _before="${_calls%%Cause: missing-status*}"
     [[ "${_before}" == *"Cause: verdicts-present"* ]]
