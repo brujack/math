@@ -1312,6 +1312,7 @@ _py_stub_setup() {
 printf 'cosmic-ray %s ulimit=%s\n' "$*" "$(ulimit -v)" >> "${CALLS}"
 printf '%s %s\n' "$1" "${PWD}" >> "${PWDS}"
 printf '%s fsize=%s\n' "$1" "$(ulimit -f)" >> "${CALLS}.env"
+printf '%s core=%s\n' "$1" "$(ulimit -c)" >> "${CALLS}.env"
 printf '%s tmpdir=%s\n' "$1" "${TMPDIR}" >> "${CALLS}.env"
 case "$1" in
     baseline)
@@ -1414,6 +1415,48 @@ _assert_no_call() {
 # 1-based line of the first calls-file line matching an ERE, or empty.
 _calls_line() {
     grep -nE -- "$1" "${CALLS}" | head -1 | cut -d: -f1
+}
+
+# Fails unless the stub recorded at least one core= line and every one is core=0.
+_assert_cores_disabled() {
+    local lines
+    lines="$(grep -E ' core=' "${CALLS}.env")" || { printf 'no core= line recorded\n' >&2; return 1; }
+    if printf '%s\n' "${lines}" | grep -vqE ' core=0$'; then
+        printf 'core limit not 0:\n%s\n' "${lines}" >&2
+        return 1
+    fi
+}
+
+@test "python mutants-baseline runs cosmic-ray with no core dumps" {
+    _py_stub_setup
+    _raise_core_limit
+    run _py_make mutants-baseline
+    [ "${status}" -eq 0 ]
+    _assert_cores_disabled
+}
+
+@test "python mutants-baseline runs cosmic-ray with no core dumps even with MUTANTS_UNCAPPED set" {
+    _py_stub_setup
+    _raise_core_limit
+    MUTANTS_UNCAPPED=1 run _py_make mutants-baseline
+    [ "${status}" -eq 0 ]
+    _assert_cores_disabled
+}
+
+@test "python mutants runs cosmic-ray with no core dumps" {
+    _py_stub_setup
+    _raise_core_limit
+    run _py_make mutants
+    [ "${status}" -eq 0 ]
+    _assert_cores_disabled
+}
+
+@test "python mutants runs cosmic-ray with no core dumps even with MUTANTS_UNCAPPED set" {
+    _py_stub_setup
+    _raise_core_limit
+    MUTANTS_UNCAPPED=1 run _py_make mutants
+    [ "${status}" -eq 0 ]
+    _assert_cores_disabled
 }
 
 @test "python make -n mutants executes nothing" {

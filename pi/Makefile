@@ -27,7 +27,8 @@ export CELL_LABEL STATUS_OUT SURVIVORS_OUT MUTANT_SHARD
 
 # The memory and file-size caps, shared by every recipe that runs cosmic-ray (same caps as the Rust
 # template). ulimit -f (1 KiB units in bash -c) ends a mutant writing unbounded output at 256 MiB.
-MUTANTS_CAP = ulimit -f 262144 2>/dev/null || { printf "error: cannot set the 256 MiB file-size cap (ulimit -f).\n" >&2; exit 1; }; if [ -n "$${MUTANTS_UNCAPPED}" ]; then \
+# ulimit -c 0 disables core dumps: hosted runners pipe them to systemd-coredump with an unlimited limit, and capped-out mutants streamed multi-GB dumps that killed the runner (ADR-0043).
+MUTANTS_CAP = ulimit -f 262144 2>/dev/null || { printf "error: cannot set the 256 MiB file-size cap (ulimit -f).\n" >&2; exit 1; }; ulimit -c 0 2>/dev/null || { printf "error: cannot disable core dumps (ulimit -c 0).\n" >&2; exit 1; }; if [ -n "$${MUTANTS_UNCAPPED}" ]; then \
 	    printf "warning: MUTANTS_UNCAPPED set — running without a memory cap.\n" >&2; \
 	  else \
 	    ulimit -v 8388608 2>/dev/null || { \
