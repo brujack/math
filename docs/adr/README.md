@@ -27,7 +27,7 @@ Repo-specific decisions for the `math` repository. Cross-cutting decisions (CI t
 | [0021](0021-processpool-serial-fallback.md)                               | ProcessPoolExecutor serial fallback for Python availability     | 2026-04-29 | Accepted               |
 | [0022](0022-python-mutation-testing-cosmic-ray.md)                        | Python mutation testing with cosmic-ray (supersedes ADR-0012)   | 2026-06-13 | Accepted               |
 | [0023](0023-pytest-as-python-test-runner.md)                              | pytest as Python test runner (replaces python3 -m unittest)     | 2026-06-19 | Accepted               |
-| [0024](0024-mutation-testing-memory-cap.md)                               | Mutation testing memory cap and stateless classification        | 2026-08-01 | Partially superseded by 0042 |
+| [0024](0024-mutation-testing-memory-cap.md)                               | Mutation testing memory cap and stateless classification        | 2026-08-01 | Partially superseded by 0042; amended by 0043 |
 | [0025](0025-attest-mutation-run-progress-with-a-breadcrumb.md)            | Attest mutation-run progress with a breadcrumb, not a step conclusion | 2026-09-01 | Accepted               |
 | [0026](0026-sign-before-publishing-releases.md)                            | Sign before publishing releases, via a composite action         | 2026-09-04 | Accepted               |
 | [0027](0027-root-scope-python-dependency-and-type-check.md)                 | Declare and type-check root-scope Python                        | 2026-09-05 | Accepted               |
@@ -46,3 +46,4 @@ Repo-specific decisions for the `math` repository. Cross-cutting decisions (CI t
 | [0040](0040-rust-mutation-matrix.md) | One mutation job per Rust crate | 2026-11-03 | Partially superseded by 0042 |
 | [0041](0041-per-pr-rust-mutation-ratchet.md) | Per-PR Rust mutation ratchet on changed lines | 2026-11-05 | Accepted               |
 | [0042](0042-rust-sweep-holds-zero-missed.md) | The Rust mutation sweep holds zero missed | 2026-11-05 | Accepted               |
+| [0043](0043-mutation-runs-disable-core-dumps.md) | Mutation runs disable core dumps | 2026-11-06 | Accepted |
