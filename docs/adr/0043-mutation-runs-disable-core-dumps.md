@@ -59,8 +59,8 @@ Spec: `docs/superpowers/specs/2026-11-06-worldclass-slice7-mutant-core-dumps-des
 
 ## Decision
 
-1. **Both mutation templates set `ulimit -c 0`** (no core dumps) in `MUTANTS_SETUP`, before the
-   uncapped branch, so it applies on every platform and with `MUTANTS_UNCAPPED=1`.
+1. **Both mutation templates set `ulimit -c 0`** (no core dumps) in `MUTANTS_SETUP` (Rust) and
+   `MUTANTS_CAP` (Python), before the uncapped branch, so it applies on every platform and with `MUTANTS_UNCAPPED=1`.
 2. This amends ADR-0024: the 8 GiB address-space cap bounds memory only while core dumps are off.
    With dumps on, the abort at the cap turns into a multi-gigabyte write that outlives the process.
 
@@ -69,8 +69,8 @@ Spec: `docs/superpowers/specs/2026-11-06-worldclass-slice7-mutant-core-dumps-des
 - collatz-rs's earlier timeouts were tests stalled behind their own dump. With no dump they abort
   at the cap and count as caught, so earlier timeout counts on this image are not evidence of slow
   mutants.
-- The verification sweep V1 may surface real MISSED mutants in crates whose legs were previously
-  lost or stalled (for example e-rs and factorial-rs). Each needs a killing test, not an exclusion.
+- The verification sweep V1 may surface real MISSED mutants that a dump stall had scored as
+  timeouts (e-rs and factorial-rs carried 5 and 4 timeouts in run 42157905568). Each needs a killing test, not an exclusion.
 - A core dump is no longer available to debug a crashing mutant on CI.
 
 ## Related
