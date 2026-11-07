@@ -476,7 +476,7 @@ STUB
     export PATH="${bin}:${PATH}"
 }
 
-# Both dev boxes run with a soft core limit of 0, so a test inheriting it would see 0
+# Dev boxes commonly run with a soft core limit of 0 (`claude` and `workstation`, measured), so a test inheriting it would see 0
 # without the fix. Raise the soft limit to the hard one first; a zero hard limit cannot
 # test anything, which is a failure in CI and a skip elsewhere.
 _raise_core_limit() {
