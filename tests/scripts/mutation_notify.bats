@@ -677,7 +677,7 @@ print("\n".join(out))
     grep -qF -- "gh issue close 98 --repo ${REPO}" "${MOCK_CALLS_FILE}"
 }
 
-@test "EXPECTED_STATUS_UNITS: RESULT=failure with a missing unit carries both the attributed cause and the missing unit" {
+@test "EXPECTED_STATUS_UNITS: RESULT=failure with no red unit posts the missing-status body alone" {
     export RESULT="failure"
     export MOCK_GH_ISSUE_LIST=""
     export EXPECTED_STATUS_UNITS="pi fib"
@@ -687,8 +687,29 @@ print("\n".join(out))
     run main
     [ "${status}" -eq 1 ]
 
-    grep -qF -- "Cause: verdicts-present" "${MOCK_CALLS_FILE}"
+    # The first Cause: line in the posted body must be the missing-status one.
+    [[ "$(grep -m1 -o 'Cause: .*' "${MOCK_CALLS_FILE}")" == "Cause: missing-status" ]]
+    run ! grep -qF -- "verdicts-present" "${MOCK_CALLS_FILE}"
     grep -qF -- "Missing crates:" "${MOCK_CALLS_FILE}"
+    grep -qF -- "- fib" "${MOCK_CALLS_FILE}"
+}
+
+@test "EXPECTED_STATUS_UNITS: RESULT=failure with a red unit keeps the verdicts-present body first" {
+    export RESULT="failure"
+    export MOCK_GH_ISSUE_LIST=""
+    export EXPECTED_STATUS_UNITS="pi fib"
+    mkdir -p "${ARTIFACT_DIR}/marker" "${ARTIFACT_DIR}/status"
+    printf 'red: pi - exit code 2\n' > "${ARTIFACT_DIR}/status/pi"
+
+    run main
+    [ "${status}" -eq 1 ]
+
+    # Without this the ordering check below is vacuous: %% strips nothing.
+    grep -qF -- "Cause: missing-status" "${MOCK_CALLS_FILE}"
+    _calls="$(cat "${MOCK_CALLS_FILE}")"
+    _before="${_calls%%Cause: missing-status*}"
+    [[ "${_before}" == *"Cause: verdicts-present"* ]]
+    [ "$(grep -cF -- "- pi: red: pi - exit code 2" "${MOCK_CALLS_FILE}")" -eq 1 ]
     grep -qF -- "- fib" "${MOCK_CALLS_FILE}"
 }
 

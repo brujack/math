@@ -122,3 +122,28 @@ Disposition: Addressed — extension of the operator's round-3 Ergonomics dispos
 ## Amendments
 
 - R4 -> `tests/scripts/makefile.bats` asserts that a mocked `cargo` sees `ulimit -c` = 0 under `mutants` and `mutants-diff`, and a mocked `cosmic-ray` sees 0 under `mutants` and `mutants-baseline`, each capped and with `MUTANTS_UNCAPPED=1`; every such test first raises the parent soft limit to `$(ulimit -Hc)`, fails when that hard limit is 0 and `CI=true` (skips otherwise), and fails when the mock wrote no record line. — the scoped re-review found the guard on the Rust clause only, leaving the Python clause passable with R3 reverted.
+- finding R9 (2026-11-07, reviewer both): DIFFERS — The row is kept and rewritten to name the core-dump cause and 'awaiting V1', but it identifies the change as 'slice 7, ADR-0043' rather than naming this PR (no math#NNN or PR reference).
+- R9 -> The Backlog row "Hosted runners lost mid-sweep on fib-rs/pi-rs" in `docs/superpowers/README.md` is rewritten to name the core-dump cause, the slice and ADR-0043, and "awaiting V1"; it is not removed in PR1. — the PR number does not exist until the PR is opened, and ADR-0043 is the durable reference the row needs.
+
+## Spec alignment (2026-11-07)
+
+- spec: docs/superpowers/specs/2026-11-06-worldclass-slice7-mutant-core-dumps-design.md
+- anchor: 0cec358d5418186d4452fd379ba7e83320d72918
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8, R9
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+| R9 | both | DIFFERS | The row is kept and rewritten to name the core-dump cause and 'awaiting V1', but it identifies the change as 'slice 7, ADR-0043' rather than naming this PR (no math#NNN or PR reference). | - R9 -> The Backlog row "Hosted runners lost mid-sweep on fib-rs/pi-rs" in `docs/superpowers/README.md` is rewritten to name the core-dump cause, the slice and ADR-0043, and "awaiting V1"; it is not removed in PR1. — the PR number does not exist until the PR is opened, and ADR-0043 is the durable reference the row needs. |
+
+### Reviewed
+
+- none
+
+### Verifications
+
+- V1: no evidence recorded
+- V2: Probe runs 42314053243 (dumps on: collatz-rs shutdown at 6.5 min, fib-rs lost; systemd-coredump in 13-48 samples per leg) and 42321581538 (ulimit -c 0: 5/5 legs green, 0 systemd-coredump samples, swap 0, mem.full 0.0).
+- V3: no evidence recorded
