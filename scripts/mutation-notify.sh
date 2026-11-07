@@ -194,16 +194,21 @@ check_expected_units() {
     done
     [[ "${_empty}" == "0" && -z "${_missing}" && -z "${_invalid}" ]] && return 0
 
-    # A non-success run prepends build_body. Its verdicts-present case already
-    # lists the red units, so the units body then omits its own Red section;
+    # A non-success run prepends build_body, except when its cause is
+    # verdicts-present and no unit is red: that body would only say "none
+    # flagged", so the missing-status body stands alone. With red units the
+    # prefix already lists them, so the units body omits its own Red section;
     # any other cause lists none, so the units body keeps it.
     _omit_red=0
+    _cause=""
     if [[ "${RESULT}" != "success" ]]; then
         _cause=$(attribute) || return 2
-        [[ "${_cause}" == "verdicts-present" ]] && _omit_red=1
+        if [[ "${_cause}" == "verdicts-present" ]]; then
+            if [[ -n "$(render_red_units)" ]]; then _omit_red=1; else _cause=""; fi
+        fi
     fi
     _body=$(build_units_body "${_missing%$'\n'}" "${_invalid%$'\n'}" "${_empty}" "${_omit_red}") || return 2
-    if [[ "${RESULT}" != "success" ]]; then
+    if [[ -n "${_cause}" ]]; then
         _body="$(build_body "${_cause}")"$'\n\n'"${_body}"
     fi
     post_issue "${_existing}" "${_body}" || return 2
