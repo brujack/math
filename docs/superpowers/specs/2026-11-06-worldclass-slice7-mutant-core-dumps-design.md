@@ -70,8 +70,8 @@ ADR-0043 amends ADR-0024: records the cause, both probe runs, and that the memor
 
 ## Testing
 
-- **Rust:** `tests/scripts/makefile.bats`: for a rendered crate, a mocked `cargo` records `ulimit -c`; the `mutants` and `mutants-diff` recipes give 0, with and without `MUTANTS_UNCAPPED=1`. Each test first raises the parent soft limit to `$(ulimit -Hc)` and asserts it is non-zero (skipping otherwise), because both dev boxes already run with a soft limit of 0 and a test inheriting it would pass without the fix; a missing record line fails the test.
-- **Python:** the same, for both `MUTANTS_CAP` targets (`mutants`, `mutants-baseline`) with a mocked `cosmic-ray`.
+- **Rust:** `tests/scripts/makefile.bats`: for a rendered crate, a mocked `cargo` records `ulimit -c`; the `mutants` and `mutants-diff` recipes give 0, with and without `MUTANTS_UNCAPPED=1`. Each test first raises the parent soft limit to `$(ulimit -Hc)`; a zero hard limit fails the test when `CI=true` and skips it elsewhere, because both dev boxes already run with a soft limit of 0 and a test inheriting it would pass without the fix; a missing record line fails the test.
+- **Python:** the same, raise-and-record guard included, for both `MUTANTS_CAP` targets (`mutants`, `mutants-baseline`) with the mocked `cosmic-ray` (its stub records `ulimit -v` only today and gains a `-c` field).
 - **Notify:** `tests/scripts/mutation_notify.bats`: failed run, every arriving status green, one unit missing → body starts `Cause: missing-status` and contains no `verdicts-present`; one red unit present → body as on master.
 - `tests/test_crate_uniformity.py` passes after `--write`.
 
@@ -116,3 +116,9 @@ Disposition: Addressed — operator 2026-11-06: V1 states a MISSED is a real sur
 ### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+Re-review (Risk, scoped, at `0cec358`): R4's raise-and-record guard covered only the Rust clause; the Python `cosmic-ray` clause passes with R3 reverted. "asserts non-zero (skipping otherwise)" was self-contradictory.
+Disposition: Addressed — extension of the operator's round-3 Ergonomics disposition: R4 amended to guard both clauses; a zero hard limit fails under `CI=true`, skips elsewhere.
+
+## Amendments
+
+- R4 -> `tests/scripts/makefile.bats` asserts that a mocked `cargo` sees `ulimit -c` = 0 under `mutants` and `mutants-diff`, and a mocked `cosmic-ray` sees 0 under `mutants` and `mutants-baseline`, each capped and with `MUTANTS_UNCAPPED=1`; every such test first raises the parent soft limit to `$(ulimit -Hc)`, fails when that hard limit is 0 and `CI=true` (skips otherwise), and fails when the mock wrote no record line. — the scoped re-review found the guard on the Rust clause only, leaving the Python clause passable with R3 reverted.
