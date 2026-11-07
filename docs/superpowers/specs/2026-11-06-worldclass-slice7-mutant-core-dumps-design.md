@@ -91,3 +91,26 @@ ADR-0043 amends ADR-0024: records the cause, both probe runs, and that the memor
 - **N2.** `mutation-testing.yml`'s matrix, timeouts and steps are unchanged.
 - **N3.** The cargo-mutants flags in the `mutants` and `mutants-diff` recipes are unchanged.
 - **N4.** No crate or Python project differs from its template.
+
+## Multi-Lens Review
+
+Reviewed at commit: `51ffd11` (round 3, against the core-dump design)
+
+### Goal-Fit
+
+Finding: Worth building; one template line backed by a controlled A/B. One flaw: R9 removes the "Hosted runners lost" Backlog row in PR1, before V1 has run on the seven unprobed crates, so the durable record of an open problem disappears when the claim is least proven. Keep the row in PR1 (marked fix shipped, awaiting V1) and remove it in the V1 follow-up citing V1's run id. Premise check: `gh run view` on 42314053243 / 42321581538 confirms the run-level A/B. Assumption: no non-dump mechanism exhausts memory on the seven unprobed crates; V1 settles it.
+Disposition:
+
+### Ergonomics
+
+Finding: No load-bearing problem; both dev boxes and macOS already run with soft core limit 0, so local runs see no change. (1) §1's "lowering a soft limit" is wrong: bare `ulimit -c 0` lowers soft and hard, so a child cannot re-enable dumps; harmless, but the text must say so. (2) R4 passes without the fix on `claude` and `workstation` (soft limit already 0) unless the test raises the parent limit to `$(ulimit -Hc)` first, asserts it is non-zero (skip otherwise), and greps the mock's recorded line so a missing call fails. Premise check: `ulimit -Sc; ulimit -Hc` → `0` / `unlimited` on both boxes; `bash -c 'ulimit -c 0; ulimit -Hc'` → `0`. Assumption: the unprobed crates lose runners only through dumps; V1 or a probe of those seven settles it.
+Disposition:
+
+### Risk
+
+Finding: Passes; failure mode far smaller than the problem. (1) Turning dumps off cannot turn a caught mutant MISSED (a cap abort fails the test either way), but it can turn a slow-but-passing mutant that previously stalled into TIMEOUT (green) into MISSED (red). e-rs (5 timeouts) and factorial-rs (4) in run 42157905568 are candidates, so V1 may go red on a real survivor; the spec must say that red is the fix working and needs a killing test, not a revert. (2) Same R4 precondition gap as Ergonomics (2). Notify change hides no red. Premise check: probe check-run telemetry recounted: coredump samples 28/30, 16, 12, 48 with dumps on vs 0 ×5 off; swap 3071 vs 0. Assumption: an aborted test binary leaves no lingering child holding memory; V1's e-rs and factorial-rs legs confirm.
+Disposition:
+
+### Adversarial Spec Review (comparison/judge designs only)
+
+N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
