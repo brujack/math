@@ -453,6 +453,7 @@ for arg in "$@"; do printf 'arg %s\n' "${arg}" >> "${CALLS}.args"; done
 # Simulate a killed timeout test: its TempDir is never dropped, so it leaves a dir in TMPDIR.
 printf 'tmpdir %s\n' "${TMPDIR}" >> "${CALLS}"
 printf 'fsize=%s\n' "$(ulimit -f)" >> "${CALLS}"
+printf 'core=%s\n' "$(ulimit -c)" >> "${CALLS}"
 # The recipe must create TMPDIR itself and wipe a stale one before cargo runs.
 if [ -n "${TMPDIR}" ] && [ ! -d "${TMPDIR}" ]; then printf 'tmpdir-missing\n' >> "${CALLS}"; fi
 if [ -n "${TMPDIR}" ] && [ -e "${TMPDIR}/old" ]; then printf 'stale\n' >> "${CALLS}"; fi
@@ -473,6 +474,19 @@ STUB
     _stub_slow_rm "${bin}"
     chmod +x "${bin}/cargo"
     export PATH="${bin}:${PATH}"
+}
+
+# Both dev boxes run with a soft core limit of 0, so a test inheriting it would see 0
+# without the fix. Raise the soft limit to the hard one first; a zero hard limit cannot
+# test anything, which is a failure in CI and a skip elsewhere.
+_raise_core_limit() {
+    local hard
+    hard="$(ulimit -Hc)"
+    if [ "${hard}" = "0" ]; then
+        [ "${CI:-}" = "true" ] && { printf 'hard core limit is 0 in CI\n' >&2; return 1; }
+        skip "hard core limit is 0; the parent limit cannot be raised"
+    fi
+    ulimit -Sc "${hard}"
 }
 
 _rs_make() {
@@ -606,6 +620,40 @@ _tmpdir_run() {
     [ "${status}" -ne 0 ]
     [ "$(cat "${CRATE}/mutants.out/exit-code")" = "3" ]
     [ ! -e "${CRATE}/target/mutants-tmp" ]
+}
+
+@test "make mutants runs cargo with no core dumps" {
+    _rs_stub_setup
+    _raise_core_limit
+    run _rs_make mutants
+    [ "${status}" -eq 0 ]
+    grep -qxF 'core=0' "${CALLS}"
+}
+
+@test "make mutants runs cargo with no core dumps even with MUTANTS_UNCAPPED set" {
+    _rs_stub_setup
+    _raise_core_limit
+    MUTANTS_UNCAPPED=1 run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${CRATE}" mutants
+    [ "${status}" -eq 0 ]
+    grep -qxF 'core=0' "${CALLS}"
+}
+
+@test "make mutants-diff runs cargo with no core dumps" {
+    _rs_stub_setup
+    _raise_core_limit
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    run _rs_make mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -eq 0 ]
+    grep -qxF 'core=0' "${CALLS}"
+}
+
+@test "make mutants-diff runs cargo with no core dumps even with MUTANTS_UNCAPPED set" {
+    _rs_stub_setup
+    _raise_core_limit
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    MUTANTS_UNCAPPED=1 run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${CRATE}" mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -eq 0 ]
+    grep -qxF 'core=0' "${CALLS}"
 }
 
 @test "make mutants clears a stale target/mutants-tmp left by a killed run" {
