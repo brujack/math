@@ -573,8 +573,9 @@ STUB
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     [[ "${output}" != *"skipping local tests"* ]]
-    # The module changes also run the equivalents check, a tenth python3 call.
+    # The module changes also run the equivalents check, exactly once.
     [ "$(grep -c '^python3 .*cli_contract' "${MOCK_CALLS_FILE}")" -eq 9 ]
+    [ "$(grep -c 'tests.test_mutants_equivalent' "${MOCK_CALLS_FILE}")" -eq 1 ]
     # 7 sub-project suites plus the root target that scripts/cli_contract.py triggers.
     [ "$(grep -c '^make' "${MOCK_CALLS_FILE}")" -eq 8 ]
 }
@@ -890,4 +891,43 @@ run_in_pgroup() {
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 1 ]
     [[ "${output}" == *"mutants equivalents check failed"* ]]
+}
+
+# Each of the 9 Python module paths must trigger the equivalents check on its
+# own: a typo or a dropped alternative in the trigger regex survives any single
+# example.
+@test "each of the 9 module paths alone runs the equivalents check once" {
+    setup_harness_stub
+    local entry dir module count=0
+    for entry in amicable:amicable collatz:collatz e:e factorial:factorial fib:fib perfect-numbers:perfect_numbers pi:pi sq:sq triangle:triangle; do
+        dir="${entry%%:*}"
+        module="${entry##*:}"
+        : > "${MOCK_CALLS_FILE}"
+        export MOCK_GIT_DIFF_NAMES="${dir}/${module}.py"
+        run bash "${REPO_ROOT}/scripts/pre-push" \
+            <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+        [ "$status" -eq 0 ]
+        [ "$(grep -c 'args=-m unittest tests.test_mutants_equivalent' "${MOCK_CALLS_FILE}")" -eq 1 ]
+        count=$((count + 1))
+    done
+    [ "${count}" -eq 9 ]
+}
+
+# The trigger regex's module list must equal the projects that carry a
+# cosmic-ray.toml, so a new Python project cannot be left out of the trigger.
+@test "equivalents trigger regex lists exactly the projects with a cosmic-ray.toml" {
+    local clean_path line alternation expected toml dir module
+    clean_path="$(printf '%s' "${PATH}" | tr ':' '\n' | grep -v 'tests/mocks' | tr '\n' ':' | sed 's/:$//')"
+    line="$(command grep -m1 'grep -qE.*mutants-equivalent' "${REPO_ROOT}/scripts/pre-push")"
+    alternation="$(printf '%s' "${line}" | sed -E 's/.*\^\(([^)]*)\)\\\.py\$.*/\1/')"
+    [ "${alternation}" != "${line}" ]
+    expected=""
+    while IFS= read -r toml; do
+        dir="${toml%%/*}"
+        module="$(sed -n 's/^module-path = "\(.*\)\.py"$/\1/p' "${REPO_ROOT}/${toml}")"
+        [ -n "${module}" ]
+        expected+="${dir}/${module}"$'\n'
+    done < <(PATH="${clean_path}" git -C "${REPO_ROOT}" ls-files '*/cosmic-ray.toml' | command grep -E '^[^/]+/cosmic-ray\.toml$' | command grep -vE '^(scripts|tests)/')
+    [ "$(printf '%s' "${alternation}" | tr '|' '\n' | sort)" = "$(printf '%s' "${expected}" | sort)" ]
+    [ "$(printf '%s' "${expected}" | grep -c .)" -eq 9 ]
 }

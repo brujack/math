@@ -131,8 +131,14 @@ class MutantsEquivalentFilesTest(unittest.TestCase):
                 self.assertEqual(layout_problems(path.read_text("utf-8")), [])
 
     def test_project_set_matches_the_cosmic_ray_configs(self) -> None:
-        found = {p.parent.name for p in REPO_ROOT.glob("*/mutants-equivalent.toml")}
-        self.assertEqual(found, set(PROJECTS))
+        # `*/cosmic-ray.toml` is one level deep, so the template under
+        # scripts/crate_templates/ and the fixture under tests/fixtures/ never match.
+        configured = {p.parent.name for p in REPO_ROOT.glob("*/cosmic-ray.toml")}
+        with_equivalents = {
+            p.parent.name for p in REPO_ROOT.glob("*/mutants-equivalent.toml")
+        }
+        self.assertEqual(configured, set(PROJECTS))
+        self.assertEqual(with_equivalents, configured)
 
     def test_entries_resolve_against_a_fresh_session(self) -> None:
         if shutil.which("cosmic-ray") is None:
