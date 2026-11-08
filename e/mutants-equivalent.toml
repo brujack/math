@@ -1,0 +1,23 @@
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Div_FloorDiv"
+function = "render_conversion_tick"
+line = "filled = int(bar_length * pct / 100)"
+col = 38
+above = "bar_length = 30"
+reason = "int() truncates toward zero and the operand is never negative (elapsed is a time.monotonic() difference, never negative, and elapsed <= estimated, so pct is in [0, 100]), so int(x / 100) equals x // 100 for every reachable input."
+
+[[equivalent]]
+operator = "core/ReplaceComparisonOperator_Gt_NotEq"
+function = "render_write_progress"
+line = "rate = bytes_done / elapsed / 1024 / 1024 if elapsed > 0 else 0"
+col = 57
+above = "bytes_done = min(done * chunk, total_bytes)"
+reason = "elapsed is a time.monotonic() difference, never negative, so elapsed != 0 holds exactly when elapsed > 0; the two guards differ only for a negative elapsed, which cannot occur."
+
+[[equivalent]]
+operator = "core/ReplaceComparisonOperator_Gt_NotEq"
+function = "render_write_progress"
+line = "eta = (remaining / done * elapsed) if done > 0 else 0"
+col = 47
+above = "remaining = total_chunks - done"
+reason = "done is a completed-chunk count that only increments from 1, so done != 0 holds exactly when done > 0; the two guards differ only for a negative done, which cannot occur."

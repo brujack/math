@@ -13,6 +13,7 @@ on:
       - ".github/workflows/gmp-cache.yml"
       - ".github/workflows/release-*"
       # Rendered from scripts/crate_templates/; test_crate_uniformity checks them.
+      - "*/mutants-equivalent.toml"
       - "*/*-rs/Makefile"
       - "*/*-rs/Cargo.toml"
       - "*/*-rs/CLAUDE.md"
@@ -31,6 +32,9 @@ on:
       - "pyrightconfig.json"
       - "requirements-dev.txt"
       - ".claude/scripts/**"
+      # The Python mutation-pr e2e test pins sq.py's mutant count and test_sq.py's kill set.
+      - "sq/sq.py"
+      - "sq/test_sq.py"
       # Subjects of root unittest suites: test_automerge_bot_hold.py runs the
       # hold step extracted from auto-merge.yml, test_renovate_automerge_policy.py
       # asserts renovate.json, test_gmpy2_stub.py guards typings/gmpy2 (pyright accepts
@@ -67,7 +71,7 @@ jobs:
           python-version: "3.14"
 
       - name: Install Python dependencies
-        run: pip install -r requirements-dev.txt ruff==0.16.4 pip-audit==2.10.1
+        run: pip install -r requirements-dev.txt ruff==0.16.4 pip-audit==2.10.1 cosmic-ray==8.7.0 hypothesis==6.168.5
       - name: Install cargo-deny and cargo-mutants
         uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
         with:

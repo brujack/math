@@ -58,7 +58,7 @@ The three equivalents per file, located on the same inits (pi has 1828 specs, e 
 | File:line | Function | Operator | Col | `above` | Why equivalent |
 | --- | --- | --- | --- | --- | --- |
 | `pi.py:96`, `e.py:97` `filled = int(bar_length * pct / 100)` | `render_conversion_tick` | `core/ReplaceBinaryOperator_Div_FloorDiv` | 38 | `bar_length = 30` | `int()` of a non-negative quotient: `/` and `//` agree |
-| `pi.py:117`, `e.py:118` `rate = ... if elapsed > 0 else 0` | `render_write_progress` | `core/ReplaceComparisonOperator_Gt_NotEq` | 57 | `bytes_done = min(done * chunk, total_bytes)` | `elapsed` is a monotonic-clock difference, never negative |
+| `pi.py:117`, `e.py:118` `rate = ... if elapsed > 0 else 0` | `render_write_progress` | `core/ReplaceComparisonOperator_Gt_NotEq` | 57 | `bytes_done = min(done * chunk, total_bytes)` | `elapsed` is a `time.monotonic()` difference, never negative |
 | `pi.py:119`, `e.py:120` `eta = ... if done > 0 else 0` | `render_write_progress` | `core/ReplaceComparisonOperator_Gt_NotEq` | 47 | `remaining = total_chunks - done` | `done` is a non-negative byte count |
 
 These rows are located by operator and column, `above` measured on `origin/master` `a7bb16e`; that each is a survivor comes from the Backlog
@@ -418,3 +418,29 @@ Disposition: Addressed (operator, 2026-11-07) — mode flags in R2/R3 and Compon
 always emits `units` (R8, R10); canary `MUTANT_SHARD=0/1` and named status files (R10); detect
 `--no-renames` (R6); V7 checks the vendored CLI before dispatch. Review closed: round 3's findings
 were interface and harness defects, not design, so the next instrument is Phase 2's first red test.
+
+## Spec alignment (2026-11-08)
+
+- spec: docs/superpowers/specs/2026-11-07-worldclass-slice8-python-pr-mutation-gate-design.md
+- anchor: 2e1013c6e0726006a8aabddfb205bd6d02ae3f8d
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16, R17, R18
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+
+### Reviewed
+
+- none
+
+### Verifications
+
+- V1: Throwaway draft math#220 (slice + untested `if max_digits == 123457: return 0` in sq.py): mutation-pr red; the sq leg named 6 survivors with full keys (e.g. sq.py:19 col 18 core/ReplaceComparisonOperator_Eq_Gt function "generate_squares"). It exposed the aggregator skipping the verdict after a red result check, fixed in ce6a3af; re-run pending after push.
+- V2: math#219 run at 601155d: mutation-py-canary passed (13 killed on sq.py `limit` line, per plan).
+- V3: no evidence recorded
+- V4: no evidence recorded
+- V5: tests/test_vendored_prune.py ran on claude at f3427c6 (pin 0694f163fbd4): 2 tests OK, not skipped; a one-line body edit turned it red.
+- V6: no evidence recorded
+- V7: Before Task 1: equivalents --help and diff --help at 9b588ce3f4fb showed --full-run, --diff, --toml-path and the diff <session> <diff-file> <module> form; a bad mode combination exited 2. Re-vendored at 0694f163fbd4 (ISC004 fix, AST identical).

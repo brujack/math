@@ -954,6 +954,84 @@ class TestSaveEEstimateAndProgress(unittest.TestCase):
         )
         self.assertEqual(data, expected)
 
+    def test_progress_elapsed_survives_a_backward_wall_clock_step(self):
+        """Elapsed fed to both progress renderers comes from time.monotonic.
+
+        A wall-clock step backwards (NTP, manual change) must not give the
+        renderers a negative elapsed: the pi/e equivalents file relies on it.
+        """
+        import mpmath
+
+        from e import save_e_to_file
+
+        s = "2." + "1415926535" * 3
+
+        class _FakeFuture:
+            polls = iter([False, True])
+
+            def done(self):
+                return next(_FakeFuture.polls)
+
+            def result(self):
+                return s
+
+        class _FakePool:
+            def __init__(self, *_, **__):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_a):
+                return False
+
+            def submit(self, fn, *args, **kwargs):
+                return _FakeFuture()
+
+        wall = iter(range(1000, 0, -1))
+        fake_time = unittest.mock.Mock()
+        fake_time.time.side_effect = lambda: float(next(wall))
+        # start, one tick, write_start, five chunks, write_time. The values are
+        # chosen so that no arithmetic mutant of `now - start` gives the same
+        # result (`%` equals `-` when now < 2 * start).
+        fake_time.monotonic.side_effect = [
+            2.0,
+            5.5,
+            10.0,
+            25.0,
+            40.0,
+            55.0,
+            70.0,
+            85.0,
+            100.0,
+        ]
+        fake_time.sleep = lambda _seconds: None
+
+        mpmath.mp.dps = 30
+        path = os.path.join(self._tmp, "backward.txt")
+        out = io.StringIO()
+        with (
+            unittest.mock.patch("e.time", fake_time),
+            unittest.mock.patch("e.concurrent.futures.ProcessPoolExecutor", _FakePool),
+            unittest.mock.patch("e._PWRITE_CHUNK", 7),
+            unittest.mock.patch(
+                "e.render_conversion_tick", wraps=e_module.render_conversion_tick
+            ) as tick,
+            unittest.mock.patch(
+                "e.render_write_progress", wraps=e_module.render_write_progress
+            ) as write,
+            redirect_stdout(out),
+        ):
+            save_e_to_file(mpmath.mpf(3), 30, path)
+
+        self.assertEqual(tick.call_count, 1)
+        self.assertEqual(tick.call_args.args[1], 3.5)
+        self.assertEqual(
+            [call.args[4] for call in write.call_args_list],
+            [15.0, 30.0, 45.0, 60.0, 75.0],
+        )
+        self.assertIn("File write completed in 90.00 seconds", out.getvalue())
+
 
 class TestSaveEToFilePhaseAFallback(unittest.TestCase):
     """save_e_to_file serial fallback when ProcessPoolExecutor raises OSError."""

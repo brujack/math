@@ -47,3 +47,4 @@ Repo-specific decisions for the `math` repository. Cross-cutting decisions (CI t
 | [0041](0041-per-pr-rust-mutation-ratchet.md) | Per-PR Rust mutation ratchet on changed lines | 2026-11-05 | Accepted               |
 | [0042](0042-rust-sweep-holds-zero-missed.md) | The Rust mutation sweep holds zero missed | 2026-11-05 | Accepted               |
 | [0043](0043-mutation-runs-disable-core-dumps.md) | Mutation runs disable core dumps | 2026-11-06 | Accepted |
+| [0044](0044-python-pr-mutation-gate.md) | Per-PR Python mutation gate on changed lines | 2026-11-08 | Accepted |

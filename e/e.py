@@ -471,7 +471,7 @@ def save_e_to_file(e_value, digits, filename):  # noqa: C901 — multi-backend p
 
         def start(self):
             self.running = True
-            self.start_time = time.time()
+            self.start_time = time.monotonic()
 
         def stop(self):
             self.running = False
@@ -479,7 +479,7 @@ def save_e_to_file(e_value, digits, filename):  # noqa: C901 — multi-backend p
         def show_one_tick(self):
             if self.start_time is None:
                 return
-            elapsed = time.time() - self.start_time
+            elapsed = time.monotonic() - self.start_time
             print(
                 render_conversion_tick(digits, elapsed, self.estimated_duration),
                 end="",
@@ -547,7 +547,7 @@ def save_e_to_file(e_value, digits, filename):  # noqa: C901 — multi-backend p
         f"Writing to {filename} using {_IO_WORKERS} parallel I/O worker"
         f"{'s' if _IO_WORKERS != 1 else ''}..."
     )
-    write_start = time.time()
+    write_start = time.monotonic()
 
     header = (
         f"e calculated to {digits:,} decimal places using {backend_label}\n"
@@ -583,7 +583,7 @@ def save_e_to_file(e_value, digits, filename):  # noqa: C901 — multi-backend p
                         total_chunks,
                         len(e_bytes),
                         _PWRITE_CHUNK,
-                        time.time() - write_start,
+                        time.monotonic() - write_start,
                     ),
                     end="",
                     flush=True,
@@ -598,7 +598,7 @@ def save_e_to_file(e_value, digits, filename):  # noqa: C901 — multi-backend p
         os.close(fd)
 
     print()
-    write_time = time.time() - write_start
+    write_time = time.monotonic() - write_start
     print(f"File write completed in {write_time:.2f} seconds")
     print(f"Total file operation time: {(conversion_time + write_time):.2f} seconds")
     return e_str
