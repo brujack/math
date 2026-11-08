@@ -2069,7 +2069,7 @@ _pd_order() {
     [ -f "${PROJ}/cosmic-ray-diff-session.sqlite" ]
     [ -f "${PROJ}/mutants-diff-report.txt" ]
     # Everything else in the project is what the fixture put there, plus the transient dir.
-    [ "$(ls -A "${PROJ}" | grep -v "^\.mutants-tmp\$" | LC_ALL=C sort | tr '\n' ' ')" = "Makefile cosmic-ray-diff-session.sqlite cosmic-ray-session.sqlite cosmic-ray.toml mutants-diff-report.txt mutants-equivalent.toml mutants-report.txt sq.py test_sq.py " ]
+    [ "$(find "${PROJ}" -mindepth 1 -maxdepth 1 ! -name .mutants-tmp -printf "%f\n" | LC_ALL=C sort | tr '\n' ' ')" = "Makefile cosmic-ray-diff-session.sqlite cosmic-ray-session.sqlite cosmic-ray.toml mutants-diff-report.txt mutants-equivalent.toml mutants-report.txt sq.py test_sq.py " ]
 }
 
 @test "python mutants-diff copies the diff session back even when cell_status is red" {
