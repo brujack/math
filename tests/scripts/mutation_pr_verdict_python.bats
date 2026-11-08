@@ -32,7 +32,7 @@ red_unit() {
 }
 
 verdict() {
-    bash "${SCRIPT}" "$@" "${PLAN}" "${STATUS}"
+    "${SCRIPT}" "$@" "${PLAN}" "${STATUS}"
 }
 
 # Row 1
@@ -60,6 +60,8 @@ verdict() {
     plan_line pi green "0 mutants on changed lines"
     run -1 verdict --expected-dirs "pi"
     [[ "${output}" == *"pi: red: duplicate plan line"* ]]
+    # The duplicate must not also be judged: exactly one verdict line besides the red one.
+    [ "$(printf '%s\n' "${output}" | grep -c '^pi: green')" -eq 1 ]
 }
 
 # Row 2
@@ -192,7 +194,7 @@ verdict() {
 
 # Usage errors
 @test "usage: no arguments exits 2" {
-    run -2 bash "${SCRIPT}"
+    run -2 "${SCRIPT}"
 }
 
 @test "usage: missing --expected-dirs exits 2" {
@@ -200,7 +202,7 @@ verdict() {
 }
 
 @test "usage: missing status dir exits 2" {
-    run -2 bash "${SCRIPT}" --expected-dirs "pi" "${PLAN}"
+    run -2 "${SCRIPT}" --expected-dirs "pi" "${PLAN}"
 }
 
 @test "usage: unknown flag exits 2" {
@@ -218,13 +220,72 @@ verdict() {
 }
 
 @test "usage: flag without value exits 2" {
-    run -2 bash "${SCRIPT}" "${PLAN}" "${STATUS}" --expected-dirs
+    run -2 "${SCRIPT}" "${PLAN}" "${STATUS}" --expected-dirs
 }
 
 @test "usage: missing plan file exits 2" {
-    run -2 bash "${SCRIPT}" --expected-dirs "pi" "${BATS_TEST_TMPDIR}/nope.txt" "${STATUS}"
+    run -2 "${SCRIPT}" --expected-dirs "pi" "${BATS_TEST_TMPDIR}/nope.txt" "${STATUS}"
 }
 
 @test "usage: extra positional exits 2" {
-    run -2 bash "${SCRIPT}" --expected-dirs "pi" "${PLAN}" "${STATUS}" extra
+    run -2 "${SCRIPT}" --expected-dirs "pi" "${PLAN}" "${STATUS}" extra
+}
+
+@test "script is executable" {
+    [ -x "${SCRIPT}" ]
+}
+
+@test "row 6: green-form line with one surviving is red (boundary 1)" {
+    plan_line pi green "5 mutants in 1 shards"
+    printf 'green: pi-0 — 1 surviving, 0 timed out, 5 jobs\n' >"${STATUS}/pi-0"
+    run -1 verdict --expected-dirs "pi"
+    [[ "${output}" == *"unit 0/1: green: pi-0 — 1 surviving"* ]]
+    [[ "${output}" == *"MUTANT_SHARD=0/1"* ]]
+}
+
+@test "row 6: green-form line with two surviving is red" {
+    plan_line pi green "5 mutants in 1 shards"
+    printf 'green: pi-0 — 2 surviving, 0 timed out, 5 jobs\n' >"${STATUS}/pi-0"
+    run -1 verdict --expected-dirs "pi"
+    [[ "${output}" == *"MUTANT_SHARD=0/1"* ]]
+    [[ "${output}" != *"pi: green"* ]]
+}
+
+@test "plan: text after the shard count is unknown" {
+    plan_line pi green "5 mutants in 1 shards x"
+    run -1 verdict --expected-dirs "pi"
+    [[ "${output}" == *"unknown plan line"* ]]
+}
+
+@test "plan: text before the mutant count is unknown" {
+    plan_line pi green "x 5 mutants in 1 shards"
+    run -1 verdict --expected-dirs "pi"
+    [[ "${output}" == *"unknown plan line"* ]]
+}
+
+@test "status: valid green line with trailing text is unrecognised" {
+    plan_line pi green "5 mutants in 1 shards"
+    printf 'green: pi-0 — 0 surviving, 0 timed out, 5 jobs extra\n' >"${STATUS}/pi-0"
+    run -1 verdict --expected-dirs "pi"
+    [[ "${output}" == *"unrecognised status file pi-0"* ]]
+}
+
+@test "status: valid green line with leading text is unrecognised" {
+    plan_line pi green "5 mutants in 1 shards"
+    printf 'x green: pi-0 — 0 surviving, 0 timed out, 5 jobs\n' >"${STATUS}/pi-0"
+    run -1 verdict --expected-dirs "pi"
+    [[ "${output}" == *"unrecognised status file pi-0"* ]]
+}
+
+@test "plan: LF and CRLF blank lines are skipped" {
+    plan_line pi green "0 mutants on changed lines"
+    printf '\n\r\n' >>"${PLAN}"
+    run -0 verdict --expected-dirs "pi"
+    [ "${output}" = "pi: green: 0 mutants on changed lines" ]
+}
+
+@test "plan: last line without a trailing newline is judged" {
+    printf 'pi\tgreen\t0 mutants on changed lines' >"${PLAN}"
+    run -0 verdict --expected-dirs "pi"
+    [ "${output}" = "pi: green: 0 mutants on changed lines" ]
 }
