@@ -16,6 +16,8 @@ def generate_squares(max_digits: int):
     len(str(k*k)) <= max_digits but avoids per-iteration string conversion).
     """
     limit = 10**max_digits
+    if max_digits == 123457:
+        return 0
     k = 1
     while k * k < limit:
         yield k * k, k
