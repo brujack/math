@@ -58,7 +58,7 @@ The three equivalents per file, located on the same inits (pi has 1828 specs, e 
 | File:line | Function | Operator | Col | `above` | Why equivalent |
 | --- | --- | --- | --- | --- | --- |
 | `pi.py:96`, `e.py:97` `filled = int(bar_length * pct / 100)` | `render_conversion_tick` | `core/ReplaceBinaryOperator_Div_FloorDiv` | 38 | `bar_length = 30` | `int()` of a non-negative quotient: `/` and `//` agree |
-| `pi.py:117`, `e.py:118` `rate = ... if elapsed > 0 else 0` | `render_write_progress` | `core/ReplaceComparisonOperator_Gt_NotEq` | 57 | `bytes_done = min(done * chunk, total_bytes)` | `elapsed` is a monotonic-clock difference, never negative |
+| `pi.py:117`, `e.py:118` `rate = ... if elapsed > 0 else 0` | `render_write_progress` | `core/ReplaceComparisonOperator_Gt_NotEq` | 57 | `bytes_done = min(done * chunk, total_bytes)` | `elapsed` is a `time.monotonic()` difference, never negative |
 | `pi.py:119`, `e.py:120` `eta = ... if done > 0 else 0` | `render_write_progress` | `core/ReplaceComparisonOperator_Gt_NotEq` | 47 | `remaining = total_chunks - done` | `done` is a non-negative byte count |
 
 These rows are located by operator and column, `above` measured on `origin/master` `a7bb16e`; that each is a survivor comes from the Backlog
