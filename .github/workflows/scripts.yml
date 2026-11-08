@@ -13,6 +13,7 @@ on:
       - ".github/workflows/gmp-cache.yml"
       - ".github/workflows/release-*"
       # Rendered from scripts/crate_templates/; test_crate_uniformity checks them.
+      - "*/mutants-equivalent.toml"
       - "*/*-rs/Makefile"
       - "*/*-rs/Cargo.toml"
       - "*/*-rs/CLAUDE.md"
@@ -67,7 +68,7 @@ jobs:
           python-version: "3.14"
 
       - name: Install Python dependencies
-        run: pip install -r requirements-dev.txt ruff==0.16.4 pip-audit==2.10.1
+        run: pip install -r requirements-dev.txt ruff==0.16.4 pip-audit==2.10.1 cosmic-ray==8.7.0 hypothesis==6.168.5
       - name: Install cargo-deny and cargo-mutants
         uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
         with:

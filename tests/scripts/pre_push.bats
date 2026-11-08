@@ -48,6 +48,7 @@ teardown() {
 }
 
 @test "changed file in pi/ uses worktree root in make path" {
+    setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES="pi/pi.py"
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
@@ -65,6 +66,7 @@ teardown() {
 }
 
 @test "changed files in two sub-projects calls make twice" {
+    setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\ne/e.py'
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
@@ -110,6 +112,7 @@ teardown() {
 }
 
 @test "a passing suite prints an ok line" {
+    setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES="pi/pi.py"
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
@@ -118,6 +121,7 @@ teardown() {
 }
 
 @test "one failing suite among several prints FAIL and its log and exits 1" {
+    setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\ne/e.py'
     export MOCK_MAKE_FAIL_DIR="fib"
     run bash "${REPO_ROOT}/scripts/pre-push" \
@@ -131,6 +135,7 @@ teardown() {
 }
 
 @test "a suite killed before writing its status prints FAIL and exits 1" {
+    setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\ne/e.py'
     export MOCK_MAKE_KILL_DIR="e"
     run bash "${REPO_ROOT}/scripts/pre-push" \
@@ -142,6 +147,7 @@ teardown() {
 }
 
 @test "seven changed Python sub-projects run all seven suites" {
+    setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\nsq/sq.py\ne/e.py\nfactorial/factorial.py\ncollatz/collatz.py\namicable/amicable.py'
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
@@ -151,6 +157,7 @@ teardown() {
 }
 
 @test "the hook locates the runner through a symlink" {
+    setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES="pi/pi.py"
     ln -s "${REPO_ROOT}/scripts/pre-push" "${BATS_TEST_TMPDIR}/pre-push-link"
     run bash "${BATS_TEST_TMPDIR}/pre-push-link" \
@@ -160,6 +167,7 @@ teardown() {
 }
 
 @test "a relative symlink to the hook resolves too" {
+    setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES="pi/pi.py"
     mkdir -p "${BATS_TEST_TMPDIR}/hooks"
     ln -s "../real/pre-push" "${BATS_TEST_TMPDIR}/hooks/pre-push"
@@ -172,6 +180,7 @@ teardown() {
 }
 
 @test "PRE_PUSH_JOBS=1 runs the changed suites one at a time" {
+    setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\ne/e.py'
     export PRE_PUSH_JOBS=1
     export MOCK_MAKE_CONCURRENCY_DIR="${BATS_TEST_TMPDIR}/probe"
@@ -188,6 +197,7 @@ teardown() {
 }
 
 @test "the default job count runs the changed suites concurrently" {
+    setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\ne/e.py'
     unset PRE_PUSH_JOBS
     export MOCK_MAKE_CONCURRENCY_DIR="${BATS_TEST_TMPDIR}/probe"
@@ -212,6 +222,7 @@ teardown() {
 }
 
 @test "new branch push uses merge-base and calls make for changed files" {
+    setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES="pi/pi.py"
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat ${ZEROS}"
@@ -238,6 +249,7 @@ teardown() {
 }
 
 @test "python-only change does not drag in the rust sibling suite" {
+    setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES="pi/pi.py"
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
@@ -358,6 +370,7 @@ teardown() {
 }
 
 @test "pi-only change does not reach the root test target" {
+    setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     # The point of this file: every existing negative case here either uses
     # an EMPTY diff (which an over-broad root-trigger regex also passes) or
     # names a specific sub-project target rather than the root one. Neither
@@ -467,6 +480,7 @@ teardown() {
 }
 
 @test "install_deps.sh plus a python source change runs lint-hooks and the suite" {
+    setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES=$'pi/install_deps.sh\npi/pi.py'
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
@@ -477,6 +491,7 @@ teardown() {
 }
 
 @test "shell lint still runs alongside seven concurrent sub-project suites" {
+    setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\nsq/sq.py\ne/e.py\nfactorial/factorial.py\ncollatz/collatz.py\namicable/amicable.py\namicable/install_deps.sh'
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
@@ -558,7 +573,8 @@ STUB
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     [[ "${output}" != *"skipping local tests"* ]]
-    [ "$(grep -c '^python3 ' "${MOCK_CALLS_FILE}")" -eq 9 ]
+    # The module changes also run the equivalents check, a tenth python3 call.
+    [ "$(grep -c '^python3 .*cli_contract' "${MOCK_CALLS_FILE}")" -eq 9 ]
     # 7 sub-project suites plus the root target that scripts/cli_contract.py triggers.
     [ "$(grep -c '^make' "${MOCK_CALLS_FILE}")" -eq 8 ]
 }
@@ -569,7 +585,8 @@ STUB
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
-    assert_no_match "^python3 "
+    # The module change runs the equivalents check but never the CLI harness.
+    assert_no_match "^python3 .*cli_contract"
 }
 
 @test "a failing harness run fails the push and names the project" {
@@ -823,4 +840,54 @@ run_in_pgroup() {
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 1 ]
     [[ "${output}" == *"mutants exclusion check failed"* ]]
+}
+
+# --- mutants equivalents check -----------------------------------------------
+# An equivalents file or a Python module change can stale an entry, so the push
+# runs tests.test_mutants_equivalent (stubbed python3 here).
+@test "mutants-equivalent.toml push runs the equivalents check" {
+    setup_harness_stub
+    export MOCK_GIT_DIFF_NAMES="pi/mutants-equivalent.toml"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [ "$(grep -c 'args=-m unittest tests.test_mutants_equivalent' "${MOCK_CALLS_FILE}")" -eq 1 ]
+}
+
+@test "python module push runs the equivalents check" {
+    setup_harness_stub
+    export MOCK_GIT_DIFF_NAMES="perfect-numbers/perfect_numbers.py"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [ "$(grep -c 'args=-m unittest tests.test_mutants_equivalent' "${MOCK_CALLS_FILE}")" -eq 1 ]
+}
+
+@test "python test file push does not run the equivalents check" {
+    setup_harness_stub
+    export MOCK_GIT_DIFF_NAMES="pi/test_pi.py"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    assert_no_match "tests.test_mutants_equivalent"
+}
+
+@test "unrelated push does not run the equivalents check" {
+    setup_harness_stub
+    export MOCK_GIT_DIFF_NAMES="README.md"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    assert_no_match "tests.test_mutants_equivalent"
+}
+
+@test "failing equivalents check refuses the push" {
+    setup_harness_stub
+    export MOCK_GIT_DIFF_NAMES="pi/mutants-equivalent.toml"
+    MOCK_PYTHON_FAIL_DIR="$(basename "${MOCK_GIT_SHOW_TOPLEVEL}")"
+    export MOCK_PYTHON_FAIL_DIR
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 1 ]
+    [[ "${output}" == *"mutants equivalents check failed"* ]]
 }

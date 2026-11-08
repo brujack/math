@@ -40,6 +40,9 @@ RUN_CLI_CONTRACT=0
 # Set when a crate's src/ or .cargo/mutants.toml changed: an exclude_re entry
 # embeds a line number, so the drift check must confirm each still matches.
 RUN_MUTANTS_CHECK=0
+# Set when a mutants-equivalent.toml or a Python module changed: an entry is keyed
+# by source line text, so the check must confirm each still resolves to one mutant.
+RUN_EQUIVALENTS_CHECK=0
 # SHAs refused by the CLAUDE.md byte-ceiling check; acted on after the ref loop
 # so every pushed ref is examined and the refusal precedes all early exits.
 budget_refusals=()
@@ -197,6 +200,10 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     if git diff --no-renames --name-only "${range}" | grep -qE '^[^/]+/[^/]+-rs/src/|^[^/]+/[^/]+-rs/\.cargo/mutants\.toml$'; then
         RUN_MUTANTS_CHECK=1
     fi
+
+    if git diff --no-renames --name-only "${range}" | grep -qE '^[^/]+/mutants-equivalent\.toml$|^(amicable/amicable|collatz/collatz|e/e|factorial/factorial|fib/fib|perfect-numbers/perfect_numbers|pi/pi|sq/sq|triangle/triangle)\.py$'; then
+        RUN_EQUIVALENTS_CHECK=1
+    fi
 done <<< "${_pcg_refs}"
 fi
 
@@ -237,6 +244,12 @@ if [[ "${RUN_MUTANTS_CHECK}" -eq 1 ]]; then
     printf "mutants: exclusion drift check\n"
     (cd "${REPO_ROOT}" && python3 -m unittest tests.test_mutants_exclusions) < /dev/null \
         || { printf "pre-push: mutants exclusion check failed (stale or overlapping exclude_re in a .cargo/mutants.toml)\n" >&2; exit 1; }
+fi
+
+if [[ "${RUN_EQUIVALENTS_CHECK}" -eq 1 ]]; then
+    printf "mutants: equivalents check\n"
+    (cd "${REPO_ROOT}" && python3 -m unittest tests.test_mutants_equivalent) < /dev/null \
+        || { printf "pre-push: mutants equivalents check failed (stale or ambiguous entry in a mutants-equivalent.toml)\n" >&2; exit 1; }
 fi
 
 if [[ "${#DIRS_TO_TEST[@]}" -eq 0 ]]; then
