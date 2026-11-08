@@ -8,6 +8,11 @@ setup() {
     load_mocks
     export MOCK_CALLS_FILE="${BATS_TEST_TMPDIR}/calls"
     SCRIPT="${REPO_ROOT}/scripts/mutation-pr-detect.sh"
+    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
+    export HOME="${BATS_TEST_TMPDIR}"
+    export XDG_CONFIG_HOME="${BATS_TEST_TMPDIR}/xdg"
+    export GIT_CONFIG_GLOBAL=/dev/null
+    export GIT_CONFIG_NOSYSTEM=1
     ALL9="amicable collatz e factorial fib perfect-numbers pi sq triangle"
 }
 
@@ -198,11 +203,9 @@ rs_setup() {
 }
 
 # Real-git fixture: numstat needs genuine diffs, which the git mock cannot produce.
-# GIT_* is unset so the fixture never inherits a hook's repository; the mock dir is
-# dropped from PATH so `git` is the real binary; HOME is redirected into the tmpdir.
+# setup() isolates the environment; the mock dir is dropped from PATH here so `git`
+# is the real binary.
 fixture_repo() {
-    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
-    export HOME="${BATS_TEST_TMPDIR}"
     PATH="${PATH#"${REPO_ROOT}/tests/mocks:"}"
     FIX="${BATS_TEST_TMPDIR}/fixture"
     mkdir -p "${FIX}"
@@ -332,4 +335,33 @@ fix_run() {
     export MOCK_GIT_DIFF_NAMES="fib/fib.py"
     run -0 bash "${SCRIPT}" origin/master
     [ "${lines[6]}" = "py_canary=false" ]
+}
+
+@test "a numstat-only failure exits non-zero" {
+    local shim="${BATS_TEST_TMPDIR}/shim"
+    mkdir -p "${shim}"
+    printf '#!/usr/bin/env bash\ncase "$*" in *--numstat*) exit 1 ;; esac\nexec "%s/tests/mocks/git" "$@"\n' "${REPO_ROOT}" > "${shim}/git"
+    chmod +x "${shim}/git"
+    export PATH="${shim}:${PATH}"
+    export MOCK_GIT_DIFF_NAMES="fib/fib.py"
+    run ! bash "${SCRIPT}" origin/master
+}
+
+@test "an exported GIT_DIR does not redirect the diff scope" {
+    fixture_repo
+    printf 'd = 4\n' >> "${FIX}/fib/fib.py"
+    fix_commit "add"
+    local other="${BATS_TEST_TMPDIR}/other"
+    mkdir -p "${other}/sq"
+    git -C "${other}" init -q -b main
+    printf 'a = 1\n' > "${other}/sq/sq.py"
+    git -C "${other}" add -A
+    git -C "${other}" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m base
+    git -C "${other}" checkout -q -b feature
+    printf 'b = 2\n' >> "${other}/sq/sq.py"
+    git -C "${other}" add -A
+    git -C "${other}" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m add
+    export GIT_DIR="${other}/.git"
+    fix_run
+    [ "${lines[5]}" = "py_src_dirs=fib" ]
 }

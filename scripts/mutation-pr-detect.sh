@@ -100,9 +100,9 @@ main() {
         return 2
     fi
     local _names
-    _names=$(git diff --name-only "$1...HEAD") || return 1
+    _names=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git diff --name-only "$1...HEAD") || return 1
     local _numstat _src _manifests _path
-    _numstat=$(git diff --numstat --no-renames "$1...HEAD") || return 1
+    _numstat=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git diff --numstat --no-renames "$1...HEAD") || return 1
     _src=$(py_src_dirs <<< "${_numstat}") || return 1
     local -a _crates=()
     _manifests=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
