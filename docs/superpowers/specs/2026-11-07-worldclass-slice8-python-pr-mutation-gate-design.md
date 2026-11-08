@@ -1,6 +1,6 @@
 # Worldclass slice 8: per-PR Python mutation gate on changed lines
 
-- **Status:** Draft (round 1 dispositions applied)
+- **Status:** Draft (round 1 dispositions recorded; round 2 pending)
 - **Date:** 2026-11-07
 - **Depends on:** ai-config `docs/superpowers/specs/2026-11-07-cosmic-ray-prune-design.md` (canonical `cosmic_ray_prune.py`, owned by the ai-config session)
 
@@ -105,8 +105,12 @@ protection needs no change; the old single job becomes `mutation-rs`.
    the 8.7.0 schema exactly, and on invalid input exit 1 with the session byte-identical. `diff`
    exits 1 when `<module>` matches no spec's `module_path`.
 2. **`<project>/mutants-equivalent.toml`** in all 9 Python projects. Each `[[equivalent]]` carries
-   `operator`, `function` (`""` for module level), `line` (stripped text), `col`, `of` (the match
-   set's size in a full fresh session), `variant` when `of` > 1, and a non-empty `reason`. Entries
+   `operator`, `function` (`""` for module level), `row`, `col`, `line` (stripped text), `variant`
+   when more than one spec matches (a `NumberReplacer` pair: 0 = +1, 1 = -1), and a non-empty
+   `reason` (ai-config spec @ `f4f7fa49`). `row` is mandatory (operator, 2026-11-07): it stops a
+   declared variant sliding onto a new, unreviewed mutant in a group of identical lines. The cost
+   is accepted: inserting or deleting lines above an entry makes it exit 1 on that PR's own gate
+   until its `row` is updated from the candidate listing. Entries
    are authored by the route the ai-config spec defines: write a skeleton entry, run `prune
    equivalents` on a fresh local init, and copy the fields from the candidate listing its error
    prints. pi and e hold the three rows of the equivalents table; the other seven hold none. The
@@ -124,7 +128,8 @@ protection needs no change; the old single job becomes `mutation-rs`.
      `mutants-report.txt`; `mutants-clean` removes both pairs.
 4. **`scripts/cosmic_ray_cell_status.py --max-survivors N`.** Red when survivors exceed N. With the
    flag, each survivor prints as `<module>:<row> col <c> <operator> function "<f>"`, the fields an
-   equivalents entry needs. Without the flag, output is byte-identical to today's, and
+   equivalents entry needs, followed by its mutant diff from `work_results.diff` (ai-config spec
+   V4). Without the flag, output is byte-identical to today's, and
    `--survivors` keeps its current line format, so the sweep's survivor report is unchanged.
 5. **`scripts/mutation-pr-plan-python.sh <base-sha> <dir>...`** builds each dir's diff, runs
    `mutants-diff-plan`, and writes the unit matrix plus a per-dir plan line: red for a failed step
@@ -250,8 +255,8 @@ vendoring.
 - **R1.** `scripts/cosmic_ray_prune.py` equals ai-config `.claude/scripts/cosmic_ray_prune.py` at a named commit in every line except line 2, which matches `# Vendored from ai-config .claude/scripts/cosmic_ray_prune.py @ <12 hex>. Edit there, re-sync here.`
 - **R2.** The Python `mutants` recipe copies `mutants-equivalent.toml` into the work dir and runs `cosmic_ray_prune.py equivalents` after `cosmic-ray init` and before `cosmic_ray_shard.py`; a non-zero exit fails the recipe.
 - **R3.** The Python template has `mutants-diff-plan` and `mutants-diff` targets, listed in `.PHONY` and rendered into all 9 projects; each exits 2 with a message naming `DIFF` when `DIFF` is unset or not a readable file without invoking cosmic-ray, and resolves a relative `DIFF` against the invoking directory; `mutants-diff-plan` runs `init`, `prune equivalents` and `prune diff <session> <DIFF> <module>.py` and no `exec`; `mutants-diff` additionally applies `MUTANT_SHARD` when set, runs `exec` and `cosmic_ray_cell_status.py --max-survivors 0`, and writes only `cosmic-ray-diff-session.sqlite` and `mutants-diff-report.txt` in the project dir.
-- **R4.** Each of the 9 Python projects has `mutants-equivalent.toml`; pi and e each hold exactly the 3 entries of the equivalents table, each with `operator`, `function`, `line`, `col`, `of` and a non-empty `reason`; the other 7 hold no `[[equivalent]]` entry.
-- **R5.** `cosmic_ray_cell_status.py --max-survivors N` reports red when survivors exceed N, printing each as `<module>:<row> col <col> <operator> function "<definition_name>"`, exits 2 when N is not a plain non-negative decimal, and without the flag produces stdout and `--survivors` output byte-identical to today's.
+- **R4.** Each of the 9 Python projects has `mutants-equivalent.toml`; pi and e each hold exactly the 3 entries of the equivalents table, each with `operator`, `function`, `row`, `col`, `line` and a non-empty `reason`, and no `of`; the other 7 hold no `[[equivalent]]` entry.
+- **R5.** `cosmic_ray_cell_status.py --max-survivors N` reports red when survivors exceed N, printing each as `<module>:<row> col <col> <operator> function "<definition_name>"` followed by its `work_results.diff`, exits 2 when N is not a plain non-negative decimal, and without the flag produces stdout and `--survivors` output byte-identical to today's.
 - **R6.** `scripts/mutation-pr-detect.sh` prints `py_src_dirs=<sorted dirs>`, selecting a Python dir only when `<dir>/<module>.py` changed (`<module>` is the dir name with `-` replaced by `_`), and `py_canary=true|false`, true exactly when a canary path listed in the Canary section changed; its existing outputs are unchanged.
 - **R7.** `scripts/mutation-pr-diff.sh` accepts a dir containing `Cargo.toml` or `cosmic-ray.toml`, exits 2 when it contains neither, and passes `-c diff.suppressBlankEmpty=false` to git.
 - **R8.** `scripts/mutation-pr-plan-python.sh` writes one plan line per dir and the unit matrix with `n = min(10, max(1, ceil(K / 150)))` shards per dir with `K` > 0, and no unit for a dir with `K` = 0 or a red plan line.
@@ -264,10 +269,10 @@ vendoring.
 - **R15.** `.github/workflows/scripts.yml` adds `*/mutants-equivalent.toml` to its `paths` and adds `cosmic-ray==8.7.0` and `hypothesis==6.168.5` to its install step, at the versions every other install site pins.
 - **R16.** `docs/adr/0044-*.md` records the strict changed-line rule, deletion-based pruning, the equivalents file, sharding with the `mutation-pr` aggregator, and the vendoring, and `docs/adr/README.md` lists it.
 - **R17.** Root `CLAUDE.md` states the Python PR gate with its local repro, the equivalents-file rule, the vendored-copy re-sync rule and the `mutation-rs` job name, and stays at or under 30,000 bytes.
-- **R18.** `docs/superpowers/README.md` gains this slice's plan row and Backlog rows "Python survivor kills, slices 9..N", "Python sweep holds 0 survivors" and "PR mutation gates miss test-only weakening (Rust and Python)", no longer contains the row "pi/e render helpers: three equivalent cosmic-ray survivors", and its "Mutation score threshold" row names Python only.
+- **R18.** `docs/superpowers/README.md` gains this slice's plan row and Backlog rows "Python survivor kills, slices 9..N", "Python sweep holds 0 survivors" and "PR mutation gates miss test-only weakening (Rust and Python)", "Python sweep survivor report lacks col and diff" (for slice 9's entry authoring), no longer contains the row "pi/e render helpers: three equivalent cosmic-ray survivors", and its "Mutation score threshold" row names Python only.
 - **V1.** Positive control before the slice PR is marked ready: a throwaway draft PR on the slice branch adds an untested branch to `sq/sq.py`; `mutation-pr` is red naming the survivor with its full key; the PR is closed and its branch deleted.
 - **V2.** This slice's PR changes canary paths, so `mutation-py-canary` runs green with at least 1 killed, shown in the step summary.
-- **V3.** On this slice's PR: each pi and e equivalent resolves with its recorded `of` on a fresh init and was a survivor in the last full run; whether `occurrence` shifts after an unrelated edit is confirmed or refuted; whether the `+1` `NumberReplacer` variant has the lower `occurrence` is confirmed or refuted from `work_results.diff`; results go to the ai-config session.
+- **V3.** On this slice's PR: each pi and e equivalent resolves to exactly one spec on a fresh init and was a survivor in the last full run; whether `occurrence` shifts after an unrelated edit is confirmed or refuted; whether the `+1` `NumberReplacer` variant has the lower `occurrence` is confirmed or refuted from `work_results.diff`; results go to the ai-config session.
 - **V4.** In a change coordinated with the ai-config session, `math-testing-policy.md` § Mutation testing and `math-ci.md` § Workflow table describe the Python PR gate and the `mutation-rs` rename.
 - **V5.** At vendoring time, `tests/test_vendored_prune.py` runs on `claude` against `~/.claude/scripts/cosmic_ray_prune.py` and passes, not skipped.
 - **V6.** Replay c7c8f6f (math#201) on `claude`: its pi and e diffs plan to `n` = 5 shards each (613 kept), and one shard of each finishes inside 30 minutes, timed.
@@ -286,19 +291,19 @@ Reviewed at commit: `041ff3d` (Step 7 self-review commit, before Step 8 dispatch
 
 Finding: Worth building; premise verified (`mutation-pr.yml:111-120` runs only `mutants-baseline`, an unmutated run). Load-bearing flaw: all dirs ran serially in one 60-minute job; c7c8f6f (math#201) keeps 613 mutants in each of pi and e, about 105 minutes, and every pi.py commit since 2026-08-01 also touched e.py; a cap kill prints no verdict. Also: test-only weakening is never gated; `prune equivalents` in the sweep changes no verdict until the final slice.
 Assumption: kept mutants × per-mutant cost fit the job budget for real PRs; settled by timing a c7c8f6f replay.
-Disposition: Proposed, awaiting operator: Addressed — matrix over shards with `n = min(10, max(1, ceil(K/150)))` and a `mutation-pr` aggregator (R8, R10); V6 times the c7c8f6f replay; test-only gap named and Backlogged (R18); sweep equivalents' role stated in Components 3.
+Disposition: Addressed (operator, 2026-11-07) — matrix over shards with `n = min(10, max(1, ceil(K/150)))` and a `mutation-pr` aggregator (R8, R10); V6 times the c7c8f6f replay; test-only gap named and Backlogged (R18); sweep equivalents' role stated in Components 3.
 
 ### Ergonomics
 
 Finding: A red line lacked the fields an equivalents entry needs; 3 of the last 6 pi.py PRs would have gone red on survivors already on the edited lines (pi survivors on 87 of 609 lines, e on 91 of 601). Runtime has no ceiling plan. The text-keyed equivalents entry breaks on reformatting.
 Assumption: PRs rarely land on survivor-bearing lines; measured roughly half do for pi.py.
-Disposition: Proposed, awaiting operator: Addressed — operator chose the strict rule (A, 2026-11-07): edit a line, own its mutants; red lines now print the full key and the repro (R5, R9); runtime per Goal-Fit. Reformat fragility accepted: entries fail loudly on that PR's own gate.
+Disposition: Addressed (operator, 2026-11-07) — operator chose the strict rule (A, 2026-11-07): edit a line, own its mutants; red lines now print the full key and the repro (R5, R9); runtime per Goal-Fit. Reformat fragility accepted: entries fail loudly on that PR's own gate.
 
 ### Risk
 
 Finding: (1) No order between `kept 0` green and `--min-killed`, so the canary could pass a filter that keeps nothing. (2) The ai-config `L = 0` red was replaced by a weaker "dir diff empty" check. (3) Canary-only PRs never install cosmic-ray. (4) An equivalents-only PR gets no CI check, and a stale entry turns 10 sweep cells red. (5) A local `mutants-diff` overwrites the full run's session and report. Sweep ordering (equivalents before shard) verified sound; pi's three equivalents each match exactly one spec.
 Assumption: changed-line mutants fit one 60-minute job; same as Goal-Fit.
-Disposition: Proposed, awaiting operator: Addressed — ordered verdict table with `kept 0` counting as killed 0 (row 3); `lines 0` red per the ai-config contract (row 2); per-job install conditions (R11); `scripts.yml` path and install (R15); distinct diff output names (R3).
+Disposition: Addressed (operator, 2026-11-07) — ordered verdict table with `kept 0` counting as killed 0 (row 3); `lines 0` red per the ai-config contract (row 2); per-job install conditions (R11); `scripts.yml` path and install (R15); distinct diff output names (R3).
 
 ### Adversarial Spec Review (comparison/judge designs only)
 
