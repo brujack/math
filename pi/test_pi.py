@@ -1225,6 +1225,11 @@ class TestSavePiEstimateAndProgress(unittest.TestCase):
         s = "3." + "1415926535" * 3
 
         class _FakeFuture:
+            polls = iter([False, True])
+
+            def done(self):
+                return next(_FakeFuture.polls)
+
             def result(self):
                 return s
 
@@ -1240,9 +1245,6 @@ class TestSavePiEstimateAndProgress(unittest.TestCase):
 
             def submit(self, fn, *args, **kwargs):
                 return _FakeFuture()
-
-        _FakeFuture.polls = iter([False, True])
-        _FakeFuture.done = lambda self: next(_FakeFuture.polls)
 
         wall = iter(range(1000, 0, -1))
         fake_time = unittest.mock.Mock()

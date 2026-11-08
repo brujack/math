@@ -1546,6 +1546,21 @@ class PrAggregatorTests(unittest.TestCase):
             )
             return proc.returncode
 
+    def test_verdict_runs_after_a_failed_result_check(self):
+        # A unit with a survivor makes its make step fail, so mutation-py's
+        # result is failure and the check step exits 1. The verdict must still
+        # run then, or the survivor keys and the MUTANT_SHARD repro it prints
+        # never reach the author. The job stays red through the check step.
+        plan = named_step("mutation-pr", "Download plan")
+        statuses = named_step("mutation-pr", "Download unit statuses")
+        verdict = named_step("mutation-pr", "Python verdict")
+        self.assertEqual(plan["if"], "${{ !cancelled() }}")
+        self.assertEqual(verdict["if"], "${{ !cancelled() }}")
+        self.assertEqual(
+            statuses["if"],
+            "${{ !cancelled() && needs.mutation-py-plan.outputs.units != '[]' }}",
+        )
+
     def test_check_step_env_wiring(self):
         env = self.check["env"]
         self.assertEqual(env["RS_RESULT"], "${{ needs.mutation-rs.result }}")
@@ -1621,7 +1636,9 @@ class PrAggregatorTests(unittest.TestCase):
         self.assertEqual(len(status), 1)
         self.assertIs(status[0]["with"]["merge-multiple"], True)
         self.assertEqual(status[0]["with"]["path"], "status")
-        self.assertEqual(status[0]["if"], f"{PLAN_OUT}.units != '[]'")
+        self.assertEqual(
+            status[0]["if"], f"${{{{ !cancelled() && {PLAN_OUT}.units != '[]' }}}}"
+        )
 
     def test_verdict_step(self):
         step = named_step("mutation-pr", "Python verdict")
@@ -1632,7 +1649,7 @@ class PrAggregatorTests(unittest.TestCase):
         self.assertIn('--expected-dirs "${PY_SRC_DIRS}"', step["run"])
         self.assertNotIn("--min-killed", step["run"])
         self.assertIn("plan/plan.txt", step["run"])
-        self.assertNotIn("if", step)
+        self.assertEqual(step["if"], "${{ !cancelled() }}")
 
     def test_checkout_provides_scripts(self):
         self.assertIn("actions/checkout@", job_steps("mutation-pr")[0]["uses"])

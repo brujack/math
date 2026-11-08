@@ -437,8 +437,8 @@ were interface and harness defects, not design, so the next instrument is Phase 
 
 ### Verifications
 
-- V1: no evidence recorded
-- V2: no evidence recorded
+- V1: Throwaway draft math#220 (slice + untested `if max_digits == 123457: return 0` in sq.py): mutation-pr red; the sq leg named 6 survivors with full keys (e.g. sq.py:19 col 18 core/ReplaceComparisonOperator_Eq_Gt function "generate_squares"). It exposed the aggregator skipping the verdict after a red result check, fixed in ce6a3af; re-run pending after push.
+- V2: math#219 run at 601155d: mutation-py-canary passed (13 killed on sq.py `limit` line, per plan).
 - V3: no evidence recorded
 - V4: no evidence recorded
 - V5: tests/test_vendored_prune.py ran on claude at f3427c6 (pin 0694f163fbd4): 2 tests OK, not skipped; a one-line body edit turned it red.
