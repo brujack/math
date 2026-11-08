@@ -437,10 +437,10 @@ were interface and harness defects, not design, so the next instrument is Phase 
 
 ### Verifications
 
-- V1: Throwaway draft math#220 (slice + untested `if max_digits == 123457: return 0` in sq.py): mutation-pr red; the sq leg named 6 survivors with full keys (e.g. sq.py:19 col 18 core/ReplaceComparisonOperator_Eq_Gt function "generate_squares"). It exposed the aggregator skipping the verdict after a red result check, fixed in ce6a3af; re-run pending after push.
+- V1: Throwaway draft math#220: mutation-pr red; after ce6a3af the aggregator verdict named all 6 sq.py survivors with full keys, mutant diffs and the MUTANT_SHARD=0/1 repro. PR closed, branch deleted.
 - V2: math#219 run at 601155d: mutation-py-canary passed (13 killed on sq.py `limit` line, per plan).
-- V3: no evidence recorded
-- V4: no evidence recorded
+- V3: Sent to ai-config: each pi/e equivalent resolves to one spec on a fresh init (excluded 3 of 1828 / 3 of 1621) and was a survivor in runs 42157890077 / 42157892557; occurrence shifts after an unrelated edit (confirmed, sq.py:18 pair 0/1 -> 2/3); the +1 NumberReplacer variant has the lower occurrence (confirmed, occ 0 = 11**, occ 1 = 9**).
+- V4: ai-config master a83fadbb: math-ci.md Workflow table and math-testing-policy.md Mutation testing describe the Python PR gate and the mutation-rs rename.
 - V5: tests/test_vendored_prune.py ran on claude at f3427c6 (pin 0694f163fbd4): 2 tests OK, not skipped; a one-line body edit turned it red.
-- V6: no evidence recorded
+- V6: Replay of c7c8f6f on claude: pi and e each plan 613 kept in 5 shards; shard 0/5 took 465 s (pi) and 567 s (e), inside the 30-minute timeout.
 - V7: Before Task 1: equivalents --help and diff --help at 9b588ce3f4fb showed --full-run, --diff, --toml-path and the diff <session> <diff-file> <module> form; a bad mode combination exited 2. Re-vendored at 0694f163fbd4 (ISC004 fix, AST identical).
