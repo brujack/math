@@ -61,6 +61,7 @@ Master status index for all specs and implementation plans in this directory.
 | 2026-11-05 | [worldclass-slice5-rust-pr-mutation-ratchet](plans/2026-11-05-worldclass-slice5-rust-pr-mutation-ratchet.md) | [spec](specs/2026-11-05-worldclass-slice5-rust-pr-mutation-ratchet-design.md) | Done |
 | 2026-11-05 | [worldclass-slice6-rust-sweep-ratchet](plans/2026-11-05-worldclass-slice6-rust-sweep-ratchet.md) | [spec](specs/2026-11-05-worldclass-slice6-rust-sweep-ratchet-design.md) | Done (math#208) |
 | 2026-11-06 | [worldclass-slice7-mutant-core-dumps](plans/2026-11-06-worldclass-slice7-mutant-core-dumps.md) | [spec](specs/2026-11-06-worldclass-slice7-mutant-core-dumps-design.md) | Done (math#218; V1 run 42328612206) |
+| 2026-11-07 | worldclass-slice8-python-pr-mutation-gate (plan pending) | [spec](specs/2026-11-07-worldclass-slice8-python-pr-mutation-gate-design.md) | Spec draft; waits on ai-config cosmic_ray_prune.py |
 | 2026-10-31 | [shared-push-content-gate](plans/2026-10-31-shared-push-content-gate.md) | ai-config `2026-10-30-shared-push-content-gate-design.md` (cross-repo) | Done |
 
 ---
