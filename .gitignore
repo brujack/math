@@ -34,6 +34,9 @@ cosmic-ray-session.sqlite
 cosmic-ray-session.sqlite-journal
 .mutants-tmp/
 mutants-report.txt
+cosmic-ray-diff-session.sqlite
+cosmic-ray-diff-session.sqlite-journal
+mutants-diff-report.txt
 # cargo-mutants writes these into each Rust crate on every local `make mutants`
 mutants.out/
 mutants.out.old/
