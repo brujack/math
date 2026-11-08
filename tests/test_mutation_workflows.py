@@ -1131,29 +1131,15 @@ def named_step(job, name):
     return found[0]
 
 
-def former_pr_job():
-    """The old single `mutation-pr` job as origin/master has it, or None.
+FORMER_JOB = REPO_ROOT / "tests" / "fixtures" / "mutation-pr-former-job.yml"
 
-    None when git, the ref or the file is unavailable (CI checks out one commit
-    and has no origin/master) or when master already carries the restructured
-    file, whose `mutation-pr` is the aggregator.
+
+def former_pr_job():
+    """The pre-slice-8 single `mutation-pr` job, as a frozen fixture.
+
+    A deliberate later change to `mutation-rs` updates the fixture in the same PR.
     """
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    proc = subprocess.run(
-        ["git", "show", "origin/master:.github/workflows/mutation-pr.yml"],
-        cwd=REPO_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        stdin=subprocess.DEVNULL,
-        check=False,
-    )
-    if proc.returncode != 0:
-        return None
-    jobs = yaml.safe_load(proc.stdout)["jobs"]
-    if "mutation-rs" in jobs:
-        return None
-    return jobs["mutation-pr"]
+    return yaml.safe_load(FORMER_JOB.read_text())
 
 
 class PrJobGraphTests(unittest.TestCase):
@@ -1211,15 +1197,8 @@ class PrJobGraphTests(unittest.TestCase):
         for job, body in pr_jobs().items():
             self.assertNotIn("permissions", body, job)
 
-    def test_mutation_rs_steps_equal_former_job(self):
-        former = former_pr_job()
-        if former is None:
-            self.skipTest("origin/master unavailable or already restructured")
-        self.assertEqual(pr_jobs()["mutation-rs"]["steps"], former["steps"])
-        self.assertEqual(pr_jobs()["mutation-rs"]["runs-on"], former["runs-on"])
-        self.assertEqual(
-            pr_jobs()["mutation-rs"]["timeout-minutes"], former["timeout-minutes"]
-        )
+    def test_mutation_rs_equals_former_job(self):
+        self.assertEqual(pr_jobs()["mutation-rs"], former_pr_job())
 
     def test_mutation_rs_never_executes_cosmic_ray(self):
         # Intent of the old guard: the Rust job runs only the capped Python
@@ -1308,15 +1287,31 @@ class PrPlanJobTests(unittest.TestCase):
         self.assertEqual(found[0]["with"]["name"], "mutants-pr-plan")
         self.assertIn("plan.txt", found[0]["with"]["path"])
         self.assertEqual(found[0]["if"], "always()")
+        # Overwrite so a re-run attempt replaces the earlier plan artifact.
+        self.assertIs(found[0]["with"]["overwrite"], True)
 
 
 class PrPyJobTests(unittest.TestCase):
     def test_matrix_from_plan_units(self):
+        # strategy.matrix must be a mapping: a bare fromJSON array is rejected at
+        # evaluation, so the units array goes under `include`.
         strategy = pr_jobs()["mutation-py"]["strategy"]
         self.assertEqual(
-            strategy["matrix"], "${{ fromJSON(needs.mutation-py-plan.outputs.units) }}"
+            strategy["matrix"],
+            {"include": "${{ fromJSON(needs.mutation-py-plan.outputs.units) }}"},
         )
         self.assertIs(strategy["fail-fast"], False)
+
+    def test_units_shape_supplies_every_matrix_key_the_job_uses(self):
+        # The plan script writes units.json as an array of {dir, k, n} objects.
+        units = json.loads('[{"dir":"sq","k":0,"n":1}]')
+        self.assertIsInstance(units, list)
+        include = pr_jobs()["mutation-py"]["strategy"]["matrix"]["include"]
+        self.assertIn("outputs.units", include)
+        text = yaml.safe_dump(pr_jobs()["mutation-py"]["steps"])
+        used = set(re.findall(r"matrix\.(\w+)", text))
+        self.assertEqual(used, {"dir", "k", "n"})
+        self.assertTrue(used <= set(units[0]))
 
     def test_checkout_full_depth_and_python_314(self):
         steps = job_steps("mutation-py")
@@ -1376,13 +1371,95 @@ class PrCanaryJobTests(unittest.TestCase):
             self.assertNotIn("if", found[0])
         self.assertEqual(steps[0]["with"]["fetch-depth"], 0)
 
+    def test_timeout(self):
+        self.assertEqual(pr_jobs()["mutation-py-canary"]["timeout-minutes"], 30)
+
+    def run_canary_step(self, make_rc, verdict_rc):
+        """Run the real canary run: text against stub make, plan, diff and verdict."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            make = bin_dir / "make"
+            make.write_text('#!/bin/sh\nexit "${MAKE_RC}"\n')
+            make.chmod(0o755)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            stubs = {
+                "mutation-pr-plan-python.sh": "exit 0\n",
+                "mutation-pr-diff.sh": "exit 0\n",
+                "mutation-pr-verdict-python.sh": 'exit "${VERDICT_RC}"\n',
+            }
+            for name, body in stubs.items():
+                stub = scripts / name
+                stub.write_text("#!/bin/sh\n" + body)
+                stub.chmod(0o755)
+            (root / "sq").mkdir()
+            (root / "sq" / "sq.py").write_text(
+                "def f(max_digits):\n    limit = 10**max_digits\n"
+            )
+            summary = root / "summary"
+            summary.touch()
+            temp = root / "temp"
+            temp.mkdir()
+            env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+            env.update(
+                PATH=f"{bin_dir}:{os.environ['PATH']}",
+                RUNNER_TEMP=str(temp),
+                GITHUB_STEP_SUMMARY=str(summary),
+                MAKE_RC=str(make_rc),
+                VERDICT_RC=str(verdict_rc),
+            )
+            ident = ["-c", "user.name=t", "-c", "user.email=t@localhost"]
+            for cmd in (
+                ["init", "-q"],
+                ["add", "."],
+                [*ident, "commit", "-q", "-m", "base"],
+            ):
+                subprocess.run(
+                    ["git", *cmd],
+                    cwd=root,
+                    env=env,
+                    check=True,
+                    capture_output=True,
+                    stdin=subprocess.DEVNULL,
+                )
+            proc = subprocess.run(
+                [
+                    "bash",
+                    "--noprofile",
+                    "--norc",
+                    "-eo",
+                    "pipefail",
+                    "-c",
+                    self.step["run"],
+                ],
+                env=env,
+                cwd=root,
+                capture_output=True,
+                text=True,
+                stdin=subprocess.DEVNULL,
+                check=False,
+            )
+            return proc
+
+    def test_exit_is_green_only_when_make_and_verdict_are_green(self):
+        for make_rc in (0, 1):
+            for verdict_rc in (0, 1):
+                proc = self.run_canary_step(make_rc, verdict_rc)
+                expected = 0 if (make_rc, verdict_rc) == (0, 0) else 1
+                self.assertEqual(
+                    proc.returncode, expected, (make_rc, verdict_rc, proc.stderr)
+                )
+
     def test_mechanics(self):
         run = self.step["run"]
         self.assertIn("sq/sq.py", run)
         self.assertIn("limit = 10", run)
         self.assertIn("git -c user.name=ci -c user.email=ci@localhost commit", run)
         self.assertNotIn("git config", run)
-        self.assertIn("HEAD~1", run)
+        self.assertIn("mutation-pr-plan-python.sh HEAD~1 sq", run)
+        self.assertIn("mutation-pr-diff.sh HEAD~1 sq", run)
         self.assertIn("MUTANT_SHARD=0/1", run)
         self.assertIn("--min-killed 1", run)
         self.assertIn("--expected-dirs sq", run)

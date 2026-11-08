@@ -84,7 +84,8 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.mutation-py-plan.outputs.units) }}
+      matrix:
+        include: ${{ fromJSON(needs.mutation-py-plan.outputs.units) }}
 
     steps:
       - name: Checkout
