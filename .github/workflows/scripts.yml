@@ -32,6 +32,9 @@ on:
       - "pyrightconfig.json"
       - "requirements-dev.txt"
       - ".claude/scripts/**"
+      # The Python mutation-pr e2e test pins sq.py's mutant count and test_sq.py's kill set.
+      - "sq/sq.py"
+      - "sq/test_sq.py"
       # Subjects of root unittest suites: test_automerge_bot_hold.py runs the
       # hold step extracted from auto-merge.yml, test_renovate_automerge_policy.py
       # asserts renovate.json, test_gmpy2_stub.py guards typings/gmpy2 (pyright accepts

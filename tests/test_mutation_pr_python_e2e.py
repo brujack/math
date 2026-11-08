@@ -6,7 +6,8 @@ then runs the gate's own scripts unmodified: plan, `make mutants-diff` for shard
 mutants and all are killed. Red case: an untested branch whose mutants survive.
 
 Real cosmic-ray runs take minutes, so this runs only when CI=true. Under CI=true
-a missing cosmic-ray is a failure, never a skip.
+a missing cosmic-ray is a failure, never a skip. The test archives committed HEAD,
+so uncommitted edits to scripts/ or sq/ are not exercised.
 """
 
 import os
@@ -16,6 +17,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TIMEOUT_S = 900
@@ -33,10 +35,17 @@ SURVIVOR_RE = re.compile(
 
 
 def clean_env(home: Path) -> dict[str, str]:
-    """Environment for every child: no inherited git state, HOME inside the fixture."""
-    env = {k: v for k, v in os.environ.items() if k not in GIT_ENV_UNSET}
+    """Environment for every child: no inherited git or GitHub state, HOME and XDG inside the fixture."""
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in GIT_ENV_UNSET and not k.startswith("GITHUB_")
+    }
     env["HOME"] = str(home)
     env["XDG_CONFIG_HOME"] = str(home / ".config")
+    env["XDG_CACHE_HOME"] = str(home / ".cache")
+    env["XDG_DATA_HOME"] = str(home / ".local" / "share")
+    env["XDG_STATE_HOME"] = str(home / ".local" / "state")
     env["GIT_CONFIG_GLOBAL"] = "/dev/null"
     env["GIT_CONFIG_NOSYSTEM"] = "1"
     return env
@@ -55,6 +64,23 @@ def run(
         timeout=TIMEOUT_S,
         check=False,
     )
+
+
+class CleanEnv(unittest.TestCase):
+    def test_drops_github_and_git_state_and_redirects_xdg(self) -> None:
+        home = Path("/fixture/home")
+        polluted = {
+            "GITHUB_STEP_SUMMARY": "/real/summary",
+            "GITHUB_OUTPUT": "/real/output",
+            "GIT_DIR": "/real/.git",
+            "XDG_CACHE_HOME": "/real/cache",
+        }
+        with mock.patch.dict(os.environ, polluted):
+            env = clean_env(home)
+        self.assertFalse([k for k in env if k.startswith("GITHUB_")])
+        self.assertNotIn("GIT_DIR", env)
+        for key in ("CONFIG", "CACHE", "DATA", "STATE"):
+            self.assertTrue(env[f"XDG_{key}_HOME"].startswith(str(home)), key)
 
 
 @unittest.skipUnless(IN_CI, SKIP_REASON)
@@ -136,7 +162,7 @@ class MutationPrPythonE2E(unittest.TestCase):
     def _exec(self, diff: Path) -> Path:
         status_dir = self.root / "status"
         status_dir.mkdir()
-        run(
+        made = run(
             [
                 "make",
                 "-C",
@@ -149,6 +175,7 @@ class MutationPrPythonE2E(unittest.TestCase):
             self.repo,
             self.env,
         )
+        self.make_log = (made.stdout + made.stderr)[-3000:]
         return status_dir
 
     def _verdict(
@@ -181,20 +208,43 @@ class MutationPrPythonE2E(unittest.TestCase):
         self.assertEqual(plan.read_text(), "sq\tgreen\t13 mutants in 1 shards\n")
 
         verdict = self._verdict(plan, self._exec(diff))
-        self.assertEqual(verdict.returncode, 0, verdict.stdout + verdict.stderr)
+        self.assertEqual(
+            verdict.returncode,
+            0,
+            verdict.stdout
+            + verdict.stderr
+            + "\n--- make mutants-diff tail ---\n"
+            + self.make_log,
+        )
         self.assertIn("sq: green: 1 shards, 0 surviving, 13 killed", verdict.stdout)
 
     def test_red_untested_branch_reports_full_key_survivor(self) -> None:
+        summary = self.root / "real-summary.md"
+        summary.write_text("")
+        patcher = mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.env = clean_env(self.root / "home")
         self._edit_sq("red")
         diff = self._diff()
         plan = self._plan()
         self.assertRegex(plan.read_text(), r"^sq\tgreen\t[0-9]+ mutants in 1 shards\n$")
 
         verdict = self._verdict(plan, self._exec(diff))
-        self.assertEqual(verdict.returncode, 1, verdict.stdout + verdict.stderr)
+        self.assertEqual(
+            verdict.returncode,
+            1,
+            verdict.stdout
+            + verdict.stderr
+            + "\n--- make mutants-diff tail ---\n"
+            + self.make_log,
+        )
         self.assertIn("sq: red:", verdict.stdout)
         self.assertRegex(verdict.stdout, SURVIVOR_RE)
         self.assertIn("MUTANT_SHARD=0/1", verdict.stdout)
+        self.assertEqual(
+            summary.read_text(), "", "child wrote to the real step summary"
+        )
 
 
 if __name__ == "__main__":
