@@ -18,6 +18,8 @@ readonly EX_RED=1
 readonly EX_USAGE=2
 readonly KEPT_ZERO_TEXT='0 mutants on changed lines'
 readonly UNITS_RE='^([0-9]+) mutants in ([0-9]+) shards$'
+# row 3: "lines 0" with optional ": <prune detail>"
+readonly LINES0_RE='^lines 0(: (.*))?$'
 readonly SPACE_RE='^[[:space:]]*$'
 # green status line: "green: <label> — S surviving, T timed out, J jobs"
 readonly GREEN_RE='^green: .* ([0-9]+) surviving, [0-9]+ timed out, ([0-9]+) jobs$'
@@ -112,8 +114,8 @@ judge_units() {
 judge_dir() {
     local dir="$1" verdict="$2" text="$3" min_killed="$4" status_dir="$5"
     if [[ "${verdict}" == red ]]; then
-        if [[ "${text}" == "lines 0" ]]; then
-            red_dir "${dir}" "no changed module lines (lines 0)"
+        if [[ "${text}" =~ ${LINES0_RE} ]]; then
+            red_dir "${dir}" "no changed module lines (lines 0)" "${BASH_REMATCH[2]:+  detail: ${BASH_REMATCH[2]}}"
         else
             red_dir "${dir}" "plan step failed: ${text}"
         fi

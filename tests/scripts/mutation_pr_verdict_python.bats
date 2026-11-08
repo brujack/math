@@ -111,6 +111,31 @@ verdict() {
     [[ "${output}" == *"pi: red: no changed module lines (lines 0)"* ]]
 }
 
+@test "row 3: lines 0 with prune detail is row 3 and shows the detail" {
+    plan_line sq red "lines 0: diff changes nothing in sq.py; its +++ b/ paths: x.py"
+    run -1 verdict --expected-dirs "sq"
+    [[ "${output}" == *"sq: red: no changed module lines (lines 0)"* ]]
+    [[ "${output}" == *"diff changes nothing in sq.py; its +++ b/ paths: x.py"* ]]
+}
+
+@test "row 3: lines 05 is not row 3" {
+    plan_line sq red "lines 05"
+    run -1 verdict --expected-dirs "sq"
+    [[ "${output}" == *"sq: red: plan step failed: lines 05"* ]]
+}
+
+@test "row 3: lines 0x is not row 3" {
+    plan_line sq red "lines 0x"
+    run -1 verdict --expected-dirs "sq"
+    [[ "${output}" == *"sq: red: plan step failed: lines 0x"* ]]
+}
+
+@test "row 3: xlines 0 is not row 3" {
+    plan_line sq red "xlines 0"
+    run -1 verdict --expected-dirs "sq"
+    [[ "${output}" == *"sq: red: plan step failed: xlines 0"* ]]
+}
+
 # Row 4
 @test "row 4: kept 0 with --min-killed 1 is red" {
     plan_line sq green "0 mutants on changed lines"
