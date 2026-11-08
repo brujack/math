@@ -81,7 +81,6 @@ Root `make test-rust` runs `make test` in all 11 crates concurrently via `script
 ### Rust lint/test wrapper (`scripts/rust-check.sh`)
 
 All Rust crate `make lint` and `make test` go through `scripts/rust-check.sh`; `CARGO_HOME` defaults to `<repo>/.cache/cargo-home` when unset and `RUST_CHECK_OFFLINE=1` adds `--offline`. → ai-config/docs/knowledge/math-quick-reference.md § Rust lint/test wrapper
-Treat `.cache/` as transient: `rm -rf .cache` before final status checks and commits. → ai-config/docs/knowledge/math-quick-reference.md § Rust lint/test wrapper
 
 ## Language Standards
 
@@ -131,13 +130,16 @@ When adding a new Python sub-project, add `pyrightconfig.json` (copy from any `s
 ### Mutation testing (Python)
 
 Python `make mutants` runs a capped `cosmic-ray baseline` (as Rust), then the session, then `scripts/cosmic_ray_cell_status.py`; cosmic-ray stores outcomes uppercase (`SURVIVED`).
-`mutation-testing-python.yml` runs 10 shards per project (`scripts/mutation-python-cell.sh`), reports survivors on the `mutation-report-python` issue (artifact `mutants-survivors-python`); `mutation-pr.yml` runs `mutants-baseline` for Python.
+`mutation-testing-python.yml` runs 10 shards per project (`scripts/mutation-python-cell.sh`), reports survivors on the `mutation-report-python` issue (artifact `mutants-survivors-python`).
+Per-PR Python gate (ADR-0044; edit a line, own its mutants): `mutation-py` requires 0 survivors on changed lines, no grandfathering; repro `d=$(mktemp) && scripts/mutation-pr-diff.sh origin/master <dir> "$d" && make -C <dir> mutants-diff DIFF="$d" MUTANT_SHARD=<k>/<n>`.
+`<dir>/mutants-equivalent.toml` declares true equivalents only (`tests/test_mutants_equivalent.py`); an entry whose mutant sits on a changed line must be edited in the same PR (re-confirm).
+`scripts/cosmic_ray_prune.py` is vendored from ai-config (line 2 names the sha; drift test `tests/test_vendored_prune.py`): re-sync by copying and changing only line 2, one PR per change.
 
 ### Mutation testing (Rust)
 
 Rust mutation testing uses `cargo-mutants` (`cargo install cargo-mutants --locked`); run `make mutants` in a crate directory; a kill rate above 80% is good. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
 Mutation CI is `mutation-testing.yml` (monthly, `workflow_dispatch`): `make -C <crate> mutants`, one 60-minute job per crate from `git ls-files '*/*-rs/Cargo.toml'`.
-`mutation-pr.yml` runs `scripts/mutation-pr-run.sh "origin/${GITHUB_BASE_REF}" <rs_dirs>` per crate whose `src/**/*.rs` the PR changes (`scripts/mutation-pr-detect.sh`): missed limit 0 on changed-line mutants, timeouts green, plus an amicable-rs canary (`--min-caught 1`) on gate-file changes; repro `scripts/mutation-pr-diff.sh origin/master <crate> /tmp/d.diff && make -C <crate> mutants-diff DIFF=/tmp/d.diff`. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
+`mutation-pr.yml` job `mutation-rs` (aggregator `mutation-pr` stays the required check) runs `scripts/mutation-pr-run.sh "origin/${GITHUB_BASE_REF}" <rs_dirs>` per crate whose `src/**/*.rs` the PR changes (`scripts/mutation-pr-detect.sh`): missed limit 0 on changed-line mutants, timeouts green, plus an amicable-rs canary (`--min-caught 1`) on gate-file changes; repro `scripts/mutation-pr-diff.sh origin/master <crate> /tmp/d.diff && make -C <crate> mutants-diff DIFF=/tmp/d.diff`. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
 
 Never put a fixed `--timeout` back (#95): keep `--timeout-multiplier 5 --minimum-test-timeout 30` in each crate's `Makefile` `mutants` target, not the workflow (a fixed value capped the baseline and tested zero mutants); `tests/scripts/makefile.bats` pins both halves. → ai-config/docs/knowledge/math-testing-policy.md § Mutation timeout
 
@@ -149,10 +151,6 @@ A sweep leg is red when any mutant is missed, `caught < 1`, `outcomes.json` or `
 Add `mutants` to a new Rust crate's `Makefile` `.PHONY` list and target; every missed mutant on a changed line gets a killing test, glue included; `exclude_re` only for true equivalents. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
 
 Exclude equivalent mutants via the crate's `.cargo/mutants.toml` `exclude_re` regexes matched against `src/lib.rs:<line>:<col>: <description>`; only `#[mutants::skip]` on items works, not `// mutants::skip`; its patterns embed line numbers, so update them when code shifts; `tests/test_mutants_exclusions.py` checks drift (also pre-push). → ai-config/docs/knowledge/math-testing-policy.md § Equivalent mutations
-
-A mutation on a comparison that algebraic identity makes always true (e.g. `verify_perfect`) is a dead-code equivalent; exclude it in `.cargo/mutants.toml`. → ai-config/docs/knowledge/math-testing-policy.md § Algebraic-identity equivalents
-
-In prompt tests supplying N via `io::Cursor`, assert the concrete output artifact (e.g. `assert!(dir.path().join("goldbach_1e2.txt").exists());`) to kill guard `→ true` mutations. → ai-config/docs/knowledge/math-testing-policy.md § Prompt-guard assertions
 
 ## CI
 
