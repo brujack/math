@@ -1916,6 +1916,8 @@ esac
 SHEOF
     cat > "${BATS_TEST_TMPDIR}/bin/cr-report" <<'SHEOF'
 #!/usr/bin/env bash
+# STUB_CR_FAIL: the report is written (the shell creates it first), then cr-report dies.
+if [ -n "${STUB_CR_FAIL}" ] && [ "$*" != "${1}" ]; then printf 'partial\n'; exit 1; fi
 printf 'report\n'
 SHEOF
     chmod +x "${BATS_TEST_TMPDIR}/bin/cosmic-ray" "${BATS_TEST_TMPDIR}/bin/cr-report"
@@ -2220,4 +2222,18 @@ _pd_order() {
     run _pd_make -k -j2 -C "${PROJ}" mutants-diff DIFF="${BATS_TEST_TMPDIR}/missing.diff"
     [ "${status}" -ne 0 ]
     [ ! -s "${CALLS}" ]
+}
+
+@test "python mutants-diff keeps the partial report in the project when cr-report fails" {
+    _pd_setup
+    STUB_CR_FAIL=1 run _pd_make -C "${PROJ}" mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -eq 2 ]
+    [ "$(cat "${PROJ}/mutants-diff-report.txt")" = "partial" ]
+}
+
+@test "python mutants keeps the partial report in the project when cr-report fails" {
+    _pd_setup
+    STUB_CR_FAIL=1 run _pd_make -C "${PROJ}" mutants
+    [ "${status}" -eq 2 ]
+    [ "$(cat "${PROJ}/mutants-report.txt")" = "partial" ]
 }

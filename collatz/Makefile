@@ -52,7 +52,8 @@ mutants-baseline:
 
 # The directory make was started from: make -C changes CURDIR but not the PWD it inherited from the
 # invoking shell. Relative DIFF, STATUS_OUT and SURVIVORS_OUT of the mutants-diff targets are resolved
-# against it; with no usable PWD, against CURDIR.
+# against it; with no usable PWD, against CURDIR. PWD must be the shell-accurate invoking directory: a
+# parent that changes cwd without updating PWD resolves against the stale directory. CI passes absolute paths.
 INVOKE_DIR := $(if $(filter /%,$(PWD)),$(PWD),$(CURDIR))
 ABS_OF = $(if $(1),$(if $(filter /%,$(1)),$(1),$(INVOKE_DIR)/$(1)))
 DIFF_ABS = $(call ABS_OF,$(DIFF))
