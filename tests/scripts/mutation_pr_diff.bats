@@ -13,6 +13,9 @@ setup() {
     printf '[package]\nname = "b"\n' >"${FIXTURE}/b/b-rs/Cargo.toml"
     printf 'pub fn f() -> u32 { 1 }\n' >"${FIXTURE}/a/a-rs/src/lib.rs"
     printf 'pub fn g() -> u32 { 1 }\n' >"${FIXTURE}/b/b-rs/src/lib.rs"
+    mkdir -p "${FIXTURE}/py-proj"
+    : >"${FIXTURE}/py-proj/cosmic-ray.toml"
+    printf 'def f():\n    return 1\n\n\ndef g():\n    return 1\n' >"${FIXTURE}/py-proj/py_proj.py"
     _git init -q -b main
     _git add -A
     _git commit -q -m base
@@ -108,5 +111,35 @@ _run_script() {
     run grep -c $'\033' "${OUT}"
     [ "${output}" = "0" ]
     run grep -c JUNK "${OUT}"
+    [ "${output}" = "0" ]
+}
+
+@test "dir with cosmic-ray.toml gives dir-relative +++ path" {
+    printf 'def f():\n    return 2\n\n\ndef g():\n    return 1\n' >"${FIXTURE}/py-proj/py_proj.py"
+    _git commit -q -am change
+    _run_script main py-proj "${OUT}"
+    [ "${status}" -eq 0 ]
+    run grep -c '^+++ b/py_proj.py$' "${OUT}"
+    [ "${output}" = "1" ]
+    run grep -c 'py-proj' "${OUT}"
+    [ "${output}" = "0" ]
+}
+
+@test "dir with neither Cargo.toml nor cosmic-ray.toml exits 2 naming both" {
+    mkdir -p "${FIXTURE}/c"
+    _run_script main c "${OUT}"
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"cosmic-ray.toml"* ]]
+}
+
+@test "blank context line is a single space even with diff.suppressBlankEmpty=true exported" {
+    printf 'def f():\n    return 2\n\n\ndef g():\n    return 1\n' >"${FIXTURE}/py-proj/py_proj.py"
+    _git commit -q -am change
+    export GIT_CONFIG_PARAMETERS="'diff.suppressBlankEmpty=true'"
+    _run_script main py-proj "${OUT}"
+    [ "${status}" -eq 0 ]
+    run grep -c '^ $' "${OUT}"
+    [ "${output}" = "2" ]
+    run grep -c '^$' "${OUT}"
     [ "${output}" = "0" ]
 }
