@@ -1,6 +1,6 @@
 # Worldclass slice 8: per-PR Python mutation gate on changed lines
 
-- **Status:** Draft (round 2 dispositions recorded; scoped re-review pending)
+- **Status:** Draft (review closed after round 3; awaiting approval)
 - **Date:** 2026-11-07
 - **Depends on:** ai-config `docs/superpowers/specs/2026-11-07-cosmic-ray-prune-design.md` (canonical `cosmic_ray_prune.py`, owned by the ai-config session)
 
@@ -87,7 +87,8 @@ mutation-py-plan (one job)
 mutation-py (matrix over units; if: units != '[]')
   mutation-pr-diff.sh base dir d.diff; make -C dir mutants-diff DIFF=d.diff MUTANT_SHARD=k/n
      baseline -> init -> prune equivalents -> prune diff -> shard -> exec
-     -> cell_status --max-survivors 0 -> status artifact (overwrite: true)
+     -> cell_status --max-survivors 0 -> status/<dir>-<k> in artifact
+        mutants-pr-status-<dir>-<k> (overwrite: true)
 mutation-py-canary (if: py_canary == 'true'; diff base HEAD~1)
 mutation-rs (the existing job renamed: Python baselines, Rust loop, Rust canary; steps unchanged)
 mutation-pr (aggregator; keeps the required check's name)
@@ -110,8 +111,11 @@ green status file can never stand alone: the job result must also be `success`.
 
 ### Components
 
-1. **`scripts/cosmic_ray_prune.py`**, vendored from ai-config. `equivalents <session> <toml>`
-   prints `excluded E of T`; `diff <session> <diff-file> <module>` prints `kept K of T (lines L)`.
+1. **`scripts/cosmic_ray_prune.py`**, vendored from ai-config (spec approved at `96ffa257`).
+   `equivalents <session> <toml> --full-run` prints `excluded E of T`; `equivalents <session> <toml>
+   --diff <diff-file> --toml-path <path>` prints `excluded E of T (re-confirm: diff, R on changed
+   lines)`; any other mode combination exits 2. `diff <session> <diff-file> <module>` prints
+   `kept K of T (lines L)`.
    Both delete rows from a fresh session, never write `SKIPPED`, check the 8.7.0 schema exactly,
    and on invalid input exit 1 with the session byte-identical. `diff` exits 1 when `<module>`
    matches no spec's `module_path`.
@@ -120,7 +124,12 @@ green status file can never stand alone: the job result must also be `success`.
    text of the nearest non-blank line above the mutant's row), `row` only when that group spans more
    than one row (rejected otherwise), `variant` only when more than one spec matches (a
    `NumberReplacer` pair: 0 = +1, 1 = -1, within one row and col), and a non-empty `reason`
-   (operator ruling, 2026-11-07, superseding mandatory `row`). Inserting lines elsewhere in the
+   (operator ruling, 2026-11-07, superseding mandatory `row`). The layout is strict: only
+   `[[equivalent]]` headers at column 0, no other tables or top-level keys. **Re-confirm rule**
+   (operator, 2026-11-07): in `--diff` mode an entry whose mutant sits on a changed line (row-range
+   intersection) exits 1 unless the same diff changes one of that entry's own lines (its header or
+   key/value lines; blank and comment lines never count). Editing a line therefore means owning its
+   declared equivalents too: the author re-confirms the entry in the same PR. Inserting lines elsewhere in the
    file does not break an entry; editing or deleting the line or the line above it does, and the
    entry then exits 1 on that PR's own gate. A line moved to a new place gets a new `above` and so
    matches 0 instead of silently matching the moved mutant. Entries are authored by the route the
@@ -129,12 +138,14 @@ green status file can never stand alone: the job result must also be `success`.
    of the equivalents table, all one-row groups, so none carries `row`; the other seven hold none.
    The file is a per-project data parameter, not template output.
 3. **Python `Makefile` template** (rendered into 9 projects).
-   - `mutants` copies `mutants-equivalent.toml` into the work dir and runs `prune equivalents`
-     after `init` and before the shard step. Until the final "sweep holds 0" slice this changes no
+   - `mutants` copies `mutants-equivalent.toml` into the work dir and runs `prune equivalents
+     --full-run` after `init` and before the shard step. Until the final "sweep holds 0" slice this changes no
      sweep verdict; it removes declared equivalents from the #184 counts and makes a stale entry
      fail loudly.
    - `mutants-diff-plan` (needs `DIFF`; depends on `mutants-baseline`) runs `init`, `prune
-     equivalents` and `prune diff` and prints the prune lines, with no `exec`.
+     equivalents --diff "$DIFF" --toml-path mutants-equivalent.toml` (the same diff file `prune
+     diff` reads; the path is the `--relative=<dir>/` form the diff carries, matched as a string,
+     never opened) and `prune diff`, and prints the prune lines, with no `exec`.
    - `mutants-diff` (needs `DIFF`, optional `MUTANT_SHARD`; depends on `mutants-baseline`) runs the
      same, then the shard, `exec` and `cell_status --max-survivors 0`. It writes
      `cosmic-ray-diff-session.sqlite` and `mutants-diff-report.txt`, never the full run's
@@ -148,7 +159,8 @@ green status file can never stand alone: the job result must also be `success`.
    equivalents entry needs, followed by its mutant diff from `work_results.diff` (ai-config spec
    V4). Without the flag, stdout is byte-identical to today's and `--survivors` keeps its current
    line format, so the sweep's survivor report is unchanged.
-5. **`scripts/mutation-pr-plan-python.sh <base-sha> <dir>...`** builds each dir's diff, runs
+5. **`scripts/mutation-pr-plan-python.sh <base-sha> [<dir>...]`** accepts zero dirs, writing an
+   empty plan and units `[]`, so the plan job always emits `units`. It builds each dir's diff, runs
    `mutants-diff-plan`, and writes the units JSON plus one plan line per dir: red for a failed
    step (baseline, diff, prune) or `lines 0`; green `0 mutants on changed lines` for `kept 0` with
    `lines` > 0 (no units); else one unit per shard. Every failing step's stderr, including
@@ -161,11 +173,12 @@ green status file can never stand alone: the job result must also be `success`.
    `d=$(mktemp) && scripts/mutation-pr-diff.sh origin/master <dir> "$d" && make -C <dir> mutants-diff DIFF="$d" MUTANT_SHARD=<k>/<n>`.
    Exits 1 when any dir is red, 2 on bad usage.
 7. **`scripts/mutation-pr-detect.sh`** adds `py_src_dirs` and `py_canary`. A dir is selected only
-   when `git diff --numstat` shows more than 0 added lines in `<dir>/<module>.py` (`<module>` the
+   when `git diff --numstat --no-renames` shows more than 0 added lines in `<dir>/<module>.py` (`<module>` the
    dir name with `-` mapped to `_`). A pure deletion or a mode-only change creates no new-side
    line, so no mutant to gate, and is not selected; measured on `origin/master`, 5 of 67 commits
    touching a module since 2026-05-01 were deletion-only or mode-only (8aae590 math#189 in four
-   modules; 17e426c). Existing outputs are unchanged.
+   modules; 17e426c). `--no-renames` keeps a rename onto `<module>.py` from printing in the brace
+   form `sq/{sq.py => sq2.py}`, which would match no path. Existing outputs are unchanged.
 8. **`scripts/mutation-pr-diff.sh`** accepts a dir holding `cosmic-ray.toml` as well as
    `Cargo.toml`, and runs git with `-c diff.suppressBlankEmpty=false`.
 
@@ -193,15 +206,16 @@ Rows are evaluated in order; the first that applies decides.
 `scripts/crate_templates/python/Makefile`, `sq/sq.py` or `sq/mutants-equivalent.toml`. It installs
 the Python toolchain itself, appends a trailing space to the single line `    limit = 10**max_digits`
 of `sq/sq.py` (red unless exactly one line matches), commits that path alone in the runner
-checkout, and runs plan, one unsharded `mutants-diff` and the verdict with `--expected-dirs sq
---min-killed 1`, all against base `HEAD~1`, so the PR's own `sq.py` edits never enter the
+checkout, and runs plan, `mutants-diff` with `MUTANT_SHARD=0/1` (the single unit the plan emits
+for K = 13) and the verdict with `--expected-dirs sq --min-killed 1`, all against base `HEAD~1`, so the PR's own `sq.py` edits never enter the
 canary's diff. That line carries 13 killed mutants, and row 4 makes a filter that keeps nothing
 red; the baseline dependency makes a broken environment red rather than all-`KILLED`.
 
 ### Install conditions
 
 Every job that runs cosmic-ray installs the pinned Python toolchain on its own condition:
-`mutation-py-plan` when `py_src_dirs` is non-empty, `mutation-py` whenever it runs,
+`mutation-py-plan` when `py_src_dirs` is non-empty (the job and its plan step always run, so
+`units` is always set), `mutation-py` whenever it runs,
 `mutation-py-canary` when `py_canary` is true, `mutation-rs` on `has_py` as today. A canary-only
 PR (for example a vendored re-sync touching only `scripts/cosmic_ray_prune.py`) therefore has
 cosmic-ray where it runs.
@@ -211,8 +225,9 @@ cosmic-ray where it runs.
 A PR changing only a `mutants-equivalent.toml` selects no dir. `scripts.yml` gains the path
 `*/mutants-equivalent.toml` and installs cosmic-ray (R15), so `tests/test_mutants_equivalent.py`
 runs in CI and a stale or ambiguous entry fails the PR instead of turning 10 sweep cells red the
-next month; on failure the test prints prune's candidate listing. A module edit that breaks an
-entry fails that PR's own gate, because `mutants-diff` runs `prune equivalents` first, and the
+next month; on failure the test prints prune's candidate listing. A module edit that lands on a
+declared equivalent's line fails that PR's gate with `re-confirm` until the PR also edits that
+entry, and a module edit that breaks an entry's key fails it with the candidate listing, because `mutants-diff` runs `prune equivalents` first, and the
 plan line carries the listing. Whether a declared mutant is truly equivalent is a review judgement
 on its `reason`; no tool decides it.
 
@@ -253,19 +268,21 @@ Test-first; every case pins an exact derived value.
   `mutants-diff` writes only the diff session and report names; `mutants` calls `equivalents` after
   `init` and before the shard and fails when it fails; `mutants-clean` removes both pairs.
 - `tests/scripts/mutation_pr_detect.bats`: a module with added lines selects its dir; a
-  deletion-only module diff and a mode-only change select nothing; a test-file change selects
+  deletion-only module diff and a mode-only change select nothing; a rename onto `<module>.py` with
+  an added line selects the dir; a test-file change selects
   nothing in `py_src_dirs` while `py_dirs` keeps it; one `py_canary` case per canary path.
 - `tests/scripts/mutation_pr_diff.bats`: a `cosmic-ray.toml` dir is accepted; neither manifest
   exits 2; the git call carries `diff.suppressBlankEmpty=false`.
 - `tests/scripts/mutation_pr_plan_python.bats` (new): `n` for K = 0, 1, 150, 151, 1500, 1501;
   plan lines for `lines 0`, `kept 0`, a baseline failure, a prune failure whose mock stderr line
-  appears in the plan line's detail; units JSON `[]` when every dir is `kept 0`.
+  appears in the plan line's detail; units JSON `[]` when every dir is `kept 0` and when given zero
+  dirs; a re-confirm failure from prune is a red plan line carrying prune's message.
 - `tests/scripts/mutation_pr_verdict_python.bats` (new): every verdict row, including an expected
   dir missing from the plan, an unexpected plan dir, `kept 0` with `--min-killed 1` red, a planned
   unit with no status file red, and a red unit's repro carrying its `MUTANT_SHARD=k/n` and a
   `mktemp` diff path.
-- `tests/test_mutants_equivalent.py` (new): all 9 tomls exist; with cosmic-ray installed each
-  entry resolves on a fresh init and a failure prints prune's candidate listing (skip when absent
+- `tests/test_mutants_equivalent.py` (new): all 9 tomls exist and keep the strict layout; with
+  cosmic-ray installed each entry resolves under `--full-run` on a fresh init and a failure prints prune's candidate listing (skip when absent
   outside CI, fail under `CI=true`).
 - `tests/test_vendored_prune.py` (new): line 2 form; equality with the pinned sha's file except line
   2, skipped when the ai-config checkout or sha is absent; a moved `origin/master` warns and passes.
@@ -293,15 +310,15 @@ vendoring.
 ## Requirements
 
 - **R1.** `scripts/cosmic_ray_prune.py` equals ai-config `.claude/scripts/cosmic_ray_prune.py` at a named commit in every line except line 2, which matches `# Vendored from ai-config .claude/scripts/cosmic_ray_prune.py @ <12 hex>. Edit there, re-sync here.`
-- **R2.** The Python `mutants` recipe copies `mutants-equivalent.toml` into the work dir and runs `cosmic_ray_prune.py equivalents` after `cosmic-ray init` and before `cosmic_ray_shard.py`; a non-zero exit fails the recipe.
-- **R3.** The Python template has `mutants-diff-plan` and `mutants-diff` targets, listed in `.PHONY` and rendered into all 9 projects, each depending on `mutants-baseline`; each exits 2 with a message naming `DIFF` when `DIFF` is unset or not a readable file without invoking cosmic-ray, and resolves a relative `DIFF` against the invoking directory; `mutants-diff-plan` runs `init`, `prune equivalents` and `prune diff <session> <DIFF> <module>.py` and no `exec`; `mutants-diff` additionally applies `MUTANT_SHARD` when set, runs `exec` and `cosmic_ray_cell_status.py --max-survivors 0`, and writes only `cosmic-ray-diff-session.sqlite` and `mutants-diff-report.txt` in the project dir.
+- **R2.** The Python `mutants` recipe copies `mutants-equivalent.toml` into the work dir and runs `cosmic_ray_prune.py equivalents <session> mutants-equivalent.toml --full-run` after `cosmic-ray init` and before `cosmic_ray_shard.py`; a non-zero exit fails the recipe.
+- **R3.** The Python template has `mutants-diff-plan` and `mutants-diff` targets, listed in `.PHONY` and rendered into all 9 projects, each depending on `mutants-baseline`; each exits 2 with a message naming `DIFF` when `DIFF` is unset or not a readable file without invoking cosmic-ray, and resolves a relative `DIFF` against the invoking directory; `mutants-diff-plan` runs `init`, `prune equivalents <session> mutants-equivalent.toml --diff "$DIFF" --toml-path mutants-equivalent.toml` and `prune diff <session> <DIFF> <module>.py` and no `exec`; `mutants-diff` additionally applies `MUTANT_SHARD` when set, runs `exec` and `cosmic_ray_cell_status.py --max-survivors 0`, and writes only `cosmic-ray-diff-session.sqlite` and `mutants-diff-report.txt` in the project dir.
 - **R4.** Each of the 9 Python projects has `mutants-equivalent.toml`; pi and e each hold exactly the 3 entries of the equivalents table, each with `operator`, `function`, `line`, `col`, `above` and a non-empty `reason`, and none with `row`, `variant` or `of`; the other 7 hold no `[[equivalent]]` entry.
 - **R5.** `cosmic_ray_cell_status.py --max-survivors N` reports red when survivors exceed N, printing each as `<module>:<row> col <col> <operator> function "<definition_name>"` followed by its `work_results.diff`, exits 2 when N is not a plain non-negative decimal, and without the flag produces stdout and `--survivors` output byte-identical to today's.
-- **R6.** `scripts/mutation-pr-detect.sh` prints `py_src_dirs=<sorted dirs>`, selecting a Python dir only when `git diff --numstat` shows more than 0 added lines in `<dir>/<module>.py` (`<module>` is the dir name with `-` replaced by `_`), and `py_canary=true|false`, true exactly when a canary path listed in the Canary section changed; its existing outputs are unchanged.
+- **R6.** `scripts/mutation-pr-detect.sh` prints `py_src_dirs=<sorted dirs>`, selecting a Python dir only when `git diff --numstat --no-renames` shows more than 0 added lines in `<dir>/<module>.py` (`<module>` is the dir name with `-` replaced by `_`), and `py_canary=true|false`, true exactly when a canary path listed in the Canary section changed; its existing outputs are unchanged.
 - **R7.** `scripts/mutation-pr-diff.sh` accepts a dir containing `Cargo.toml` or `cosmic-ray.toml`, exits 2 when it contains neither, and passes `-c diff.suppressBlankEmpty=false` to git.
-- **R8.** `scripts/mutation-pr-plan-python.sh` writes one plan line per dir and a units JSON with `n = min(10, max(1, ceil(K / 150)))` shards per dir with `K` > 0, and no unit for a dir with `K` = 0 or a red plan line (so `[]` when no dir has units); a failing step's stderr is carried in the plan line's detail and appended to `$GITHUB_STEP_SUMMARY`.
+- **R8.** `scripts/mutation-pr-plan-python.sh` accepts zero dirs (empty plan, units `[]`) and writes one plan line per dir and a units JSON with `n = min(10, max(1, ceil(K / 150)))` shards per dir with `K` > 0, and no unit for a dir with `K` = 0 or a red plan line (so `[]` when no dir has units); a failing step's stderr is carried in the plan line's detail and appended to `$GITHUB_STEP_SUMMARY`.
 - **R9.** `scripts/mutation-pr-verdict-python.sh --expected-dirs "<dirs>" [--min-killed N] <plan-file> <status-dir>` applies the verdict table's rows in order, is red for an expected dir without a plan line and for a plan line naming an unexpected dir, prints one verdict line per dir with full-key survivor lines, mutant diffs and a repro carrying the unit's `MUTANT_SHARD=k/n` and a `mktemp` diff path on red, exits 1 when any dir is red, 2 on bad usage, else 0.
-- **R10.** `mutation-pr.yml` has jobs `mutation-py-plan`, `mutation-py` (matrix over the plan's units, `if:` the units output is not `[]`, `timeout-minutes: 30`, status uploads with `overwrite: true`), `mutation-py-canary` (diff base `HEAD~1`), `mutation-rs` (the former `mutation-pr` job's steps, unchanged except its id) and an aggregator with id `mutation-pr`, `needs` on all four and `if: always()`, which is green only under the Aggregator rule and passes `--expected-dirs` from `py_src_dirs`; every Python job except the canary uses the plan job's merge-base output.
+- **R10.** `mutation-pr.yml` has jobs `mutation-py-plan` (unconditional, always setting its `units` output), `mutation-py` (matrix over the plan's units, `if:` the units output is not `[]`, `timeout-minutes: 30`, status file `status/<dir>-<k>` uploaded as `mutants-pr-status-<dir>-<k>` with `overwrite: true`), `mutation-py-canary` (diff base `HEAD~1`, `MUTANT_SHARD=0/1`), `mutation-rs` (the former `mutation-pr` job's steps, unchanged except its id) and an aggregator with id `mutation-pr`, `needs` on all four and `if: always()`, which is green only under the Aggregator rule and passes `--expected-dirs` from `py_src_dirs`; every Python job except the canary uses the plan job's merge-base output.
 - **R11.** Each job that runs cosmic-ray installs the pinned Python toolchain on its own condition as the Install conditions section states, so a PR touching only a canary path has cosmic-ray in `mutation-py-canary`.
 - **R12.** Each test file named in the Testing section exists or is extended with the cases listed there.
 - **R13.** `tests/test_mutation_pr_python_e2e.py` asserts `kept 13 of 164 (lines 1)` and green for the `sq.py:18` trailing-space change and red with full-key survivor lines for the untested-branch change; it runs only when `CI=true`.
@@ -316,6 +333,7 @@ vendoring.
 - **V4.** In a change coordinated with the ai-config session, `math-testing-policy.md` § Mutation testing and `math-ci.md` § Workflow table describe the Python PR gate and the `mutation-rs` rename.
 - **V5.** At vendoring time, `tests/test_vendored_prune.py` runs on `claude` against `~/.claude/scripts/cosmic_ray_prune.py` and passes, not skipped.
 - **V6.** Replay c7c8f6f (math#201) on `claude`: its pi and e diffs plan to `n` = 5 shards each (613 kept), and one shard of each finishes inside 30 minutes, timed.
+- **V7.** The plan's first task runs the vendored `cosmic_ray_prune.py equivalents --help` and `diff --help` at the sha line 2 names and checks them against the call lines of R2 and R3; any mismatch stops the plan before dispatch.
 - **N1.** The Python sweep's verdict rules do not change: `mutation-testing-python.yml` and `scripts/mutation-python-cell.sh` never pass `--max-survivors`, and the sweep's `--survivors` line format does not change.
 - **N2.** The Rust PR path does not change: `scripts/mutation-pr-run.sh` and `scripts/mutation-classify.sh` are not modified, and the `mutation-rs` job's steps match the former `mutation-pr` job's.
 - **N3.** `scripts/cosmic_ray_prune.py` is not edited in math beyond line 2.
@@ -382,3 +400,20 @@ confirms they stay visible, so the aggregator also requires a `success` job resu
 Disposition: Addressed (operator, 2026-11-07) — baseline dependency (R3, Components 3); verdict
 `--expected-dirs` (R9); `mutation-py` on `units != '[]'` and the Aggregator rule (R10); canary on
 `HEAD~1` (R10); test rewrites (Testing); `overwrite: true` uploads (R10).
+
+### Round 3 (scoped, Risk only)
+
+Reviewed at commit: `0a61533`. Scope: the sections round 2 changed.
+
+Finding: (1) ai-config's `equivalents` gained mode flags (`--diff`/`--toml-path` or `--full-run`,
+exit 2 otherwise) and the re-confirm rule, which the math call lines and prose did not carry;
+(2) `units` was unset when `py_src_dirs` is empty, so `'' != '[]'` would run the matrix on
+`fromJSON('')` and turn every non-Python PR red; (3) the canary ran unsharded against a planned
+unit `0/1` with no named status file; (4) `--numstat` prints a rename in brace form, so a rename
+onto the module was not selected. Verified: the canary's trailing space is `1 1 sq/sq.py` in
+numstat; `HEAD~1` is the merge commit on top of the merge ref. Assumption: the vendored CLI is
+frozen; ai-config approved its spec at `96ffa257` during the round.
+Disposition: Addressed (operator, 2026-11-07) — mode flags in R2/R3 and Components 1-3; plan
+always emits `units` (R8, R10); canary `MUTANT_SHARD=0/1` and named status files (R10); detect
+`--no-renames` (R6); V7 checks the vendored CLI before dispatch. Review closed: round 3's findings
+were interface and harness defects, not design, so the next instrument is Phase 2's first red test.
