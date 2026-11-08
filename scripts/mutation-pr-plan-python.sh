@@ -30,6 +30,7 @@ shard_count() {
 flatten() {
     local text="$1"
     text="${text//$'\r'/}"
+    text="${text//$'\t'/ }"
     text="${text//$'\n'/ | }"
     printf '%s\n' "${text}"
 }
@@ -66,23 +67,37 @@ plan_dir() {
         return 0
     fi
 
-    local kept="" lines="" line
+    local kept="" total="" lines="" line bad=0 excl_n=0 kept_n=0
     local re_kept='^kept ([0-9]+) of ([0-9]+) \(lines ([0-9]+)\)$'
     local re_excl='^excluded [0-9]+ of [0-9]+ \(re-confirm: .*\)$'
-    local seen_excl=0
     while IFS= read -r line; do
         line="${line//$'\r'/}"
         if [[ "${line}" =~ ${re_kept} ]]; then
+            # Exactly one kept line, and only after the excluded line.
+            ((kept_n > 0 || excl_n == 0)) && bad=1
+            ((kept_n++))
             kept="${BASH_REMATCH[1]}"
+            total="${BASH_REMATCH[2]}"
             lines="${BASH_REMATCH[3]}"
         elif [[ "${line}" =~ ${re_excl} ]]; then
-            seen_excl=1
+            ((excl_n > 0 || kept_n > 0)) && bad=1
+            ((excl_n++))
         fi
     done <<<"${out}"
 
-    if [[ -z "${kept}" || "${seen_excl}" -ne 1 ]]; then
+    if ((bad == 0 && (excl_n != 1 || kept_n != 1))); then
+        bad=1
+    fi
+    if ((bad == 0 && 10#${kept} > 10#${total})); then
+        bad=1
+    fi
+    if ((bad != 0)); then
         SUMMARY_BODY+="${dir}: unparseable prune output:"$'\n'"${out}"$'\n'
         PLAN_LINE="red${TAB}unparseable prune output: $(flatten "${out}")"
+        if [[ -n "${err}" ]]; then
+            SUMMARY_BODY+="stderr:"$'\n'"${err}"$'\n'
+            PLAN_LINE+=" | stderr: $(flatten "${err}")"
+        fi
         return 0
     fi
 
@@ -91,6 +106,10 @@ plan_dir() {
     lines=$((10#${lines}))
     if ((lines == 0)); then
         PLAN_LINE="red${TAB}lines 0"
+        if [[ -n "${err}" ]]; then
+            SUMMARY_BODY+="${dir}: lines 0, prune stderr:"$'\n'"${err}"$'\n'
+            PLAN_LINE+=": $(flatten "${err}")"
+        fi
     elif ((kept == 0)); then
         PLAN_LINE="green${TAB}0 mutants on changed lines"
     else
@@ -147,7 +166,7 @@ main() {
                 printf '| dir | verdict | detail |\n| --- | --- | --- |\n'
                 local d v t
                 while IFS="${TAB}" read -r d v t; do
-                    printf '| %s | %s | %s |\n' "${d}" "${v}" "${t}"
+                    printf '| %s | %s | %s |\n' "${d}" "${v}" "${t//|/\\|}"
                 done <<<"${plan%$'\n'}"
             fi
             if [[ -n "${SUMMARY_BODY}" ]]; then

@@ -112,7 +112,7 @@ for line in open(sys.argv[2]):
 }
 
 @test "lines 0 is a red plan line" {
-    printf 'excluded 0 of 0 (re-confirm: diff, 0 on changed lines)\nkept 0 of 0 (lines 0)\n' >"${FIX}/pi.out"
+    printf 'excluded 164 of 164 (re-confirm: diff, 0 on changed lines)\nkept 0 of 164 (lines 0)\n' >"${FIX}/pi.out"
     run bash "${SCRIPT}" base pi </dev/null
     [ "$(cat "${PLAN_OUT}/plan.txt")" = "$(printf 'pi\tred\tlines 0')" ]
     [ "$(cat "${PLAN_OUT}/units.json")" = "[]" ]
@@ -158,8 +158,7 @@ for line in open(sys.argv[2]):
     run grep -c $'\r' "${PLAN_OUT}/plan.txt"
     [ "${output}" = "0" ]
     [[ "$(cat "${PLAN_OUT}/plan.txt")" == *"line one | line two | line three" ]]
-    run grep -c 'line two' "${GITHUB_STEP_SUMMARY}"
-    [ "${output}" -ge 1 ]
+    grep -qx 'line two' "${GITHUB_STEP_SUMMARY}"
 }
 
 @test "diff step failure is red and names the step" {
@@ -214,4 +213,105 @@ for line in open(sys.argv[2]):
 @test "no base sha exits 2" {
     run bash "${SCRIPT}" </dev/null
     [ "${status}" -eq 2 ]
+}
+
+@test "lines 0 with stderr carries flattened stderr and full stderr in summary" {
+    printf 'excluded 164 of 164 (re-confirm: diff, 0 on changed lines)\nkept 0 of 164 (lines 0)\n' >"${FIX}/sq.out"
+    printf 'diff changes nothing in sq.py;\nits +++ b/ paths: x.py\n' >"${FIX}/sq.err"
+    export GITHUB_STEP_SUMMARY="${BATS_TEST_TMPDIR}/summary.md"
+    run bash "${SCRIPT}" base sq </dev/null
+    [ "$(cat "${PLAN_OUT}/plan.txt")" = "$(printf 'sq\tred\tlines 0: diff changes nothing in sq.py; | its +++ b/ paths: x.py')" ]
+    grep -qx 'its +++ b/ paths: x.py' "${GITHUB_STEP_SUMMARY}"
+}
+
+@test "unparseable output carries flattened stderr" {
+    printf 'garbage\n' >"${FIX}/pi.out"
+    printf 'warn one\nwarn two\n' >"${FIX}/pi.err"
+    export GITHUB_STEP_SUMMARY="${BATS_TEST_TMPDIR}/summary.md"
+    run bash "${SCRIPT}" base pi </dev/null
+    [ "$(cat "${PLAN_OUT}/plan.txt")" = "$(printf 'pi\tred\tunparseable prune output: garbage | stderr: warn one | warn two')" ]
+    grep -qx 'warn two' "${GITHUB_STEP_SUMMARY}"
+}
+
+@test "kept without excluded is red" {
+    printf 'kept 5 of 5 (lines 2)\n' >"${FIX}/pi.out"
+    run bash "${SCRIPT}" base pi </dev/null
+    [[ "$(cat "${PLAN_OUT}/plan.txt")" == "pi"$'\t'"red"$'\t'"unparseable prune output:"* ]]
+    [ "$(cat "${PLAN_OUT}/units.json")" = "[]" ]
+}
+
+@test "excluded without kept is red" {
+    printf 'excluded 0 of 5 (re-confirm: diff, 0 on changed lines)\n' >"${FIX}/pi.out"
+    run bash "${SCRIPT}" base pi </dev/null
+    [[ "$(cat "${PLAN_OUT}/plan.txt")" == "pi"$'\t'"red"$'\t'"unparseable prune output:"* ]]
+}
+
+@test "kept before excluded is red" {
+    printf 'kept 5 of 5 (lines 2)\nexcluded 0 of 5 (re-confirm: diff, 0 on changed lines)\n' >"${FIX}/pi.out"
+    run bash "${SCRIPT}" base pi </dev/null
+    [[ "$(cat "${PLAN_OUT}/plan.txt")" == "pi"$'\t'"red"$'\t'"unparseable prune output:"* ]]
+}
+
+@test "duplicate kept line is red" {
+    printf 'excluded 0 of 5 (re-confirm: diff, 0 on changed lines)\nkept 5 of 5 (lines 2)\nkept 5 of 5 (lines 2)\n' >"${FIX}/pi.out"
+    run bash "${SCRIPT}" base pi </dev/null
+    [[ "$(cat "${PLAN_OUT}/plan.txt")" == "pi"$'\t'"red"$'\t'"unparseable prune output:"* ]]
+}
+
+@test "duplicate excluded line is red" {
+    printf 'excluded 0 of 5 (re-confirm: diff, 0 on changed lines)\nexcluded 0 of 5 (re-confirm: diff, 0 on changed lines)\nkept 5 of 5 (lines 2)\n' >"${FIX}/pi.out"
+    run bash "${SCRIPT}" base pi </dev/null
+    [[ "$(cat "${PLAN_OUT}/plan.txt")" == "pi"$'\t'"red"$'\t'"unparseable prune output:"* ]]
+}
+
+@test "kept greater than total is red" {
+    printf 'excluded 0 of 5 (re-confirm: diff, 0 on changed lines)\nkept 6 of 5 (lines 2)\n' >"${FIX}/pi.out"
+    run bash "${SCRIPT}" base pi </dev/null
+    [[ "$(cat "${PLAN_OUT}/plan.txt")" == "pi"$'\t'"red"$'\t'"unparseable prune output:"* ]]
+}
+
+@test "anchored regex rejects a kept lookalike" {
+    printf 'excluded 0 of 5 (re-confirm: diff, 0 on changed lines)\nxkept 5 of 5 (lines 2) y\n' >"${FIX}/pi.out"
+    run bash "${SCRIPT}" base pi </dev/null
+    [[ "$(cat "${PLAN_OUT}/plan.txt")" == "pi"$'\t'"red"$'\t'* ]]
+}
+
+@test "anchored regex rejects an excluded lookalike" {
+    printf 'xexcluded 0 of 5 (re-confirm: diff, 0 on changed lines) y\nkept 5 of 5 (lines 2)\n' >"${FIX}/pi.out"
+    run bash "${SCRIPT}" base pi </dev/null
+    [[ "$(cat "${PLAN_OUT}/plan.txt")" == "pi"$'\t'"red"$'\t'* ]]
+}
+
+@test "leading-zero kept is read as decimal" {
+    printf 'excluded 1 of 9 (re-confirm: diff, 0 on changed lines)\nkept 08 of 9 (lines 2)\n' >"${FIX}/pi.out"
+    run bash "${SCRIPT}" base pi </dev/null
+    [ "$(cat "${PLAN_OUT}/plan.txt")" = "$(printf 'pi\tgreen\t8 mutants in 1 shards')" ]
+}
+
+@test "trailing slash dir is normalised" {
+    prune_out pi 0 5 5
+    run bash "${SCRIPT}" base pi/ </dev/null
+    [ "$(cat "${PLAN_OUT}/plan.txt")" = "$(printf 'pi\tgreen\t5 mutants in 1 shards')" ]
+}
+
+@test "tab in stderr keeps the plan line at three fields" {
+    printf 'a\tb\n' >"${FIX}/pi.err"
+    printf '1' >"${FIX}/pi.rc"
+    run bash "${SCRIPT}" base pi </dev/null
+    [ "$(awk -F'\t' '{print NF}' "${PLAN_OUT}/plan.txt")" = "3" ]
+}
+
+@test "pipe in detail is escaped in the summary table but raw in the fence" {
+    printf 'one\ntwo\n' >"${FIX}/pi.err"
+    printf '1' >"${FIX}/pi.rc"
+    export GITHUB_STEP_SUMMARY="${BATS_TEST_TMPDIR}/summary.md"
+    run bash "${SCRIPT}" base pi </dev/null
+    grep -qF 'one \| two' "${GITHUB_STEP_SUMMARY}"
+}
+
+@test "unwritable PLAN_OUT exits 1" {
+    prune_out pi 0 5 5
+    export PLAN_OUT="/dev/null/nope"
+    run bash "${SCRIPT}" base pi </dev/null
+    [ "${status}" -eq 1 ]
 }
