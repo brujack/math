@@ -11,8 +11,8 @@ timeouts (test_outcome KILLED with output 'timeout') are never red.
 cosmic-ray stores enum names uppercase; a differently-cased value is red.
 --out also writes the line to FILE; --survivors writes one
 `<module_path>:<start_pos_row> <operator_name>` line per survivor, sorted (empty
-for a red cell, so a stale file never survives). Both files are written via temp
-files and renamed only once both writes succeed; the verdict prints after that,
+for a structurally red cell, so a stale file never survives). Both files are
+written via temp files and renamed only once both writes succeed; the verdict prints after that,
 and a write failure turns the verdict red.
 --max-survivors N (a plain non-negative decimal; anything else exits 2) makes more
 than N survivors red. Stdout is then the verdict line `red: <label> — S surviving
@@ -104,7 +104,8 @@ def survivor_report(conn: sqlite3.Connection) -> str:
     ).fetchall()
     blocks = []
     for path, row, col, op, definition, diff in rows:
-        key = f'{path}:{row} col {col} {op} function "{definition}"\n'
+        function = definition or ""  # NULL for module-level mutants
+        key = f'{path}:{row} col {col} {op} function "{function}"\n'
         text = diff or ""
         blocks.append(key + text + ("" if text.endswith("\n") or not text else "\n"))
     return "".join(blocks)
@@ -149,9 +150,26 @@ def evaluate(
             if not green:
                 return False, line, [], ""
             lines = survivor_lines(conn)
-            if max_survivors is not None and len(lines) > max_survivors:
+            if max_survivors is None:
+                return True, line, lines, ""
+            total = count(
+                conn,
+                "SELECT count(*) FROM work_results WHERE test_outcome = 'SURVIVED'",
+            )
+            if total != len(lines):
+                # Fail closed: the gate must not count fewer survivors than exist.
+                return (
+                    False,
+                    (
+                        f"red: {label} {DASH} {total} surviving but {len(lines)} "
+                        "with a mutation spec"
+                    ),
+                    lines,
+                    "",
+                )
+            if total > max_survivors:
                 over = (
-                    f"red: {label} {DASH} {len(lines)} surviving exceeds "
+                    f"red: {label} {DASH} {total} surviving exceeds "
                     f"--max-survivors {max_survivors}"
                 )
                 return False, over, lines, survivor_report(conn)

@@ -213,12 +213,45 @@ class TestMaxSurvivors(CellStatusTestCase):
         proc = run_status(str(self.db), "cell", "--max-survivors", "0")
         keyed = [x for x in proc.stdout.splitlines() if SURVIVOR_LINE.match(x)]
         self.assertEqual(len(keyed), 13)
-        self.assertEqual(
-            keyed,
-            sorted(
-                keyed, key=lambda x: (x.split(":")[0], int(x.split(":")[1].split()[0]))
-            ),
+
+        def full_key(line: str) -> tuple[str, int, int, str, str]:
+            m = SURVIVOR_LINE.match(line)
+            assert m is not None
+            return (
+                m["module"],
+                int(m["row"]),
+                int(m["col"]),
+                m["op"],
+                m["func"],
+            )
+
+        self.assertEqual(keyed, sorted(keyed, key=full_key))
+        self.assertGreater(len({full_key(x)[2] for x in keyed}), 1, "cols must vary")
+
+    def test_null_definition_name_prints_empty_function(self) -> None:
+        self.execute("UPDATE mutation_specs SET definition_name = NULL")
+        proc = run_status(str(self.db), "cell", "--max-survivors", "0")
+        keyed = [x for x in proc.stdout.splitlines() if SURVIVOR_LINE.match(x)]
+        self.assertEqual(len(keyed), 13, proc.stdout)
+        for line in keyed:
+            self.assertTrue(line.endswith(' function ""'), line)
+        self.assertNotIn("None", proc.stdout)
+
+    def test_survivor_without_spec_row_fails_closed(self) -> None:
+        self.execute(
+            "DELETE FROM mutation_specs WHERE job_id IN "
+            "(SELECT job_id FROM work_results WHERE test_outcome = 'SURVIVED')"
         )
+        proc = run_status(str(self.db), "cell", "--max-survivors", "0")
+        self.assert_red(proc, "13 surviving but 0 with a mutation spec")
+
+    def test_one_survivor_missing_spec_row_fails_closed(self) -> None:
+        self.execute(
+            "DELETE FROM mutation_specs WHERE job_id = (SELECT min(job_id) "
+            "FROM work_results WHERE test_outcome = 'SURVIVED')"
+        )
+        proc = run_status(str(self.db), "cell", "--max-survivors", "99")
+        self.assert_red(proc, "13 surviving but 12 with a mutation spec")
 
     def test_survivors_file_keeps_format_when_threshold_red(self) -> None:
         out = self.tmp / "survivors.txt"
