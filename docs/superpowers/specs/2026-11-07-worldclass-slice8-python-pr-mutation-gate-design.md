@@ -418,3 +418,29 @@ Disposition: Addressed (operator, 2026-11-07) — mode flags in R2/R3 and Compon
 always emits `units` (R8, R10); canary `MUTANT_SHARD=0/1` and named status files (R10); detect
 `--no-renames` (R6); V7 checks the vendored CLI before dispatch. Review closed: round 3's findings
 were interface and harness defects, not design, so the next instrument is Phase 2's first red test.
+
+## Spec alignment (2026-11-08)
+
+- spec: docs/superpowers/specs/2026-11-07-worldclass-slice8-python-pr-mutation-gate-design.md
+- anchor: 2e1013c6e0726006a8aabddfb205bd6d02ae3f8d
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16, R17, R18
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+
+### Reviewed
+
+- none
+
+### Verifications
+
+- V1: no evidence recorded
+- V2: no evidence recorded
+- V3: no evidence recorded
+- V4: no evidence recorded
+- V5: tests/test_vendored_prune.py ran on claude at f3427c6 (pin 0694f163fbd4): 2 tests OK, not skipped; a one-line body edit turned it red.
+- V6: no evidence recorded
+- V7: Before Task 1: equivalents --help and diff --help at 9b588ce3f4fb showed --full-run, --diff, --toml-path and the diff <session> <diff-file> <module> form; a bad mode combination exited 2. Re-vendored at 0694f163fbd4 (ISC004 fix, AST identical).
