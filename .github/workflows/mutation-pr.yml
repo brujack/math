@@ -12,7 +12,169 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  mutation-pr:
+  # Plans the Python units. It always runs and always sets `units` (`[]` when no
+  # Python source changed), so the jobs that need it never see an unset output.
+  mutation-py-plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      units: ${{ steps.plan.outputs.units }}
+      base: ${{ steps.base.outputs.sha }}
+      py_src_dirs: ${{ steps.detect.outputs.py_src_dirs }}
+      py_canary: ${{ steps.detect.outputs.py_canary }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed sub-projects
+        id: detect
+        run: scripts/mutation-pr-detect.sh "origin/${GITHUB_BASE_REF}" >> "${GITHUB_OUTPUT}"
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+
+      - name: Resolve merge base
+        id: base
+        run: printf 'sha=%s\n' "$(git merge-base "origin/${GITHUB_BASE_REF}" HEAD)" >> "${GITHUB_OUTPUT}"
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+
+      - name: Install GMP and MPFR
+        if: steps.detect.outputs.py_src_dirs != ''
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
+
+      - name: Set up Python
+        if: steps.detect.outputs.py_src_dirs != ''
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14"
+
+      - name: Install Python dependencies
+        if: steps.detect.outputs.py_src_dirs != ''
+        run: pip install mpmath==1.4.1 gmpy2==2.3.2 coverage==7.16.2 cosmic-ray==8.7.0 hypothesis==6.168.5 pytest==9.1.1 pytest-cov==7.1.0 ruff==0.16.4 pyright==1.1.411 pip-audit==2.10.1
+
+      - name: Plan Python mutation units
+        id: plan
+        env:
+          PY_SRC_DIRS: ${{ steps.detect.outputs.py_src_dirs }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          # Runs with an empty dir list too: the plan is then empty and units is [].
+          # PY_SRC_DIRS is a space-separated list of validated project dirs.
+          mkdir -p plan
+          read -ra py_dirs <<< "${PY_SRC_DIRS}"
+          PLAN_OUT=plan scripts/mutation-pr-plan-python.sh "${BASE_SHA}" "${py_dirs[@]}"
+          printf 'units=%s\n' "$(cat plan/units.json)" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload plan
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: mutants-pr-plan
+          path: plan/plan.txt
+          overwrite: true
+
+  # One matrix leg per planned unit: the changed-line mutants of one shard.
+  mutation-py:
+    needs: [mutation-py-plan]
+    if: needs.mutation-py-plan.outputs.units != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.mutation-py-plan.outputs.units) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Install GMP and MPFR
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14"
+
+      - name: Install Python dependencies
+        run: pip install mpmath==1.4.1 gmpy2==2.3.2 coverage==7.16.2 cosmic-ray==8.7.0 hypothesis==6.168.5 pytest==9.1.1 pytest-cov==7.1.0 ruff==0.16.4 pyright==1.1.411 pip-audit==2.10.1
+
+      - name: Run mutants on changed lines
+        env:
+          DIR: ${{ matrix.dir }}
+          K: ${{ matrix.k }}
+          N: ${{ matrix.n }}
+          BASE_SHA: ${{ needs.mutation-py-plan.outputs.base }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/status"
+          scripts/mutation-pr-diff.sh "${BASE_SHA}" "${DIR}" "${RUNNER_TEMP}/d.diff"
+          make -C "${DIR}" mutants-diff DIFF="${RUNNER_TEMP}/d.diff" MUTANT_SHARD="${K}/${N}" STATUS_OUT="${RUNNER_TEMP}/status/${DIR}-${K}"
+
+      - name: Upload unit status
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: mutants-pr-status-${{ matrix.dir }}-${{ matrix.k }}
+          path: ${{ runner.temp }}/status/${{ matrix.dir }}-${{ matrix.k }}
+          overwrite: true
+
+  # Proves the Python gate still catches a survivor when the gate's own files change.
+  mutation-py-canary:
+    needs: [mutation-py-plan]
+    if: needs.mutation-py-plan.outputs.py_canary == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Install GMP and MPFR
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14"
+
+      - name: Install Python dependencies
+        run: pip install mpmath==1.4.1 gmpy2==2.3.2 coverage==7.16.2 cosmic-ray==8.7.0 hypothesis==6.168.5 pytest==9.1.1 pytest-cov==7.1.0 ruff==0.16.4 pyright==1.1.411 pip-audit==2.10.1
+
+      - name: Gate canary (sq)
+        run: |
+          # A change to the gate's own files selects no project, so it would merge
+          # green untested. Append a space to the one `limit = 10**max_digits` line
+          # (13 killed mutants), commit that path alone so HEAD~1 is the clean tree,
+          # and require at least one kill. Base HEAD~1 keeps the PR's own sq.py
+          # edits out of the canary diff.
+          f=sq/sq.py
+          n=$(grep -c -x '    limit = 10\*\*max_digits' "${f}") || n=0
+          if [ "${n}" != "1" ]; then
+            printf 'red: canary line count is %s, expected exactly 1 in %s\n' "${n}" "${f}" | tee -a "${GITHUB_STEP_SUMMARY}" >&2
+            exit 1
+          fi
+          sed -i 's/^    limit = 10\*\*max_digits$/& /' "${f}"
+          git -c user.name=ci -c user.email=ci@localhost commit -q -m canary -- "${f}"
+          out="${RUNNER_TEMP}/canary"
+          mkdir -p "${out}/status"
+          PLAN_OUT="${out}" scripts/mutation-pr-plan-python.sh HEAD~1 sq
+          scripts/mutation-pr-diff.sh HEAD~1 sq "${out}/d.diff"
+          # The verdict reads the status file, so run it even when the session is red.
+          make_rc=0
+          make -C sq mutants-diff DIFF="${out}/d.diff" MUTANT_SHARD=0/1 STATUS_OUT="${out}/status/sq-0" || make_rc=$?
+          verdict_rc=0
+          scripts/mutation-pr-verdict-python.sh --expected-dirs sq --min-killed 1 "${out}/plan.txt" "${out}/status" || verdict_rc=$?
+          if [ "${make_rc}" != "0" ] || [ "${verdict_rc}" != "0" ]; then
+            exit 1
+          fi
+
+  mutation-rs:
     runs-on: ubuntu-latest
     # One job runs the Python baselines, the Rust diff mutation loop and the
     # gate canary. The Rust loop builds each changed crate from a cold GMP
@@ -119,3 +281,67 @@ jobs:
           for dir in ${PY_DIRS}; do
             make -C "${dir}" mutants-baseline || exit 1
           done
+
+  # The required status check on master is this job's id, `mutation-pr`.
+  mutation-pr:
+    needs: [mutation-py-plan, mutation-py, mutation-py-canary, mutation-rs]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Check job results
+        env:
+          RS_RESULT: ${{ needs.mutation-rs.result }}
+          PLAN_RESULT: ${{ needs.mutation-py-plan.result }}
+          PY_RESULT: ${{ needs.mutation-py.result }}
+          CANARY_RESULT: ${{ needs.mutation-py-canary.result }}
+          UNITS: ${{ needs.mutation-py-plan.outputs.units }}
+          PY_CANARY: ${{ needs.mutation-py-plan.outputs.py_canary }}
+        run: |
+          # A skip is accepted only when its own `if:` explains it. cancelled and
+          # failure are always red, and a stale green status file never stands alone.
+          red=0
+          fail() {
+            printf 'red: %s\n' "$1" | tee -a "${GITHUB_STEP_SUMMARY}" >&2
+            red=1
+          }
+          [ "${RS_RESULT}" = "success" ] || fail "mutation-rs result is '${RS_RESULT}'"
+          [ "${PLAN_RESULT}" = "success" ] || fail "mutation-py-plan result is '${PLAN_RESULT}'"
+          case "${PY_RESULT}" in
+            success) ;;
+            skipped) [ "${UNITS}" = "[]" ] || fail "mutation-py skipped but units is '${UNITS}'" ;;
+            *) fail "mutation-py result is '${PY_RESULT}'" ;;
+          esac
+          case "${CANARY_RESULT}" in
+            success) ;;
+            skipped) [ "${PY_CANARY}" != "true" ] || fail "mutation-py-canary skipped but py_canary is true" ;;
+            *) fail "mutation-py-canary result is '${CANARY_RESULT}'" ;;
+          esac
+          exit "${red}"
+
+      - name: Download plan
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: mutants-pr-plan
+          path: plan
+          digest-mismatch: error
+
+      - name: Download unit statuses
+        if: needs.mutation-py-plan.outputs.units != '[]'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: mutants-pr-status-*
+          merge-multiple: true
+          path: status
+          digest-mismatch: error
+
+      - name: Python verdict
+        env:
+          PY_SRC_DIRS: ${{ needs.mutation-py-plan.outputs.py_src_dirs }}
+        run: |
+          mkdir -p status
+          scripts/mutation-pr-verdict-python.sh --expected-dirs "${PY_SRC_DIRS}" plan/plan.txt status
