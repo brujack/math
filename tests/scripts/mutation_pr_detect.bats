@@ -365,3 +365,35 @@ fix_run() {
     fix_run
     [ "${lines[5]}" = "py_src_dirs=fib" ]
 }
+
+# DETECT_SCRIPT lets a mutation probe point these two tests at an altered copy of the script.
+_detect_readonly() {
+    sed -n "s/^readonly $1=\"\\(.*\\)\"\$/\\1/p" "${DETECT_SCRIPT:-${SCRIPT}}"
+}
+
+@test "every PY_CANARY_PATHS entry is a tracked file and there are ten" {
+    PATH="${PATH#"${REPO_ROOT}/tests/mocks:"}"
+    local paths p n=0
+    paths="$(_detect_readonly PY_CANARY_PATHS)"
+    [ -n "${paths}" ]
+    for p in ${paths}; do
+        n=$((n + 1))
+        run git -C "${REPO_ROOT}" ls-files --error-unmatch -- "${p}"
+        [ "${status}" -eq 0 ] || { printf 'untracked canary path: %s\n' "${p}" >&2; return 1; }
+    done
+    [ "${n}" -eq 10 ]
+}
+
+@test "PYTHON_DIRS is exactly the nine dirs with a tracked cosmic-ray.toml and module" {
+    PATH="${PATH#"${REPO_ROOT}/tests/mocks:"}"
+    local want got d
+    want="$(git -C "${REPO_ROOT}" ls-files '*/cosmic-ray.toml' | grep -v '.*/.*/' | sed 's|/cosmic-ray.toml$||' | sort | paste -sd' ' -)"
+    got="$(_detect_readonly PYTHON_DIRS)"
+    [ "$(printf '%s\n' ${got} | wc -l)" -eq 9 ]
+    [ -n "${want}" ]
+    [ "${got}" = "${want}" ]
+    for d in ${got}; do
+        run git -C "${REPO_ROOT}" ls-files --error-unmatch -- "${d}/${d//-/_}.py"
+        [ "${status}" -eq 0 ] || { printf 'no module for dir: %s\n' "${d}" >&2; return 1; }
+    done
+}

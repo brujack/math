@@ -1944,11 +1944,23 @@ _pd_order() {
     [ ! -s "${CALLS}" ]
 }
 
-@test "python mutants-diff-plan exits 2 naming DIFF when DIFF is unreadable, with no cosmic-ray call" {
+@test "python mutants-diff-plan exits 2 naming DIFF when DIFF is missing, with no cosmic-ray call" {
     _pd_setup
     run _pd_make -C "${PROJ}" mutants-diff-plan DIFF="${BATS_TEST_TMPDIR}/missing.diff"
     [ "${status}" -eq 2 ]
     [[ "${output}" == *"DIFF"* ]]
+    [ ! -s "${CALLS}" ]
+}
+
+# An existing but unreadable file isolates the -r half of DIFF_GUARD from its -f half.
+@test "python mutants-diff-plan exits 2 naming DIFF when DIFF exists but is unreadable, with no cosmic-ray call" {
+    [ "$(id -u)" -ne 0 ] || skip "root can read mode-000 files"
+    _pd_setup
+    chmod 000 "${BATS_TEST_TMPDIR}/pr.diff"
+    run _pd_make -C "${PROJ}" mutants-diff-plan DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    chmod 644 "${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"is not a readable file"* ]]
     [ ! -s "${CALLS}" ]
 }
 
@@ -2217,11 +2229,31 @@ _pd_order() {
     [ ! -s "${CALLS}" ]
 }
 
-@test "python mutants-diff with an unreadable DIFF never reaches cosmic-ray under make -k -j2" {
+@test "python mutants-diff with a missing DIFF never reaches cosmic-ray under make -k -j2" {
     _pd_setup
     run _pd_make -k -j2 -C "${PROJ}" mutants-diff DIFF="${BATS_TEST_TMPDIR}/missing.diff"
     [ "${status}" -ne 0 ]
     [ ! -s "${CALLS}" ]
+}
+
+@test "python mutants-diff with an unreadable DIFF never reaches cosmic-ray under make -k -j2" {
+    [ "$(id -u)" -ne 0 ] || skip "root can read mode-000 files"
+    _pd_setup
+    chmod 000 "${BATS_TEST_TMPDIR}/pr.diff"
+    run _pd_make -k -j2 -C "${PROJ}" mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    chmod 644 "${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"is not a readable file"* ]]
+    [ ! -s "${CALLS}" ]
+}
+
+@test "python mutants-diff exits 2 when the STATUS_OUT copy fails after cell_status exits 0" {
+    _pd_setup
+    STUB_STATUS_RC=0 run _pd_make -C "${PROJ}" mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff" \
+        STATUS_OUT="${BATS_TEST_TMPDIR}/no-such-dir/status.txt"
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"cp:"* ]]
+    [ ! -e "${BATS_TEST_TMPDIR}/no-such-dir" ]
 }
 
 @test "python mutants-diff keeps the partial report in the project when cr-report fails" {
