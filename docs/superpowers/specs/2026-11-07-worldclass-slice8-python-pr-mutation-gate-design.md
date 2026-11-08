@@ -1,6 +1,7 @@
 # Worldclass slice 8: per-PR Python mutation gate on changed lines
 
-- **Status:** Draft (review closed after round 3; awaiting approval)
+- **Status:** Approved
+- **Approved:** 2026-11-07
 - **Date:** 2026-11-07
 - **Depends on:** ai-config `docs/superpowers/specs/2026-11-07-cosmic-ray-prune-design.md` (canonical `cosmic_ray_prune.py`, owned by the ai-config session)
 
