@@ -6,6 +6,7 @@ tests/fixtures/cosmic_ray/regen.sh.
 """
 
 import pathlib
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -134,6 +135,137 @@ class TestGreen(CellStatusTestCase):
         before = self.db.read_bytes()
         run_status(str(self.db), "cell")
         self.assertEqual(self.db.read_bytes(), before)
+
+
+SURVIVOR_LINE = re.compile(
+    r"^(?P<module>[^:\n]+):(?P<row>[1-9][0-9]*) col (?P<col>[0-9]+) "
+    r'(?P<op>\S+) function "(?P<func>[^"\n]*)"$'
+)
+
+
+class TestMaxSurvivors(CellStatusTestCase):
+    """--max-survivors N: green at <= N survivors, red above, with full-key lines."""
+
+    def keep_one_survivor(self) -> None:
+        self.execute(
+            "UPDATE work_results SET test_outcome='KILLED' WHERE test_outcome='SURVIVED' "
+            "AND job_id != (SELECT min(job_id) FROM work_results "
+            "WHERE test_outcome='SURVIVED')"
+        )
+
+    def keep_no_survivor(self) -> None:
+        self.execute(
+            "UPDATE work_results SET test_outcome='KILLED' WHERE test_outcome='SURVIVED'"
+        )
+
+    def test_zero_survivors_green_at_zero(self) -> None:
+        self.keep_no_survivor()
+        proc = run_status(str(self.db), "cell", "--max-survivors", "0")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(
+            proc.stdout, f"green: cell {DASH} 0 surviving, 1 timed out, 23 jobs\n"
+        )
+
+    def test_one_survivor_red_at_zero(self) -> None:
+        self.keep_one_survivor()
+        proc = run_status(str(self.db), "cell", "--max-survivors", "0")
+        self.assert_red(proc, "1 surviving exceeds --max-survivors 0")
+
+    def test_one_survivor_green_at_one(self) -> None:
+        self.keep_one_survivor()
+        proc = run_status(str(self.db), "cell", "--max-survivors", "1")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(
+            proc.stdout, f"green: cell {DASH} 1 surviving, 1 timed out, 23 jobs\n"
+        )
+
+    def test_boundary_n_equals_survivors_green_one_below_red(self) -> None:
+        self.assertEqual(
+            run_status(str(self.db), "cell", "--max-survivors", "13").returncode, 0
+        )
+        proc = run_status(str(self.db), "cell", "--max-survivors", "12")
+        self.assert_red(proc, "13 surviving exceeds --max-survivors 12")
+
+    def test_red_output_lists_full_key_then_diff(self) -> None:
+        self.keep_one_survivor()
+        proc = run_status(str(self.db), "cell", "--max-survivors", "0")
+        lines = proc.stdout.splitlines()
+        match = SURVIVOR_LINE.match(lines[1])
+        self.assertIsNotNone(match, proc.stdout)
+        assert match is not None
+        with sqlite3.connect(self.db) as conn:
+            row = conn.execute(
+                "SELECT m.module_path, m.start_pos_row, m.start_pos_col, "
+                "m.operator_name, m.definition_name, r.diff "
+                "FROM work_results r JOIN mutation_specs m USING (job_id) "
+                "WHERE r.test_outcome = 'SURVIVED'"
+            ).fetchone()
+        module, row_no, col, operator, func, diff = row
+        self.assertEqual(
+            lines[1], f'{module}:{row_no} col {col} {operator} function "{func}"'
+        )
+        self.assertTrue(diff.strip())
+        self.assertEqual(
+            proc.stdout, lines[0] + "\n" + lines[1] + "\n" + diff.rstrip("\n") + "\n"
+        )
+
+    def test_red_output_has_one_block_per_survivor(self) -> None:
+        proc = run_status(str(self.db), "cell", "--max-survivors", "0")
+        keyed = [x for x in proc.stdout.splitlines() if SURVIVOR_LINE.match(x)]
+        self.assertEqual(len(keyed), 13)
+        self.assertEqual(
+            keyed,
+            sorted(
+                keyed, key=lambda x: (x.split(":")[0], int(x.split(":")[1].split()[0]))
+            ),
+        )
+
+    def test_survivors_file_keeps_format_when_threshold_red(self) -> None:
+        out = self.tmp / "survivors.txt"
+        proc = run_status(
+            str(self.db), "cell", "--max-survivors", "0", "--survivors", str(out)
+        )
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(out.read_text(encoding="utf-8"), SURVIVORS)
+
+    def test_survivors_file_keeps_format_when_green(self) -> None:
+        out = self.tmp / "survivors.txt"
+        proc = run_status(
+            str(self.db), "cell", "--max-survivors", "13", "--survivors", str(out)
+        )
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(out.read_text(encoding="utf-8"), SURVIVORS)
+
+    def test_structural_red_unchanged_and_survivors_file_empty(self) -> None:
+        self.execute("DELETE FROM work_items")
+        out = self.tmp / "survivors.txt"
+        out.write_text("stale\n", encoding="utf-8")
+        proc = run_status(
+            str(self.db), "cell", "--max-survivors", "0", "--survivors", str(out)
+        )
+        self.assert_red(proc, "no work items")
+        self.assertEqual(out.read_text(encoding="utf-8"), "")
+
+    def test_out_file_equals_first_stdout_line_when_threshold_red(self) -> None:
+        out = self.tmp / "status.txt"
+        proc = run_status(
+            str(self.db), "cell", "--max-survivors", "0", "--out", str(out)
+        )
+        self.assertEqual(
+            out.read_text(encoding="utf-8"), proc.stdout.splitlines()[0] + "\n"
+        )
+
+    def test_invalid_n_exits_two(self) -> None:
+        for bad in ("-1", "x", "01", "", "1.0", "+1", " 1", "١"):
+            with self.subTest(n=bad):
+                proc = run_status(str(self.db), "cell", "--max-survivors", bad)
+                self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+                self.assertEqual(proc.stdout, "")
+
+    def test_no_flag_output_is_golden_when_red_threshold_would_apply(self) -> None:
+        proc = run_status(str(self.db), "cell")
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout, GREEN_LINE)
 
 
 class TestRed(CellStatusTestCase):

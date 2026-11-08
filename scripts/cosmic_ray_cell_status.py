@@ -1,6 +1,7 @@
 """Summarise a finished cosmic-ray session as one verdict line.
 
 Usage: cosmic_ray_cell_status.py <session.sqlite> <label> [--out FILE] [--survivors FILE]
+                                 [--max-survivors N]
 
 Prints `green: <label> — S surviving, T timed out, K jobs` and exits 0, or
 `red: <label> — <reason>` and exits 1. A session is red when it has no work
@@ -13,12 +14,19 @@ cosmic-ray stores enum names uppercase; a differently-cased value is red.
 for a red cell, so a stale file never survives). Both files are written via temp
 files and renamed only once both writes succeed; the verdict prints after that,
 and a write failure turns the verdict red.
+--max-survivors N (a plain non-negative decimal; anything else exits 2) makes more
+than N survivors red. Stdout is then the verdict line `red: <label> — S surviving
+exceeds --max-survivors N` followed, per survivor, by the full-key line
+`<module_path>:<row> col <col> <operator_name> function "<definition_name>"` (row
+1-based, col 0-based) and that mutant's work_results.diff. --out gets only the
+verdict line; --survivors keeps its format. Without the flag nothing changes.
 """
 
 import argparse
 import contextlib
 import os
 import pathlib
+import re
 import sqlite3
 import sys
 import tempfile
@@ -84,6 +92,24 @@ def survivor_lines(conn: sqlite3.Connection) -> list[str]:
     return sorted(f"{path}:{row} {op}" for path, row, op in rows)
 
 
+def survivor_report(conn: sqlite3.Connection) -> str:
+    """Full-key line plus mutant diff for every survivor, sorted by the key."""
+    rows = conn.execute(
+        "SELECT m.module_path, m.start_pos_row, m.start_pos_col, m.operator_name, "
+        "m.definition_name, r.diff "
+        "FROM work_results r JOIN mutation_specs m USING (job_id) "
+        "WHERE r.test_outcome = 'SURVIVED' "
+        "ORDER BY m.module_path, m.start_pos_row, m.start_pos_col, m.operator_name, "
+        "m.definition_name, r.diff"
+    ).fetchall()
+    blocks = []
+    for path, row, col, op, definition, diff in rows:
+        key = f'{path}:{row} col {col} {op} function "{definition}"\n'
+        text = diff or ""
+        blocks.append(key + text + ("" if text.endswith("\n") or not text else "\n"))
+    return "".join(blocks)
+
+
 def write_atomically(targets: list[tuple[pathlib.Path, str]]) -> None:
     """Write every (path, text) via a temp file beside it; rename only after all succeed.
 
@@ -104,21 +130,45 @@ def write_atomically(targets: list[tuple[pathlib.Path, str]]) -> None:
                 os.unlink(tmp_name)
 
 
-def evaluate(session: pathlib.Path, label: str) -> tuple[bool, str, list[str]]:
-    """Return (is_green, verdict line, survivor lines); survivors are empty unless green."""
+def evaluate(
+    session: pathlib.Path, label: str, max_survivors: int | None = None
+) -> tuple[bool, str, list[str], str]:
+    """Return (is_green, verdict line, survivor lines, survivor report).
+
+    Survivor lines are empty unless the session is structurally green. The report
+    is non-empty only when max_survivors is set and exceeded.
+    """
     if not session.is_file():
-        return False, f"red: {label} {DASH} no such session file: {session}", []
+        return False, f"red: {label} {DASH} no such session file: {session}", [], ""
     try:
         # Read-only: a status check must never alter the session it judges. The URI
         # is percent-encoded so '#', '?' and '%' in the path are not parsed as syntax.
         conn = sqlite3.connect(session.resolve().as_uri() + "?mode=ro", uri=True)
         try:
             green, line = assess(conn, label)
-            return green, line, survivor_lines(conn) if green else []
+            if not green:
+                return False, line, [], ""
+            lines = survivor_lines(conn)
+            if max_survivors is not None and len(lines) > max_survivors:
+                over = (
+                    f"red: {label} {DASH} {len(lines)} surviving exceeds "
+                    f"--max-survivors {max_survivors}"
+                )
+                return False, over, lines, survivor_report(conn)
+            return True, line, lines, ""
         finally:
             conn.close()
     except sqlite3.Error as err:
-        return False, f"red: {label} {DASH} unreadable session: {err}", []
+        return False, f"red: {label} {DASH} unreadable session: {err}", [], ""
+
+
+def plain_count(text: str) -> int:
+    """argparse type: a non-negative decimal with no sign, spaces or leading zeros."""
+    if re.fullmatch(r"0|[1-9][0-9]*", text) is None:
+        raise argparse.ArgumentTypeError(
+            f"{text!r} is not a non-negative decimal without leading zeros"
+        )
+    return int(text)
 
 
 def main(argv: list[str]) -> int:
@@ -129,9 +179,12 @@ def main(argv: list[str]) -> int:
     parser.add_argument("label")
     parser.add_argument("--out", type=pathlib.Path)
     parser.add_argument("--survivors", type=pathlib.Path)
+    parser.add_argument("--max-survivors", type=plain_count)
     args = parser.parse_args(argv)
 
-    green, line, survivors = evaluate(args.session, args.label)
+    green, line, survivors, report = evaluate(
+        args.session, args.label, args.max_survivors
+    )
     targets: list[tuple[pathlib.Path, str]] = []
     if args.out is not None:
         targets.append((args.out, line + "\n"))
@@ -144,6 +197,7 @@ def main(argv: list[str]) -> int:
         return 1
 
     print(line)
+    print(report, end="")
     return 0 if green else 1
 
 
