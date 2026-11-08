@@ -2,6 +2,8 @@
 
 spec: docs/superpowers/specs/2026-11-07-worldclass-slice8-python-pr-mutation-gate-design.md
 
+> **Status: DONE** — merged 2026-11-08 as math#219 (e27a608).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make `mutation-pr` fail any PR that leaves a surviving cosmic-ray mutant on a changed line of a Python module, under the operator's strict rule: edit a line, own its mutants.
