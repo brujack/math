@@ -13,6 +13,7 @@
 readonly SHARD_SIZE=150
 readonly MAX_SHARDS=10
 readonly TAB=$'\t'
+readonly FENCE=$'\x60\x60\x60'
 
 # Overridable so tests can substitute the diff writer.
 readonly DIFF_SCRIPT="${MUTATION_PR_DIFF:-$(dirname "${BASH_SOURCE[0]}")/mutation-pr-diff.sh}"
@@ -170,7 +171,7 @@ main() {
                 done <<<"${plan%$'\n'}"
             fi
             if [[ -n "${SUMMARY_BODY}" ]]; then
-                printf '\n```\n%s```\n' "${SUMMARY_BODY}"
+                printf '\n%s\n%s%s\n' "${FENCE}" "${SUMMARY_BODY}" "${FENCE}"
             fi
         } >>"${GITHUB_STEP_SUMMARY}" || return 1
     fi
