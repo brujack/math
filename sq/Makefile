@@ -1,4 +1,4 @@
-.PHONY: run lint test coverage mutants mutants-baseline mutants-diff-check mutants-diff-plan mutants-diff mutants-report mutants-clean clean
+.PHONY: run lint test coverage mutants mutants-baseline mutants-diff-plan mutants-diff mutants-report mutants-clean clean
 
 # Set only when ruff answers --version, so a ruff that is on PATH but not runnable is skipped, not an Error 127.
 RUFF := $(shell ruff --version >/dev/null 2>&1 && command -v ruff)
@@ -50,27 +50,44 @@ mutants-baseline:
 	  export TMPDIR="$$b"; \
 	  cosmic-ray baseline cosmic-ray.toml || { python3 -m unittest test_sq; exit 1; }'
 
-# Runs in a scratch copy of the module, its test and the config only: the project
+# The directory make was started from: make -C changes CURDIR but not the PWD it inherited from the
+# invoking shell. Relative DIFF, STATUS_OUT and SURVIVORS_OUT of the mutants-diff targets are resolved
+# against it; with no usable PWD, against CURDIR.
+INVOKE_DIR := $(if $(filter /%,$(PWD)),$(PWD),$(CURDIR))
+ABS_OF = $(if $(1),$(if $(filter /%,$(1)),$(1),$(INVOKE_DIR)/$(1)))
+DIFF_ABS = $(call ABS_OF,$(DIFF))
+STATUS_OUT_ABS = $(call ABS_OF,$(STATUS_OUT))
+SURVIVORS_OUT_ABS = $(call ABS_OF,$(SURVIVORS_OUT))
+export DIFF_ABS STATUS_OUT_ABS SURVIVORS_OUT_ABS
+
+# One body for the three scratch-copy runs, parameterised by the environment the recipes set:
+#   MODE     full (mutants: whole session, equivalents --full-run), plan (mutants-diff-plan: prune only,
+#            nothing written in the project) or exec (mutants-diff: prune to the diff, run, max-survivors 0)
+#   WORK     scratch dir prefix and the name in the copy-back warning
+#   SESSION, REPORT   the project-side file names; the diff pair differs from the full pair so a local
+#            diff run never overwrites the full run's cosmic-ray-session.sqlite or mutants-report.txt
+# Runs in a scratch copy of the module, its test, the config and the equivalents file only: the project
 # directory also holds <crate>-rs/target (up to ~1.8 GB). The scratch dir and TMPDIR live in the
 # project's gitignored .mutants-tmp, not /tmp (tmpfs, RAM): cosmic-ray kills tests mid-write and
 # their tempfile dirs would otherwise leak; here cleanup removes them with the scratch copy.
-mutants: mutants-baseline
-	@bash -c '$(MUTANTS_CAP); \
+MUTANTS_BODY = $(MUTANTS_CAP); \
 	  proj="$$(pwd)"; \
-	  rm -f cosmic-ray-session.sqlite cosmic-ray-session.sqlite-journal mutants-report.txt || exit 1; \
+	  if [ "$$MODE" != plan ]; then rm -f "$$SESSION" "$$SESSION-journal" "$$REPORT" || exit 1; fi; \
 	  mkdir -p "$$proj/.mutants-tmp" || exit 1; \
-	  work="$$(mktemp -d "$$proj/.mutants-tmp/mutants-sq.XXXXXX")" || exit 1; \
+	  work="$$(mktemp -d "$$proj/.mutants-tmp/$$WORK-sq.XXXXXX")" || exit 1; \
 	  cleanup() { \
 	    trap "" TERM HUP INT; \
 	    ok=1; \
-	    if [ -f "$$work/sq/cosmic-ray-session.sqlite" ]; then \
-	      cp -- "$$work/sq"/cosmic-ray-session.sqlite* "$$proj/" || ok=; \
-	    fi; \
-	    if [ -f "$$work/sq/mutants-report.txt" ]; then \
-	      cp -- "$$work/sq/mutants-report.txt" "$$proj/" || ok=; \
+	    if [ "$$MODE" != plan ]; then \
+	      if [ -f "$$work/sq/$$SESSION" ]; then \
+	        cp -- "$$work/sq/$$SESSION"* "$$proj/" || ok=; \
+	      fi; \
+	      if [ -f "$$work/sq/$$REPORT" ]; then \
+	        cp -- "$$work/sq/$$REPORT" "$$proj/" || ok=; \
+	      fi; \
 	    fi; \
 	    if [ -n "$$ok" ]; then rm -rf -- "$$work"; \
-	    else printf "mutants: kept %s (copy-back failed)\n" "$$work" >&2; fi; \
+	    else printf "%s: kept %s (copy-back failed)\n" "$$WORK" "$$work" >&2; fi; \
 	  }; \
 	  trap cleanup EXIT; trap "exit 143" TERM; trap "exit 129" HUP; \
 	  mkdir "$$work/sq" "$$work/tmp" || exit 1; \
@@ -78,70 +95,13 @@ mutants: mutants-baseline
 	  cp -- sq.py test_sq.py cosmic-ray.toml mutants-equivalent.toml "$$work/sq/" || exit 1; \
 	  ln -s "$$(cd .. && pwd)/scripts" "$$work/scripts" || exit 1; \
 	  cd "$$work/sq" || exit 1; \
-	  cosmic-ray init cosmic-ray.toml cosmic-ray-session.sqlite || exit 1; \
-	  python3 ../scripts/cosmic_ray_prune.py equivalents cosmic-ray-session.sqlite mutants-equivalent.toml --full-run || exit 1; \
-	  if [ -n "$${MUTANT_SHARD}" ]; then \
-	    case "$${MUTANT_SHARD}" in \
-	      *[!0-9/]* | */*/* | /* | */) bad=1 ;; \
-	      */*) bad= ;; \
-	      *) bad=1 ;; \
-	    esac; \
-	    if [ -n "$${bad}" ]; then printf "error: MUTANT_SHARD must be k/n, got %s\n" "$${MUTANT_SHARD}" >&2; exit 1; fi; \
-	    python3 ../scripts/cosmic_ray_shard.py cosmic-ray-session.sqlite "$$(printf %s "$${MUTANT_SHARD}" | cut -d/ -f1)" "$$(printf %s "$${MUTANT_SHARD}" | cut -d/ -f2)" || exit 1; \
+	  cosmic-ray init cosmic-ray.toml "$$SESSION" || exit 1; \
+	  if [ "$$MODE" = full ]; then \
+	    python3 ../scripts/cosmic_ray_prune.py equivalents "$$SESSION" mutants-equivalent.toml --full-run || exit 1; \
+	  else \
+	    python3 ../scripts/cosmic_ray_prune.py equivalents "$$SESSION" mutants-equivalent.toml --diff "$$DIFF_ABS" --toml-path mutants-equivalent.toml || exit 1; \
+	    python3 ../scripts/cosmic_ray_prune.py diff "$$SESSION" "$$DIFF_ABS" sq.py || exit 1; \
 	  fi; \
-	  cosmic-ray exec cosmic-ray.toml cosmic-ray-session.sqlite || exit 1; \
-	  cr-report cosmic-ray-session.sqlite --show-output --show-diff > mutants-report.txt || exit 1; \
-	  cr-report cosmic-ray-session.sqlite | tail -5; \
-	  cp -- cosmic-ray-session.sqlite mutants-report.txt "$$proj/" || exit 1; \
-	  cd "$$proj" || exit 1; \
-	  set -- cosmic-ray-session.sqlite "$${CELL_LABEL}"; \
-	  if [ -n "$${STATUS_OUT}" ]; then set -- "$$@" --out "$${STATUS_OUT}"; fi; \
-	  if [ -n "$${SURVIVORS_OUT}" ]; then set -- "$$@" --survivors "$${SURVIVORS_OUT}"; fi; \
-	  python3 ../scripts/cosmic_ray_cell_status.py "$$@"'
-
-# The directory make was started from: make -C changes CURDIR but not the PWD it inherited from the
-# invoking shell. A relative DIFF is resolved against it; with no usable PWD, against CURDIR.
-INVOKE_DIR := $(if $(filter /%,$(PWD)),$(PWD),$(CURDIR))
-DIFF_ABS = $(if $(DIFF),$(if $(filter /%,$(DIFF)),$(DIFF),$(INVOKE_DIR)/$(DIFF)))
-export DIFF_ABS
-
-# Listed before mutants-baseline in the two targets below: the baseline calls cosmic-ray, and a
-# missing DIFF must not reach it. Make exits 2 on a failed recipe.
-mutants-diff-check:
-	@if [ -z "$(DIFF)" ]; then printf "error: DIFF is required: DIFF=<unified diff file>\n" >&2; exit 1; fi
-	@if [ ! -f "$(DIFF_ABS)" ] || [ ! -r "$(DIFF_ABS)" ]; then printf "error: DIFF %s is not a readable file\n" "$(DIFF)" >&2; exit 1; fi
-
-# Shared by mutants-diff-plan (MODE=plan: stops after the prune calls, writes nothing in the project)
-# and mutants-diff (MODE=exec). Same scratch-copy layout as mutants; its session and report have their
-# own names so a local run never overwrites the full run's cosmic-ray-session.sqlite or mutants-report.txt.
-MUTANTS_DIFF_RUN = $(MUTANTS_CAP); \
-	  proj="$$(pwd)"; \
-	  if [ "$$MODE" = exec ]; then rm -f cosmic-ray-diff-session.sqlite cosmic-ray-diff-session.sqlite-journal mutants-diff-report.txt || exit 1; fi; \
-	  mkdir -p "$$proj/.mutants-tmp" || exit 1; \
-	  work="$$(mktemp -d "$$proj/.mutants-tmp/mutants-diff-sq.XXXXXX")" || exit 1; \
-	  cleanup() { \
-	    trap "" TERM HUP INT; \
-	    ok=1; \
-	    if [ "$$MODE" = exec ]; then \
-	      if [ -f "$$work/sq/cosmic-ray-diff-session.sqlite" ]; then \
-	        cp -- "$$work/sq"/cosmic-ray-diff-session.sqlite* "$$proj/" || ok=; \
-	      fi; \
-	      if [ -f "$$work/sq/mutants-diff-report.txt" ]; then \
-	        cp -- "$$work/sq/mutants-diff-report.txt" "$$proj/" || ok=; \
-	      fi; \
-	    fi; \
-	    if [ -n "$$ok" ]; then rm -rf -- "$$work"; \
-	    else printf "mutants-diff: kept %s (copy-back failed)\n" "$$work" >&2; fi; \
-	  }; \
-	  trap cleanup EXIT; trap "exit 143" TERM; trap "exit 129" HUP; \
-	  mkdir "$$work/sq" "$$work/tmp" || exit 1; \
-	  export TMPDIR="$$work/tmp"; \
-	  cp -- sq.py test_sq.py cosmic-ray.toml mutants-equivalent.toml "$$work/sq/" || exit 1; \
-	  ln -s "$$(cd .. && pwd)/scripts" "$$work/scripts" || exit 1; \
-	  cd "$$work/sq" || exit 1; \
-	  cosmic-ray init cosmic-ray.toml cosmic-ray-diff-session.sqlite || exit 1; \
-	  python3 ../scripts/cosmic_ray_prune.py equivalents cosmic-ray-diff-session.sqlite mutants-equivalent.toml --diff "$$DIFF_ABS" --toml-path mutants-equivalent.toml || exit 1; \
-	  python3 ../scripts/cosmic_ray_prune.py diff cosmic-ray-diff-session.sqlite "$$DIFF_ABS" sq.py || exit 1; \
 	  if [ "$$MODE" = plan ]; then exit 0; fi; \
 	  if [ -n "$${MUTANT_SHARD}" ]; then \
 	    case "$${MUTANT_SHARD}" in \
@@ -150,27 +110,47 @@ MUTANTS_DIFF_RUN = $(MUTANTS_CAP); \
 	      *) bad=1 ;; \
 	    esac; \
 	    if [ -n "$${bad}" ]; then printf "error: MUTANT_SHARD must be k/n, got %s\n" "$${MUTANT_SHARD}" >&2; exit 1; fi; \
-	    python3 ../scripts/cosmic_ray_shard.py cosmic-ray-diff-session.sqlite "$$(printf %s "$${MUTANT_SHARD}" | cut -d/ -f1)" "$$(printf %s "$${MUTANT_SHARD}" | cut -d/ -f2)" || exit 1; \
+	    python3 ../scripts/cosmic_ray_shard.py "$$SESSION" "$$(printf %s "$${MUTANT_SHARD}" | cut -d/ -f1)" "$$(printf %s "$${MUTANT_SHARD}" | cut -d/ -f2)" || exit 1; \
 	  fi; \
-	  cosmic-ray exec cosmic-ray.toml cosmic-ray-diff-session.sqlite || exit 1; \
-	  cr-report cosmic-ray-diff-session.sqlite --show-output --show-diff > mutants-diff-report.txt || exit 1; \
-	  cr-report cosmic-ray-diff-session.sqlite | tail -5; \
-	  cp -- cosmic-ray-diff-session.sqlite mutants-diff-report.txt "$$proj/" || exit 1; \
+	  cosmic-ray exec cosmic-ray.toml "$$SESSION" || exit 1; \
+	  cr-report "$$SESSION" --show-output --show-diff > "$$REPORT" || exit 1; \
+	  cr-report "$$SESSION" | tail -5; \
+	  cp -- "$$SESSION" "$$REPORT" "$$proj/" || exit 1; \
 	  cd "$$proj" || exit 1; \
-	  set -- cosmic-ray-diff-session.sqlite "$${CELL_LABEL}" --max-survivors 0; \
-	  if [ -n "$${SURVIVORS_OUT}" ]; then set -- "$$@" --survivors "$${SURVIVORS_OUT}"; fi; \
+	  set -- "$$SESSION" "$${CELL_LABEL}"; \
+	  if [ "$$MODE" = full ]; then \
+	    if [ -n "$${STATUS_OUT}" ]; then set -- "$$@" --out "$${STATUS_OUT}"; fi; \
+	    if [ -n "$${SURVIVORS_OUT}" ]; then set -- "$$@" --survivors "$${SURVIVORS_OUT}"; fi; \
+	    python3 ../scripts/cosmic_ray_cell_status.py "$$@"; exit $$?; \
+	  fi; \
+	  set -- "$$@" --max-survivors 0; \
+	  if [ -n "$${SURVIVORS_OUT_ABS}" ]; then set -- "$$@" --survivors "$${SURVIVORS_OUT_ABS}"; fi; \
 	  python3 ../scripts/cosmic_ray_cell_status.py "$$@" > "$$work/status.out"; rc=$$?; \
 	  cat "$$work/status.out"; \
-	  if [ -n "$${STATUS_OUT}" ]; then cp -- "$$work/status.out" "$${STATUS_OUT}" || exit 1; fi; \
+	  if [ -n "$${STATUS_OUT_ABS}" ]; then cp -- "$$work/status.out" "$${STATUS_OUT_ABS}" || exit 1; fi; \
 	  exit "$$rc"
 
+# `env` rather than a VAR=... prefix: dash does not exec a command that carries assignments, which would
+# leave an extra sh between make and bash that dies on the group TERM and lets make exit mid-cleanup.
+mutants: mutants-baseline
+	@env MODE=full WORK=mutants SESSION=cosmic-ray-session.sqlite REPORT=mutants-report.txt bash -c '$(MUTANTS_BODY)'
+
+# The DIFF check is the first line of each recipe, not a prerequisite: make -k and -j start sibling
+# prerequisites regardless, and the baseline calls cosmic-ray, which a missing DIFF must never reach.
+# Make exits 2 on a failed recipe line.
+DIFF_GUARD = if [ -z "$(DIFF)" ]; then printf "error: DIFF is required: DIFF=<unified diff file>\n" >&2; exit 1; fi; if [ ! -f "$(DIFF_ABS)" ] || [ ! -r "$(DIFF_ABS)" ]; then printf "error: DIFF %s is not a readable file\n" "$(DIFF)" >&2; exit 1; fi
+
 # Prints the prune summary lines (excluded E of T ..., kept K of T (lines L)) and runs no mutant.
-mutants-diff-plan: mutants-diff-check mutants-baseline
-	@MODE=plan bash -c '$(MUTANTS_DIFF_RUN)'
+mutants-diff-plan:
+	@$(DIFF_GUARD)
+	@$(MAKE) --no-print-directory mutants-baseline
+	@env MODE=plan WORK=mutants-diff SESSION=cosmic-ray-diff-session.sqlite REPORT=mutants-diff-report.txt bash -c '$(MUTANTS_BODY)'
 
 # STATUS_OUT receives cell_status's whole stdout (verdict, survivor keys, diffs), not just its first line.
-mutants-diff: mutants-diff-check mutants-baseline
-	@MODE=exec bash -c '$(MUTANTS_DIFF_RUN)'
+mutants-diff:
+	@$(DIFF_GUARD)
+	@$(MAKE) --no-print-directory mutants-baseline
+	@env MODE=exec WORK=mutants-diff SESSION=cosmic-ray-diff-session.sqlite REPORT=mutants-diff-report.txt bash -c '$(MUTANTS_BODY)'
 
 mutants-report:
 	@cr-report cosmic-ray-session.sqlite --show-output --show-diff > mutants-report.txt

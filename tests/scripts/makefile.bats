@@ -1877,7 +1877,9 @@ _pd_setup() {
     CALLS="${BATS_TEST_TMPDIR}/calls"
     : > "${CALLS}"
     mkdir -p "${PROJ}" "${FX}/scripts" "${BATS_TEST_TMPDIR}/bin"
-    cp "${REPO_ROOT}/sq/Makefile" "${REPO_ROOT}/sq/cosmic-ray.toml" "${PROJ}/"
+    # PD_MAKEFILE lets a mutation probe run this suite against an altered copy of the Makefile.
+    cp "${PD_MAKEFILE:-${REPO_ROOT}/sq/Makefile}" "${PROJ}/Makefile"
+    cp "${REPO_ROOT}/sq/cosmic-ray.toml" "${PROJ}/"
     : > "${PROJ}/sq.py"
     : > "${PROJ}/test_sq.py"
     : > "${PROJ}/mutants-equivalent.toml"
@@ -1896,6 +1898,9 @@ if "${s}" == "cosmic_ray_prune":
         sys.exit(1)
     print("excluded 0 of 5 equivalents" if sys.argv[1] == "equivalents" else "kept 2 of 5 (lines 1)")
 if "${s}" == "cosmic_ray_cell_status":
+    if os.environ.get("STUB_STATUS_ECHO_SESSION"):
+        print("session=" + open(sys.argv[1]).read().splitlines()[0])
+        sys.exit(int(os.environ.get("STUB_STATUS_RC", "1")))
     print("red: sq - 1 surviving exceeds --max-survivors 0")
     sys.exit(int(os.environ.get("STUB_STATUS_RC", "1")))
 PYEOF
@@ -1976,6 +1981,16 @@ _pd_order() {
     run command grep -A1 '^cosmic_ray_prune$' "${CALLS}"
     [[ "${output}" == *"  equivalents"* ]]
     [[ "${output}" == *"  diff"* ]]
+}
+
+@test "python mutants-diff runs the equivalents prune before the diff prune" {
+    _pd_setup
+    run _pd_make -C "${PROJ}" mutants-diff-plan DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -eq 0 ]
+    eq="$(command grep -n '^  equivalents$' "${CALLS}" | cut -d: -f1)"
+    df="$(command grep -n '^  diff$' "${CALLS}" | cut -d: -f1)"
+    [ -n "${eq}" ] && [ -n "${df}" ]
+    [ "${eq}" -lt "${df}" ]
 }
 
 @test "python mutants-diff passes the prune calls their documented arguments" {
@@ -2133,4 +2148,76 @@ _pd_order() {
     for f in cosmic-ray-diff-session.sqlite cosmic-ray-diff-session.sqlite-journal mutants-diff-report.txt; do
         command grep -qxF "${f}" "${REPO_ROOT}/.gitignore"
     done
+}
+
+@test "python mutants-diff grades the fresh session, not a stale one left in the project" {
+    _pd_setup
+    printf 'stale\n' > "${PROJ}/cosmic-ray-diff-session.sqlite"
+    printf 'stale\n' > "${PROJ}/mutants-diff-report.txt"
+    STUB_STATUS_ECHO_SESSION=1 STUB_STATUS_RC=0 run _pd_make -C "${PROJ}" mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"session=fresh"* ]]
+    [[ "${output}" != *"stale"* ]]
+    [ "$(cat "${PROJ}/mutants-diff-report.txt")" = "report" ]
+}
+
+@test "python mutants-diff leaves no stale diff report when exec fails" {
+    _pd_setup
+    printf 'stale\n' > "${PROJ}/cosmic-ray-diff-session.sqlite"
+    printf 'stale\n' > "${PROJ}/mutants-diff-report.txt"
+    STUB_EXEC_RC=1 run _pd_make -C "${PROJ}" mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -ne 0 ]
+    [ ! -e "${PROJ}/mutants-diff-report.txt" ]
+    [ "$(head -1 "${PROJ}/cosmic-ray-diff-session.sqlite")" = "fresh" ]
+}
+
+@test "python mutants-diff copies the partial diff session back when exec fails" {
+    _pd_setup
+    STUB_EXEC_RC=1 run _pd_make -C "${PROJ}" mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -ne 0 ]
+    [ "$(head -1 "${PROJ}/cosmic-ray-diff-session.sqlite")" = "fresh" ]
+}
+
+@test "python mutants-diff and mutants-diff-plan leave .mutants-tmp empty on success" {
+    _pd_setup
+    STUB_STATUS_RC=0 run _pd_make -C "${PROJ}" mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -eq 0 ]
+    [ -z "$(ls -A "${PROJ}/.mutants-tmp")" ]
+    run _pd_make -C "${PROJ}" mutants-diff-plan DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -eq 0 ]
+    [ -z "$(ls -A "${PROJ}/.mutants-tmp")" ]
+}
+
+@test "python mutants-diff resolves a relative STATUS_OUT and SURVIVORS_OUT against the invoking directory" {
+    _pd_setup
+    mkdir -p "${BATS_TEST_TMPDIR}/inv"
+    cp "${BATS_TEST_TMPDIR}/pr.diff" "${BATS_TEST_TMPDIR}/inv/rel.diff"
+    cd "${BATS_TEST_TMPDIR}/inv"
+    PWD="${BATS_TEST_TMPDIR}/inv" run _pd_make -C "${PROJ}" mutants-diff DIFF=rel.diff STATUS_OUT=status.txt SURVIVORS_OUT=surv.txt
+    [ -f "${BATS_TEST_TMPDIR}/inv/status.txt" ]
+    [ ! -e "${PROJ}/status.txt" ]
+    [[ "$(cat "${CALLS}"; printf .)" == *$'  --survivors\n  '"${BATS_TEST_TMPDIR}"$'/inv/surv.txt\n'* ]]
+}
+
+@test "python mutants-diff with DIFF unset never reaches cosmic-ray under make -k" {
+    _pd_setup
+    run _pd_make -k -C "${PROJ}" mutants-diff
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"DIFF"* ]]
+    [ ! -s "${CALLS}" ]
+}
+
+@test "python mutants-diff-plan with DIFF unset never reaches cosmic-ray under make -j2" {
+    _pd_setup
+    run _pd_make -j2 -C "${PROJ}" mutants-diff-plan
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"DIFF"* ]]
+    [ ! -s "${CALLS}" ]
+}
+
+@test "python mutants-diff with an unreadable DIFF never reaches cosmic-ray under make -k -j2" {
+    _pd_setup
+    run _pd_make -k -j2 -C "${PROJ}" mutants-diff DIFF="${BATS_TEST_TMPDIR}/missing.diff"
+    [ "${status}" -ne 0 ]
+    [ ! -s "${CALLS}" ]
 }
