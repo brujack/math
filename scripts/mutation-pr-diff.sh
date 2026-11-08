@@ -26,7 +26,7 @@ main() {
     fi
 
     if ! env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
-        git -c diff.suppressBlankEmpty=false diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ --relative="${crate_dir}/" "${base_ref}...HEAD" -- "${crate_dir}" >"${out_file}"; then
+        git -c diff.suppressBlankEmpty=false -c core.quotePath=false diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ --relative="${crate_dir}/" "${base_ref}...HEAD" -- "${crate_dir}" >"${out_file}"; then
         printf '%s: git diff failed or cannot write %s\n' "${0##*/}" "${out_file}" >&2
         return 1
     fi

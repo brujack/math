@@ -143,3 +143,16 @@ _run_script() {
     run grep -c '^$' "${OUT}"
     [ "${output}" = "0" ]
 }
+
+@test "non-ASCII filename is emitted unquoted even with core.quotePath=true exported" {
+    printf 'def h():\n    return 1\n' >"${FIXTURE}/py-proj/olé.py"
+    _git add py-proj/olé.py
+    _git commit -q -m add-accent
+    printf 'def h():\n    return 2\n' >"${FIXTURE}/py-proj/olé.py"
+    _git commit -q -am change
+    export GIT_CONFIG_PARAMETERS="'core.quotePath=true'"
+    _run_script main py-proj "${OUT}"
+    [ "${status}" -eq 0 ]
+    run grep -c '^+++ b/olé.py$' "${OUT}"
+    [ "${output}" = "1" ]
+}
