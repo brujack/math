@@ -12,7 +12,7 @@ lint:
 	ruff format --check .
 else
 lint:
-	@printf "ruff not found, skipping (install: pip install ruff==0.16.4)\n"
+	@printf "ruff not found, skipping (install: pip install ruff==0.17.4)\n"
 endif
 
 test: lint

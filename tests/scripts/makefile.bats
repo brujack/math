@@ -193,7 +193,7 @@ load '../helpers/common'
     chmod +x "${stub}/ruff"
     run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS PATH="${stub}:${PATH}" make -C "${REPO_ROOT}/fib" lint --no-print-directory
     [ "${status}" -eq 0 ]
-    [[ "${output}" == *"ruff not found, skipping (install: pip install ruff==0.16.4)"* ]]
+    [[ "${output}" == *"ruff not found, skipping (install: pip install ruff==0.17.4)"* ]]
     [[ "${output}" != *"Error 127"* ]]
 }
 
