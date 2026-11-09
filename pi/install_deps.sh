@@ -89,7 +89,7 @@ install_c_libraries() {
 
 install_python_packages() {
     printf '\n%s\n' "==> Installing Python packages..."
-    python3 -m pip install mpmath==1.4.1 gmpy2==2.3.2 coverage==7.16.2 cosmic-ray==8.7.0 hypothesis==6.168.5 pytest==9.1.1 pytest-cov==7.1.0 ruff==0.16.4 pyright==1.1.411 pip-audit==2.10.1 || return 1
+    python3 -m pip install mpmath==1.4.1 gmpy2==2.3.2 coverage==7.16.2 cosmic-ray==8.7.0 hypothesis==6.168.5 pytest==9.1.1 pytest-cov==7.1.0 ruff==0.17.4 pyright==1.1.411 pip-audit==2.10.1 || return 1
 }
 
 verify_install() {

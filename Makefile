@@ -163,7 +163,7 @@ lint-hooks:
 # committing the very change that installs it (ci.md).
 lint-python:
 ifndef RUFF
-	@printf "ruff not found, skipping (install: pip install ruff==0.16.4)\n"
+	@printf "ruff not found, skipping (install: pip install ruff==0.17.4)\n"
 else
 	ruff check .
 	@env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
