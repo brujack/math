@@ -13,65 +13,21 @@
 
 - badges publish after auto-merge; actionlint via install-deps; classifier rejects ambiguous outcomes (#216)
 
+- disable core dumps in mutation runs (#218)
+
 
 
 ## CI
-
-- one rust mutation job per crate (#202)
 
 - per-PR Rust mutation ratchet on changed lines (#206)
 
 - Rust sweep holds zero missed (#208)
 
+- per-PR Python mutation gate on changed lines (#219)
+
 
 
 ## Documentation
-
-- approve worldclass slice 3
-
-- worldclass slice 3 rust mutation matrix
-
-- mark worldclass slice 3 done (math#202)
-
-- record first matrix sweep and V2 result
-
-- record slice 2 mutation V1 result
-
-- worldclass slice 4 rust mutation survivors
-
-- slice 4 multi-lens review round 1
-
-- slice 4 round-1 dispositions and fixes
-
-- slice 4 multi-lens review round 2
-
-- slice 4 round-2 fixes to drift test
-
-- approve worldclass slice 4
-
-- worldclass slice 4 rust mutation survivors
-
-- mark worldclass slice 4 done (math#203)
-
-- correct e-rs cfg(unix) row line-shift note
-
-- record slice 4 V1 sweep result
-
-- worldclass slice 5 per-PR Rust mutation ratchet
-
-- slice 5 round 1 lens revisions
-
-- slice 5 round 2 lens revisions and timeout classification
-
-- slice 5 round 3 lens revisions
-
-- slice 5 round 4 lens revisions
-
-- slice 5 scoped re-review wording fixes
-
-- approve slice 5 rust PR mutation ratchet spec
-
-- slice 5 rust PR mutation ratchet plan
 
 - mark slice 5 rust PR mutation ratchet done
 
@@ -105,18 +61,52 @@
 
 - runner loss persists after the file cap (run 42157905568)
 
+- worldclass slice 7 sharded Rust sweep with hang guard
+
+- slice 7 revised to 4 GiB cap and slice shards after round-1 review
+
+- slice 7 re-specified to disable mutation core dumps
+
+- slice 7 round-3 multi-lens review
+
+- slice 7 round-3 dispositions applied; approved
+
+- slice 7 R4 amended after scoped re-review
+
+- slice 7 mutant core dumps implementation plan
+
+- slice 7 done (math#218); Rust SIGTERM test flaked once under tracer
+
+- runner loss fixed; V1 sweep 42328612206 11/11 green
+
+- drop dead master ruleset row; ruleset deleted
+
+- worldclass slice 8 per-PR Python mutation gate
+
+- slice 8 round 1 lens findings and revisions
+
+- slice 8 round 1 dispositions; mandatory row in equivalents
+
+- slice 8 round 2 findings, dispositions and the above key
+
+- slice 8 round 3 fixes; review closed
+
+- approve slice 8 Python PR mutation gate
+
+- slice 8 Python PR mutation gate plan
+
+- mark slice 8 Done; backlog bash-coverage flake
+
+- record slice-8 V1, V3, V4 and V6 evidence
+
+- drop empty-plan backlog row, exercised by math#221
+
+- record second bash-coverage SIGTERM flake
+
 
 
 ## Refactoring
 
 - one exit-code reader and Rust setup macro; pin pi/e render values (#214)
-
-
-
-## Testing
-
-- kill surviving mutants in five crates (#203)
-
-- kill host-dependent mutation survivors (#204)
 
 
