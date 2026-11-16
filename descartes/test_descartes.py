@@ -14,13 +14,17 @@ from unittest import mock
 
 import descartes
 from descartes import (
+    PIPE_HEIGHT,
+    PIPE_WIDTH,
     BadInput,
     Circle,
     NoSolution,
+    _plot,
     check_tangent,
     descartes_fourth,
     distinct,
     pack,
+    render,
     root_centres,
     solve,
     validate_root,
@@ -1416,6 +1420,377 @@ class TestVisible(unittest.TestCase):
     def test_smaller_run_after_larger_is_unaffected(self) -> None:
         visible(ROOT_A, 1000)
         self.assertEqual(len(visible(ROOT_A, 30)), 38)
+
+
+BLANK = "\u2800"
+# Hand-checked dot grid for a unit circle at 60 x 24 cells (120 x 96 dots):
+# scale 47 dots per unit, centre (60, 48), radius 47 dots.
+UNIT = (1.0, 0.0, 0.0)
+BOUNDING: Circle = (-1.0, 0.0, 0.0)
+# Bit of each dot by (column, row) in a cell, written out independently of the
+# renderer's table.
+_BIT_TO_DOT = {
+    0x01: (0, 0),
+    0x02: (0, 1),
+    0x04: (0, 2),
+    0x40: (0, 3),
+    0x08: (1, 0),
+    0x10: (1, 1),
+    0x20: (1, 2),
+    0x80: (1, 3),
+}
+
+# Regression pin only (spec R9 and R11): the five R9 circles at 60 x 24, taken
+# from render's own output once the geometric tests below passed.
+R9_SNAPSHOT: list[str] = [
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⡠⣤⠤⠒⠛⠛⠛⠛⠓⠢⢤⡤⣀⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠤⠒⠊⠁⢠⠊⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⢢⠀⠉⠒⠢⢄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠤⠊⠁⠀⠀⠀⢠⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢣⢀⠔⠊⠉⠉⠲⢄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠔⠁⠀⠀⠀⠀⠀⠀⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⡇⠀⠀⠀⠀⠀⠀⢳⢄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠔⠁⠀⠀⠀⠀⠀⠀⠀⠀⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠸⡇⠀⠀⠀⠀⠀⠀⡸⠀⠑⢄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡠⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠱⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡰⠑⢄⡀⠀⠀⣀⠔⠁⠀⠀⠀⠣⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⡔⠁⠀⣀⠤⠒⠒⠉⠉⠉⠉⠑⠒⠢⢵⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⡰⠕⠒⠊⠉⠉⠉⠉⠒⠒⠤⣀⠀⠀⠑⡄⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⡸⢀⠔⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠓⢤⣀⠀⠀⠀⠀⢀⡠⠞⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠢⡀⠸⡀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⢰⡕⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⡍⠉⠉⢩⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⢢⢱⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⡞⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⡄⢠⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢫⡆⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⢸⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣧⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⣿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⣿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⢹⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡾⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠈⣇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠎⠱⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡰⡇⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⢸⢆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠎⠀⠀⠱⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡰⢹⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⢣⠑⢄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠔⠁⠀⠀⠀⠀⠈⠢⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡠⠊⢠⠃⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠈⢆⠀⠉⠒⠤⣀⣀⠀⠀⠀⠀⢀⣀⡠⠔⠊⠁⠀⠀⠀⠀⠀⠀⠀⠀⠈⠑⠢⢄⣀⡀⠀⠀⠀⠀⣀⣀⠤⠒⠉⠀⢀⠎⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠣⡀⠀⠀⠀⠀⠉⠉⠉⠉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠉⠉⠉⠉⠀⠀⠀⠀⠀⡠⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⢄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠔⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⢄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠔⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠤⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡠⠔⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠑⠤⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⡠⠔⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠑⠒⠢⠤⠤⣀⣀⣀⣀⣀⣀⡠⠤⠤⠒⠒⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
+]
+
+
+def lit_dots(lines: list[str]) -> set[tuple[int, int]]:
+    """Decode braille lines back to the set of lit (x, y) dots, y down."""
+    dots = set()
+    for row, line in enumerate(lines):
+        for col, char in enumerate(line):
+            bits = ord(char) - 0x2800
+            for bit, (dx, dy) in _BIT_TO_DOT.items():
+                if bits & bit:
+                    dots.add((2 * col + dx, 4 * row + dy))
+    return dots
+
+
+def expected_geometry(
+    circles: list[Circle], width: int, height: int
+) -> list[tuple[float, float, float]]:
+    """Unrounded (cx, cy, r) in dots from the bounding-box rule, y down.
+
+    The bounding box of every circle is fitted into the dots 0.5 .. W-1.5 and
+    0.5 .. H-1.5 with one scale for both axes, centred.
+    """
+    radii = [abs(1 / k) for k, _, _ in circles]
+    xmin = min(x - r for (_, x, _), r in zip(circles, radii, strict=True))
+    xmax = max(x + r for (_, x, _), r in zip(circles, radii, strict=True))
+    ymin = min(y - r for (_, _, y), r in zip(circles, radii, strict=True))
+    ymax = max(y + r for (_, _, y), r in zip(circles, radii, strict=True))
+    scale = min((2 * width - 2) / (xmax - xmin), (4 * height - 2) / (ymax - ymin))
+    left = (2 * width - 1 - (xmax - xmin) * scale) / 2
+    top = (4 * height - 1 - (ymax - ymin) * scale) / 2
+    return [
+        (left + (x - xmin) * scale, top + (ymax - y) * scale, r * scale)
+        for (_, x, y), r in zip(circles, radii, strict=True)
+    ]
+
+
+R9_CIRCLES: list[Circle] = [
+    (-1.0, 0.0, 0.0),
+    (2.0, 0.5, 0.0),
+    (3.0, 0.0, 0.6666666666666666),
+    (2.0, -0.5, 0.0),
+    (6.0, 0.5, 0.6666666666666666),
+]
+
+
+class TestRender(unittest.TestCase):
+    def test_constants(self) -> None:
+        self.assertEqual((PIPE_WIDTH, PIPE_HEIGHT), (60, 24))
+
+    def test_empty_list_is_all_blank_r11(self) -> None:
+        self.assertEqual(render([], 60, 24), [BLANK * 60] * 24)
+
+    def test_shape_and_alphabet(self) -> None:
+        for width, height in ((1, 1), (2, 1), (1, 3), (7, 5), (60, 24), (100, 10)):
+            with self.subTest(width=width, height=height):
+                lines = render([BOUNDING, (2.0, 0.5, 0.0)], width, height)
+                self.assertEqual(len(lines), height)
+                for line in lines:
+                    self.assertEqual(len(line), width)
+                    self.assertTrue(all(0x2800 <= ord(c) <= 0x28FF for c in line))
+
+    def test_one_by_one_lights_a_dot(self) -> None:
+        self.assertNotEqual(render([UNIT], 1, 1), [BLANK])
+
+    def test_size_below_one_is_bad_input(self) -> None:
+        for width, height in ((0, 24), (60, 0), (0, 0), (-1, 24), (60, -3)):
+            with self.subTest(width=width, height=height):
+                with self.assertRaises(BadInput) as ctx:
+                    render([UNIT], width, height)
+                self.assertIn("render", str(ctx.exception))
+                self.assertIn(f"{width}x{height}", str(ctx.exception))
+
+    def test_size_error_precedes_empty_list(self) -> None:
+        with self.assertRaises(BadInput):
+            render([], 0, 5)
+
+    def test_non_finite_circle_is_bad_input(self) -> None:
+        nan, inf = math.nan, math.inf
+        for bad in (
+            (nan, 0.0, 0.0),
+            (inf, 0.0, 0.0),
+            (1.0, nan, 0.0),
+            (1.0, 0.0, inf),
+            (0.0, 0.0, 0.0),
+        ):
+            with self.subTest(circle=bad):
+                with self.assertRaises(BadInput) as ctx:
+                    render([BOUNDING, bad], 60, 24)
+                self.assertIn("render", str(ctx.exception))
+
+    def test_bounding_box_overflow_is_bad_input(self) -> None:
+        with self.assertRaises(BadInput):
+            render([(1.0, 1.7e308, 0.0), (1.0, -1.7e308, 0.0)], 60, 24)
+
+    def test_scale_overflow_is_bad_input(self) -> None:
+        with self.assertRaises(BadInput):
+            render([(1e308, 0.0, 0.0)], 60, 24)
+
+    def test_single_circle_hand_derived_extremes(self) -> None:
+        # 120 x 96 dots: scale 47, centre (60, 48), radius 47.
+        dots = lit_dots(render([UNIT], 60, 24))
+        for dot in ((13, 48), (107, 48), (60, 1), (60, 95)):
+            self.assertIn(dot, dots)
+        xs = [x for x, _ in dots]
+        ys = [y for _, y in dots]
+        self.assertEqual((min(xs), max(xs)), (13, 107))
+        self.assertEqual((min(ys), max(ys)), (1, 95))
+
+    def test_single_circle_fills_binding_dimension_and_is_centred(self) -> None:
+        dots = lit_dots(render([UNIT], 60, 24))
+        ys = [y for _, y in dots]
+        xs = [x for x, _ in dots]
+        self.assertLessEqual(min(ys), 1)
+        self.assertGreaterEqual(max(ys), 96 - 2)
+        self.assertLessEqual(abs(min(xs) - (120 - 1 - max(xs))), 1)
+
+    def test_single_circle_fills_width_when_width_binds(self) -> None:
+        dots = lit_dots(render([UNIT], 10, 24))
+        xs = [x for x, _ in dots]
+        ys = [y for _, y in dots]
+        self.assertLessEqual(min(xs), 1)
+        self.assertGreaterEqual(max(xs), 20 - 2)
+        self.assertLessEqual(abs(min(ys) - (96 - 1 - max(ys))), 1)
+
+    def test_uniform_scale_for_single_circle(self) -> None:
+        dots = lit_dots(render([UNIT], 60, 24))
+        xs = [x for x, _ in dots]
+        ys = [y for _, y in dots]
+        self.assertLessEqual(abs((max(xs) - min(xs)) - (max(ys) - min(ys))), 1)
+
+    def test_uniform_scale_for_wide_pair_hand_derived(self) -> None:
+        # Two unit circles at x = 0 and 2: box 4 x 2 units, width binds at
+        # 29.5 dots per unit; extents 119 x 60 dots, the 2 : 1 of the box.
+        dots = lit_dots(render([(1.0, 0.0, 0.0), (1.0, 2.0, 0.0)], 60, 24))
+        xs = [x for x, _ in dots]
+        ys = [y for _, y in dots]
+        self.assertEqual((min(xs), max(xs)), (0, 119))
+        self.assertEqual((min(ys), max(ys)), (18, 78))
+
+    def test_every_lit_dot_is_on_some_circle(self) -> None:
+        for circles in (R9_CIRCLES, [BOUNDING, (2.0, 0.5, 0.0), (2.0, -0.5, 0.0)]):
+            geometry = expected_geometry(circles, 60, 24)
+            for x, y in lit_dots(render(circles, 60, 24)):
+                gaps = [abs(math.hypot(x - cx, y - cy) - r) for cx, cy, r in geometry]
+                with self.subTest(dot=(x, y)):
+                    self.assertLessEqual(min(gaps), 1.5)
+
+    def test_extreme_dots_of_every_circle_are_lit(self) -> None:
+        dots = lit_dots(render(R9_CIRCLES, 60, 24))
+        for cx, cy, r in expected_geometry(R9_CIRCLES, 60, 24):
+            icx, icy, ir = (
+                math.floor(cx + 0.5),
+                math.floor(cy + 0.5),
+                math.floor(r + 0.5),
+            )
+            for dot in (
+                (icx - ir, icy),
+                (icx + ir, icy),
+                (icx, icy - ir),
+                (icx, icy + ir),
+            ):
+                with self.subTest(dot=dot):
+                    self.assertIn(dot, dots)
+
+    def test_three_circle_extremes_hand_derived(self) -> None:
+        circles = [BOUNDING, (2.0, 0.5, 0.0), (2.0, -0.5, 0.0)]
+        dots = lit_dots(render(circles, 60, 24))
+        wanted = (
+            (59, 48), (107, 48), (83, 24), (83, 72),  # centre (83, 48), radius 24
+            (12, 48), (60, 48), (36, 24), (36, 72),  # centre (36, 48), radius 24
+        )  # fmt: skip
+        for dot in wanted:
+            self.assertIn(dot, dots)
+
+    def test_orientation_y_up_is_rows_up(self) -> None:
+        both = lit_dots(render([BOUNDING, (10.0, 0.0, 0.5)], 60, 24))
+        extra = both - lit_dots(render([BOUNDING], 60, 24))
+        self.assertTrue(extra)
+        self.assertTrue(all(y < 48 for _, y in extra))
+        below = lit_dots(render([BOUNDING, (10.0, 0.0, -0.5)], 60, 24))
+        extra_below = below - lit_dots(render([BOUNDING], 60, 24))
+        self.assertTrue(extra_below)
+        self.assertTrue(all(y >= 48 for _, y in extra_below))
+
+    def test_orientation_x_right_is_columns_right(self) -> None:
+        both = lit_dots(render([BOUNDING, (10.0, 0.5, 0.0)], 60, 24))
+        extra = both - lit_dots(render([BOUNDING], 60, 24))
+        self.assertTrue(extra)
+        self.assertTrue(all(x > 60 for x, _ in extra))
+        left = lit_dots(render([BOUNDING, (10.0, -0.5, 0.0)], 60, 24))
+        extra_left = left - lit_dots(render([BOUNDING], 60, 24))
+        self.assertTrue(extra_left)
+        self.assertTrue(all(x < 60 for x, _ in extra_left))
+
+    def test_bounding_plus_k2_is_in_right_half_and_touches_the_edge(self) -> None:
+        circles = [BOUNDING, (2.0, 0.5, 0.0)]
+        both = lit_dots(render(circles, 60, 24))
+        inner = both - lit_dots(render([BOUNDING], 60, 24))
+        self.assertTrue(inner)
+        self.assertTrue(all(x >= 59 for x, _ in inner))
+        # The tangent point is the bounding circle's rightmost dot, (107, 48).
+        self.assertIn((107, 48), both)
+        self.assertEqual(max(x for x, _ in both), 107)
+
+    def test_zero_dot_radius_lights_exactly_one_dot(self) -> None:
+        # Radius 1e-9 is 0 dots at 47 dots per unit; its centre is (83, 48).
+        tiny = (1e9, 0.5, 0.0)
+        extra = lit_dots(render([BOUNDING, tiny], 60, 24)) - lit_dots(
+            render([BOUNDING], 60, 24)
+        )
+        self.assertEqual(extra, {(83, 48)})
+
+    def test_dots_outside_the_grid_are_not_plotted(self) -> None:
+        # A one-cell canvas is 2 x 4 dots; every circle still fits it.
+        lines = render([BOUNDING, (2.0, 0.5, 0.0)], 1, 1)
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(len(lines[0]), 1)
+
+    def test_input_is_not_mutated_and_calls_repeat(self) -> None:
+        circles = list(R9_CIRCLES)
+        first = render(circles, 60, 24)
+        self.assertEqual(circles, R9_CIRCLES)
+        self.assertEqual(render(circles, 60, 24), first)
+        self.assertIsNot(render(circles, 60, 24), first)
+
+    def test_order_of_circles_does_not_matter(self) -> None:
+        self.assertEqual(
+            render(R9_CIRCLES, 60, 24), render(list(reversed(R9_CIRCLES)), 60, 24)
+        )
+
+    def test_bad_circle_message_names_its_number(self) -> None:
+        for circles, number in (
+            ([(math.nan, 0.0, 0.0), BOUNDING, UNIT], 1),
+            ([BOUNDING, (1.0, math.inf, 0.0), UNIT], 2),
+            ([BOUNDING, UNIT, (0.0, 0.0, 0.0)], 3),
+        ):
+            with self.subTest(number=number):
+                with self.assertRaises(BadInput) as ctx:
+                    render(circles, 60, 24)
+                self.assertIn(f"circle {number} ", str(ctx.exception))
+
+    def test_width_binding_fractional_scale_exact(self) -> None:
+        # Box 2.5 x 5 units on 4 x 4 cells (8 x 16 dots): width gives
+        # 6 / 2.5 = 2.4, height 14 / 5 = 2.8, so width binds at 2.4.
+        # left 0.5, top 1.5.  Circle 1: centre (3, 11), radius 2; circle 2:
+        # centre (4, 4), radius 2.
+        dots = lit_dots(render([UNIT, (1.0, 0.5, 3.0)], 4, 4))
+        for dot in ((1, 11), (5, 11), (3, 9), (3, 13), (2, 4), (6, 4), (4, 2), (4, 6)):
+            self.assertIn(dot, dots)
+        xs = [x for x, _ in dots]
+        ys = [y for _, y in dots]
+        self.assertEqual((min(xs), max(xs)), (1, 6))
+        self.assertEqual((min(ys), max(ys)), (2, 13))
+
+    def test_height_binding_fractional_scale_exact(self) -> None:
+        # Same circles on 3 x 1 cells (6 x 4 dots): width gives 4 / 2.5 = 1.6,
+        # height 2 / 5 = 0.4, so height binds at 0.4.  left 2, top 0.5; both
+        # radii round to 0 dots, centres (2, 2) and (3, 1).
+        self.assertEqual(
+            lit_dots(render([UNIT, (1.0, 0.5, 3.0)], 3, 1)), {(2, 2), (3, 1)}
+        )
+
+    def test_r9_snapshot(self) -> None:
+        self.assertEqual(render(R9_CIRCLES, 60, 24), R9_SNAPSHOT)
+
+
+class TestPlot(unittest.TestCase):
+    """The off-grid guard cannot be reached through render, so test it here."""
+
+    @staticmethod
+    def _blank(width: int, height: int) -> list[list[int]]:
+        return [[0] * width for _ in range(height)]
+
+    def _lit_after(
+        self, width: int, height: int, dots: list[tuple[int, int]]
+    ) -> set[tuple[int, int]]:
+        cells = self._blank(width, height)
+        for x, y in dots:
+            _plot(cells, x, y, width, height)
+        lines = ["".join(chr(0x2800 + b) for b in row) for row in cells]
+        return lit_dots(lines)
+
+    def test_in_grid_corners_are_lit(self) -> None:
+        for width, height in ((3, 2), (1, 1), (5, 4)):
+            corners = [
+                (0, 0),
+                (2 * width - 1, 0),
+                (0, 4 * height - 1),
+                (2 * width - 1, 4 * height - 1),
+            ]
+            for corner in corners:
+                with self.subTest(width=width, height=height, corner=corner):
+                    self.assertEqual(self._lit_after(width, height, [corner]), {corner})
+
+    def test_off_grid_dots_change_nothing(self) -> None:
+        for width, height in ((3, 2), (1, 1), (5, 4)):
+            off = [
+                (-1, 0),
+                (2 * width, 0),
+                (0, -1),
+                (0, 4 * height),
+                (-1, -1),
+                (2 * width, 4 * height),
+                (2 * width + 1, 1),
+                (1, 4 * height + 1),
+                (-2 * width, 1),
+                (1, -4 * height),
+            ]
+            for dot in off:
+                with self.subTest(width=width, height=height, dot=dot):
+                    cells = self._blank(width, height)
+                    _plot(cells, dot[0], dot[1], width, height)
+                    self.assertEqual(cells, self._blank(width, height))
+
+    def test_dot_bits_land_in_the_right_cell(self) -> None:
+        self.assertEqual(self._lit_after(3, 2, [(3, 5)]), {(3, 5)})
+        cells = self._blank(3, 2)
+        _plot(cells, 3, 5, 3, 2)
+        self.assertEqual(cells[1][1], 0x10)
+
+    def test_plotting_twice_and_with_others_accumulates(self) -> None:
+        dots = [(0, 0), (1, 0), (0, 0)]
+        self.assertEqual(self._lit_after(2, 1, dots), {(0, 0), (1, 0)})
 
 
 class TestModule(unittest.TestCase):

@@ -367,3 +367,121 @@ def visible(root: tuple[int, int, int, int], limit: int) -> list[Circle]:
             if quad[i] < k <= limit:
                 stack.append(_child(quad, centres, i, k))
     return found
+
+
+# ---------------------------------------------------------------------------
+# Renderer
+# ---------------------------------------------------------------------------
+
+# The canvas when stdout is not a terminal (spec Component 7, R11).
+PIPE_WIDTH = 60
+PIPE_HEIGHT = 24
+
+# Braille as in triangle.py: a cell is 2 dots wide and 4 tall, and is drawn
+# twice as tall as wide, so a unit of length is the same number of dots in x
+# and in y.
+_BRAILLE_BASE = 0x2800
+# Dot bits by (column within the cell, row within the cell).
+_DOT_BITS = (
+    (0x01, 0x02, 0x04, 0x40),
+    (0x08, 0x10, 0x20, 0x80),
+)
+
+
+def _check_render_input(circles: list[Circle], width: int, height: int) -> None:
+    """Raise BadInput for a canvas under 1 x 1 or a circle that cannot be drawn."""
+    # Unlike triangle's 6 x 3 there are no labels to fit, so 1 x 1 is enough.
+    if width < 1 or height < 1:
+        raise BadInput(
+            f"render: canvas {width}x{height} is too small, need at least 1x1"
+        )
+    for number, (k, x, y) in enumerate(circles, start=1):
+        problem = _input_problem(k, x, y)
+        if problem:
+            raise BadInput(
+                f"render: circle {number} {problem} (curvature {k}, centre ({x}, {y}))"
+            )
+
+
+def _dot_circles(
+    circles: list[Circle], width: int, height: int
+) -> list[tuple[int, int, int]]:
+    """Centre and radius in dots (x right, y down) of each circle on the grid.
+
+    The bounding box of all circles is fitted into dots 0.5 .. W-1.5 (and
+    likewise in y) at one scale and centred, so rounding a centre and a radius
+    to whole dots moves an edge by under one dot and never off the grid.
+    Rounding is floor(v + 0.5).
+    """
+    radii = [abs(1.0 / k) for k, _, _ in circles]
+    x_min = min(x - r for (_, x, _), r in zip(circles, radii, strict=True))
+    x_max = max(x + r for (_, x, _), r in zip(circles, radii, strict=True))
+    y_min = min(y - r for (_, _, y), r in zip(circles, radii, strict=True))
+    y_max = max(y + r for (_, _, y), r in zip(circles, radii, strict=True))
+    x_span, y_span = x_max - x_min, y_max - y_min
+    scale = (
+        min((2 * width - 2) / x_span, (4 * height - 2) / y_span)
+        if math.isfinite(x_span) and math.isfinite(y_span)
+        else math.nan
+    )
+    if not math.isfinite(scale):
+        raise BadInput(
+            f"render: the circles' bounding box ({x_span} x {y_span}) cannot be "
+            f"scaled onto a {width}x{height} canvas"
+        )
+    left = (2 * width - 1 - x_span * scale) / 2
+    top = (4 * height - 1 - y_span * scale) / 2
+    return [
+        (
+            math.floor(left + (x - x_min) * scale + 0.5),
+            math.floor(top + (y_max - y) * scale + 0.5),
+            math.floor(r * scale + 0.5),
+        )
+        for (_, x, y), r in zip(circles, radii, strict=True)
+    ]
+
+
+def _midpoint_circle(cx: int, cy: int, radius: int) -> set[tuple[int, int]]:
+    """Dots on the circle of the given radius (midpoint algorithm).
+
+    A radius of 0 is the centre dot alone.
+    """
+    dots: set[tuple[int, int]] = set()
+    x, y = radius, 0
+    decision = 1 - radius
+    while x >= y:
+        for dx, dy in ((x, y), (y, x)):
+            for sign_x in (1, -1):
+                for sign_y in (1, -1):
+                    dots.add((cx + sign_x * dx, cy + sign_y * dy))
+        y += 1
+        if decision <= 0:
+            decision += 2 * y + 1
+        else:
+            x -= 1
+            decision += 2 * (y - x) + 1
+    return dots
+
+
+def _plot(cells: list[list[int]], x: int, y: int, width: int, height: int) -> None:
+    """Light dot (x, y) in the cell grid; a dot off the grid is ignored.
+
+    The bounds check matters: a negative index would wrap to the far edge.
+    """
+    if 0 <= x < 2 * width and 0 <= y < 4 * height:
+        cells[y // 4][x // 2] |= _DOT_BITS[x % 2][y % 4]
+
+
+def render(circles: list[Circle], width: int, height: int) -> list[str]:
+    """Draw circles as braille text, width x height cells, y up on the page.
+
+    Reads only the (k, x, y) list. Raises BadInput for a canvas under 1 x 1 or
+    a circle with a non-finite value or zero curvature.
+    """
+    _check_render_input(circles, width, height)
+    cells = [[0] * width for _ in range(height)]
+    if circles:
+        for cx, cy, radius in _dot_circles(circles, width, height):
+            for x, y in _midpoint_circle(cx, cy, radius):
+                _plot(cells, x, y, width, height)
+    return ["".join(chr(_BRAILLE_BASE + bits) for bits in row) for row in cells]
