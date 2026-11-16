@@ -302,3 +302,68 @@ Disposition: Addressed (operator, 2026-11-15): R13 names the `tests/test_mutants
 - R27 -> CLI details the Design leaves open, fixed so Rust matches (R14, R15). Bounds: the canvas is the terminal size clamped to at least 1 × 1 and at most 1000 × 500 cells, one row short of the terminal height so the prompt stays visible, which caps the drawing limit at 4000 (measured: 20,360 circles, 6.5 MB for the default root; an unclamped `COLUMNS=100000` reached `MemoryError` at a 4 GB cap); `--precision P` accepts 0 ≤ P ≤ 17 (17 decimals round-trip any double; `P = 10^8` wrote 2.3 GB) and exits 2 otherwise. Mode flags: `--solve` with K, `--root`, `--smoke`, `--show` or `--yes` exits 2, and so does `--precision` without `--solve`. Messages: `BadInput`, `NoSolution` and file errors print `Error: <message>` to stderr; argparse rejections (mode flags, `--precision` range, a missing or non-integer K on the command line) print argparse's usage block and `descartes.py: error: <message>`; K out of range prints `K must be between 1 and 6, got K.` as amicable does; a non-integer K at the prompt names the input (`Invalid input: 'abc' is not an integer K.`, exit 2); end of input at the prompt exits 1 as in amicable. The elapsed line is `Elapsed: <seconds to 2 places>s` on stderr. The output file is opened before `pack` runs, so a path or permission error exits 1 before the computation. The solve table is a header `kind # curvature radius x y`, then `given 1-3` and `solution 1-n` rows, columns padded to align with no trailing space, values `repr` (Rust `Display`) or `P` fixed decimals, `-0` printed unsigned, radius `1/k`. — argparse owns its own error format and amicable's range message is kept verbatim (all sub-projects treated identically); the Error: prefix covers the errors the program raises itself.
 - finding R28 (2026-11-16, reviewer A): NOT-BUILT — Python half is present (ROOT_MAX = 10**8, BadInput before the Descartes check, exit 2 via _run_packing, tested), but the requirement says 'in both languages' and no Rust validate_root exists in the diff.
 - R28 reviewed: the Python half is built and tested in PR1 (ROOT_MAX, TestRootCeiling); the Rust validate_root is PR2, bound by plan Task 7.
+- finding R13 (2026-11-16, reviewer both): NOT-BUILT — No descartes/descartes-rs/ files, no CRATES entry, no 12-crate assertion and no tests/test_mutants_exclusions.py change appear in the diff (Rust crate, later PR).
+- R13 reviewed: [PR2] item; the Rust crate is PR2 (plan Tasks 6-11) and this branch is PR1.
+- finding R14 (2026-11-16, reviewer both): NOT-BUILT — No Rust binary, K 1-8 handling or Rust tests exist in the diff (later PR).
+- R14 reviewed: [PR2] item; the Rust crate is PR2 (plan Tasks 6-11) and this branch is PR1.
+- finding R15 (2026-11-16, reviewer both): NOT-BUILT — No descartes-rs/tests/parity.rs or descartes-rs/.cargo/mutants.toml in the diff (later PR).
+- R15 reviewed: [PR2] item; the Rust crate is PR2 (plan Tasks 6-11) and this branch is PR1.
+- finding R17 (2026-11-16, reviewer both): NOT-BUILT — The Python half is present (tests/scripts/descartes.bats covers missing K, K 0/7, non-integer K, a bad root and a non-tangent --solve, asserting status and stderr), but descartes-rs/tests/cli.rs for the Rust binary is absent.
+- R17 reviewed: the Python half is built (tests/scripts/descartes.bats, 1063b08); the descartes-rs/tests/cli.rs half is PR2.
+- finding R19 (2026-11-16, reviewer both): NOT-BUILT — No descartes-rs.yml, release-descartes-rs.yml or descartes/descartes-rs hook-loop entry in the diff (later PR).
+- R19 reviewed: [PR2] item; the Rust crate is PR2 (plan Tasks 6-11) and this branch is PR1.
+- finding R22 (2026-11-16, reviewer both): NOT-BUILT — No Rust pack or 10^8 ceiling appears in the diff (later PR).
+- R22 reviewed: [PR2] item; the Rust crate is PR2 (plan Tasks 6-11) and this branch is PR1.
+- finding R23 (2026-11-16, reviewer both): NOT-BUILT — The Python half is present (descartes.py:55 raises NoSolution when s < -1e-12 x (|k1k2|+|k2k3|+|k3k1|), :60 clamps max(s, 0), and test_tolerance_is_one_ppt_of_the_summed_products holds the four fixtures including (2, 999999999999, -2) clamping), but the requirement says both languages share those fixtures and no Rust implementation or test exists.
+- R23 reviewed: the Python half is built and tested in PR1; the Rust half and its shared fixtures are PR2 (plan Task 6).
+- finding R25 (2026-11-16, reviewer both): NOT-BUILT — The Python half is present (_place_root computes x3 and y3² in Fraction, keeps y3 >= 0, picks the curvature-d candidate with the larger y; _tangent_circles skips |k| <= 1e-9 x (|k1|+|k2|+|k3|); solve raises NoSolution naming its inputs), but the requirement also specifies the Rust root_centres (checked i128 rationals or proven f64), which the diff does not contain.
+- R25 reviewed: the Python half is built and tested in PR1; the Rust root_centres is PR2 (plan Task 8).
+- finding R28 (2026-11-16, reviewer both): NOT-BUILT — The Python half is present (ROOT_MAX = 10**8, validate_root raises BadInput before the Descartes check, exit 2 via _run_packing, TestRootCeiling), but the requirement says both languages and no Rust validate_root exists in the diff.
+- R28 reviewed: the Python half is built and tested in PR1; the Rust validate_root is PR2 (plan Task 7).
+
+## Spec alignment (2026-11-16)
+
+- spec: docs/superpowers/specs/2026-11-15-descartes-design.md
+- anchor: fbe2bcdf9d068c8ee32a34ab2fe155cb68aeb51c
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R17, R18, R19, R20, R21, R22, R23, R24, R25, R26, R27, R28
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+| R13 | both | NOT-BUILT | No descartes/descartes-rs/ files, no CRATES entry, no 12-crate assertion and no tests/test_mutants_exclusions.py change appear in the diff (Rust crate, later PR). | - R13 reviewed: [PR2] item; the Rust crate is PR2 (plan Tasks 6-11) and this branch is PR1. |
+| R14 | both | NOT-BUILT | No Rust binary, K 1-8 handling or Rust tests exist in the diff (later PR). | - R14 reviewed: [PR2] item; the Rust crate is PR2 (plan Tasks 6-11) and this branch is PR1. |
+| R15 | both | NOT-BUILT | No descartes-rs/tests/parity.rs or descartes-rs/.cargo/mutants.toml in the diff (later PR). | - R15 reviewed: [PR2] item; the Rust crate is PR2 (plan Tasks 6-11) and this branch is PR1. |
+| R17 | both | NOT-BUILT | The Python half is present (tests/scripts/descartes.bats covers missing K, K 0/7, non-integer K, a bad root and a non-tangent --solve, asserting status and stderr), but descartes-rs/tests/cli.rs for the Rust binary is absent. | - R17 reviewed: the Python half is built (tests/scripts/descartes.bats, 1063b08); the descartes-rs/tests/cli.rs half is PR2. |
+| R19 | both | NOT-BUILT | No descartes-rs.yml, release-descartes-rs.yml or descartes/descartes-rs hook-loop entry in the diff (later PR). | - R19 reviewed: [PR2] item; the Rust crate is PR2 (plan Tasks 6-11) and this branch is PR1. |
+| R22 | both | NOT-BUILT | No Rust pack or 10^8 ceiling appears in the diff (later PR). | - R22 reviewed: [PR2] item; the Rust crate is PR2 (plan Tasks 6-11) and this branch is PR1. |
+| R23 | both | NOT-BUILT | The Python half is present (descartes.py:55 raises NoSolution when s < -1e-12 x (\|k1k2\|+\|k2k3\|+\|k3k1\|), :60 clamps max(s, 0), and test_tolerance_is_one_ppt_of_the_summed_products holds the four fixtures including (2, 999999999999, -2) clamping), but the requirement says both languages share those fixtures and no Rust implementation or test exists. | - R23 reviewed: the Python half is built and tested in PR1; the Rust half and its shared fixtures are PR2 (plan Task 6). |
+| R25 | both | NOT-BUILT | The Python half is present (_place_root computes x3 and y3² in Fraction, keeps y3 >= 0, picks the curvature-d candidate with the larger y; _tangent_circles skips \|k\| <= 1e-9 x (\|k1\|+\|k2\|+\|k3\|); solve raises NoSolution naming its inputs), but the requirement also specifies the Rust root_centres (checked i128 rationals or proven f64), which the diff does not contain. | - R25 reviewed: the Python half is built and tested in PR1; the Rust root_centres is PR2 (plan Task 8). |
+| R28 | both | NOT-BUILT | The Python half is present (ROOT_MAX = 10**8, validate_root raises BadInput before the Descartes check, exit 2 via _run_packing, TestRootCeiling), but the requirement says both languages and no Rust validate_root exists in the diff. | - R28 reviewed: the Python half is built and tested in PR1; the Rust validate_root is PR2 (plan Task 7). |
+
+### Reviewed
+
+- R13 reviewed: [PR2] item; the Rust crate is PR2 (plan Tasks 6-11) and this branch is PR1.
+- R14 reviewed: [PR2] item; the Rust crate is PR2 (plan Tasks 6-11) and this branch is PR1.
+- R15 reviewed: [PR2] item; the Rust crate is PR2 (plan Tasks 6-11) and this branch is PR1.
+- R17 reviewed: Python half fixed in 1063b08 (tests/scripts/descartes.bats: the five failure modes plus a K=1 run, exit code and stderr asserted separately); the descartes-rs/tests/cli.rs half is PR2.
+- R19 reviewed: [PR2] item; the Rust crate is PR2 (plan Tasks 6-11) and this branch is PR1.
+- R22 reviewed: [PR2] item; the Rust crate is PR2 (plan Tasks 6-11) and this branch is PR1.
+- R23 reviewed: the Python half is built and tested in PR1; the Rust half and its shared fixtures are PR2, where plan Task 6 requires them.
+- R25 reviewed: the Python half is built and tested in PR1; the Rust root_centres is PR2, bound by plan Task 8.
+- R28 reviewed: the Python half is built and tested in PR1 (ROOT_MAX, TestRootCeiling); the Rust validate_root is PR2, bound by plan Task 7.
+- R13 reviewed: [PR2] item; the Rust crate is PR2 (plan Tasks 6-11) and this branch is PR1.
+- R14 reviewed: [PR2] item; the Rust crate is PR2 (plan Tasks 6-11) and this branch is PR1.
+- R15 reviewed: [PR2] item; the Rust crate is PR2 (plan Tasks 6-11) and this branch is PR1.
+- R17 reviewed: the Python half is built (tests/scripts/descartes.bats, 1063b08); the descartes-rs/tests/cli.rs half is PR2.
+- R19 reviewed: [PR2] item; the Rust crate is PR2 (plan Tasks 6-11) and this branch is PR1.
+- R22 reviewed: [PR2] item; the Rust crate is PR2 (plan Tasks 6-11) and this branch is PR1.
+- R23 reviewed: the Python half is built and tested in PR1; the Rust half and its shared fixtures are PR2 (plan Task 6).
+- R25 reviewed: the Python half is built and tested in PR1; the Rust root_centres is PR2 (plan Task 8).
+- R28 reviewed: the Python half is built and tested in PR1; the Rust validate_root is PR2 (plan Task 7).
+
+### Verifications
+
+- V1: no evidence recorded
+- V2: no evidence recorded
