@@ -79,7 +79,7 @@ description: root_centres, solve with per-pair tangency, and visible
 role: executor
 model: sonnet
 tdd: required
-requirements: [R9, R10, R24]
+requirements: [R9, R10, R24, R25]
 acceptance:
   - cmd: python3 -m pytest descartes/test_descartes.py -q
     exit_code: 0
@@ -260,7 +260,7 @@ description: root_centres, check_tangent, solve, visible and render in Rust
 role: executor
 model: sonnet
 tdd: required
-requirements: [R14, R24]
+requirements: [R14, R24, R25]
 acceptance:
   - cmd: make -C descartes/descartes-rs test </dev/null
     exit_code: 0
