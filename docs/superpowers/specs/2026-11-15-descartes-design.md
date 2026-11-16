@@ -1,6 +1,7 @@
 # Descartes: tangent-circle solver and integral Apollonian packings
 
-- **Status:** Draft
+- **Status:** Approved
+- **Approved:** 2026-11-15
 - **Date:** 2026-11-15
 
 ## Context
@@ -196,7 +197,7 @@ TDD per function, with boundary, error-path and state-transition cases.
 - **R10.** `[PR1]` Pasting the R9 table's printed values back into `--solve` exits 0 with the same curvatures; the R9 input scaled by 100 (curvatures -100, 200 and 300, centres divided by 100) exits 0; `--solve -1,0,0 2,0.5,0 3,0,0.6667` exits 1 naming circles 1 and 3 as not tangent and suggesting full-precision values (pairs are checked in the order 1-2, 1-3, 2-3 and the first failing pair is named); a zero curvature or an unparsable `K,X,Y` triple exits 2; `--precision 4` on the R9 input prints `0.6667` and the same curvatures.
 - **R11.** `[PR1]` With drawing on and stdout not a terminal, both modes print exactly 24 lines of 60 braille cells, at least one non-blank, for the R9 input and for the default root at K=2; `--no-draw` prints no braille line; `render([], 60, 24)` returns 24 lines, each 60 blank braille cells; the packing drawing includes only circles with curvature `≤ min(N, 2 × canvas width in dots)`.
 - **R12.** `[PR1]` `make test` in `descartes/` runs `scripts/cli_contract.py descartes.py` and it exits 0.
-- **R13.** `[PR2]` `descartes/descartes-rs/` exists with every file `render_crate_files.py` renders for a crate byte-equal to its output, `Cargo.toml` with no `rug` and no `rayon` dependency, `CRATES` in `scripts/render_crate_files.py` listing `descartes`, and `tests/test_crate_uniformity.py` asserting and passing over 12 crates.
+- **R13.** `[PR2]` `descartes/descartes-rs/` exists with every file `render_crate_files.py` renders for a crate byte-equal to its output, `Cargo.toml` with no `rug` and no `rayon` dependency, `CRATES` in `scripts/render_crate_files.py` listing `descartes`, and `tests/test_crate_uniformity.py` asserting and passing over 12 crates; `tests/test_mutants_exclusions.py`'s `EXPECTED` set lists `descartes-rs`, and a `mutants.toml` may omit `exclude_re` only when its single key is `additional_cargo_test_args`, so every other crate still requires a non-empty `exclude_re`, and the suite passes.
 - **R14.** `[PR2]` Rust accepts K 1-8 and exits 2 naming the range for K 0 and K 9; for every input in R2, R3, R5, R6 and R8-R11 it gives the same results and exit codes as Python, each with non-empty stdout where Python's is non-empty; R11's drawing checks run against the Rust binary; the R9 command parses with the negative first triple.
 - **R15.** `[PR2]` `descartes-rs/tests/parity.rs` runs both programs for the default root at K = 1-5, `--root -2 3 6 7` and `--root -11 21 24 28` at K = 1-3, and `--solve` on the R9 input; it first asserts both exit 0 and both print the circle-count line, then that output files and count lines are byte-identical and the solve tables agree numerically within 1e-12; it does not compare drawings; `descartes-rs/.cargo/mutants.toml` sets `additional_cargo_test_args = ["--lib", "--bins", "--test", "cli"]` and `cargo mutants` in `descartes-rs` passes its unmutated baseline.
 - **R16.** `[PR2]` `descartes-py.yml`, `descartes-rs.yml` and `release-descartes-rs.yml` exist, rendered from the templates; `scripts/pre-commit` and `scripts/pre-push` loop over `descartes` and `descartes/descartes-rs`; the root `README.md` and `CLAUDE.md` list the project; `.gitignore` lists `descartes_1e*.txt`.
@@ -254,3 +255,11 @@ Reviewed at commit: `7471adb`. Scope: the sections round 2 changed.
 Finding: `parity.rs` runs `python3 ../descartes.py`, but cargo-mutants (27.1.0, the CI pin) copies only the crate directory, so the unmutated baseline fails (`ERROR cargo test failed in an unmutated tree, so no mutants were tested`) and every mutation run on the crate would be red. Tolerance: Python `repr` round-trips of solve output pass at worst 7e-3 of the tolerance on realistic inputs (R9, R9 ×100, collinear, `(-11,21,24)`, shifted to (1e5,1e5)); paste-back fails near curvature 2.6×10⁷ (1.88×), and a near-collinear triple (y + 1e-8) yields curvature-7 solutions failing paste-back at 7×. R10 and R11 cannot pass on empty output; no R/N contradiction.
 Assumption: the parity test can see `../descartes.py` from every harness that runs the crate's tests; refuted for cargo-mutants.
 Disposition: Addressed (operator, 2026-11-15): `descartes-rs/.cargo/mutants.toml` excludes `parity.rs` via `additional_cargo_test_args` (verified in a throwaway crate; `INSIDE_CARGO_MUTANTS` checked and absent in 27.1.0), R15 extended; the paste-back limits are documented in Output rather than loosening the tolerance.
+
+### Round 4 (scoped, Risk only)
+
+Reviewed at commit: `962e1d5`. Scope: the round-3 changes.
+
+Finding: a config-only `descartes-rs/.cargo/mutants.toml` turns `tests/test_mutants_exclusions.py` red: `test_crate_set_is_the_expected_eight` compares the glob to a hard-coded 8-crate `EXPECTED` set, `test_each_file_has_a_nonempty_exclude_re_list` requires a non-empty `exclude_re`, and `test_entries_match_listed_mutants` indexes `["exclude_re"]`. The suite runs in `make test-python` and on pre-push for `mutants.toml` changes, so PR2 could not push. No conflict with the template mutation targets, `mutation-pr-run.sh` or `mutation-testing.yml` (no test selection, no `test_tool`); `--bins` and `--test cli` resolve.
+Assumption: cargo-mutants 27.1.0 honours `additional_cargo_test_args` in `--in-diff` mode. Confirmed by the orchestrator in the throwaway crate: `cargo mutants --in-diff <diff> --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle` passed its baseline, 5 of 5 caught, no parity run in any log.
+Disposition: Addressed (operator, 2026-11-15): R13 names the `tests/test_mutants_exclusions.py` change; review closed and spec approved.
