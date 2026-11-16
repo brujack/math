@@ -265,7 +265,7 @@ for e in json.load(open('${REPO_ROOT}/renovate.json')).get('extends', []):
 # unmutated baseline -- not just the per-mutant budget the flag name suggests.
 # A crate whose baseline test phase exceeds a fixed --timeout (pi-rs, e-rs at
 # 54s+ against 30s) times out before evaluating a single mutant. The fix is a
-# multiplier derived from the measured baseline, floored so the ten
+# multiplier derived from the measured baseline, floored so the nine
 # already-working crates don't fall below their current 30s budget.
 #
 # The mocks directory is stripped from PATH before the `git ls-files` call:

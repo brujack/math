@@ -123,7 +123,8 @@ def pack(root: tuple[int, int, int, int], n: int) -> tuple[int, bytearray]:
     """Count circles of curvature at most n in the packing and mark their curvatures.
 
     The root must come from validate_root. Termination does not rest on that:
-    a reflection is pushed only when it strictly increases the curvature it
+    the root's four reflections are seeded when at most n, and every later
+    reflection is pushed only when it strictly increases the curvature it
     replaces and stays at most n, so every DFS path climbs a finite integer
     range. For a reduced root the increase always holds, so the guard never
     prunes a valid circle; it exists to bound the walk if the invariant breaks.
