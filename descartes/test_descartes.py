@@ -5,25 +5,46 @@ the four root circles in the plane and grows the packing by the complex
 Descartes theorem, so it checks the integer recurrence against geometry.
 """
 
+import argparse
 import cmath
+import contextlib
+import inspect
+import io
 import math
+import os
+import pathlib
+import re
+import subprocess
+import sys
+import tempfile
+import typing
 import unittest
 from collections import deque
 from fractions import Fraction
 from unittest import mock
 
+import annotationlib
+
 import descartes
 from descartes import (
+    LARGE_RUN_THRESHOLD,
     PIPE_HEIGHT,
     PIPE_WIDTH,
+    SMOKE_SIZE,
     BadInput,
     Circle,
     NoSolution,
+    _canvas_size,
+    _circle_arg,
+    _format_value,
     _plot,
     check_tangent,
     descartes_fourth,
     distinct,
+    get_exponent,
     pack,
+    parse_args,
+    refuse_large_run,
     render,
     root_centres,
     solve,
@@ -1797,6 +1818,924 @@ class TestModule(unittest.TestCase):
     def test_module_exports(self) -> None:
         self.assertTrue(issubclass(descartes.BadInput, Exception))
         self.assertTrue(issubclass(descartes.NoSolution, Exception))
+
+
+# --- command line ---------------------------------------------------------------
+
+BRAILLE_BLANK = "⠀"
+R9_ARGS = ["--solve", "-1,0,0", "2,0.5,0", "3,0,0.6666666666666666"]
+
+
+class TtyStringIO(io.StringIO):
+    """A StringIO that claims to be a terminal."""
+
+    def isatty(self) -> bool:
+        return True
+
+
+def is_braille_row(line: str) -> bool:
+    return bool(line) and all(0x2800 <= ord(ch) <= 0x28FF for ch in line)
+
+
+class CliTestCase(unittest.TestCase):
+    """Runs main() inside a throwaway working directory."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.cwd = pathlib.Path(tmp.name)
+        old = os.getcwd()
+        os.chdir(self.cwd)
+        self.addCleanup(os.chdir, old)
+
+    def run_main(
+        self, *argv: str, stdout: io.StringIO | None = None
+    ) -> tuple[int, str, str]:
+        """Return (exit code, stdout, stderr) of main(argv)."""
+        out = stdout if stdout is not None else io.StringIO()
+        err = io.StringIO()
+        code = 0
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                descartes.main(list(argv))
+            except SystemExit as exit_:
+                code = exit_.code if isinstance(exit_.code, int) else 1
+        return code, out.getvalue(), err.getvalue()
+
+    def read(self, name: str) -> str:
+        return (self.cwd / name).read_text()
+
+
+class TestCliContractConstants(unittest.TestCase):
+    def test_smoke_size(self) -> None:
+        self.assertEqual(SMOKE_SIZE, 2)
+
+    def test_large_run_threshold(self) -> None:
+        self.assertIsNone(LARGE_RUN_THRESHOLD)
+
+
+class TestParseArgs(unittest.TestCase):
+    def test_size_and_defaults(self) -> None:
+        args = parse_args(["3"])
+        self.assertEqual(args.size, 3)
+        self.assertIsNone(args.root)
+        self.assertIsNone(args.solve)
+        self.assertIsNone(args.precision)
+        for flag in (args.show, args.yes, args.smoke, args.no_draw):
+            self.assertFalse(flag)
+
+    def test_root_with_negative_first_value(self) -> None:
+        self.assertEqual(
+            parse_args(["3", "--root", "-1", "2", "3", "6"]).root, [-1, 2, 3, 6]
+        )
+
+    def test_flags(self) -> None:
+        args = parse_args(["3", "--show", "--yes", "--no-draw"])
+        self.assertTrue(args.show)
+        self.assertTrue(args.yes)
+        self.assertTrue(args.no_draw)
+
+    def test_solve_values_start_with_negative_curvature(self) -> None:
+        args = parse_args([*R9_ARGS, "--precision", "4"])
+        self.assertEqual(
+            args.solve,
+            [(-1.0, 0.0, 0.0), (2.0, 0.5, 0.0), (3.0, 0.0, 0.6666666666666666)],
+        )
+        self.assertEqual(args.precision, 4)
+
+    def test_without_size_on_terminal(self) -> None:
+        with mock.patch("sys.stdin.isatty", return_value=True):
+            args = parse_args([])
+        self.assertIsNone(args.size)
+
+    def test_without_size_not_a_terminal_exits_2(self) -> None:
+        self.assert_exits_2([])
+
+    def test_smoke_sets_size_and_clears_show(self) -> None:
+        args = parse_args(["--smoke", "--show"])
+        self.assertEqual(args.size, SMOKE_SIZE)
+        self.assertFalse(args.show)
+        self.assertTrue(args.smoke)
+
+    def test_smoke_with_size_exits_2(self) -> None:
+        self.assert_exits_2(["3", "--smoke"])
+
+    def test_solve_does_not_need_a_terminal(self) -> None:
+        with mock.patch("sys.stdin.isatty", return_value=False):
+            self.assertIsNotNone(parse_args(R9_ARGS).solve)
+
+    def test_solve_with_size_exits_2(self) -> None:
+        self.assert_exits_2(["2", *R9_ARGS])
+
+    def test_solve_with_root_exits_2(self) -> None:
+        self.assert_exits_2([*R9_ARGS, "--root", "-1", "2", "2", "3"])
+
+    def test_solve_with_smoke_exits_2(self) -> None:
+        self.assert_exits_2([*R9_ARGS, "--smoke"])
+
+    def test_solve_with_show_exits_2(self) -> None:
+        self.assert_exits_2([*R9_ARGS, "--show"])
+
+    def test_solve_with_yes_exits_2(self) -> None:
+        self.assert_exits_2([*R9_ARGS, "--yes"])
+
+    def test_solve_with_no_draw_and_precision_is_allowed(self) -> None:
+        args = parse_args([*R9_ARGS, "--no-draw", "--precision", "3"])
+        self.assertTrue(args.no_draw)
+        self.assertEqual(args.precision, 3)
+
+    def test_precision_without_solve_exits_2(self) -> None:
+        self.assert_exits_2(["2", "--precision", "3"])
+        self.assert_exits_2(["--smoke", "--precision", "3"])
+
+    def test_mode_flag_errors_name_the_flags(self) -> None:
+        self.assertIn("--solve", self.stderr_of(["2", *R9_ARGS]))
+        self.assertIn("--precision", self.stderr_of(["2", "--precision", "3"]))
+
+    def stderr_of(self, argv: list[str]) -> str:
+        with (
+            contextlib.redirect_stderr(io.StringIO()) as err,
+            self.assertRaises(SystemExit),
+        ):
+            parse_args(argv)
+        return err.getvalue()
+
+    def test_malformed_values_exit_2(self) -> None:
+        self.assert_exits_2(["abc"])
+        self.assert_exits_2(["2.5"])
+        self.assert_exits_2(["2", "--root", "-1", "2", "2", "x"])
+        self.assert_exits_2(["2", "--root", "-1", "2", "2"])
+        self.assert_exits_2(["--solve", "-1,0", "2,0.5,0", "3,0,0.5"])
+        self.assert_exits_2(["--solve", "-1,0,x", "2,0.5,0", "3,0,0.5"])
+        self.assert_exits_2(["--solve", "-1,0,0", "2,0.5,0"])
+
+    def test_precision_bounds_are_zero_to_seventeen(self) -> None:
+        for p in (0, 17):
+            with self.subTest(p=p):
+                args = parse_args([*R9_ARGS, "--precision", str(p)])
+                self.assertEqual(args.precision, p)
+        for p in (-1, 18):
+            with self.subTest(p=p):
+                self.assert_exits_2([*R9_ARGS, "--precision", str(p)])
+        self.assertIn("0 and 17", self.stderr_of([*R9_ARGS, "--precision", "18"]))
+
+    def assert_exits_2(self, argv: list[str]) -> None:
+        with (
+            mock.patch("sys.stdin.isatty", return_value=False),
+            contextlib.redirect_stderr(io.StringIO()) as err,
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            parse_args(argv)
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertTrue(err.getvalue())
+
+
+class TestRefuseLargeRun(unittest.TestCase):
+    def test_no_threshold_never_refuses(self) -> None:
+        refuse_large_run(10**6, False)
+
+    def test_at_threshold_without_yes_exits_1(self) -> None:
+        with (
+            mock.patch.object(descartes, "LARGE_RUN_THRESHOLD", 5),
+            contextlib.redirect_stderr(io.StringIO()) as err,
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            refuse_large_run(5, False)
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn("--yes", err.getvalue())
+
+    def test_above_threshold_without_yes_exits_1(self) -> None:
+        with (
+            mock.patch.object(descartes, "LARGE_RUN_THRESHOLD", 5),
+            contextlib.redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            refuse_large_run(6, False)
+        self.assertEqual(ctx.exception.code, 1)
+
+    def test_at_threshold_with_yes_proceeds(self) -> None:
+        with mock.patch.object(descartes, "LARGE_RUN_THRESHOLD", 5):
+            refuse_large_run(5, True)
+
+    def test_below_threshold_proceeds(self) -> None:
+        with mock.patch.object(descartes, "LARGE_RUN_THRESHOLD", 5):
+            refuse_large_run(4, False)
+
+
+class TestGetExponent(unittest.TestCase):
+    def exits(self, argv: list[str]) -> tuple[object, str]:
+        with (
+            contextlib.redirect_stderr(io.StringIO()) as err,
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            get_exponent(parse_args(argv))
+        return ctx.exception.code, err.getvalue()
+
+    def test_boundaries_accepted(self) -> None:
+        self.assertEqual(get_exponent(parse_args(["1"])), 1)
+        self.assertEqual(get_exponent(parse_args(["6"])), 6)
+
+    def test_out_of_range_exits_2_naming_the_range(self) -> None:
+        for k in ("0", "7", "-1"):
+            with self.subTest(k=k):
+                code, err = self.exits([k])
+                self.assertEqual(code, 2)
+                self.assertEqual(err, f"K must be between 1 and 6, got {k}.\n")
+
+    def test_interactive_prompt(self) -> None:
+        with mock.patch("sys.stdin.isatty", return_value=True):
+            args = parse_args([])
+        with mock.patch("builtins.input", return_value="3") as prompt:
+            self.assertEqual(get_exponent(args), 3)
+        prompt.assert_called_once_with("Enter exponent K (limit = 10^K, max 6): ")
+
+    def test_interactive_out_of_range_exits_2(self) -> None:
+        with mock.patch("sys.stdin.isatty", return_value=True):
+            args = parse_args([])
+        with (
+            mock.patch("builtins.input", return_value="7"),
+            contextlib.redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            get_exponent(args)
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_interactive_eof_exits_1_with_contract_message(self) -> None:
+        with mock.patch("sys.stdin.isatty", return_value=True):
+            args = parse_args([])
+        with (
+            mock.patch("builtins.input", side_effect=EOFError),
+            contextlib.redirect_stdout(io.StringIO()) as out,
+            contextlib.redirect_stderr(io.StringIO()) as err,
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            get_exponent(args)
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertEqual(out.getvalue(), "\n")
+        self.assertEqual(
+            err.getvalue(),
+            "Error: no input; pass K as an argument (e.g. python3 descartes.py 2).\n",
+        )
+
+    def test_interactive_non_integer_exits_2(self) -> None:
+        with mock.patch("sys.stdin.isatty", return_value=True):
+            args = parse_args([])
+        with (
+            mock.patch("builtins.input", return_value="abc"),
+            contextlib.redirect_stderr(io.StringIO()) as err,
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            get_exponent(args)
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertEqual(err.getvalue(), "Invalid input: 'abc' is not an integer K.\n")
+
+
+class TestCanvasSize(unittest.TestCase):
+    def test_pipe_is_fixed(self) -> None:
+        with (
+            mock.patch("sys.stdout", io.StringIO()),
+            mock.patch.object(descartes.shutil, "get_terminal_size") as size,
+        ):
+            self.assertEqual(_canvas_size(), (PIPE_WIDTH, PIPE_HEIGHT))
+        size.assert_not_called()
+
+    def terminal(self, columns: int, lines: int) -> tuple[int, int]:
+        with (
+            mock.patch("sys.stdout", TtyStringIO()),
+            mock.patch.object(
+                descartes.shutil,
+                "get_terminal_size",
+                return_value=os.terminal_size((columns, lines)),
+            ),
+        ):
+            return _canvas_size()
+
+    def test_huge_terminal_is_clamped_to_1000_by_500(self) -> None:
+        self.assertEqual(self.terminal(100000, 100000), (1000, 500))
+
+    def test_clamp_boundaries(self) -> None:
+        self.assertEqual(self.terminal(1000, 501), (1000, 500))
+        self.assertEqual(self.terminal(1001, 502), (1000, 500))
+        self.assertEqual(self.terminal(999, 500), (999, 499))
+
+    def test_zero_terminal_is_one_cell(self) -> None:
+        self.assertEqual(self.terminal(0, 0), (1, 1))
+
+    def test_terminal_uses_its_size_sparing_one_row(self) -> None:
+        with (
+            mock.patch("sys.stdout", TtyStringIO()),
+            mock.patch.object(
+                descartes.shutil,
+                "get_terminal_size",
+                return_value=os.terminal_size((30, 10)),
+            ),
+        ):
+            self.assertEqual(_canvas_size(), (30, 9))
+
+    def test_terminal_minimum_is_one_cell(self) -> None:
+        with (
+            mock.patch("sys.stdout", TtyStringIO()),
+            mock.patch.object(
+                descartes.shutil,
+                "get_terminal_size",
+                return_value=os.terminal_size((0, 1)),
+            ),
+        ):
+            self.assertEqual(_canvas_size(), (1, 1))
+
+
+class TestCircleArg(unittest.TestCase):
+    def message(self, text: str) -> str:
+        with self.assertRaises(argparse.ArgumentTypeError) as ctx:
+            _circle_arg(text)
+        return str(ctx.exception)
+
+    def test_parses_three_numbers(self) -> None:
+        self.assertEqual(_circle_arg("-1,0.5,2e-1"), (-1.0, 0.5, 0.2))
+
+    def test_two_values_are_rejected(self) -> None:
+        self.assertEqual(self.message("1,0"), "'1,0' is not K,X,Y (three values)")
+
+    def test_four_values_are_rejected(self) -> None:
+        self.assertEqual(
+            self.message("1,0,0,0"), "'1,0,0,0' is not K,X,Y (three values)"
+        )
+
+    def test_non_numbers_are_rejected(self) -> None:
+        self.assertEqual(
+            self.message("1,0,x"), "'1,0,x' is not K,X,Y (values must be numbers)"
+        )
+
+
+class TestAnnotations(unittest.TestCase):
+    """Python 3.14 never evaluates annotations, so resolve the unions here."""
+
+    NONE = type(None)
+
+    def expected(self) -> dict[typing.Callable[..., object], dict[str, object]]:
+        return {
+            descartes.parse_args: {
+                "argv": list[str] | None,
+                "return": argparse.Namespace,
+            },
+            descartes.main: {"argv": list[str] | None, "return": self.NONE},
+            descartes._format_value: {
+                "value": float,
+                "precision": int | None,
+                "return": str,
+            },
+            descartes._print_table: {
+                "given": list[Circle],
+                "solutions": list[Circle],
+                "precision": int | None,
+                "return": self.NONE,
+            },
+        }
+
+    def test_resolved_hints_are_exact(self) -> None:
+        for function, hints in self.expected().items():
+            with self.subTest(function=function.__name__):
+                self.assertEqual(typing.get_type_hints(function), hints)
+
+    def test_module_constant_hint(self) -> None:
+        self.assertEqual(
+            typing.get_type_hints(descartes)["LARGE_RUN_THRESHOLD"], int | None
+        )
+
+    def test_every_function_with_a_union_is_listed(self) -> None:
+        listed = set(self.expected())
+        for name, function in inspect.getmembers(descartes, inspect.isfunction):
+            if function.__module__ != "descartes":
+                continue
+            strings = annotationlib.get_annotations(
+                function, format=annotationlib.Format.STRING
+            )
+            if any("|" in text for text in strings.values()):
+                with self.subTest(function=name):
+                    self.assertIn(function, listed)
+
+
+class TestFormatValue(unittest.TestCase):
+    def test_full_precision_is_repr(self) -> None:
+        self.assertEqual(_format_value(0.6666666666666666, None), "0.6666666666666666")
+        self.assertEqual(_format_value(2.0, None), "2.0")
+
+    def test_negative_zero_prints_without_sign(self) -> None:
+        self.assertEqual(_format_value(-0.0, None), "0.0")
+        self.assertEqual(_format_value(-0.00001, 2), "0.00")
+        self.assertEqual(_format_value(-0.4, 0), "0")
+
+    def test_rounds_to_places(self) -> None:
+        self.assertEqual(_format_value(0.6666666666666666, 4), "0.6667")
+        self.assertEqual(_format_value(1.0, 4), "1.0000")
+        self.assertEqual(_format_value(-0.6, 0), "-1")
+        self.assertEqual(_format_value(-1.5, 1), "-1.5")
+
+
+class TestPackingCli(CliTestCase):
+    def test_k1_default_root_exact_output(self) -> None:
+        # Hand-derived: circles of (-1,2,2,3) up to 10 are 2,2,3,3,6,6,6,6,
+        # so 8 circles and distinct curvatures 2, 3, 6.
+        code, out, err = self.run_main("1", "--no-draw")
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            out, "root -1 2 2 3\ncircles 8\ndistinct 3\nSaved to descartes_1e1.txt\n"
+        )
+        self.assertEqual(self.read("descartes_1e1.txt"), "2\n3\n6\n")
+        self.assertRegex(err, r"^Elapsed: \d+\.\d\ds\n$")
+
+    def test_stdout_order_and_drawing_after_the_summary(self) -> None:
+        code, out, _ = self.run_main("2")
+        self.assertEqual(code, 0)
+        lines = out.splitlines()
+        self.assertEqual(
+            lines[:4],
+            [
+                "root -1 2 2 3",
+                "circles 168",
+                "distinct 33",
+                "Saved to descartes_1e2.txt",
+            ],
+        )
+        self.assertEqual(len(lines), 4 + PIPE_HEIGHT)
+        self.assertEqual(len(self.read("descartes_1e2.txt").splitlines()), 33)
+
+    def test_elapsed_is_the_time_spent_to_two_places(self) -> None:
+        # start is 1.0: with 10.0 and 12.5, 12.5 % 10.0 also gives 2.5 and hid a mutant.
+        with mock.patch.object(descartes.time, "perf_counter", side_effect=[1.0, 3.5]):
+            _, out, err = self.run_main("1", "--no-draw")
+        self.assertEqual(err, "Elapsed: 2.50s\n")
+        self.assertNotIn("Elapsed", out)
+
+    def test_elapsed_time_goes_to_stderr_only(self) -> None:
+        _, out, err = self.run_main("1")
+        self.assertNotIn("Elapsed", out)
+        self.assertIn("Elapsed", err)
+
+    def test_k3_matches_the_pinned_counts(self) -> None:
+        code, out, _ = self.run_main("3", "--no-draw")
+        self.assertEqual(code, 0)
+        self.assertEqual(out.splitlines()[1:3], ["circles 3328", "distinct 324"])
+        values = [int(v) for v in self.read("descartes_1e3.txt").splitlines()]
+        self.assertEqual(len(values), 324)
+        self.assertEqual(values[:3], [2, 3, 6])
+        self.assertEqual(values, sorted(set(values)))
+
+    def test_piped_drawing_is_24_lines_of_60_braille_cells(self) -> None:
+        _, out, _ = self.run_main("2")
+        rows = out.splitlines()[4:]
+        self.assertEqual(len(rows), 24)
+        for row in rows:
+            self.assertEqual(len(row), 60)
+            self.assertTrue(is_braille_row(row))
+        self.assertTrue(any(row != BRAILLE_BLANK * 60 for row in rows))
+
+    def test_no_draw_prints_no_braille_line(self) -> None:
+        _, out, _ = self.run_main("2", "--no-draw")
+        self.assertEqual(len(out.splitlines()), 4)
+        self.assertFalse(any(is_braille_row(line) for line in out.splitlines()))
+
+    def test_show_prints_the_file_before_the_summary(self) -> None:
+        _, out, _ = self.run_main("1", "--show", "--no-draw")
+        self.assertEqual(
+            out.splitlines(),
+            ["2", "3", "6", "root -1 2 2 3", "circles 8", "distinct 3",
+             "Saved to descartes_1e1.txt"],
+        )  # fmt: skip
+
+    def test_smoke_runs_at_the_smoke_size(self) -> None:
+        code, out, _ = self.run_main("--smoke", "--show", "--no-draw")
+        self.assertEqual(code, 0)
+        self.assertEqual(out.splitlines()[0], "root -1 2 2 3")
+        self.assertIn("circles 168", out)
+        self.assertTrue((self.cwd / "descartes_1e2.txt").exists())
+
+    def test_non_default_root_names_the_file_after_the_reduced_root(self) -> None:
+        # Given out of order; the name carries the root ascending.
+        code, out, _ = self.run_main("2", "--root", "6", "-2", "3", "7", "--no-draw")
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            out.splitlines(),
+            ["root -2 3 6 7", "circles 66", "distinct 28",
+             "Saved to descartes_1e2_root_-2_3_6_7.txt"],
+        )  # fmt: skip
+        values = self.read("descartes_1e2_root_-2_3_6_7.txt").splitlines()
+        self.assertEqual(len(values), 28)
+
+    def test_non_root_quadruple_reduces_to_the_default_packing(self) -> None:
+        self.run_main("2", "--no-draw")
+        default_file = self.read("descartes_1e2.txt")
+        (self.cwd / "descartes_1e2.txt").unlink()
+        for quad in (["-1", "2", "3", "6"], ["-1", "3", "6", "14"]):
+            with self.subTest(quad=quad):
+                code, out, _ = self.run_main("2", "--root", *quad, "--no-draw")
+                self.assertEqual(code, 0)
+                self.assertEqual(
+                    out.splitlines()[:4],
+                    ["root -1 2 2 3", "circles 168", "distinct 33",
+                     "Saved to descartes_1e2.txt"],
+                )  # fmt: skip
+                self.assertEqual(self.read("descartes_1e2.txt"), default_file)
+                (self.cwd / "descartes_1e2.txt").unlink()
+
+    def test_empty_packing_writes_an_empty_file_and_draws_nothing(self) -> None:
+        code, out, _ = self.run_main("1", "--root", "-11", "21", "24", "28")
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            out.splitlines(),
+            ["root -11 21 24 28", "circles 0", "distinct 0",
+             "Saved to descartes_1e1_root_-11_21_24_28.txt"],
+        )  # fmt: skip
+        self.assertEqual(self.read("descartes_1e1_root_-11_21_24_28.txt"), "")
+
+    def test_bad_roots_exit_1_naming_the_root(self) -> None:
+        for root, shown in (
+            (["-1", "2", "2", "4"], "(-1, 2, 2, 4)"),
+            (["0", "0", "1", "1"], "(0, 0, 1, 1)"),
+        ):
+            with self.subTest(root=root):
+                code, out, err = self.run_main("1", "--root", *root)
+                self.assertEqual(code, 1)
+                self.assertEqual(out, "")
+                self.assertTrue(err.startswith("Error: root " + shown))
+                self.assertEqual(list(self.cwd.iterdir()), [])
+
+    def test_non_integer_root_exits_2(self) -> None:
+        code, out, err = self.run_main("1", "--root", "-1", "2", "2", "x")
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("invalid int value: 'x'", err)
+
+    def test_rejected_root_type_exits_2(self) -> None:
+        # argparse already yields ints, so only a validate_root BadInput reaches this path.
+        error = BadInput("root: curvatures must be integers")
+        with mock.patch.object(descartes, "validate_root", side_effect=error):
+            code, out, err = self.run_main("1")
+        self.assertEqual((code, out), (2, ""))
+        self.assertEqual(err, "Error: root: curvatures must be integers\n")
+
+    def test_default_root_given_explicitly_exits_0(self) -> None:
+        code, _, _ = self.run_main("1", "--root", "-1", "2", "2", "3", "--no-draw")
+        self.assertEqual(code, 0)
+
+    def test_k_out_of_range_exits_2_and_writes_nothing(self) -> None:
+        for k in ("0", "7"):
+            with self.subTest(k=k):
+                code, out, err = self.run_main(k)
+                self.assertEqual((code, out), (2, ""))
+                self.assertIn("between 1 and 6", err)
+        self.assertEqual(list(self.cwd.iterdir()), [])
+
+    def test_non_integer_k_exits_2(self) -> None:
+        code, _, err = self.run_main("1.5")
+        self.assertEqual(code, 2)
+        self.assertIn("invalid int value", err)
+
+    def test_k_boundaries_reach_pack_with_ten_to_the_k(self) -> None:
+        for k in (1, 6):
+            with self.subTest(k=k):
+                with mock.patch.object(
+                    descartes, "pack", return_value=(0, bytearray(1))
+                ) as fake:
+                    code, out, _ = self.run_main(str(k))
+                self.assertEqual(code, 0)
+                fake.assert_called_once_with(ROOT_A, 10**k)
+                self.assertIn("circles 0", out)
+
+    def test_prompt_path_runs_the_packing(self) -> None:
+        with (
+            mock.patch("sys.stdin.isatty", return_value=True),
+            mock.patch("builtins.input", return_value="1"),
+        ):
+            code, out, _ = self.run_main("--no-draw")
+        self.assertEqual(code, 0)
+        self.assertIn("circles 8", out)
+
+    def test_end_of_input_at_the_prompt_exits_1_before_any_file(self) -> None:
+        with (
+            mock.patch("sys.stdin.isatty", return_value=True),
+            mock.patch("builtins.input", side_effect=EOFError),
+        ):
+            code, _, err = self.run_main()
+        self.assertEqual(code, 1)
+        self.assertIn("no input", err)
+        self.assertEqual(list(self.cwd.iterdir()), [])
+
+    def test_large_run_refusal_happens_before_any_file_write(self) -> None:
+        with mock.patch.object(descartes, "LARGE_RUN_THRESHOLD", 1):
+            code, _, err = self.run_main("1")
+            self.assertEqual(code, 1)
+            self.assertIn("--yes", err)
+            self.assertEqual(list(self.cwd.iterdir()), [])
+            code, _, _ = self.run_main("1", "--yes", "--no-draw")
+        self.assertEqual(code, 0)
+
+    def test_rerun_overwrites_the_file(self) -> None:
+        (self.cwd / "descartes_1e1.txt").write_text("stale\nstale\nstale\nstale\n")
+        self.run_main("1", "--no-draw")
+        self.assertEqual(self.read("descartes_1e1.txt"), "2\n3\n6\n")
+
+    def test_unwritable_file_exits_1_without_a_summary(self) -> None:
+        with mock.patch("builtins.open", side_effect=PermissionError("denied")):
+            code, out, err = self.run_main("1")
+        self.assertEqual((code, out), (1, ""))
+        self.assertEqual(err, "Error: denied\n")
+
+
+class TestOutputOpenedFirst(CliTestCase):
+    def test_unwritable_target_exits_1_before_pack_runs(self) -> None:
+        (self.cwd / "descartes_1e1.txt").mkdir()
+        with mock.patch.object(descartes, "pack") as fake:
+            code, out, err = self.run_main("1")
+        self.assertEqual((code, out), (1, ""))
+        self.assertTrue(err.startswith("Error: "))
+        self.assertIn("descartes_1e1.txt", err)
+        fake.assert_not_called()
+
+    def test_file_is_opened_before_pack(self) -> None:
+        order: list[str] = []
+        real_open = open
+
+        def spy_open(*args: typing.Any, **kwargs: typing.Any) -> typing.Any:
+            order.append("open")
+            return real_open(*args, **kwargs)
+
+        def fake_pack(root: Root, n: int) -> tuple[int, bytearray]:
+            order.append("pack")
+            return 0, bytearray(1)
+
+        with (
+            mock.patch("builtins.open", spy_open),
+            mock.patch.object(descartes, "pack", fake_pack),
+        ):
+            self.run_main("1", "--no-draw")
+        self.assertEqual(order, ["open", "pack"])
+
+
+class TestPackingDrawing(CliTestCase):
+    def run_capturing_render(
+        self, *argv: str, canvas: tuple[int, int] = (60, 24)
+    ) -> tuple[list[Circle], int, int]:
+        with (
+            mock.patch.object(descartes, "_canvas_size", return_value=canvas),
+            mock.patch.object(descartes, "render", return_value=["drawn"]) as fake,
+        ):
+            code, out, _ = self.run_main(*argv)
+        self.assertEqual(code, 0)
+        self.assertTrue(out.endswith("drawn\n"))
+        fake.assert_called_once()
+        circles, width, height = fake.call_args.args
+        return circles, width, height
+
+    def test_draws_the_bounding_circle_and_the_visible_circles(self) -> None:
+        circles, width, height = self.run_capturing_render("2")
+        self.assertEqual((width, height), (60, 24))
+        self.assertEqual(circles[0], root_centres(ROOT_A)[0])
+        self.assertEqual(circles[1:], visible(ROOT_A, 100))
+        self.assertEqual(len(circles) - 1, 168)
+
+    def test_limit_is_twice_the_canvas_width_in_dots(self) -> None:
+        # 5 cells = 10 dots, so the limit is 20: below N = 100.
+        circles, width, height = self.run_capturing_render("2", canvas=(5, 3))
+        self.assertEqual((width, height), (5, 3))
+        self.assertEqual(circles[1:], visible(ROOT_A, 20))
+        self.assertEqual(max(k for k, _, _ in circles[1:]), 18)
+
+    def test_limit_never_exceeds_n(self) -> None:
+        # A 100-cell canvas allows 400; N = 10 wins.
+        circles, _, _ = self.run_capturing_render("1", canvas=(100, 3))
+        self.assertEqual(circles[1:], visible(ROOT_A, 10))
+        self.assertEqual(len(circles) - 1, 8)
+
+    def test_limit_boundary_width_five_includes_curvature_20(self) -> None:
+        # visible is asked for exactly 4 * width.
+        with mock.patch.object(descartes, "visible", wraps=descartes.visible) as fake:
+            self.run_capturing_render("3", canvas=(5, 3))
+        fake.assert_called_once_with(ROOT_A, 20)
+
+    def test_non_default_root_draws_its_own_bounding_circle(self) -> None:
+        circles, _, _ = self.run_capturing_render("2", "--root", "-2", "3", "6", "7")
+        self.assertEqual(circles[0], root_centres(ROOT_B)[0])
+        self.assertEqual(circles[1:], visible(ROOT_B, 100))
+
+    def test_huge_terminal_caps_what_render_and_visible_receive(self) -> None:
+        with (
+            mock.patch.object(
+                descartes.shutil,
+                "get_terminal_size",
+                return_value=os.terminal_size((100000, 100000)),
+            ),
+            mock.patch.object(descartes, "render", return_value=["drawn"]) as fake,
+            mock.patch.object(
+                descartes, "visible", wraps=descartes.visible
+            ) as fake_visible,
+        ):
+            code, _, _ = self.run_main("2", stdout=TtyStringIO())
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.call_args.args[1:], (1000, 500))
+        fake_visible.assert_called_once_with(ROOT_A, 100)
+
+    def test_huge_terminal_limit_is_4000_for_a_large_n(self) -> None:
+        with (
+            mock.patch.object(
+                descartes.shutil,
+                "get_terminal_size",
+                return_value=os.terminal_size((100000, 100000)),
+            ),
+            mock.patch.object(descartes, "render", return_value=["drawn"]),
+            mock.patch.object(descartes, "visible", return_value=[]) as fake_visible,
+            mock.patch.object(descartes, "pack", return_value=(1, bytearray(1))),
+        ):
+            code, _, _ = self.run_main("6", stdout=TtyStringIO())
+        self.assertEqual(code, 0)
+        fake_visible.assert_called_once_with(ROOT_A, 4000)
+
+    def test_terminal_canvas_is_used_on_a_terminal(self) -> None:
+        with (
+            mock.patch.object(
+                descartes.shutil,
+                "get_terminal_size",
+                return_value=os.terminal_size((30, 10)),
+            ),
+            mock.patch.object(descartes, "render", return_value=["drawn"]) as fake,
+        ):
+            code, _, _ = self.run_main("1", stdout=TtyStringIO())
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.call_args.args[1:], (30, 9))
+        self.assertEqual(fake.call_args.args[0][1:], visible(ROOT_A, 10))
+
+    def test_one_cell_canvas_draws_only_curvatures_up_to_four(self) -> None:
+        circles, _, _ = self.run_capturing_render("2", canvas=(1, 1))
+        self.assertEqual(sorted(k for k, _, _ in circles), [-1, 2, 2, 3, 3])
+
+
+def parse_table(out: str) -> list[list[str]]:
+    """Rows of the solve table after its header: [kind, #, k, radius, x, y]."""
+    lines = out.splitlines()
+    assert lines[0].split() == ["kind", "#", "curvature", "radius", "x", "y"]
+    return [line.split() for line in lines[1:]]
+
+
+class TestSolveCli(CliTestCase):
+    def solve_rows(self, *args: str) -> list[list[str]]:
+        code, out, err = self.run_main(*args, "--no-draw")
+        self.assertEqual((code, err), (0, ""))
+        return parse_table(out)
+
+    def test_r9_circles_and_full_precision_table(self) -> None:
+        rows = self.solve_rows(*R9_ARGS)
+        self.assertEqual([r[0] for r in rows], ["given"] * 3 + ["solution"] * 2)
+        self.assertEqual([r[1] for r in rows], ["1", "2", "3", "1", "2"])
+        solutions = {round(float(r[2])): (float(r[4]), float(r[5])) for r in rows[3:]}
+        self.assertEqual(sorted(solutions), [2, 6])
+        self.assertAlmostEqual(solutions[2][0], -0.5, delta=1e-9)
+        self.assertAlmostEqual(solutions[2][1], 0.0, delta=1e-9)
+        self.assertAlmostEqual(solutions[6][0], 0.5, delta=1e-9)
+        self.assertAlmostEqual(solutions[6][1], 0.6666666666666666, delta=1e-9)
+        # The given y is echoed at full precision.
+        self.assertEqual(
+            rows[2][2:], ["3.0", "0.3333333333333333", "0.0", "0.6666666666666666"]
+        )
+        self.assertEqual(rows[0][2:], ["-1.0", "-1.0", "0.0", "0.0"])
+        curvature_6 = next(r for r in rows[3:] if round(float(r[2])) == 6)
+        self.assertEqual(curvature_6[5], "0.6666666666666666")
+
+    def test_table_is_aligned_with_no_trailing_space(self) -> None:
+        _, out, _ = self.run_main(*R9_ARGS, "--no-draw")
+        lines = out.splitlines()
+        self.assertEqual(len(lines), 6)
+        starts = [[m.start() for m in re.finditer(r"\S+", line)] for line in lines]
+        for row in starts:
+            self.assertEqual(row, starts[0])
+        for line in lines:
+            self.assertEqual(line, line.rstrip())
+
+    def test_every_solution_is_tangent_to_the_inputs(self) -> None:
+        rows = self.solve_rows(*R9_ARGS)
+        circles = [(float(r[2]), float(r[4]), float(r[5])) for r in rows]
+        for solution in circles[3:]:
+            for given in circles[:3]:
+                k1, x1, y1 = solution
+                k2, x2, y2 = given
+                gap = abs(math.hypot(x1 - x2, y1 - y2) - abs(1 / k1 + 1 / k2))
+                self.assertLessEqual(gap, 1e-9 * (abs(1 / k1) + abs(1 / k2)))
+
+    def test_paste_back_of_the_printed_table_gives_the_same_curvatures(self) -> None:
+        rows = self.solve_rows(*R9_ARGS)
+        given = [",".join((r[2], r[4], r[5])) for r in rows[:3]]
+        again = self.solve_rows("--solve", *given)
+        self.assertEqual(
+            sorted(round(float(r[2])) for r in again[3:]),
+            sorted(round(float(r[2])) for r in rows[3:]),
+        )
+
+    def test_paste_back_of_mixed_given_and_solution_rows(self) -> None:
+        rows = self.solve_rows(*R9_ARGS)
+        text = [",".join((r[2], r[4], r[5])) for r in rows]
+        for s in (3, 4):
+            for omitted in (0, 1, 2):
+                triple = [text[i] for i in range(3) if i != omitted] + [text[s]]
+                with self.subTest(solution=s, omitted=omitted):
+                    again = self.solve_rows("--solve", *triple)
+                    curvatures = [float(r[2]) for r in again[3:]]
+                    self.assertTrue(
+                        any(math.isclose(c, float(rows[omitted][2]), rel_tol=1e-6)
+                            for c in curvatures)
+                    )  # fmt: skip
+
+    def test_scaled_by_100_input_exits_0(self) -> None:
+        scaled = [
+            "-100,0,0",
+            f"200,{0.5 / 100!r},0",
+            f"300,0,{0.6666666666666666 / 100!r}",
+        ]
+        rows = self.solve_rows("--solve", *scaled)
+        self.assertEqual(sorted(round(float(r[2])) for r in rows[3:]), [200, 600])
+
+    def test_precision_rounds_the_display_only(self) -> None:
+        rows = self.solve_rows(*R9_ARGS, "--precision", "4")
+        self.assertEqual(rows[2][2:], ["3.0000", "0.3333", "0.0000", "0.6667"])
+        self.assertEqual(sorted(r[2] for r in rows[3:]), ["2.0000", "6.0000"])
+        curvature_6 = next(r for r in rows[3:] if r[2] == "6.0000")
+        self.assertEqual(curvature_6[3:], ["0.1667", "0.5000", "0.6667"])
+
+    def test_precision_zero_prints_whole_numbers(self) -> None:
+        rows = self.solve_rows(*R9_ARGS, "--precision", "0")
+        self.assertEqual(rows[2][2:], ["3", "0", "0", "1"])
+
+    def test_untangent_short_decimal_input_exits_1_naming_circles_1_and_3(self) -> None:
+        code, out, err = self.run_main("--solve", "-1,0,0", "2,0.5,0", "3,0,0.6667")
+        self.assertEqual((code, out), (1, ""))
+        self.assertTrue(err.startswith("Error: "))
+        self.assertIn("circles 1 and 3 are not tangent", err)
+        self.assertIn("full-precision", err)
+
+    def test_far_apart_circles_exit_1(self) -> None:
+        code, out, err = self.run_main("--solve", "1,0,0", "1,10,0", "1,0,10")
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("circles 1 and 2 are not tangent", err)
+
+    def test_zero_curvature_exits_2(self) -> None:
+        code, out, err = self.run_main("--solve", "0,0,0", "2,0.5,0", "3,0,0.5")
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("zero curvature", err)
+
+    def test_nan_input_exits_2(self) -> None:
+        code, out, err = self.run_main("--solve", "nan,0,0", "2,0.5,0", "3,0,0.5")
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("NaN or infinite", err)
+
+    def test_unparsable_triple_exits_2(self) -> None:
+        code, out, err = self.run_main("--solve", "-1,0", "2,0.5,0", "3,0,0.5")
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("K,X,Y", err)
+
+    def test_solve_writes_no_file(self) -> None:
+        self.run_main(*R9_ARGS)
+        self.assertEqual(list(self.cwd.iterdir()), [])
+
+    def test_drawing_follows_the_table_piped_24_by_60(self) -> None:
+        code, out, err = self.run_main(*R9_ARGS)
+        self.assertEqual((code, err), (0, ""))
+        lines = out.splitlines()
+        self.assertEqual(len(lines), 6 + 24)
+        rows = lines[6:]
+        for row in rows:
+            self.assertEqual(len(row), 60)
+            self.assertTrue(is_braille_row(row))
+        self.assertTrue(any(row != BRAILLE_BLANK * 60 for row in rows))
+        self.assertFalse(any(is_braille_row(line) for line in lines[:6]))
+
+    def test_no_draw_prints_no_braille_line(self) -> None:
+        _, out, _ = self.run_main(*R9_ARGS, "--no-draw")
+        self.assertFalse(any(is_braille_row(line) for line in out.splitlines()))
+
+    def test_drawing_has_the_three_inputs_and_the_solutions(self) -> None:
+        with mock.patch.object(descartes, "render", return_value=["drawn"]) as fake:
+            code, out, _ = self.run_main(*R9_ARGS)
+        self.assertEqual(code, 0)
+        self.assertTrue(out.endswith("drawn\n"))
+        circles, width, height = fake.call_args.args
+        given = [(-1.0, 0.0, 0.0), (2.0, 0.5, 0.0), (3.0, 0.0, 0.6666666666666666)]
+        self.assertEqual(circles[:3], given)
+        self.assertEqual(circles[3:], solve(*given))
+        self.assertEqual((width, height), (60, 24))
+
+
+class TestEntryPointGuard(unittest.TestCase):
+    def test_module_runs_via_subprocess(self) -> None:
+        module = pathlib.Path(__file__).parent / "descartes.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = subprocess.run(
+                [sys.executable, str(module), "1", "--show", "--no-draw"],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+                cwd=tmp,
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.splitlines()[:3], ["2", "3", "6"])
 
 
 if __name__ == "__main__":

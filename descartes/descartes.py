@@ -3,15 +3,26 @@
 
 Pieces so far: the fourth-curvature formula, root validation with reduction
 to the packing's canonical root, an enumerator that counts every circle of
-curvature at most n and records which curvatures occur, and the geometry
+curvature at most n and records which curvatures occur, the geometry
 (centres of a root, the tangency check, the three-circle solver and the
-enumerator that carries centres). Standard library only.
+enumerator that carries centres), a braille renderer and the command line.
+Standard library only.
+
+Run with no arguments at a terminal for an interactive prompt, or supply K:
+    python3 descartes.py K [--root A B C D] [--show] [--yes] [--no-draw]
+    python3 descartes.py --smoke
+    python3 descartes.py --solve K,X,Y K,X,Y K,X,Y [--precision P] [--no-draw]
 """
 
+import argparse
 import cmath
 import math
+import shutil
+import sys
+import time
 from decimal import Decimal
 from fractions import Fraction
+from typing import NoReturn
 
 # Largest n pack accepts: Python's N = 10^K ceiling (K <= 6, spec R7), about
 # 2.7e7 circles. The core enforces it so no caller can request an unbounded run.
@@ -485,3 +496,290 @@ def render(circles: list[Circle], width: int, height: int) -> list[str]:
             for x, y in _midpoint_circle(cx, cy, radius):
                 _plot(cells, x, y, width, height)
     return ["".join(chr(_BRAILLE_BASE + bits) for bits in row) for row in cells]
+
+
+# ---------------------------------------------------------------------------
+# Command line
+# ---------------------------------------------------------------------------
+
+# ADR-0030 contract constants: the smoke run size, and no large-run
+# confirmation (K <= 6 is always quick enough; spec R7).
+SMOKE_SIZE = 2
+LARGE_RUN_THRESHOLD: int | None = None
+
+K_MAX = 6
+# 17 decimals round-trip any double; more only lets a flag write gigabytes.
+PRECISION_MAX = 17
+# Canvas bounds in cells (spec R27): a hostile terminal size cannot make the
+# drawing limit, and so the memory used, unbounded.
+CANVAS_MAX_WIDTH = 1000
+CANVAS_MAX_HEIGHT = 500
+# A braille cell is two dots wide.
+DOTS_PER_CELL_X = 2
+DEFAULT_ROOT = (-1, 2, 2, 3)
+
+
+def _circle_arg(text: str) -> Circle:
+    """Parse one --solve value, K,X,Y, into a circle."""
+    parts = text.split(",")
+    if len(parts) != 3:
+        raise argparse.ArgumentTypeError(f"{text!r} is not K,X,Y (three values)")
+    try:
+        k, x, y = (float(part) for part in parts)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{text!r} is not K,X,Y (values must be numbers)"
+        ) from None
+    return k, x, y
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Enumerate an integral Apollonian packing up to curvature 10^K, or "
+            "solve for the circles tangent to three given circles"
+        ),
+        epilog=(
+            "The packing drawing shows circles with curvature at most "
+            "min(10^K, 2 x canvas width in braille dots), so its circle set "
+            "depends on terminal width. --solve prints full-precision values "
+            "that paste back into --solve; that stops passing the 1e-9 "
+            "tangency tolerance near curvature 2.6e7, and nearly collinear "
+            "inputs are ill-conditioned. Run with no arguments at a terminal "
+            "for interactive prompts."
+        ),
+    )
+    parser.add_argument(
+        "size",
+        nargs="?",
+        type=int,
+        metavar="K",
+        help=f"exponent (curvature limit = 10^K, 1 to {K_MAX})",
+    )
+    parser.add_argument(
+        "--root",
+        nargs=4,
+        type=int,
+        metavar=("A", "B", "C", "D"),
+        help="root quadruple, one negative value (default -1 2 2 3)",
+    )
+    parser.add_argument(
+        "--show",
+        action="store_true",
+        help="also print each result line to stdout",
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="confirm a large run (ignored when this program has none)",
+    )
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help=f"quick check at SMOKE_SIZE ({SMOKE_SIZE})",
+    )
+    parser.add_argument(
+        "--solve",
+        nargs=3,
+        type=_circle_arg,
+        metavar="K,X,Y",
+        help="three mutually tangent circles (curvature, centre x, centre y); "
+        "prints the circles tangent to all three. Excludes K",
+    )
+    parser.add_argument(
+        "--precision",
+        type=int,
+        metavar="P",
+        help="--solve only: round the displayed table to P decimal places "
+        "(default: full precision)",
+    )
+    parser.add_argument(
+        "--no-draw", action="store_true", help="do not draw the circles in braille"
+    )
+    args = parser.parse_args(argv)
+    if args.precision is not None and not 0 <= args.precision <= PRECISION_MAX:
+        parser.error(f"--precision must be between 0 and {PRECISION_MAX}")
+    if args.solve is not None:
+        extras = [
+            name
+            for name, used in (
+                ("K", args.size is not None),
+                ("--root", args.root is not None),
+                ("--smoke", args.smoke),
+                ("--show", args.show),
+                ("--yes", args.yes),
+            )
+            if used
+        ]
+        if extras:
+            parser.error(f"--solve takes no {', '.join(extras)}")
+    elif args.precision is not None:
+        parser.error("--precision needs --solve")
+    elif args.smoke:
+        if args.size is not None:
+            parser.error("--smoke takes no K")
+        args.size, args.show = SMOKE_SIZE, False
+    elif args.size is None and not sys.stdin.isatty():
+        parser.error("K is required when stdin is not a terminal")
+    return args
+
+
+def refuse_large_run(size: int, yes: bool) -> None:
+    """Exit 1 naming --yes when size needs confirmation and --yes is absent."""
+    if LARGE_RUN_THRESHOLD is not None and size >= LARGE_RUN_THRESHOLD and not yes:
+        print(f"Error: {size} is a large run; pass --yes to proceed.", file=sys.stderr)
+        sys.exit(1)
+
+
+def get_exponent(args: argparse.Namespace) -> int:
+    """
+    Get and validate the exponent K from args.
+
+    If args.size is None, prompt interactively. Validate that 1 <= K <= K_MAX;
+    exit 2 if it is not or cannot be read as an integer, exit 1 on end of input.
+
+    Returns the validated exponent.
+    """
+    k = args.size
+    if k is None:
+        try:
+            text = input(f"Enter exponent K (limit = 10^K, max {K_MAX}): ")
+        except EOFError:
+            print()
+            print(
+                "Error: no input; pass K as an argument "
+                f"(e.g. python3 descartes.py {SMOKE_SIZE}).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        try:
+            k = int(text)
+        except ValueError:
+            print(f"Invalid input: {text!r} is not an integer K.", file=sys.stderr)
+            sys.exit(2)
+    if k < 1 or k > K_MAX:
+        print(f"K must be between 1 and {K_MAX}, got {k}.", file=sys.stderr)
+        sys.exit(2)
+    return k
+
+
+def _fail(error: Exception, code: int) -> NoReturn:
+    """Print the error to stderr and exit with code."""
+    print(f"Error: {error}", file=sys.stderr)
+    sys.exit(code)
+
+
+def _canvas_size() -> tuple[int, int]:
+    """Terminal size in cells, one row spared and clamped, else 60 x 24."""
+    if not sys.stdout.isatty():
+        return PIPE_WIDTH, PIPE_HEIGHT
+    size = shutil.get_terminal_size()
+    width = min(max(size.columns, 1), CANVAS_MAX_WIDTH)
+    height = min(max(size.lines - 1, 1), CANVAS_MAX_HEIGHT)
+    return width, height
+
+
+def _packing_filename(k: int, root: tuple[int, int, int, int]) -> str:
+    """The output file name: the root joins the name unless it is the default."""
+    if root == DEFAULT_ROOT:
+        return f"descartes_1e{k}.txt"
+    return f"descartes_1e{k}_root_{root[0]}_{root[1]}_{root[2]}_{root[3]}.txt"
+
+
+def _draw_packing(root: tuple[int, int, int, int], n: int) -> None:
+    """Print the bounding circle and the circles that fit the canvas."""
+    width, height = _canvas_size()
+    # Circles above twice the canvas width in dots are under half a dot across.
+    limit = min(n, 2 * DOTS_PER_CELL_X * width)
+    circles = [root_centres(root)[0], *visible(root, limit)]
+    print("\n".join(render(circles, width, height)))
+
+
+def _run_packing(args: argparse.Namespace) -> None:
+    k = get_exponent(args)
+    refuse_large_run(k, args.yes)
+    try:
+        root = validate_root(*(args.root or DEFAULT_ROOT))
+    except BadInput as error:
+        _fail(error, 2)
+    except NoSolution as error:
+        _fail(error, 1)
+    n = 10**k
+    filename = _packing_filename(k, root)
+    try:
+        # Open first: a path or permission error must not cost a computation.
+        with open(filename, "w") as f:
+            start = time.perf_counter()
+            count, bitmap = pack(root, n)
+            curvatures = distinct(bitmap)
+            f.writelines(f"{curvature}\n" for curvature in curvatures)
+    except OSError as error:
+        _fail(error, 1)
+    elapsed = time.perf_counter() - start
+    if args.show:
+        for curvature in curvatures:
+            print(curvature)
+    print(f"root {root[0]} {root[1]} {root[2]} {root[3]}")
+    print(f"circles {count}")
+    print(f"distinct {len(curvatures)}")
+    print(f"Saved to {filename}")
+    print(f"Elapsed: {elapsed:.2f}s", file=sys.stderr)
+    if count and not args.no_draw:
+        _draw_packing(root, n)
+
+
+def _format_value(value: float, precision: int | None) -> str:
+    """Full-precision repr by default, else fixed decimals; never '-0'."""
+    if precision is None:
+        return repr(value + 0.0)
+    text = f"{value:.{precision}f}"
+    if text.startswith("-") and float(text) == 0:
+        return text[1:]
+    return text
+
+
+def _print_table(
+    given: list[Circle], solutions: list[Circle], precision: int | None
+) -> None:
+    """Print the given and solution circles, columns padded to align."""
+    rows = [["kind", "#", "curvature", "radius", "x", "y"]]
+    for kind, circles in (("given", given), ("solution", solutions)):
+        for number, (k, x, y) in enumerate(circles, start=1):
+            values = (k, 1.0 / k, x, y)
+            rows.append(
+                [kind, str(number), *(_format_value(v, precision) for v in values)]
+            )
+    widths = [max(map(len, column)) for column in zip(*rows, strict=True)]
+    for row in rows:
+        print(
+            "  ".join(
+                cell.ljust(w) for cell, w in zip(row, widths, strict=True)
+            ).rstrip()
+        )
+
+
+def _run_solve(args: argparse.Namespace) -> None:
+    given: list[Circle] = args.solve
+    try:
+        solutions = solve(given[0], given[1], given[2])
+    except BadInput as error:
+        _fail(error, 2)
+    except NoSolution as error:
+        _fail(error, 1)
+    _print_table(given, solutions, args.precision)
+    if not args.no_draw:
+        width, height = _canvas_size()
+        print("\n".join(render(given + solutions, width, height)))
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Main entry point."""
+    args = parse_args(argv)
+    if args.solve is not None:
+        _run_solve(args)
+    else:
+        _run_packing(args)
+
+
+if __name__ == "__main__":
+    main()
