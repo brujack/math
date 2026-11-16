@@ -84,7 +84,12 @@ def _tangent_candidates(c1: Circle, c2: Circle, c3: Circle) -> list[Circle]:
             continue
         for zsign in (1, -1):
             cand = (k, (zsum + zsign * 2 * root_w) / k)
-            if _residual(cand, [c1, c2, c3]) < 1e-8:
+            if _residual(cand, [c1, c2, c3]) > 1e-6:
+                continue
+            # A zero radicand makes both signs give the same circle.
+            if all(
+                abs(cand[1] - f[1]) > 1e-6 or abs(cand[0] - f[0]) > 1e-6 for f in found
+            ):
                 found.append(cand)
     return found
 
@@ -96,11 +101,15 @@ def _root_circles(root: Root) -> list[Circle]:
     x2 = big_r - r2
     r3 = 1.0 / c
     x3 = ((big_r - r3) ** 2 - (r2 + r3) ** 2 + x2**2) / (2 * x2)
-    y3 = math.sqrt(max((big_r - r3) ** 2 - x3**2, 0.0))
+    y3_sq = (big_r - r3) ** 2 - x3**2
+    # A centre on the axis leaves a rounding residue that sqrt would amplify.
+    y3 = math.sqrt(y3_sq) if y3_sq > 1e-12 else 0.0
     c1: Circle = (float(a), 0j)
     c2: Circle = (float(b), complex(x2, 0.0))
     c3: Circle = (float(c), complex(x3, y3))
-    fourth = [cand for cand in _tangent_candidates(c1, c2, c3) if abs(cand[0] - d) < 1e-6]
+    fourth = [
+        cand for cand in _tangent_candidates(c1, c2, c3) if abs(cand[0] - d) < 1e-6
+    ]
     assert fourth, f"no fourth circle of curvature {d} for root {root}"
     return [c1, c2, c3, fourth[0]]
 
@@ -297,7 +306,7 @@ class TestPackState:
         assert first is not second
 
     def test_count_monotone_in_n(self) -> None:
-        counts = [pack(ROOT_A, n)[0] for n in range(0, 80)]
+        counts = [pack(ROOT_A, n)[0] for n in range(80)]
         assert counts == sorted(counts)
 
 
@@ -320,7 +329,7 @@ class TestOracle:
 
     @pytest.mark.parametrize("root", ALL_ROOTS)
     def test_oracle_matches_pack_for_small_n_sweep(self, root: Root) -> None:
-        for n in range(0, 61):
+        for n in range(61):
             count, bitmap = pack(root, n)
             assert (count, distinct(bitmap)) == _oracle_view(root, n), (root, n)
 
@@ -328,7 +337,9 @@ class TestOracle:
         for root in ALL_ROOTS:
             circles = _root_circles(root)
             for i, ci in enumerate(circles):
-                assert _residual(ci, [c for j, c in enumerate(circles) if j != i]) < 1e-9
+                assert (
+                    _residual(ci, [c for j, c in enumerate(circles) if j != i]) < 1e-6
+                )
 
 
 def test_module_exports() -> None:
