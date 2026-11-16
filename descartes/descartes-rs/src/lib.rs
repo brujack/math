@@ -1375,7 +1375,7 @@ mod tests {
     fn root_centres_high_third_circle_matches_the_exact_values() {
         // (-15, 32, 32, 33): P = -161, Q = 8160, y3^2 = 240^2 / 8160^2, so the
         // third circle's squared height is about 11% above 2 x^2
-        // (y3^2 = 57600 against 2 x3^2 = 51842).
+        // (numerators over Q^2 = 8160^2: y3^2 = 57600 against 2 x3^2 = 51842).
         let got = root_centres([-15, 32, 32, 33]).unwrap();
         assert!(close(got[2], (32.0, -161.0 / 8160.0, 240.0 / 8160.0), 1e-12), "{:?}", got[2]);
     }

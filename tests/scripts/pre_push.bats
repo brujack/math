@@ -65,13 +65,13 @@ teardown() {
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/factorial/factorial-rs test" "${MOCK_CALLS_FILE}"
 }
 
-@test "changed files in two sub-projects calls make twice" {
+@test "changed files in two twinned sub-projects calls make four times" {
     setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\ne/e.py'
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
-    [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 2 ]
+    [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 4 ]
 }
 
 @test "hook/script change runs the root test target" {
@@ -131,7 +131,7 @@ teardown() {
     [[ "${output}" == *"ok pi"* ]]
     [[ "${output}" == *"ok e"* ]]
     [[ "${output}" == *"simulated failure in ${BATS_TEST_TMPDIR}/fake-worktree/fib"* ]]
-    [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 3 ]
+    [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 6 ]
 }
 
 @test "a suite killed before writing its status prints FAIL and exits 1" {
@@ -146,14 +146,14 @@ teardown() {
     [[ "${output}" == *"ok fib"* ]]
 }
 
-@test "seven changed Python sub-projects run all seven suites" {
+@test "seven changed Python sub-projects run all fourteen suites (Python plus crate)" {
     setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\nsq/sq.py\ne/e.py\nfactorial/factorial.py\ncollatz/collatz.py\namicable/amicable.py'
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     [[ "${output}" != *"skipping"* ]]
-    [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 7 ]
+    [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 14 ]
 }
 
 @test "the hook locates the runner through a symlink" {
@@ -210,7 +210,7 @@ teardown() {
         read -r n < "${f}"
         [[ "${n}" -gt "${max}" ]] && max="${n}"
     done
-    [ "${max}" -eq 3 ]
+    [ "${max}" -eq 6 ]
 }
 
 @test "make test failure exits non-zero" {
@@ -236,9 +236,9 @@ teardown() {
 }
 
 @test "rust-only change does not drag in the python sibling suite" {
-    # CI scopes pi.py with the single-level glob `pi/*.py`, which cannot match
-    # a file under pi/pi-rs/. The hook must not be broader than the gate it
-    # approximates.
+    # CI scopes the Python workflow with the single-level glob `pi/*.py`, which
+    # cannot match a file under pi/pi-rs/. The hook must not be broader than the
+    # gate it approximates.
     setup_harness_stub # crate src also triggers the (stubbed) mutants exclusion check
     export MOCK_GIT_DIFF_NAMES="pi/pi-rs/src/lib.rs"
     run bash "${REPO_ROOT}/scripts/pre-push" \
@@ -248,14 +248,45 @@ teardown() {
     assert_no_match "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi test"
 }
 
-@test "python-only change does not drag in the rust sibling suite" {
+# Every `<crate>-rs.yml` also triggers on `<parent>/*.py` (the descartes-rs
+# parity test runs `../descartes.py`), so a Python-only edit in a twinned dir
+# runs both the Python suite and the Rust crate, as CI does.
+@test "python-only change in a twinned dir also runs the rust sibling suite" {
+    setup_harness_stub # a module change also triggers the (stubbed) equivalents check
+    export MOCK_GIT_DIFF_NAMES="descartes/descartes.py"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/descartes test" "${MOCK_CALLS_FILE}"
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/descartes/descartes-rs test" "${MOCK_CALLS_FILE}"
+}
+
+@test "python test file change in a twinned dir also runs the rust sibling suite" {
+    export MOCK_GIT_DIFF_NAMES="descartes/test_descartes.py"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/descartes test" "${MOCK_CALLS_FILE}"
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/descartes/descartes-rs test" "${MOCK_CALLS_FILE}"
+}
+
+@test "python change in another dir does not select the descartes crate" {
     setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES="pi/pi.py"
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi test" "${MOCK_CALLS_FILE}"
-    assert_no_match "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi/pi-rs test"
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi/pi-rs test" "${MOCK_CALLS_FILE}"
+    assert_no_match "make -C ${BATS_TEST_TMPDIR}/fake-worktree/descartes"
+}
+
+@test "a doc-only change in a twinned dir runs neither suite" {
+    export MOCK_GIT_DIFF_NAMES="descartes/README.md"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    assert_no_match "make -C ${BATS_TEST_TMPDIR}/fake-worktree/descartes"
 }
 
 @test "scripts-only change reaches the root test target" {
@@ -487,7 +518,7 @@ teardown() {
     [ "$status" -eq 0 ]
     grep -qxF "make -C ${BATS_TEST_TMPDIR}/fake-worktree lint-hooks" "${MOCK_CALLS_FILE}"
     grep -qxF "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi test" "${MOCK_CALLS_FILE}"
-    [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 2 ]
+    [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 3 ]
 }
 
 @test "shell lint still runs alongside seven concurrent sub-project suites" {
@@ -498,7 +529,7 @@ teardown() {
     [ "$status" -eq 0 ]
     [[ "${output}" != *"skipping local tests"* ]]
     grep -qxF "make -C ${BATS_TEST_TMPDIR}/fake-worktree lint-hooks" "${MOCK_CALLS_FILE}"
-    [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 8 ]
+    [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 15 ]
 }
 
 @test "a non-.sh file in a sub-project does not trigger lint-hooks" {
@@ -576,8 +607,8 @@ STUB
     # The module changes also run the equivalents check, exactly once.
     [ "$(grep -c '^python3 .*cli_contract' "${MOCK_CALLS_FILE}")" -eq 10 ]
     [ "$(grep -c 'tests.test_mutants_equivalent' "${MOCK_CALLS_FILE}")" -eq 1 ]
-    # 7 sub-project suites plus the root target that scripts/cli_contract.py triggers.
-    [ "$(grep -c '^make' "${MOCK_CALLS_FILE}")" -eq 8 ]
+    # 14 sub-project suites (7 Python + 7 crates) plus the root target that scripts/cli_contract.py triggers.
+    [ "$(grep -c '^make' "${MOCK_CALLS_FILE}")" -eq 15 ]
 }
 
 @test "a push not touching the harness runs no harness" {
