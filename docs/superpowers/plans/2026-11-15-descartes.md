@@ -260,7 +260,7 @@ description: root_centres, check_tangent, solve, visible and render in Rust
 role: executor
 model: sonnet
 tdd: required
-requirements: [R14]
+requirements: [R14, R24]
 acceptance:
   - cmd: make -C descartes/descartes-rs test </dev/null
     exit_code: 0
