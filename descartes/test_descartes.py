@@ -307,6 +307,47 @@ class TestDescartesFourth(unittest.TestCase):
 # --- validate_root --------------------------------------------------------------
 
 
+class TestRootCeiling(unittest.TestCase):
+    # R28: one reduction step per reflection, and (-1, 2, n²+2, (n+1)²+2)
+    # needs n of them, so an uncapped root ran for hours (n = 10^12).
+    def test_ceiling_is_ten_to_the_eight(self) -> None:
+        self.assertEqual(descartes.ROOT_MAX, 10**8)
+
+    def test_values_above_the_ceiling_are_bad_input(self) -> None:
+        for root in [
+            (-1, 2, 2, 10**8 + 1),
+            (-(10**8) - 1, 2, 2, 3),
+            (-1, 2, 10**24 + 2, (10**12 + 1) ** 2 + 2),
+        ]:
+            with (
+                self.subTest(root=root),
+                self.assertRaisesRegex(BadInput, "at most 10\\^8 in absolute value"),
+            ):
+                validate_root(*root)
+
+    def test_values_at_the_ceiling_reach_the_descartes_check(self) -> None:
+        # Not a Descartes quadruple, so passing the cap shows up as NoSolution.
+        for root in [(-1, 2, 2, 10**8), (-(10**8), 2, 2, 3)]:
+            with self.subTest(root=root), self.assertRaises(NoSolution):
+                validate_root(*root)
+
+    def test_longest_chain_under_the_ceiling_reduces(self) -> None:
+        # n = 9998 gives 99960006 and 99980003, both under 10^8.
+        n = 9998
+        self.assertEqual(validate_root(-1, 2, n * n + 2, (n + 1) ** 2 + 2), ROOT_A)
+
+    def test_cli_rejects_a_root_above_the_ceiling_with_exit_2(self) -> None:
+        big = str(10**8 + 1)
+        with (
+            contextlib.redirect_stdout(io.StringIO()),
+            contextlib.redirect_stderr(io.StringIO()) as err,
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            descartes.main(["1", "--root", "-1", "2", "2", big, "--no-draw"])
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertIn("at most 10^8 in absolute value", err.getvalue())
+
+
 class TestValidateRoot(unittest.TestCase):
     def test_valid_reduced_root_unchanged(self) -> None:
         self.assertEqual(validate_root(-1, 2, 2, 3), ROOT_A)

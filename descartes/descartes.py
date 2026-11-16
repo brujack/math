@@ -27,6 +27,11 @@ from typing import NoReturn
 # Largest n pack accepts: Python's N = 10^K ceiling (K <= 6, spec R7), about
 # 2.7e7 circles. The core enforces it so no caller can request an unbounded run.
 N_MAX = 10**6
+# Largest |curvature| validate_root accepts (spec R28). Reduction takes one step
+# per reflection, and (-1, 2, n²+2, (n+1)²+2) needs n of them, so an uncapped
+# root can run for hours; curvatures grow at least quadratically along a chain,
+# so this bounds reduction at about 10^4 steps.
+ROOT_MAX = 10**8
 
 
 # (curvature, x, y): a circle of radius 1/k centred at (x, y).
@@ -69,6 +74,12 @@ def validate_root(
             )
         values.append(v)
     shown = f"({values[0]}, {values[1]}, {values[2]}, {values[3]})"
+    for v in values:
+        if abs(v) > ROOT_MAX:
+            raise BadInput(
+                f"root {shown}: curvatures must be at most 10^8 in absolute value, "
+                f"got {v}"
+            )
     total = sum(values)
     squares = 2 * sum(v * v for v in values)
     if total * total != squares:
