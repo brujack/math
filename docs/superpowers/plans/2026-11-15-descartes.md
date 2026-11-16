@@ -47,7 +47,7 @@ description: descartes_fourth, validate_root with reduction, and pack, with a te
 role: executor
 model: sonnet
 tdd: required
-requirements: [R2, R3, R4, R5, R20, R21, R23]
+requirements: [R2, R3, R4, R5, R20, R21, R23, R28]
 acceptance:
   - cmd: python3 -m pytest descartes/test_descartes.py -q
     exit_code: 0
@@ -240,7 +240,7 @@ description: validate_root with reduction and pack in i64 with a distinct bitmap
 role: executor
 model: sonnet
 tdd: required
-requirements: [R14, R22]
+requirements: [R14, R22, R28]
 acceptance:
   - cmd: make -C descartes/descartes-rs test </dev/null
     exit_code: 0
