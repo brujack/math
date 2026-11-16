@@ -1949,8 +1949,30 @@ class TestParseArgs(unittest.TestCase):
         self.assert_exits_2(["--smoke", "--precision", "3"])
 
     def test_mode_flag_errors_name_the_flags(self) -> None:
-        self.assertIn("--solve", self.stderr_of(["2", *R9_ARGS]))
-        self.assertIn("--precision", self.stderr_of(["2", "--precision", "3"]))
+        # Assert on "error: <message>": argparse's usage line, printed with every
+        # error, already contains "--solve" and "--precision", so a bare flag name
+        # would pass whatever the message said.
+        cases = [
+            (["2", *R9_ARGS], "error: --solve takes no K\n"),
+            (
+                [*R9_ARGS, "--root", "-1", "2", "2", "3", "--show"],
+                "error: --solve takes no --root, --show\n",
+            ),
+            (["2", "--precision", "3"], "error: --precision needs --solve\n"),
+            (
+                [*R9_ARGS, "--precision", "18"],
+                "error: --precision must be between 0 and 17\n",
+            ),
+            (["--smoke", "2"], "error: --smoke takes no K\n"),
+        ]
+        for argv, message in cases:
+            with self.subTest(argv=argv):
+                self.assertIn(message, self.stderr_of(argv))
+
+    def test_missing_k_off_a_terminal_names_the_problem(self) -> None:
+        with mock.patch("sys.stdin.isatty", return_value=False):
+            err = self.stderr_of([])
+        self.assertIn("error: K is required when stdin is not a terminal\n", err)
 
     def stderr_of(self, argv: list[str]) -> str:
         with (
@@ -2687,7 +2709,7 @@ class TestSolveCli(CliTestCase):
     def test_unparsable_triple_exits_2(self) -> None:
         code, out, err = self.run_main("--solve", "-1,0", "2,0.5,0", "3,0,0.5")
         self.assertEqual((code, out), (2, ""))
-        self.assertIn("K,X,Y", err)
+        self.assertIn("is not K,X,Y (three values)", err)
 
     def test_solve_writes_no_file(self) -> None:
         self.run_main(*R9_ARGS)
