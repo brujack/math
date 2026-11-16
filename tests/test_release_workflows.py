@@ -313,12 +313,12 @@ class TestHelperBoundaries(unittest.TestCase):
 
 
 class TestReleaseWorkflowDiscovery(unittest.TestCase):
-    def test_eleven_release_workflows_exist(self):
+    def test_twelve_release_workflows_exist(self):
         workflows = discover_release_workflows()
         self.assertEqual(
             len(workflows),
-            11,
-            f"expected 11 release-*-rs.yml workflows, found {len(workflows)}: {workflows}",
+            12,
+            f"expected 12 release-*-rs.yml workflows, found {len(workflows)}: {workflows}",
         )
 
 
@@ -674,7 +674,7 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                 if "links no LGPL components" in text:
                     no_lgpl.add(crate)
         self.assertEqual(lgpl, gmp_crates)
-        self.assertEqual(len(no_lgpl), 6)
+        self.assertEqual(len(no_lgpl), 7)
         self.assertEqual(lgpl & no_lgpl, set())
 
     def test_no_step_continues_on_error(self):

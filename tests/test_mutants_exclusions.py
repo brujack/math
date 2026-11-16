@@ -21,6 +21,7 @@ import tomllib
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 EXPECTED = {
     "amicable/amicable-rs",
+    "descartes/descartes-rs",
     "e/e-rs",
     "factorial/factorial-rs",
     "goldbach/goldbach-rs",
@@ -48,6 +49,26 @@ def check_exclusions(patterns: list[str], listed: list[str]) -> list[str]:
         if len(owners) > 1:
             problems.append(f"mutant matched by {len(owners)} entries: {line}")
     return problems
+
+
+def check_config(config: dict) -> list[str]:
+    """Return problems with one parsed `mutants.toml`.
+
+    `exclude_re` is required, with one exception: a config whose single key is
+    `additional_cargo_test_args` only selects which tests run (descartes-rs, whose
+    parity test runs Python and so cannot run in cargo-mutants' crate-only copy).
+    """
+    if set(config) == {"additional_cargo_test_args"}:
+        return []
+    patterns = config.get("exclude_re")
+    if not isinstance(patterns, list) or not patterns:
+        return ["exclude_re must be a non-empty list"]
+    return []
+
+
+def exclusion_patterns(config: dict) -> list[str]:
+    """The `exclude_re` list of a parsed config, empty for a test-selection-only one."""
+    return config.get("exclude_re", [])
 
 
 def crate_dirs() -> set[str]:
@@ -89,19 +110,47 @@ class CheckExclusionsTest(unittest.TestCase):
         self.assertEqual(len(check_exclusions([r"x"], [])), 1)
 
 
+class CheckConfigTest(unittest.TestCase):
+    def test_exclude_re_list_passes(self) -> None:
+        self.assertEqual(check_config({"exclude_re": ["x"]}), [])
+
+    def test_test_selection_only_file_passes(self) -> None:
+        self.assertEqual(check_config({"additional_cargo_test_args": ["--lib"]}), [])
+
+    def test_file_with_neither_key_fails(self) -> None:
+        self.assertEqual(
+            check_config({"timeout_multiplier": 2.0}),
+            ["exclude_re must be a non-empty list"],
+        )
+
+    def test_empty_file_fails(self) -> None:
+        self.assertEqual(check_config({}), ["exclude_re must be a non-empty list"])
+
+    def test_empty_exclude_re_fails(self) -> None:
+        self.assertEqual(
+            check_config({"exclude_re": []}), ["exclude_re must be a non-empty list"]
+        )
+
+    def test_extra_key_beside_test_args_still_needs_exclude_re(self) -> None:
+        config = {"additional_cargo_test_args": ["--lib"], "timeout_multiplier": 2.0}
+        self.assertEqual(check_config(config), ["exclude_re must be a non-empty list"])
+
+    def test_exclusion_patterns_of_selection_only_file_is_empty(self) -> None:
+        self.assertEqual(
+            exclusion_patterns({"additional_cargo_test_args": ["--lib"]}), []
+        )
+
+
 class MutantsExclusionsTest(unittest.TestCase):
-    def test_crate_set_is_the_expected_eight(self) -> None:
+    def test_crate_set_is_the_expected_nine(self) -> None:
         self.assertEqual(crate_dirs(), EXPECTED)
 
-    def test_each_file_has_a_nonempty_exclude_re_list(self) -> None:
+    def test_each_file_has_a_nonempty_exclude_re_list_or_only_test_args(self) -> None:
         for crate in sorted(EXPECTED):
             path = REPO_ROOT / crate / ".cargo" / "mutants.toml"
             with self.subTest(crate=crate):
-                patterns = tomllib.loads(path.read_text(encoding="utf-8")).get(
-                    "exclude_re"
-                )
-                self.assertIsInstance(patterns, list)
-                self.assertTrue(patterns)
+                config = tomllib.loads(path.read_text(encoding="utf-8"))
+                self.assertEqual(check_config(config), [])
 
     def test_entries_match_listed_mutants(self) -> None:
         if shutil.which("cargo-mutants") is None:
@@ -110,7 +159,11 @@ class MutantsExclusionsTest(unittest.TestCase):
             self.skipTest(f"cargo-mutants not installed; run: {INSTALL_HINT}")
         for crate in sorted(EXPECTED):
             path = REPO_ROOT / crate / ".cargo" / "mutants.toml"
-            patterns = tomllib.loads(path.read_text(encoding="utf-8"))["exclude_re"]
+            patterns = exclusion_patterns(
+                tomllib.loads(path.read_text(encoding="utf-8"))
+            )
+            if not patterns:
+                continue
             with self.subTest(crate=crate):
                 result = subprocess.run(
                     [

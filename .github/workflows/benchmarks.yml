@@ -43,6 +43,7 @@ jobs:
             perfect-numbers/perfect-numbers-rs:perfect_numbers \
             twin-primes/twin-primes-rs:twin_primes \
             goldbach/goldbach-rs:goldbach \
+            descartes/descartes-rs:descartes \
             sq/sq-rs:sq; do
             dir="${pair%:*}"
             bench="${pair##*:}"

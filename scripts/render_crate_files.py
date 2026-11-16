@@ -23,6 +23,7 @@ import sys
 CRATES = [
     "amicable",
     "collatz",
+    "descartes",
     "e",
     "factorial",
     "fib",

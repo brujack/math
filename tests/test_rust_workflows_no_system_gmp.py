@@ -20,8 +20,8 @@ def rust_only_workflows() -> list[pathlib.Path]:
 
 
 class TestNoSystemGmp(unittest.TestCase):
-    def test_file_set_is_24(self):
-        self.assertEqual(len(rust_only_workflows()), 24)
+    def test_file_set_is_26(self):
+        self.assertEqual(len(rust_only_workflows()), 26)
 
     def test_no_system_gmp_packages(self):
         for path in rust_only_workflows():
