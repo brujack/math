@@ -69,7 +69,7 @@ independent geometric enumerator. Population: that probe on `claude`, three root
 ```
 descartes.py K [--root A B C D] [--show] [--yes] [--no-draw]   # packing, N = 10^K
 descartes.py --smoke                                           # packing at SMOKE_SIZE
-descartes.py --solve K1,X1,Y1 K2,X2,Y2 K3,X3,Y3 [--precision P] [--no-draw]
+descartes.py --solve K1,X1,Y1 K2,X2,Y2 K3,X3,Y3 [--precision P] [--no-draw]   # P rounds the display only
 descartes.py                                                   # terminal: prompt for K; otherwise exit 2
 ```
 
@@ -94,9 +94,9 @@ Python `descartes/descartes.py` and Rust `descartes/descartes-rs/src/lib.rs` hav
 functions; `main.rs` is thin and uses injectable I/O (ADR-0018).
 
 1. `descartes_fourth(k1, k2, k3)` returns both `k1+k2+k3 ± 2√(k1k2+k2k3+k3k1)`.
-2. `solve(c1, c2, c3)` returns both fourth circles. It checks input tangency first, at
-   tolerance `5e-4 × max(|r|)` so centres pasted back from the 4-place table still pass; then
-   uses the complex theorem `k4·z4 = Σki·zi ± 2√(k1k2·z1z2 + k2k3·z2z3 + k3k1·z3z1)`, pairing
+2. `solve(c1, c2, c3)` returns both fourth circles. It checks input tangency first: circles i and j pass when
+   `|d_ij − (r_i ± r_j)| ≤ 1e-9 × (|r_i| + |r_j|)`, so the tolerance scales with the pair and
+   pasted full-precision output round-trips; then uses the complex theorem `k4·z4 = Σki·zi ± 2√(k1k2·z1z2 + k2k3·z2z3 + k3k1·z3z1)`, pairing
    each curvature with the centre for which the circle is tangent to all three inputs.
 3. `validate_root(a, b, c, d)` checks the Descartes relation and exactly one negative value,
    then reduces the quadruple to its root.
@@ -104,7 +104,8 @@ functions; `main.rs` is thin and uses injectable I/O (ADR-0018).
    the +x axis, the third from the triangle of centre distances (a negative `y²` from rounding,
    as for the collinear root `(-2,3,6,7)`, is clamped to 0), and the fourth by the complex
    theorem. It never runs `solve`'s input tangency check. Floats, for drawing only.
-5. `pack(root, n)` is an iterative depth-first search over `(quadruple, replaced index)`. The
+5. `pack(root, n)` is an iterative depth-first search over `(quadruple, replaced index)`. It
+   first counts each of the root's own positive curvatures that is `≤ n`. The
    four reflections of the root are seeded when `≤ n`, with no growth test. Every later step
    reflects each position except the one just replaced, `k' = 2(sum of the other three) − k_i`,
    and keeps `k'` only when `k_i < k' ≤ n`. It returns the circle count and a bitmap of
@@ -115,8 +116,11 @@ functions; `main.rs` is thin and uses injectable I/O (ADR-0018).
    `pack`, so the counting loop never touches floats.
 7. `render(circles, width, height)` rasterises circles into braille with the midpoint circle
    algorithm. It reads only a list of `(k, x, y)` circles, so another back end can replace it.
-   Every float-to-dot conversion uses `floor(x + 0.5)` in both languages, never the language's
-   own `round`, so Python and Rust place the same dots.
+   The canvas is the terminal size when stdout is a terminal and a fixed 60 × 24 cells when it
+   is not, in both languages (as `triangle`'s `_PIPE_WIDTH`). Drawings are checked per
+   language, not across languages: Python's compensated `sum()` and `cmath.sqrt` cannot be
+   matched bit for bit in Rust cheaply, and integral packings put many dot coordinates on exact
+   .5 boundaries where a 1-ulp difference moves a dot.
 
 ### Output
 
@@ -129,7 +133,11 @@ circles with curvature `≤ min(N, 2 × canvas width in braille dots)`, so its c
 on terminal width, which `--help` states.
 
 Solve mode prints a table of the three given circles and both solutions (curvature, radius,
-centre) at `--precision` places (default 4), then draws all five circles.
+centre), then draws all five circles. Values print at full precision by default, as the
+shortest string that round-trips (Python `repr`, Rust `Display`), so pasted output passes the
+tangency check; `--precision P` rounds the display to P decimal places and does not change the
+computation. A rejected tangency check whose input has 6 or fewer decimal places says so and
+suggests full-precision values.
 
 ### Errors
 
@@ -147,14 +155,15 @@ TDD per function, with boundary, error-path and state-transition cases.
   break the `d = a+b+c` shape all three table roots share, which is the shape behind the
   probe's seeding bug. The probe's own oracle counted root circles above N, which is why it
   disagreed at `(-11,21,24,28)`, N=10; the rebuilt one filters them.
-- Pinned K=4 and K=5 counts check both languages beyond the oracle's range, and Python and
-  Rust counts are compared at K=4-6.
-- Python/Rust parity is split by output kind: integer output (curvature file, count lines) is
-  compared byte for byte; the solve table numerically to `--precision`; the drawings byte for
-  byte, which `floor(x + 0.5)` makes possible. Every parity case asserts exit 0 and non-empty
-  output first.
-- BATS failure-mode tests run on both binaries; the Rust ones skip when the binary is absent,
-  and the Rust workflow builds it, so they run in CI.
+- Pinned K=4 and K=5 counts check both languages beyond the oracle's range.
+- Python/Rust parity lives in a Rust integration test, `descartes-rs/tests/parity.rs`, which
+  runs `python3 ../descartes.py` (standard library only) beside the binary at K ≤ 5, about 2 s
+  of Python at K=5, inside nextest's 45 s bound. It compares integer output (curvature file,
+  count lines) byte for byte and the solve table numerically, after asserting both exit 0 and
+  print a non-empty count line. Drawings are not compared across languages.
+- BATS failure-mode tests cover the Python CLI. Rust failure modes are covered in
+  `descartes-rs/tests/cli.rs`, because `scripts.yml` runs BATS without building any crate and
+  the rendered `<crate>-rs.yml` has no BATS step.
 - Coverage ≥ 90 % in both languages; `mutation-py` and `mutation-rs` hold 0 survivors on
   changed lines, which for a new crate is the whole crate.
 
@@ -168,16 +177,15 @@ TDD per function, with boundary, error-path and state-transition cases.
 - **R6.** `[PR1]` Packing mode exits 1 with a message naming the root for `--root -1 2 2 4` (Descartes relation fails: `(Σk)²=49`, `2Σk²=50`) and for `--root 0 0 1 1` (not exactly one negative curvature), and exits 2 for `--root -1 2 2 x`; `--root -1 2 2 3` exits 0.
 - **R7.** `[PR1]` Python accepts K 1-6 and exits 2 naming the range for K 0 and K 7; `SMOKE_SIZE` is 2 and `LARGE_RUN_THRESHOLD` is `None`.
 - **R8.** `[PR1]` Packing mode writes `descartes_1eK.txt` for the default root and `descartes_1eK_root_A_B_C_D.txt` (reduced root, ascending) otherwise, one distinct curvature per line in ascending order; prints the reduced root, circle count, distinct count and `Saved to <file>` to stdout in that order; prints the elapsed time to stderr only; and for `--root -11 21 24 28` at K=1 writes an empty file, reports 0 circles and draws nothing.
-- **R9.** `[PR1]` `--solve -1,0,0 2,0.5,0 3,0,0.6666666666666666` returns a curvature-2 circle centred at (-0.5, 0) and a curvature-6 circle centred at (0.5, 0.6666666666666666) within 1e-9, and every returned circle is tangent to all three inputs within `1e-9 × max(|radius|)`.
-- **R10.** `[PR1]` `--solve -1,0,0 2,0.5,0 3,0,0.6667` (the 4-place printed centre) exits 0 with the R9 curvatures; `--solve -1,0,0 2,0.5,0 3,0,0.7` exits 1 naming circles 1 and 3 as not tangent (pairs are checked in the order 1-2, 1-3, 2-3 and the first failing pair is named); a zero curvature or an unparsable `K,X,Y` triple exits 2; the same command with a tangent triple exits 0.
-- **R11.** `[PR1]` With drawing on, both modes print at least one non-blank braille line for the R9 input and for the default root at K=2; `--no-draw` prints none; `render` called with an empty circle list returns only blank lines; the packing drawing includes only circles with curvature `≤ min(N, 2 × canvas width in dots)`.
+- **R9.** `[PR1]` `--solve -1,0,0 2,0.5,0 3,0,0.6666666666666666` returns a curvature-2 circle centred at (-0.5, 0) and a curvature-6 circle centred at (0.5, 0.6666666666666666) within 1e-9, every returned circle is tangent to all three inputs within `1e-9 × (|r_i| + |r_j|)`, and with no `--precision` the table prints `0.6666666666666666` for the curvature-6 centre's y.
+- **R10.** `[PR1]` Pasting the R9 table's printed values back into `--solve` exits 0 with the same curvatures; the R9 input scaled by 100 (curvatures -100, 200 and 300, centres divided by 100) exits 0; `--solve -1,0,0 2,0.5,0 3,0,0.6667` exits 1 naming circles 1 and 3 as not tangent and suggesting full-precision values (pairs are checked in the order 1-2, 1-3, 2-3 and the first failing pair is named); a zero curvature or an unparsable `K,X,Y` triple exits 2; `--precision 4` on the R9 input prints `0.6667` and the same curvatures.
+- **R11.** `[PR1]` With drawing on and stdout not a terminal, both modes print exactly 24 lines of 60 braille cells, at least one non-blank, for the R9 input and for the default root at K=2; `--no-draw` prints no braille line; `render([], 60, 24)` returns 24 lines, each 60 blank braille cells; the packing drawing includes only circles with curvature `≤ min(N, 2 × canvas width in dots)`.
 - **R12.** `[PR1]` `make test` in `descartes/` runs `scripts/cli_contract.py descartes.py` and it exits 0.
 - **R13.** `[PR2]` `descartes/descartes-rs/` exists with every file `render_crate_files.py` renders for a crate byte-equal to its output, `Cargo.toml` with no `rug` and no `rayon` dependency, `CRATES` in `scripts/render_crate_files.py` listing `descartes`, and `tests/test_crate_uniformity.py` asserting and passing over 12 crates.
-- **R14.** `[PR2]` Rust accepts K 1-8 and exits 2 naming the range for K 0 and K 9; for every input in R2, R3, R5, R6 and R8-R11 it gives the same results and exit codes as Python; the R9 command parses with the negative first triple unquoted beyond the shell.
-- **R15.** `[PR2]` A parity test runs both programs for the default root at K = 1-6, `--root -2 3 6 7` and `--root -11 21 24 28` at K = 1-3, and `--solve` on the R9 input, each with drawing on; it first asserts both exit 0 and both stdouts are non-empty, then that output files and the count lines are byte-identical, the solve tables agree numerically to 4 places, and the drawings are byte-identical.
+- **R14.** `[PR2]` Rust accepts K 1-8 and exits 2 naming the range for K 0 and K 9; for every input in R2, R3, R5, R6 and R8-R11 it gives the same results and exit codes as Python, each with non-empty stdout where Python's is non-empty; R11's drawing checks run against the Rust binary; the R9 command parses with the negative first triple.
+- **R15.** `[PR2]` `descartes-rs/tests/parity.rs` runs both programs for the default root at K = 1-5, `--root -2 3 6 7` and `--root -11 21 24 28` at K = 1-3, and `--solve` on the R9 input; it first asserts both exit 0 and both print the circle-count line, then that output files and count lines are byte-identical and the solve tables agree numerically within 1e-12; it does not compare drawings.
 - **R16.** `[PR2]` `descartes-py.yml`, `descartes-rs.yml` and `release-descartes-rs.yml` exist, rendered from the templates; `scripts/pre-commit` and `scripts/pre-push` loop over `descartes` and `descartes/descartes-rs`; the root `README.md` and `CLAUDE.md` list the project; `.gitignore` lists `descartes_1e*.txt`.
-- **R17.** `[PR2]` BATS tests cover missing K, K out of range, non-integer K, a bad root and a non-tangent `--solve` for both binaries, each Rust case starting with `[[ -x "$RUST_BIN" ]] || skip`, and `descartes-rs.yml` builds the binary before running them.
-- **R18.** `[PR1]` Every float-to-dot conversion in `render` uses `floor(x + 0.5)`, and Python's `round` appears nowhere in `render`.
+- **R17.** `[PR2]` BATS tests in `tests/scripts/` cover missing K, K out of range, non-integer K, a bad root and a non-tangent `--solve` for the Python CLI; `descartes-rs/tests/cli.rs` covers the same five cases for the Rust binary, asserting exit code and stderr.
 - **V1.** On `claude`, time, peak memory and output file size of Rust packing at K = 6, 7 and 8 and Python at K = 6, recorded in the PR2 body; if Rust K=8 exceeds 10 minutes, the K ceiling is amended down before merge.
 - **V2.** Python and Rust line coverage ≥ 90 % in CI, and `mutation-pr` green on both PRs.
 - **N1.** No graphical window, SVG or plotting back end (a Desmos-style macOS window is a P4 Backlog row).
@@ -213,3 +221,13 @@ Disposition: Addressed (operator): elapsed time to stderr; one rounding rule `fl
 Trigger: borderline (oracle-versus-implementation comparison); run per the default-to-run rule. Finding: pinned values are correct, confirmed by an exact integer oracle sharing no code with the spec (circles as exact (k, k*z) pairs, every reflection applied, exact dedup): (-1,2,2,3) 38/11, 168/33, 3328/324 and K=4 67166/3299; every R2 value for the other two roots; the R3 set. The spec's `pack` rule also matches a float oracle on (-11,21,24,28) 144/114, (-3,5,8,8) 785/203 and (-6,10,15,19) 322/143 at N=1000. Gaps, by weight: (1) nothing checks Rust correctness above K=3; pin K=4 (67166/3299) and K=5 (1359170/33273) in both languages and compare Python and Rust at K=4-6; state the count type (K=8 overflows `u32`). (2) All three tested roots satisfy d = a+b+c, the shape that caused the probe bug; add (-11,21,24,28) or (-3,5,8,8). (3) The empty result is untested: (-11,21,24,28) at K=1 yields 0 circles (empty file, no drawing). (4) Collinear roots are a float hazard: for (-2,3,6,7) the probe put the third centre at y = sqrt(1.1e-16), about 1e-8, failing a 1e-9 tangency check; if `root_centres` routes through `solve`'s check, two of three table roots fail. Bias: the oracle shares the reduced root and `root_centres` with `pack`, so a wrong reduction is invisible to it; R5 covers only two reductions.
 Assumption: byte parity at K<=3 implies Rust correct to K=8; refuted or confirmed by running Rust at K=4-6 against Python's counts.
 Disposition: Addressed (operator): K=4/K=5 pinned in R2 and Python/Rust compared at K=4-6 (R15); count type `i64` stated; roots `(-11,21,24,28)` and `(-3,5,8,8)` added to R2/R4; empty result pinned (R2, R8); collinear clamp in `root_centres`, which never runs the input tangency check.
+
+### Round 2
+
+Reviewed at commit: `2d34195` (round-1 dispositions applied). Lenses: Goal-Fit, Ergonomics, and Risk combined with the adversarial check.
+
+Goal-Fit finding: Design §5 omitted counting the root's own circles `≤ n`; implemented literally it returns 35/10 at `(-1,2,2,3)`, n=30, not the pinned 38/11 (the pinned values are right). Byte-identical drawings fail the reads-it test and are fragile: centres sit on rational points, and Python `cmath.sqrt` and complex division are not specified for Rust. The piped canvas width was not pinned. R15's non-empty guard is satisfied by count lines alone.
+Ergonomics finding: the `5e-4 × max(|r|)` tolerance is scaled to the radius while 4-place rounding error (~5e-5) is absolute, so pasted output fails once max radius is below ~0.1 (measured at scale 10: tolerance 2.5e-5, error 2.7e-5); a curvature of 1e5 prints radius `0.0000`. Piped canvas width unspecified. `render([])` "only blank lines" passes on zero lines.
+Risk finding: `floor(x+0.5)` cannot make drawings identical when inputs differ upstream: Python `sum()` is compensated (`sum([1e16,1.0,-1e16]) == 1.0` on 3.14.8) and `cmath.sqrt` differs from a Rust complex sqrt; 40 of 2,286 scaled coordinates for the default root lie within 1e-9 of a .5 tie. R15 had no home (Python K=6 ~40 s against nextest's 45 s; a Python-side test pays per mutant and lacks the binary). R17's Rust BATS cases always skip because `scripts.yml` builds no crate and the rendered `<crate>-rs.yml` has no BATS step. Adversarial: an independent breadth-first geometric search reproduced every R2 pair, including K=4/K=5, and R9 checked by hand.
+Assumption (all three): Python and Rust compute bit-identical float centres; refuted in part by the compensated `sum()` measurement, so cross-language drawing parity was removed rather than tested.
+Disposition: Addressed (operator, 2026-11-15): drawings checked per language only, R18 and the `floor(x+0.5)` rule removed, piped canvas fixed at 60 × 24 in both languages (R11); full-precision solve output by default with `--precision` display-only, per-pair tolerance `1e-9 × (|r_i| + |r_j|)`, scaled-by-100 and paste-back cases (R9, R10); §5 counts root circles; R15 moved to `descartes-rs/tests/parity.rs` at K ≤ 5 without drawings; Rust failure modes in `descartes-rs/tests/cli.rs`, BATS Python-only (R17); R11 pins exact line count; R14 requires non-empty Rust output and runs R11 against Rust. The round-1 dispositions above that cite `floor(x+0.5)`, R18, the `5e-4` tolerance and K=4-6 parity are superseded by this one.
