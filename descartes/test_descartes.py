@@ -193,6 +193,11 @@ class TestDescartesFourth:
         plus, minus = descartes_fourth(1.0, 1.0, -0.5 - 1e-13)
         assert plus == minus
 
+    @pytest.mark.parametrize("x", [1e3, 7.3e4, 1e6, 3.1e7, 1e9])
+    def test_tolerance_scales_with_magnitude(self, x: float) -> None:
+        # s is exactly 0 in real arithmetic; rounding error grows like x**2.
+        descartes_fourth(-2 * x / 7, 3 * x / 7, 6 * x / 7)
+
     def test_result_satisfies_descartes_relation(self) -> None:
         for fourth in descartes_fourth(2, 3, 6):
             total = 2 + 3 + 6 + fourth
@@ -231,6 +236,16 @@ class TestValidateRoot:
         message = str(info.value)
         assert "(-1, 2, 2, 4)" in message
         assert "(Σk)²=49, 2Σk²=50" in message
+
+    def test_relation_fails_with_square_sum_below(self) -> None:
+        # (Σk)²=64 exceeds 2Σk²=56, so the relation fails in the other direction.
+        with pytest.raises(NoSolution, match="not a Descartes"):
+            validate_root(-1, 3, 3, 3)
+
+    def test_zero_is_not_negative(self) -> None:
+        # (0, 1, 1, 4) satisfies the relation; zero must not count as negative.
+        with pytest.raises(NoSolution, match="exactly one negative"):
+            validate_root(0, 1, 1, 4)
 
     def test_zero_curvatures_have_no_single_negative(self) -> None:
         with pytest.raises(NoSolution, match=r"\(0, 0, 1, 1\)"):
@@ -290,6 +305,29 @@ class TestPackBoundaries:
     def test_bounding_circle_is_never_counted(self) -> None:
         _, bitmap = pack(ROOT_A, 30)
         assert all(k > 0 for k in distinct(bitmap))
+
+
+class TestPackPreconditions:
+    @pytest.mark.parametrize("n", [-1, -9])
+    def test_negative_n_rejected(self, n: int) -> None:
+        with pytest.raises(BadInput, match=rf"pack.*{n}"):
+            pack(ROOT_A, n)
+
+    def test_unreduced_root_rejected(self) -> None:
+        with pytest.raises(BadInput, match=r"pack.*\(-1, 2, 3, 6\)"):
+            pack((-1, 2, 3, 6), 100)
+
+    def test_unsorted_root_rejected(self) -> None:
+        with pytest.raises(BadInput, match="pack"):
+            pack((2, -1, 2, 3), 100)
+
+    def test_non_descartes_root_rejected(self) -> None:
+        with pytest.raises(BadInput, match="pack"):
+            pack((-1, 2, 2, 4), 100)
+
+    def test_two_negative_root_rejected(self) -> None:
+        with pytest.raises(BadInput, match="pack"):
+            pack((-1, -1, 0, 0), 100)
 
 
 class TestPackState:

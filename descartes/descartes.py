@@ -21,7 +21,7 @@ class NoSolution(Exception):
 def descartes_fourth(k1: float, k2: float, k3: float) -> tuple[float, float]:
     """Return both curvatures tangent to three mutually tangent circles."""
     s = k1 * k2 + k2 * k3 + k3 * k1
-    if s < -1e-12 * max(abs(k1), abs(k2), abs(k3)):
+    if s < -1e-12 * (abs(k1 * k2) + abs(k2 * k3) + abs(k3 * k1)):
         raise NoSolution(
             f"descartes_fourth({k1}, {k2}, {k3}): no circle is tangent to all "
             f"three, k1k2+k2k3+k3k1 = {s} is negative"
@@ -69,12 +69,36 @@ def _mark(bitmap: bytearray, k: int) -> None:
     bitmap[k >> 3] |= 1 << (k & 7)
 
 
+def _check_reduced_root(root: tuple[int, int, int, int]) -> None:
+    """Raise BadInput unless root is a sorted, reduced Descartes root."""
+    total = sum(root)
+    problem = ""
+    if list(root) != sorted(root):
+        problem = "not sorted ascending"
+    elif total * total != 2 * sum(k * k for k in root):
+        problem = "not a Descartes quadruple"
+    elif sum(1 for k in root if k < 0) != 1:
+        problem = "needs exactly one negative curvature"
+    elif 2 * (root[0] + root[1] + root[2]) - root[3] < root[3]:
+        problem = "not reduced (use validate_root first)"
+    if problem:
+        raise BadInput(f"pack(root={root}, ...): root is {problem}")
+
+
 def pack(root: tuple[int, int, int, int], n: int) -> tuple[int, bytearray]:
-    """Count circles of curvature 1..n in the packing and mark their curvatures."""
+    """Count circles of curvature at most n in the packing and mark their curvatures.
+
+    The root must come from validate_root. For a reduced root, reflecting any
+    position except the one just replaced always increases its curvature, so
+    the DFS needs only the bound k <= n to stop.
+    """
+    if n < 0:
+        raise BadInput(f"pack(n={n}): n must not be negative")
+    _check_reduced_root(root)
     bitmap = bytearray(n // 8 + 1)
     count = 0
-    for k in root:
-        if 0 < k <= n:
+    for k in root[1:]:
+        if k <= n:
             count += 1
             _mark(bitmap, k)
     total = sum(root)
@@ -94,7 +118,7 @@ def pack(root: tuple[int, int, int, int], n: int) -> tuple[int, bytearray]:
             if i == j:
                 continue
             k = 2 * (total - quad[i]) - quad[i]
-            if quad[i] < k <= n:
+            if k <= n:
                 child = list(quad)
                 child[i] = k
                 stack.append((child, i))
