@@ -22,7 +22,7 @@ make test
 | Flag                       | Meaning                                                              |
 | -------------------------- | -------------------------------------------------------------------- |
 | `K`                        | exponent, curvature limit 10^K (1 to 6)                              |
-| `--root A B C D`           | root quadruple with one negative value (default `-1 2 2 3`)          |
+| `--root A B C D`           | root quadruple with one negative value, each at most 10^8 in absolute value (default `-1 2 2 3`) |
 | `--show`                   | also print each result line to stdout                                |
 | `--yes`                    | confirm a large run (this program has none)                          |
 | `--smoke`                  | quick check at `SMOKE_SIZE` (2)                                      |
@@ -65,4 +65,4 @@ solution  2  6.0000     0.1667   0.5000   0.6667
 | ---- | ------------------------------------------------------------------------------------------- |
 | 0    | done                                                                                        |
 | 1    | well-formed input with no answer (not a Descartes root, circles not tangent, end of input)  |
-| 2    | input that cannot describe a problem (bad value, K or `--precision` out of range, usage)     |
+| 2    | input that cannot describe a problem (bad value, K or `--precision` out of range, a `--root` value above 10^8, usage) |
