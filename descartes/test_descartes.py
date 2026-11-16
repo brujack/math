@@ -7,10 +7,10 @@ Descartes theorem, so it checks the integer recurrence against geometry.
 
 import cmath
 import math
+import unittest
 from collections import deque
 from fractions import Fraction
-
-import pytest
+from unittest import mock
 
 import descartes
 from descartes import (
@@ -53,6 +53,7 @@ PINNED: list[tuple[Root, int, int, int]] = [
     (ROOT_E, 1000, 785, 203),
 ]
 
+ROOT_A_DISTINCT_30 = [2, 3, 6, 11, 14, 15, 18, 23, 26, 27, 30]
 ALL_ROOTS = [ROOT_A, ROOT_B, ROOT_C, ROOT_D, ROOT_E]
 ORACLE_N = 1000
 
@@ -205,40 +206,40 @@ def _oracle_cached(root: Root) -> list[Circle]:
 # --- descartes_fourth ---------------------------------------------------------
 
 
-class TestDescartesFourth:
+class TestDescartesFourth(unittest.TestCase):
     def test_returns_both_solutions(self) -> None:
-        assert descartes_fourth(2, 3, 6) == (23.0, -1.0)
+        self.assertEqual(descartes_fourth(2, 3, 6), (23.0, -1.0))
 
     def test_double_root_when_radicand_zero(self) -> None:
-        assert descartes_fourth(-1, 2, 2) == (3.0, 3.0)
+        self.assertEqual(descartes_fourth(-1, 2, 2), (3.0, 3.0))
 
     def test_tiny_negative_radicand_is_clamped(self) -> None:
         plus, minus = descartes_fourth(1.0, 1.0, -0.5000000000000001)
-        assert plus == minus
-        assert plus == pytest.approx(1.5)
+        self.assertEqual(plus, minus)
+        self.assertAlmostEqual(plus, 1.5)
 
     def test_negative_radicand_raises_naming_inputs(self) -> None:
-        with pytest.raises(NoSolution, match=r"1.*1.*-1"):
+        with self.assertRaisesRegex(NoSolution, r"1.*1.*-1"):
             descartes_fourth(1, 1, -1)
 
     def test_radicand_just_below_tolerance_raises(self) -> None:
         # s = -2e-9 against a threshold of -1e-12 * 1.
-        with pytest.raises(NoSolution):
+        with self.assertRaises(NoSolution):
             descartes_fourth(1.0, 1.0, -0.5 - 1e-9)
 
     def test_radicand_just_inside_tolerance_clamps(self) -> None:
         # s = -2e-13 is inside the -1e-12 * 1 window.
         plus, minus = descartes_fourth(1.0, 1.0, -0.5 - 1e-13)
-        assert plus == minus
+        self.assertEqual(plus, minus)
 
-    @pytest.mark.parametrize("x", [1e3, 7.3e4, 1e6, 3.1e7, 1e9])
-    def test_tolerance_scales_with_magnitude(self, x: float) -> None:
+    def test_tolerance_scales_with_magnitude(self) -> None:
         # s is exactly 0 in real arithmetic; rounding error grows like x**2.
-        descartes_fourth(-2 * x / 7, 3 * x / 7, 6 * x / 7)
+        for x in [1e3, 7.3e4, 1e6, 3.1e7, 1e9]:
+            with self.subTest(x=x):
+                descartes_fourth(-2 * x / 7, 3 * x / 7, 6 * x / 7)
 
-    @pytest.mark.parametrize(
-        ("curvatures", "raises"),
-        [
+    def test_tolerance_is_one_ppt_of_the_summed_products(self) -> None:
+        cases: list[tuple[tuple[float, float, float], bool]] = [
             # Products of comparable size and all three terms of the tolerance
             # live: s sits at 2x the tolerance (raise) or 0.5x it (clamp).
             ((0.003, 0.004, -0.0017142857142925713), True),
@@ -247,220 +248,242 @@ class TestDescartesFourth:
             # s is exactly -4 and the tolerance is 1e-12 * 4e12 = 4: equal is
             # inside the window, so it clamps.
             ((2.0, 999999999999.0, -2.0), False),
-        ],
-    )
-    def test_tolerance_is_one_ppt_of_the_summed_products(
-        self, curvatures: tuple[float, float, float], raises: bool
-    ) -> None:
-        k1, k2, k3 = curvatures
-        a, b, c = (Fraction(k) for k in curvatures)
-        s = a * b + b * c + c * a
-        tolerance = Fraction(abs(a * b) + abs(b * c) + abs(c * a), 10**12)
-        assert s < 0
-        assert (-s > tolerance) is raises  # the fixture is what it claims to be
-        if raises:
-            with pytest.raises(NoSolution):
-                descartes_fourth(k1, k2, k3)
-        else:
-            plus, minus = descartes_fourth(k1, k2, k3)
-            assert plus == minus == k1 + k2 + k3
+        ]
+        for curvatures, raises in cases:
+            with self.subTest(curvatures=curvatures, raises=raises):
+                k1, k2, k3 = curvatures
+                a, b, c = (Fraction(k) for k in curvatures)
+                s = a * b + b * c + c * a
+                tolerance = Fraction(abs(a * b) + abs(b * c) + abs(c * a), 10**12)
+                self.assertLess(s, 0)
+                # the fixture is what it claims to be
+                self.assertIs(-s > tolerance, raises)
+                if raises:
+                    with self.assertRaises(NoSolution):
+                        descartes_fourth(k1, k2, k3)
+                else:
+                    plus, minus = descartes_fourth(k1, k2, k3)
+                    self.assertEqual(plus, minus)
+                    self.assertEqual(plus, k1 + k2 + k3)
 
     def test_result_satisfies_descartes_relation(self) -> None:
         for fourth in descartes_fourth(2, 3, 6):
             total = 2 + 3 + 6 + fourth
-            assert total**2 == pytest.approx(2 * (4 + 9 + 36 + fourth**2))
+            self.assertAlmostEqual(total**2, 2 * (4 + 9 + 36 + fourth**2))
 
 
 # --- validate_root --------------------------------------------------------------
 
 
-class TestValidateRoot:
+class TestValidateRoot(unittest.TestCase):
     def test_valid_reduced_root_unchanged(self) -> None:
-        assert validate_root(-1, 2, 2, 3) == ROOT_A
+        self.assertEqual(validate_root(-1, 2, 2, 3), ROOT_A)
 
     def test_unordered_input_is_sorted(self) -> None:
-        assert validate_root(3, 2, -1, 2) == ROOT_A
+        self.assertEqual(validate_root(3, 2, -1, 2), ROOT_A)
 
-    @pytest.mark.parametrize("root", [(-1, 2, 3, 6), (-1, 3, 6, 14), (-1, 2, 2, 3)])
-    def test_reduces_to_root_a(self, root: Root) -> None:
-        assert validate_root(*root) == ROOT_A
+    def test_reduces_to_root_a(self) -> None:
+        for root in [(-1, 2, 3, 6), (-1, 3, 6, 14), (-1, 2, 2, 3)]:
+            with self.subTest(root=root):
+                self.assertEqual(validate_root(*root), ROOT_A)
 
-    @pytest.mark.parametrize(("root", "quad"), UNREDUCED)
-    def test_every_descendant_reduces_to_its_root(self, root: Root, quad: Root) -> None:
+    def test_every_descendant_reduces_to_its_root(self) -> None:
         # quad was built from root by reflections, so root is its canonical root.
-        assert validate_root(*quad) == root
+        for root, quad in UNREDUCED:
+            with self.subTest(root=root, quad=quad):
+                self.assertEqual(validate_root(*quad), root)
 
     def test_reduction_stops_at_a_tied_maximum(self) -> None:
         # (-3, 5, 8, 12) reflects to (-3, 5, 8, 8); the reflected 8 ties the
         # third curvature, and a tie must not end the reduction early.
-        assert validate_root(-3, 5, 8, 12) == ROOT_E
+        self.assertEqual(validate_root(-3, 5, 8, 12), ROOT_E)
 
     def test_already_reduced_roots_are_fixed_points(self) -> None:
         for root in ALL_ROOTS:
-            assert validate_root(*root) == root
+            self.assertEqual(validate_root(*root), root)
 
     def test_float_is_bad_input(self) -> None:
-        with pytest.raises(BadInput):
+        with self.assertRaises(BadInput):
             validate_root(-1, 2, 2.5, 3)
 
     def test_bool_is_bad_input(self) -> None:
-        with pytest.raises(BadInput):
+        with self.assertRaises(BadInput):
             validate_root(-1, 2, 2, True)
 
     def test_not_descartes_quadruple(self) -> None:
-        with pytest.raises(NoSolution) as info:
+        with self.assertRaises(NoSolution) as info:
             validate_root(-1, 2, 2, 4)
-        message = str(info.value)
-        assert "(-1, 2, 2, 4)" in message
-        assert "(Σk)²=49, 2Σk²=50" in message
+        message = str(info.exception)
+        self.assertIn("(-1, 2, 2, 4)", message)
+        self.assertIn("(Σk)²=49, 2Σk²=50", message)
 
     def test_relation_fails_with_square_sum_below(self) -> None:
         # (Σk)²=64 exceeds 2Σk²=56, so the relation fails in the other direction.
-        with pytest.raises(NoSolution, match="not a Descartes"):
+        with self.assertRaisesRegex(NoSolution, "not a Descartes"):
             validate_root(-1, 3, 3, 3)
 
     def test_zero_is_not_negative(self) -> None:
         # (0, 1, 1, 4) satisfies the relation; zero must not count as negative.
-        with pytest.raises(NoSolution, match="exactly one negative"):
+        with self.assertRaisesRegex(NoSolution, "exactly one negative"):
             validate_root(0, 1, 1, 4)
 
     def test_zero_curvatures_have_no_single_negative(self) -> None:
-        with pytest.raises(NoSolution, match=r"\(0, 0, 1, 1\)"):
+        with self.assertRaisesRegex(NoSolution, r"\(0, 0, 1, 1\)"):
             validate_root(0, 0, 1, 1)
 
     def test_two_negatives_rejected(self) -> None:
         # (-1, -1, 0, 0) satisfies the Descartes equation with two negatives.
-        with pytest.raises(NoSolution, match=r"\(-1, -1, 0, 0\)"):
+        with self.assertRaisesRegex(NoSolution, r"\(-1, -1, 0, 0\)"):
             validate_root(-1, -1, 0, 0)
 
     def test_all_positive_rejected(self) -> None:
-        # (0,0,0,0) satisfies the equation and has no negative value.
-        with pytest.raises(NoSolution):
-            validate_root(0, 0, 0, 0)
+        # (2, 2, 3, 15) is a genuine Descartes quadruple (22**2 = 484 =
+        # 2 * (4 + 4 + 9 + 225)) with no negative curvature.
+        with self.assertRaisesRegex(NoSolution, "exactly one negative"):
+            validate_root(2, 2, 3, 15)
 
 
 # --- pack ---------------------------------------------------------------------
 
 
-class TestPackPinned:
-    @pytest.mark.parametrize(("root", "n", "count", "n_distinct"), PINNED)
-    def test_pinned_values(
-        self, root: Root, n: int, count: int, n_distinct: int
-    ) -> None:
-        got_count, bitmap = pack(root, n)
-        assert (got_count, len(distinct(bitmap))) == (count, n_distinct)
+class TestPackPinned(unittest.TestCase):
+    def test_pinned_values(self) -> None:
+        for root, n, count, n_distinct in PINNED:
+            with self.subTest(root=root, n=n):
+                got_count, bitmap = pack(root, n)
+                self.assertEqual(
+                    (got_count, len(distinct(bitmap))), (count, n_distinct)
+                )
 
     def test_distinct_list_root_a_30(self) -> None:
         _, bitmap = pack(ROOT_A, 30)
-        assert distinct(bitmap) == [2, 3, 6, 11, 14, 15, 18, 23, 26, 27, 30]
+        self.assertEqual(distinct(bitmap), ROOT_A_DISTINCT_30)
 
     def test_bitmap_size(self) -> None:
         _, bitmap = pack(ROOT_A, 30)
-        assert len(bitmap) == 30 // 8 + 1
+        self.assertEqual(len(bitmap), 30 // 8 + 1)
 
 
-class TestPackBoundaries:
+class TestPackBoundaries(unittest.TestCase):
     def test_n_below_every_curvature_is_empty(self) -> None:
         count, bitmap = pack(ROOT_A, 1)
-        assert count == 0
-        assert distinct(bitmap) == []
-        assert not any(bitmap)
+        self.assertEqual(count, 0)
+        self.assertEqual(distinct(bitmap), [])
+        self.assertFalse(any(bitmap))
 
     def test_n_zero(self) -> None:
         count, bitmap = pack(ROOT_A, 0)
-        assert (count, distinct(bitmap), len(bitmap)) == (0, [], 1)
+        self.assertEqual((count, distinct(bitmap), len(bitmap)), (0, [], 1))
 
     def test_n_equal_to_smallest_curvature_counts_it_once_per_circle(self) -> None:
         count, bitmap = pack(ROOT_A, 2)
-        assert count == 2
-        assert distinct(bitmap) == [2]
+        self.assertEqual(count, 2)
+        self.assertEqual(distinct(bitmap), [2])
 
     def test_n_one_below_curvature_excludes_it(self) -> None:
-        count, bitmap = pack(ROOT_A, 1)
-        assert (count, distinct(bitmap)) == (0, [])
+        # Every curvature c of ROOT_A_DISTINCT_30 is absent at n = c - 1 and
+        # present at n = c.
+        for c in ROOT_A_DISTINCT_30:
+            with self.subTest(c=c):
+                self.assertNotIn(c, distinct(pack(ROOT_A, c - 1)[1]))
+                self.assertIn(c, distinct(pack(ROOT_A, c)[1]))
 
     def test_bounding_circle_is_never_counted(self) -> None:
         _, bitmap = pack(ROOT_A, 30)
-        assert all(k > 0 for k in distinct(bitmap))
+        self.assertTrue(all(k > 0 for k in distinct(bitmap)))
 
 
-class TestPackPreconditions:
-    @pytest.mark.parametrize("n", [-1, -9])
-    def test_negative_n_rejected(self, n: int) -> None:
-        with pytest.raises(BadInput, match=rf"pack.*{n}"):
-            pack(ROOT_A, n)
+class TestPackPreconditions(unittest.TestCase):
+    def test_negative_n_rejected(self) -> None:
+        for n in [-1, -9]:
+            with (
+                self.subTest(n=n),
+                self.assertRaisesRegex(BadInput, rf"pack.*{n}"),
+            ):
+                pack(ROOT_A, n)
 
     def test_unreduced_root_rejected(self) -> None:
-        with pytest.raises(BadInput, match=r"pack.*\(-1, 2, 3, 6\)"):
+        with self.assertRaisesRegex(BadInput, r"pack.*\(-1, 2, 3, 6\)"):
             pack((-1, 2, 3, 6), 100)
 
     def test_unsorted_root_rejected(self) -> None:
-        with pytest.raises(BadInput, match="pack"):
+        with self.assertRaisesRegex(BadInput, "pack"):
             pack((2, -1, 2, 3), 100)
 
     def test_non_descartes_root_rejected(self) -> None:
-        with pytest.raises(BadInput, match="pack"):
+        with self.assertRaisesRegex(BadInput, "pack"):
             pack((-1, 2, 2, 4), 100)
 
     def test_two_negative_root_rejected(self) -> None:
-        with pytest.raises(BadInput, match="exactly one negative"):
+        with self.assertRaisesRegex(BadInput, "exactly one negative"):
             pack((-1, -1, 0, 0), 100)
 
     def test_zero_is_not_a_negative_curvature(self) -> None:
         # (0, 1, 1, 4) satisfies the relation with no negative curvature.
-        with pytest.raises(BadInput, match="exactly one negative"):
+        with self.assertRaisesRegex(BadInput, "exactly one negative"):
             pack((0, 1, 1, 4), 100)
 
     def test_no_negative_root_rejected(self) -> None:
-        # (0, 0, 1, 1) is sorted, satisfies the relation and is "reduced".
-        with pytest.raises(BadInput, match="exactly one negative"):
-            pack((0, 0, 1, 1), 100)
+        # (0, 0, 1, 1) and (2, 2, 3, 15) are sorted and satisfy the relation.
+        # (2, 2, 3, 15) would also fail the reduction test (2 * 7 - 15 < 15),
+        # so the negative-count check must be reached, and named, first.
+        for root in [(0, 0, 1, 1), (2, 2, 3, 15)]:
+            with (
+                self.subTest(root=root),
+                self.assertRaisesRegex(BadInput, "exactly one negative"),
+            ):
+                pack(root, 100)
 
     def test_unsorted_root_is_named_unsorted(self) -> None:
-        with pytest.raises(BadInput, match="not sorted"):
+        with self.assertRaisesRegex(BadInput, "not sorted"):
             pack((2, -1, 2, 3), 100)
 
-    @pytest.mark.parametrize(
-        ("root", "what"),
-        [
+    def test_relation_failure_is_named(self) -> None:
+        cases: list[tuple[Root, str]] = [
             # (Σk)² = 49 is below 2Σk² = 50, and 64 above 56: both directions.
             ((-1, 2, 2, 4), "not a Descartes quadruple"),
             ((-1, 3, 3, 3), "not a Descartes quadruple"),
-        ],
-    )
-    def test_relation_failure_is_named(self, root: Root, what: str) -> None:
-        with pytest.raises(BadInput, match=what):
-            pack(root, 100)
+        ]
+        for root, what in cases:
+            with (
+                self.subTest(root=root),
+                self.assertRaisesRegex(BadInput, what),
+            ):
+                pack(root, 100)
 
-    @pytest.mark.parametrize(("root", "quad"), UNREDUCED)
-    def test_every_unreduced_descendant_is_rejected(
-        self, root: Root, quad: Root
-    ) -> None:
-        with pytest.raises(BadInput, match="not reduced"):
-            pack(quad, 100)
+    def test_every_unreduced_descendant_is_rejected(self) -> None:
+        for root, quad in UNREDUCED:
+            with (
+                self.subTest(root=root, quad=quad),
+                self.assertRaisesRegex(BadInput, "not reduced"),
+            ):
+                pack(quad, 100)
 
-    @pytest.mark.parametrize("root", ALL_ROOTS)
-    def test_reduced_roots_are_accepted(self, root: Root) -> None:
-        pack(root, 100)
+    def test_reduced_roots_are_accepted(self) -> None:
+        for root in ALL_ROOTS:
+            with self.subTest(root=root):
+                pack(root, 100)
 
 
-class TestPackLimits:
+class TestPackLimits(unittest.TestCase):
     """pack is bounded by construction: a ceiling on n and a strictly
     increasing curvature on every pushed reflection."""
 
     def test_ceiling_matches_largest_k(self) -> None:
-        assert descartes.N_MAX == 10**6
+        self.assertEqual(descartes.N_MAX, 10**6)
 
     # Every ceiling test lowers N_MAX first. Called with the real ceiling, a
     # missing or broken check would make the test itself a ~1e10-circle run.
-    def test_n_above_ceiling_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(descartes, "N_MAX", 30)
-        with pytest.raises(BadInput, match=r"pack\(n=31\): n must be at most 30"):
+    def test_n_above_ceiling_rejected(self) -> None:
+        with (
+            mock.patch.object(descartes, "N_MAX", 30),
+            self.assertRaisesRegex(BadInput, r"pack\(n=31\): n must be at most 30"),
+        ):
             pack(ROOT_A, 31)
 
-    def test_n_at_ceiling_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(descartes, "N_MAX", 30)
-        assert pack(ROOT_A, 30)[0] == 38
+    def test_n_at_ceiling_accepted(self) -> None:
+        with mock.patch.object(descartes, "N_MAX", 30):
+            self.assertEqual(pack(ROOT_A, 30)[0], 38)
 
     # For any real Descartes quadruple the only decreasing reflection is the one
     # just made, which the DFS already skips, so the guard cannot be tested on
@@ -468,42 +491,45 @@ class TestPackLimits:
     # (-1, 1, 1, 1) reflects forever, and with only k != quad[i] (-1, 1, 1, 2)
     # pushes a falling curvature that goes negative. _mark is budgeted so a
     # missing guard fails fast instead of eating RAM.
-    @pytest.mark.parametrize("root", [(-1, 1, 1, 1), (-1, 1, 1, 2)])
-    def test_dfs_terminates_when_root_invariant_is_broken(
-        self, monkeypatch: pytest.MonkeyPatch, root: Root
-    ) -> None:
-        calls = 0
+    def test_dfs_terminates_when_root_invariant_is_broken(self) -> None:
         real_mark = descartes._mark
+        for root in [(-1, 1, 1, 1), (-1, 1, 1, 2)]:
+            with self.subTest(root=root):
+                calls = 0
 
-        def budgeted_mark(bitmap: bytearray, k: int) -> None:
-            nonlocal calls
-            calls += 1
-            assert calls < 10_000, "pack DFS did not terminate"
-            real_mark(bitmap, k)
+                def budgeted_mark(bitmap: bytearray, k: int) -> None:
+                    nonlocal calls
+                    calls += 1
+                    self.assertLess(calls, 10_000, "pack DFS did not terminate")
+                    real_mark(bitmap, k)
 
-        monkeypatch.setattr(descartes, "_check_reduced_root", lambda _root: None)
-        monkeypatch.setattr(descartes, "_mark", budgeted_mark)
-        count, bitmap = pack(root, 30)
-        assert count == calls
-        assert all(0 <= k <= 30 for k in distinct(bitmap))
+                with (
+                    mock.patch.object(
+                        descartes, "_check_reduced_root", lambda _root: None
+                    ),
+                    mock.patch.object(descartes, "_mark", budgeted_mark),
+                ):
+                    count, bitmap = pack(root, 30)
+                self.assertEqual(count, calls)
+                self.assertTrue(all(0 <= k <= 30 for k in distinct(bitmap)))
 
 
-class TestPackState:
+class TestPackState(unittest.TestCase):
     def test_repeated_calls_equal(self) -> None:
-        assert pack(ROOT_A, 100) == pack(ROOT_A, 100)
+        self.assertEqual(pack(ROOT_A, 100), pack(ROOT_A, 100))
 
     def test_smaller_run_after_larger_is_unaffected(self) -> None:
         pack(ROOT_A, 1000)
-        assert pack(ROOT_A, 30)[0] == 38
+        self.assertEqual(pack(ROOT_A, 30)[0], 38)
 
     def test_each_call_returns_fresh_bitmap(self) -> None:
         _, first = pack(ROOT_A, 30)
         _, second = pack(ROOT_A, 30)
-        assert first is not second
+        self.assertIsNot(first, second)
 
     def test_count_monotone_in_n(self) -> None:
         counts = [pack(ROOT_A, n)[0] for n in range(80)]
-        assert counts == sorted(counts)
+        self.assertEqual(counts, sorted(counts))
 
 
 # --- oracle agreement ------------------------------------------------------------
@@ -514,30 +540,37 @@ def _oracle_view(root: Root, n: int) -> tuple[int, list[int]]:
     return len(ks), sorted(set(ks))
 
 
-class TestOracle:
-    @pytest.mark.parametrize("root", ALL_ROOTS)
-    def test_oracle_matches_pack_at_pinned_n(self, root: Root) -> None:
-        for r, n, _, _ in PINNED:
-            if r != root or n > ORACLE_N:
-                continue
-            count, bitmap = pack(root, n)
-            assert (count, distinct(bitmap)) == _oracle_view(root, n), (root, n)
+class TestOracle(unittest.TestCase):
+    def test_oracle_matches_pack_at_pinned_n(self) -> None:
+        for root in ALL_ROOTS:
+            for r, n, _, _ in PINNED:
+                if r != root or n > ORACLE_N:
+                    continue
+                with self.subTest(root=root, n=n):
+                    count, bitmap = pack(root, n)
+                    self.assertEqual((count, distinct(bitmap)), _oracle_view(root, n))
 
-    @pytest.mark.parametrize("root", ALL_ROOTS)
-    def test_oracle_matches_pack_for_small_n_sweep(self, root: Root) -> None:
-        for n in range(61):
-            count, bitmap = pack(root, n)
-            assert (count, distinct(bitmap)) == _oracle_view(root, n), (root, n)
+    def test_oracle_matches_pack_for_small_n_sweep(self) -> None:
+        for root in ALL_ROOTS:
+            for n in range(61):
+                with self.subTest(root=root, n=n):
+                    count, bitmap = pack(root, n)
+                    self.assertEqual((count, distinct(bitmap)), _oracle_view(root, n))
 
     def test_oracle_root_circles_are_mutually_tangent(self) -> None:
         for root in ALL_ROOTS:
             circles = _root_circles(root)
             for i, ci in enumerate(circles):
-                assert (
-                    _residual(ci, [c for j, c in enumerate(circles) if j != i]) < 1e-6
-                )
+                with self.subTest(root=root, i=i):
+                    others = [c for j, c in enumerate(circles) if j != i]
+                    self.assertLess(_residual(ci, others), 1e-6)
 
 
-def test_module_exports() -> None:
-    assert issubclass(descartes.BadInput, Exception)
-    assert issubclass(descartes.NoSolution, Exception)
+class TestModule(unittest.TestCase):
+    def test_module_exports(self) -> None:
+        self.assertTrue(issubclass(descartes.BadInput, Exception))
+        self.assertTrue(issubclass(descartes.NoSolution, Exception))
+
+
+if __name__ == "__main__":
+    unittest.main()
