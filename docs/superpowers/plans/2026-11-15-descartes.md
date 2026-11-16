@@ -186,7 +186,7 @@ files_touched: [scripts/render_crate_files.py, descartes/Makefile, descartes/ins
 depends_on: [4]
 ```
 
-- Add `descartes` to `PYTHON_PROJECTS`; run `--write`; create an empty `descartes/mutants-equivalent.toml`.
+- Add `descartes` to `PYTHON_PROJECTS`; run `--write`; create `descartes/mutants-equivalent.toml` declaring the four Task 1 equivalents with the mechanisms in commit `15d2cf1`'s body: `_check_reduced_root` `!=` to `>` (sorted is the lexicographic minimum permutation); `validate_root` and `_check_reduced_root` `+` to `%` on `v0 + v1` (a one-negative Descartes quad has every positive curvature strictly above `|v0|`); `pack` `i == j` to `is` (CPython small-int caching, an implementation detail, so say so). Confirm each against a capped cosmic-ray run first; line numbers will have moved.
 - Add `descartes` beside `triangle` in every list: `all_dirs` in `mutation-testing-python.yml`, `PYTHON_DIRS` in both scripts, `dirs=` in `scripts/pre-commit`, the `scripts/pre-push` dir loop, its line-204 module regex and its `_entry` harness loop (`descartes:descartes`).
 - Update pinning tests: `test_crate_uniformity.py` Python counts 9 to 10 (lines 96 and 298), the `PROJECTS` tuples, `ALL9` (rename `ALL10`) and the loops in the bats files, `HARNESS_PROJECTS`, plus a `descartes` copy of the triangle-specific cases in `mutation_python_cell.bats` and `pre_push.bats`.
 - `.gitignore`: `descartes_1e*.txt`. Docs: `descartes/CLAUDE.md` and `README.md` (usage, layout, the known solve paste-back limits), root `README.md` CLI table, root `CLAUDE.md` sub-project line within 30,000 bytes.
