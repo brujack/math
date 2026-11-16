@@ -4,10 +4,11 @@ This file provides guidance to Claude when working with code in this repository.
 
 ## Repository Overview
 
-A Python CLI with two modes: enumerate an integral Apollonian packing (circles tangent to a root quadruple of curvatures, found by Descartes reflection) up to curvature 10^K and draw it in braille, or `--solve` for the circles tangent to three given mutually tangent circles. The Rust crate (`descartes-rs/`) is added by a separate change; until then this is a Python-only project.
+A Python CLI (and a Rust crate, `descartes-rs/`) with two modes: enumerate an integral Apollonian packing (circles tangent to a root quadruple of curvatures, found by Descartes reflection) up to curvature 10^K and draw it in braille, or `--solve` for the circles tangent to three given mutually tangent circles. The Rust crate's detail is in `descartes-rs/CLAUDE.md`; it takes K 1-8 and `N_MAX` 10^8 where Python takes K 1-6 and 10^6.
 
 Current structure:
 
+- `descartes-rs/` — the Rust crate (own `CLAUDE.md` and `README.md`)
 - `descartes.py` — packing core, geometry, braille renderer and CLI (standard library only)
 - `test_descartes.py` — unit tests
 - `install_deps.sh`, `Makefile`, `pyrightconfig.json`, `cosmic-ray.toml` — rendered from `scripts/crate_templates/python/`; edit the template, never this copy
