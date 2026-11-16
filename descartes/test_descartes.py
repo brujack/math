@@ -1963,6 +1963,12 @@ class TestParseArgs(unittest.TestCase):
                 [*R9_ARGS, "--precision", "18"],
                 "error: --precision must be between 0 and 17\n",
             ),
+            (
+                [*R9_ARGS, "--precision", "-1"],
+                "error: --precision must be between 0 and 17\n",
+            ),
+            ([*R9_ARGS, "--smoke"], "error: --solve takes no --smoke\n"),
+            ([*R9_ARGS, "--yes"], "error: --solve takes no --yes\n"),
             (["--smoke", "2"], "error: --smoke takes no K\n"),
         ]
         for argv, message in cases:
