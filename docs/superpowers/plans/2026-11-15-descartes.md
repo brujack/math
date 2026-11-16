@@ -47,7 +47,7 @@ description: descartes_fourth, validate_root with reduction, and pack, with a te
 role: executor
 model: sonnet
 tdd: required
-requirements: [R2, R3, R4, R5, R20, R21]
+requirements: [R2, R3, R4, R5, R20, R21, R23]
 acceptance:
   - cmd: python3 -m pytest descartes/test_descartes.py -q
     exit_code: 0
@@ -62,7 +62,7 @@ depends_on: []
 
 **Files:** create `descartes/descartes.py`, `descartes/test_descartes.py`.
 
-- `descartes_fourth(k1, k2, k3) -> tuple[float, float]`: `k1+k2+k3 ± 2√(k1k2+k2k3+k3k1)`; a radicand below `-1e-12 × max(|k|)` raises `NoSolution`, otherwise it is clamped at 0.
+- `descartes_fourth(k1, k2, k3) -> tuple[float, float]`: `k1+k2+k3 ± 2√(k1k2+k2k3+k3k1)`; a radicand below `-1e-12 × (|k1k2|+|k2k3|+|k3k1|)` raises `NoSolution`, otherwise it is clamped at 0 (R23; a `max(|k|)` scale is wrong in units and in magnitude).
 - `validate_root(a, b, c, d) -> tuple[int, int, int, int]`: integers only (`BadInput` else); `(Σk)² == 2Σk²` and exactly one negative value (`NoSolution` else, the message naming the root and both sides, e.g. `(Σk)²=49, 2Σk²=50`); then repeatedly reflect the largest while that lowers it; return ascending.
 - `pack(root, n) -> tuple[int, bytearray]`: count each root curvature `0 < k ≤ n`; seed the four root reflections when `≤ n` with no growth test; then explicit-stack DFS keeping `k'` only when `k_i < k' ≤ n`; set bit `k` for each counted circle. The growth test is load-bearing even though no valid quadruple fails it (R21): never remove it as dead code. `pack` raises `BadInput` for `n > N_MAX = 10**6` (R20); ceiling tests lower `N_MAX` first.
 - Tests: every R2 pair, the R3 set, R5 reductions, and an oracle class: breadth-first over geometric quadruples from `root_centres` (Task 2 adds it; until then build centres inline in the test), dedup by `(k, round(x,7), round(y,7))`, counting only `k ≤ n`, compared with `pack` for every R2 root at every n ≤ 1000.
@@ -201,7 +201,7 @@ description: create descartes-rs, register it as crate 12, and implement descart
 role: executor
 model: sonnet
 tdd: required
-requirements: [R13, R19]
+requirements: [R13, R19, R23]
 acceptance:
   - cmd: python3 scripts/render_crate_files.py --check
     exit_code: 0
@@ -220,7 +220,7 @@ depends_on: [5]
 - Add `descartes` to `CRATES`; `--write`. `.cargo/mutants.toml`: `additional_cargo_test_args = ["--lib", "--bins", "--test", "cli"]` only.
 - Counts 11 to 12 in `test_crate_uniformity.py` (lines 168, 177, 247) and `test_mutation_workflows.py` line 694; `test_mutants_exclusions.py`: add `descartes/descartes-rs` to `EXPECTED`, allow a file whose single key is `additional_cargo_test_args`, with a test that a file holding neither key still fails.
 - `descartes/descartes-rs` in `scripts/pre-commit` and the `scripts/pre-push` dir loop.
-- `lib.rs`: `pub fn descartes_fourth(k1: f64, k2: f64, k3: f64) -> Result<(f64, f64), DescartesError>` with unit tests; `main.rs` thin stub calling `run` with injectable writers.
+- `lib.rs`: `pub fn descartes_fourth(k1: f64, k2: f64, k3: f64) -> Result<(f64, f64), DescartesError>` with the R23 tolerance and unit tests, including the four `test_tolerance_is_one_ppt_of_the_summed_products` fixtures of `test_descartes.py` with the same raise/clamp outcome each (R14); `main.rs` thin stub calling `run` with injectable writers.
 
 **Interfaces:** Produces `DescartesError { BadInput(String), NoSolution(String) }` (derive Debug), `descartes_fourth`.
 
