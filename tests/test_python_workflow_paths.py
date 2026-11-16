@@ -1,6 +1,6 @@
 """Pin the shared inputs every Python CLI workflow must watch (spec R16).
 
-The 9 `*-py.yml` workflows each run the shared harness `scripts/cli_contract.py`
+The 10 `*-py.yml` workflows each run the shared harness `scripts/cli_contract.py`
 against their own program and type-check against the vendored `typings/` stubs,
 so a change to either must trigger every one of them. Parsed with
 `yaml.safe_load`, not text search, so a comment or a mis-indented line cannot
@@ -16,6 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PROJECTS = (
     "amicable",
     "collatz",
+    "descartes",
     "e",
     "factorial",
     "fib",

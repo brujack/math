@@ -1,0 +1,8 @@
+{
+  "include": ["descartes.py", "test_descartes.py"],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "standard",
+  "stubPath": "../typings",
+  "reportMissingImports": true,
+  "reportMissingModuleSource": false
+}

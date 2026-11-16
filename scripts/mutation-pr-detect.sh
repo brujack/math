@@ -18,7 +18,7 @@
 # deletion-only or mode-only change leaves no new line to mutate. py_canary is
 # true when a file that shapes the Python mutation run itself changed.
 
-readonly PYTHON_DIRS="amicable collatz e factorial fib perfect-numbers pi sq triangle"
+readonly PYTHON_DIRS="amicable collatz descartes e factorial fib perfect-numbers pi sq triangle"
 
 readonly RS_CANARY_PATHS=".github/workflows/mutation-pr.yml scripts/mutation-pr-detect.sh scripts/mutation-pr-diff.sh scripts/mutation-pr-run.sh scripts/mutation-classify.sh scripts/crate_templates/Makefile amicable/amicable-rs/src/lib.rs"
 

@@ -265,7 +265,7 @@ for e in json.load(open('${REPO_ROOT}/renovate.json')).get('extends', []):
 # unmutated baseline -- not just the per-mutant budget the flag name suggests.
 # A crate whose baseline test phase exceeds a fixed --timeout (pi-rs, e-rs at
 # 54s+ against 30s) times out before evaluating a single mutant. The fix is a
-# multiplier derived from the measured baseline, floored so the nine
+# multiplier derived from the measured baseline, floored so the ten
 # already-working crates don't fall below their current 30s budget.
 #
 # The mocks directory is stripped from PATH before the `git ls-files` call:
@@ -1154,7 +1154,7 @@ STUB
         env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git -C "${REPO_ROOT}" ls-files --error-unmatch "${p}/Makefile" > /dev/null 2>&1 || continue
         projects+=("${p}")
     done < <(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git -C "${REPO_ROOT}" ls-files '*/*.py')
-    [ "${#projects[@]}" -eq 9 ]
+    [ "${#projects[@]}" -eq 10 ]
     for p in "${projects[@]}"; do
         d="${BATS_TEST_TMPDIR}/${p}"
         mkdir -p "${d}"
@@ -1275,10 +1275,10 @@ _py_recipe_line() {
     printf '%s\n' "$1" | grep -nE -- "$2" | head -1 | cut -d: -f1
 }
 
-@test "exactly 9 Python Makefiles carry a cosmic-ray.toml" {
+@test "exactly 10 Python Makefiles carry a cosmic-ray.toml" {
     local count
     count="$(_py_mutants_makefiles | wc -l)"
-    [ "${count}" -eq 9 ]
+    [ "${count}" -eq 10 ]
 }
 
 @test "every Python mutants-baseline falls back to the module's unittest on failure" {
@@ -1293,7 +1293,7 @@ _py_recipe_line() {
         grep -qE '^\.PHONY:.* mutants-baseline( |$)' "${REPO_ROOT}/${mf}" || bad="${bad}${mf}(not PHONY) "
         grep -qE '^CELL_LABEL \?= ' "${REPO_ROOT}/${mf}" || bad="${bad}${mf}(no CELL_LABEL) "
     done < <(_py_mutants_makefiles)
-    [ "${n}" -eq 9 ]
+    [ "${n}" -eq 10 ]
     [ -z "${bad}" ] || { printf 'baseline problems: %s\n' "${bad}" >&2; return 1; }
 }
 
@@ -1812,7 +1812,7 @@ _scratch_tmp() {
         [ -f "${dir}/../scripts/cosmic_ray_cell_status.py" ]
         n=$((n + 1))
     done < <(git -C "${REPO_ROOT}" ls-files ':(glob)*/cosmic-ray.toml')
-    [ "${n}" -eq 9 ]
+    [ "${n}" -eq 10 ]
 }
 
 # lint-workflows (actionlint). The fixture is a positive control: actionlint
@@ -2147,9 +2147,9 @@ _pd_order() {
     done
 }
 
-@test "python mutants-equivalent.toml is an empty file in all nine projects except where filled" {
+@test "python mutants-equivalent.toml is an empty file in all ten projects except where filled" {
     local d
-    for d in amicable collatz e factorial fib perfect-numbers pi sq triangle; do
+    for d in amicable collatz descartes e factorial fib perfect-numbers pi sq triangle; do
         [ -f "${REPO_ROOT}/${d}/mutants-equivalent.toml" ]
     done
     for d in amicable collatz factorial fib perfect-numbers sq triangle; do

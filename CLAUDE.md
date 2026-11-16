@@ -11,8 +11,8 @@ A trailing pointer on a rule means: before acting on that rule's subject, read t
 High-performance mathematical computation tools.
 
 Each sub-project's `CLAUDE.md` is the source of truth for its detail (a crate's is `<crate>/<crate>-rs/CLAUDE.md`); keep this file and those in sync. → ai-config/docs/knowledge/math-overview.md § Sub-project table
-Sub-projects (dir: language): `pi/` Python+Rust, `prime/` Rust, `fib/` Python+Rust, `sq/` Python+Rust, `twin-primes/` Rust, `e/` Python+Rust, `factorial/` Python+Rust, `perfect-numbers/` Python+Rust, `collatz/` Python+Rust, `goldbach/` Rust, `amicable/` Python+Rust, `triangle/` Python. → ai-config/docs/knowledge/math-overview.md § Sub-project table
-Rust crates live at `<project>/<project>-rs/` (all 11 crates, e.g. `pi/pi-rs`); the Python sub-projects sit at `<project>/` (pi, fib, sq, e, factorial, perfect-numbers, collatz, amicable, triangle).
+Sub-projects (dir: language): `pi/` Python+Rust, `prime/` Rust, `fib/` Python+Rust, `sq/` Python+Rust, `twin-primes/` Rust, `e/` Python+Rust, `factorial/` Python+Rust, `perfect-numbers/` Python+Rust, `collatz/` Python+Rust, `goldbach/` Rust, `amicable/` Python+Rust, `triangle/` Python, `descartes/` Python. → ai-config/docs/knowledge/math-overview.md § Sub-project table
+Rust crates live at `<project>/<project>-rs/` (all 11 crates, e.g. `pi/pi-rs`); the Python sub-projects sit at `<project>/` (pi, fib, sq, e, factorial, perfect-numbers, collatz, amicable, triangle, descartes).
 
 ## Architectural Decision Records
 
@@ -47,7 +47,7 @@ make install-deps    # Python deps + actionlint
 
 ### Python (`<project>/`)
 
-Run from `<project>/`; `<name>` is the module and test file stem: pi, fib, sq, e, factorial, `perfect_numbers` (dir `perfect-numbers`), collatz, amicable, triangle (so `make run` runs `python3 <name>.py`, `make test` runs `pytest test_<name>.py -v`).
+Run from `<project>/`; `<name>` is the module and test file stem: pi, fib, sq, e, factorial, `perfect_numbers` (dir `perfect-numbers`), collatz, amicable, triangle, descartes.
 
 ```bash
 cd <project>

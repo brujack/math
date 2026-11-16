@@ -28,6 +28,7 @@ TEMPLATE = REPO_ROOT / "scripts" / "crate_templates" / "python" / "py.yml"
 DIRS = [
     "amicable",
     "collatz",
+    "descartes",
     "e",
     "factorial",
     "fib",
@@ -114,13 +115,13 @@ class SetupJobTests(unittest.TestCase):
         self.assertIn("matrix", outputs)
         self.assertIn("units", outputs)
 
-    def test_empty_input_yields_all_ninety_units(self):
+    def test_empty_input_yields_all_one_hundred_units(self):
         proc, out = run_setup("")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         lines = dict(line.split("=", 1) for line in out.splitlines())
         units = lines["units"].split()
-        self.assertEqual(len(units), 90)
-        self.assertEqual(len(set(units)), 90)
+        self.assertEqual(len(units), 100)
+        self.assertEqual(len(set(units)), 100)
         import json
 
         matrix = json.loads(lines["matrix"])

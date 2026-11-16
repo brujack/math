@@ -514,7 +514,7 @@ teardown() {
 # on PATH; MOCK_PYTHON_EXIT makes one invocation fail. The stub is created in
 # the per-test tmpdir, so nothing real is executed and nothing outside it is
 # touched.
-HARNESS_PROJECTS="amicable collatz e factorial fib perfect-numbers pi sq triangle"
+HARNESS_PROJECTS="amicable collatz descartes e factorial fib perfect-numbers pi sq triangle"
 
 setup_harness_stub() {
     local d
@@ -537,7 +537,7 @@ STUB
 # The python3 stub accepts any module name, so a typo in the entry table
 # (collatz:collatzz) passes every stubbed case. Check the table against the
 # tracked set instead, with a clean PATH so the git mock is not consulted.
-@test "every harness entry names a tracked <dir>/<module>.py and there are 9" {
+@test "every harness entry names a tracked <dir>/<module>.py and there are 10" {
     local line entries entry dir module count=0 clean_path
     clean_path="$(printf '%s' "${PATH}" | tr ':' '\n' | grep -v 'tests/mocks' | tr '\n' ':' | sed 's/:$//')"
     line="$(command grep -m1 'for _entry in ' "${REPO_ROOT}/scripts/pre-push")"
@@ -550,16 +550,16 @@ STUB
         PATH="${clean_path}" git -C "${REPO_ROOT}" ls-files --error-unmatch -- "${dir}/${module}.py" >/dev/null
         count=$((count + 1))
     done
-    [ "${count}" -eq 9 ]
+    [ "${count}" -eq 10 ]
 }
 
-@test "harness-only push runs the harness over all 9 CLIs and no project suite" {
+@test "harness-only push runs the harness over all 10 CLIs and no project suite" {
     setup_harness_stub
     export MOCK_GIT_DIFF_NAMES="scripts/cli_contract.py"
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
-    [ "$(grep -c '^python3 ' "${MOCK_CALLS_FILE}")" -eq 9 ]
+    [ "$(grep -c '^python3 ' "${MOCK_CALLS_FILE}")" -eq 10 ]
     grep -qxF "python3 cwd=amicable args=../scripts/cli_contract.py amicable.py" "${MOCK_CALLS_FILE}"
     grep -qxF "python3 cwd=perfect-numbers args=../scripts/cli_contract.py perfect_numbers.py" "${MOCK_CALLS_FILE}"
     grep -qxF "python3 cwd=pi args=../scripts/cli_contract.py pi.py" "${MOCK_CALLS_FILE}"
@@ -574,7 +574,7 @@ STUB
     [ "$status" -eq 0 ]
     [[ "${output}" != *"skipping local tests"* ]]
     # The module changes also run the equivalents check, exactly once.
-    [ "$(grep -c '^python3 .*cli_contract' "${MOCK_CALLS_FILE}")" -eq 9 ]
+    [ "$(grep -c '^python3 .*cli_contract' "${MOCK_CALLS_FILE}")" -eq 10 ]
     [ "$(grep -c 'tests.test_mutants_equivalent' "${MOCK_CALLS_FILE}")" -eq 1 ]
     # 7 sub-project suites plus the root target that scripts/cli_contract.py triggers.
     [ "$(grep -c '^make' "${MOCK_CALLS_FILE}")" -eq 8 ]
@@ -621,7 +621,7 @@ STUB
     run bash "${REPO_ROOT}/scripts/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
-    [ "$(grep -c '^python3 ' "${MOCK_CALLS_FILE}")" -eq 9 ]
+    [ "$(grep -c '^python3 ' "${MOCK_CALLS_FILE}")" -eq 10 ]
 }
 
 @test "paths merely resembling the harness do not trigger it" {
@@ -802,6 +802,15 @@ run_in_pgroup() {
     grep -qxF "python3 cwd=triangle args=../scripts/cli_contract.py triangle.py" "${MOCK_CALLS_FILE}"
 }
 
+@test "harness runs descartes's CLI contract" {
+    setup_harness_stub
+    export MOCK_GIT_DIFF_NAMES="scripts/cli_contract.py"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -qxF "python3 cwd=descartes args=../scripts/cli_contract.py descartes.py" "${MOCK_CALLS_FILE}"
+}
+
 # --- mutants exclusion drift check ------------------------------------------
 # A crate's src/ or .cargo/mutants.toml changing can stale an exclude_re line
 # number, so the push runs tests.test_mutants_exclusions (stubbed python3 here).
@@ -893,13 +902,13 @@ run_in_pgroup() {
     [[ "${output}" == *"mutants equivalents check failed"* ]]
 }
 
-# Each of the 9 Python module paths must trigger the equivalents check on its
+# Each of the 10 Python module paths must trigger the equivalents check on its
 # own: a typo or a dropped alternative in the trigger regex survives any single
 # example.
-@test "each of the 9 module paths alone runs the equivalents check once" {
+@test "each of the 10 module paths alone runs the equivalents check once" {
     setup_harness_stub
     local entry dir module count=0
-    for entry in amicable:amicable collatz:collatz e:e factorial:factorial fib:fib perfect-numbers:perfect_numbers pi:pi sq:sq triangle:triangle; do
+    for entry in amicable:amicable collatz:collatz descartes:descartes e:e factorial:factorial fib:fib perfect-numbers:perfect_numbers pi:pi sq:sq triangle:triangle; do
         dir="${entry%%:*}"
         module="${entry##*:}"
         : > "${MOCK_CALLS_FILE}"
@@ -910,7 +919,7 @@ run_in_pgroup() {
         [ "$(grep -c 'args=-m unittest tests.test_mutants_equivalent' "${MOCK_CALLS_FILE}")" -eq 1 ]
         count=$((count + 1))
     done
-    [ "${count}" -eq 9 ]
+    [ "${count}" -eq 10 ]
 }
 
 # The trigger regex's module list must equal the projects that carry a
@@ -929,5 +938,5 @@ run_in_pgroup() {
         expected+="${dir}/${module}"$'\n'
     done < <(PATH="${clean_path}" git -C "${REPO_ROOT}" ls-files '*/cosmic-ray.toml' | command grep -E '^[^/]+/cosmic-ray\.toml$' | command grep -vE '^(scripts|tests)/')
     [ "$(printf '%s' "${alternation}" | tr '|' '\n' | sort)" = "$(printf '%s' "${expected}" | sort)" ]
-    [ "$(printf '%s' "${expected}" | grep -c .)" -eq 9 ]
+    [ "$(printf '%s' "${expected}" | grep -c .)" -eq 10 ]
 }
