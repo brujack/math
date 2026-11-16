@@ -18,7 +18,7 @@ spec: docs/superpowers/specs/2026-11-15-descartes-design.md
 - Python K 1-6, Rust K 1-8; `SMOKE_SIZE = 2`, `LARGE_RUN_THRESHOLD = None`.
 - Exit 2 = malformed input, exit 1 = well-formed input with no answer; every message names the operation and the input.
 - Elapsed time goes to stderr only.
-- Solve tangency per pair: `|d_ij − (r_i ± r_j)| ≤ 1e-9 × (|r_i| + |r_j|)`; pairs checked 1-2, 1-3, 2-3.
+- Solve tangency per pair with signed radii `r = 1/k` (R24(a)): `| |z_i − z_j| − |r_i + r_j| | ≤ 1e-9 × (|r_i| + |r_j|)`; pairs checked 1-2, 1-3, 2-3; non-finite input is `BadInput` (R26).
 - Piped canvas is 60 × 24 cells in both languages.
 - Work from a per-worktree venv: `python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt ruff==0.17.4 pytest==9.1.1 pytest-cov==7.1.0 hypothesis==6.168.5 cosmic-ray==8.7.0`. The shared pyenv `pyright` is 1.1.414 and fails `tests/test_root_pyright_scope.py`.
 - Root `CLAUDE.md` is 29,991 bytes against a 30,000 ceiling (`scripts/claude_md_budget.py`); any addition must trim an equal amount whose facts already live in an ai-config knowledge file (grep there first).
@@ -79,7 +79,7 @@ description: root_centres, solve with per-pair tangency, and visible
 role: executor
 model: sonnet
 tdd: required
-requirements: [R9, R10, R24, R25]
+requirements: [R9, R10, R24, R25, R26]
 acceptance:
   - cmd: python3 -m pytest descartes/test_descartes.py -q
     exit_code: 0
@@ -95,9 +95,9 @@ depends_on: [1]
 ```
 
 - `Circle = tuple[float, float, float]` `(k, x, y)`.
-- `root_centres(root) -> list[Circle]`: bounding circle at the origin, second on +x inside it, third from the centre-distance triangle with negative `y²` clamped to 0, fourth by the complex theorem; never calls the tangency check. Test the collinear root `(-2,3,6,7)`.
-- `check_tangent(circles)`: pairs 1-2, 1-3, 2-3; first failure raises `NoSolution("circles i and j are not tangent ...")`, adding a full-precision hint when any input has 6 or fewer decimal places. Zero curvature raises `BadInput`.
-- `solve(c1, c2, c3) -> list[Circle]`: complex theorem, keeping for each `k4` the centre tangent to all three.
+- `root_centres(root) -> list[Circle]`: bounding circle at the origin, second on +x inside it, third from the centre-distance triangle computed exactly (R25, no clamp), fourth by the complex theorem with curvature `d` and the larger `y`, `NoSolution` naming the root if none; never calls the tangency check. Test the collinear root `(-2,3,6,7)`.
+- `check_tangent(circles)`: pairs 1-2, 1-3, 2-3; first failure raises `NoSolution("circles i and j are not tangent ...")`, adding the full-precision hint per R24(b) (a non-integer centre coordinate with 1-6 decimals in positional form). Zero curvature and non-finite values raise `BadInput` (R26).
+- `solve(c1, c2, c3) -> list[Circle]`: every distinct circle among the four sign combinations of the complex theorem that passes the tangency rule, ordered by curvature then y, lines omitted, `NoSolution` when none (R24(c), R25).
 - `visible(root, limit) -> list[Circle]`: the `pack` search carrying centres, `z' = (2·Σ(k·z) of the other three − k_i·z_i) / k'`, with the same growth test and a `limit ≤ N_MAX` check, so it is bounded like `pack` (R20, R21).
 - Tests: R9 values within 1e-9; R10 scaled ×100 passes; `0.6667` fails naming 1 and 3 with the hint; `0.7` fails; zero curvature is `BadInput`; `visible((-1,2,2,3), 30)` returns the 38 circles of R2.
 
@@ -260,7 +260,7 @@ description: root_centres, check_tangent, solve, visible and render in Rust
 role: executor
 model: sonnet
 tdd: required
-requirements: [R14, R24, R25]
+requirements: [R14, R24, R25, R26]
 acceptance:
   - cmd: make -C descartes/descartes-rs test </dev/null
     exit_code: 0
