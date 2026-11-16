@@ -139,6 +139,13 @@ tangency check; `--precision P` rounds the display to P decimal places and does 
 computation. A rejected tangency check whose input has 6 or fewer decimal places says so and
 suggests full-precision values.
 
+Known limits, stated in `--help` and the sub-project `CLAUDE.md`: pasting solve output back
+stops passing the `1e-9` tolerance at curvatures near 2.6×10⁷ (measured ratio 1.88 of the
+tolerance), and nearly collinear inputs are ill-conditioned, so a triple that passes the
+input check can yield solutions that do not pass when pasted back (measured: the collinear
+`(-2,3,6)` triple with y perturbed by 1e-8 passes at 0.22 of the tolerance; its curvature-7
+solutions fail at 7×).
+
 ### Errors
 
 Exit 2: input that cannot describe a problem (unparsable value, wrong count, non-integer root
@@ -160,7 +167,15 @@ TDD per function, with boundary, error-path and state-transition cases.
   runs `python3 ../descartes.py` (standard library only) beside the binary at K ≤ 5, about 2 s
   of Python at K=5, inside nextest's 45 s bound. It compares integer output (curvature file,
   count lines) byte for byte and the solve table numerically, after asserting both exit 0 and
-  print a non-empty count line. Drawings are not compared across languages.
+  print a non-empty count line. Drawings are not compared across languages. cargo-mutants
+  copies only the crate directory, so `../descartes.py` is absent in its copy and the
+  unmutated baseline would fail; the crate's own `.cargo/mutants.toml` (per-crate, not
+  rendered) therefore sets `additional_cargo_test_args = ["--lib", "--bins", "--test", "cli"]`,
+  which leaves `parity.rs` out of mutation runs while `cargo test`, nextest and tarpaulin still
+  run it. Measured in a throwaway crate with cargo-mutants 27.1.0: without the line the baseline
+  fails (`can't open file '/tmp/cargo-mutants-…tmp/../proj.py'`); with it the baseline passes
+  and plain `cargo test` still runs the parity test. `INSIDE_CARGO_MUTANTS` is not set by
+  27.1.0, so an environment-variable skip does not work.
 - BATS failure-mode tests cover the Python CLI. Rust failure modes are covered in
   `descartes-rs/tests/cli.rs`, because `scripts.yml` runs BATS without building any crate and
   the rendered `<crate>-rs.yml` has no BATS step.
@@ -183,7 +198,7 @@ TDD per function, with boundary, error-path and state-transition cases.
 - **R12.** `[PR1]` `make test` in `descartes/` runs `scripts/cli_contract.py descartes.py` and it exits 0.
 - **R13.** `[PR2]` `descartes/descartes-rs/` exists with every file `render_crate_files.py` renders for a crate byte-equal to its output, `Cargo.toml` with no `rug` and no `rayon` dependency, `CRATES` in `scripts/render_crate_files.py` listing `descartes`, and `tests/test_crate_uniformity.py` asserting and passing over 12 crates.
 - **R14.** `[PR2]` Rust accepts K 1-8 and exits 2 naming the range for K 0 and K 9; for every input in R2, R3, R5, R6 and R8-R11 it gives the same results and exit codes as Python, each with non-empty stdout where Python's is non-empty; R11's drawing checks run against the Rust binary; the R9 command parses with the negative first triple.
-- **R15.** `[PR2]` `descartes-rs/tests/parity.rs` runs both programs for the default root at K = 1-5, `--root -2 3 6 7` and `--root -11 21 24 28` at K = 1-3, and `--solve` on the R9 input; it first asserts both exit 0 and both print the circle-count line, then that output files and count lines are byte-identical and the solve tables agree numerically within 1e-12; it does not compare drawings.
+- **R15.** `[PR2]` `descartes-rs/tests/parity.rs` runs both programs for the default root at K = 1-5, `--root -2 3 6 7` and `--root -11 21 24 28` at K = 1-3, and `--solve` on the R9 input; it first asserts both exit 0 and both print the circle-count line, then that output files and count lines are byte-identical and the solve tables agree numerically within 1e-12; it does not compare drawings; `descartes-rs/.cargo/mutants.toml` sets `additional_cargo_test_args = ["--lib", "--bins", "--test", "cli"]` and `cargo mutants` in `descartes-rs` passes its unmutated baseline.
 - **R16.** `[PR2]` `descartes-py.yml`, `descartes-rs.yml` and `release-descartes-rs.yml` exist, rendered from the templates; `scripts/pre-commit` and `scripts/pre-push` loop over `descartes` and `descartes/descartes-rs`; the root `README.md` and `CLAUDE.md` list the project; `.gitignore` lists `descartes_1e*.txt`.
 - **R17.** `[PR2]` BATS tests in `tests/scripts/` cover missing K, K out of range, non-integer K, a bad root and a non-tangent `--solve` for the Python CLI; `descartes-rs/tests/cli.rs` covers the same five cases for the Rust binary, asserting exit code and stderr.
 - **V1.** On `claude`, time, peak memory and output file size of Rust packing at K = 6, 7 and 8 and Python at K = 6, recorded in the PR2 body; if Rust K=8 exceeds 10 minutes, the K ceiling is amended down before merge.
@@ -231,3 +246,11 @@ Ergonomics finding: the `5e-4 × max(|r|)` tolerance is scaled to the radius whi
 Risk finding: `floor(x+0.5)` cannot make drawings identical when inputs differ upstream: Python `sum()` is compensated (`sum([1e16,1.0,-1e16]) == 1.0` on 3.14.8) and `cmath.sqrt` differs from a Rust complex sqrt; 40 of 2,286 scaled coordinates for the default root lie within 1e-9 of a .5 tie. R15 had no home (Python K=6 ~40 s against nextest's 45 s; a Python-side test pays per mutant and lacks the binary). R17's Rust BATS cases always skip because `scripts.yml` builds no crate and the rendered `<crate>-rs.yml` has no BATS step. Adversarial: an independent breadth-first geometric search reproduced every R2 pair, including K=4/K=5, and R9 checked by hand.
 Assumption (all three): Python and Rust compute bit-identical float centres; refuted in part by the compensated `sum()` measurement, so cross-language drawing parity was removed rather than tested.
 Disposition: Addressed (operator, 2026-11-15): drawings checked per language only, R18 and the `floor(x+0.5)` rule removed, piped canvas fixed at 60 × 24 in both languages (R11); full-precision solve output by default with `--precision` display-only, per-pair tolerance `1e-9 × (|r_i| + |r_j|)`, scaled-by-100 and paste-back cases (R9, R10); §5 counts root circles; R15 moved to `descartes-rs/tests/parity.rs` at K ≤ 5 without drawings; Rust failure modes in `descartes-rs/tests/cli.rs`, BATS Python-only (R17); R11 pins exact line count; R14 requires non-empty Rust output and runs R11 against Rust. The round-1 dispositions above that cite `floor(x+0.5)`, R18, the `5e-4` tolerance and K=4-6 parity are superseded by this one.
+
+### Round 3 (scoped, Risk only)
+
+Reviewed at commit: `7471adb`. Scope: the sections round 2 changed.
+
+Finding: `parity.rs` runs `python3 ../descartes.py`, but cargo-mutants (27.1.0, the CI pin) copies only the crate directory, so the unmutated baseline fails (`ERROR cargo test failed in an unmutated tree, so no mutants were tested`) and every mutation run on the crate would be red. Tolerance: Python `repr` round-trips of solve output pass at worst 7e-3 of the tolerance on realistic inputs (R9, R9 ×100, collinear, `(-11,21,24)`, shifted to (1e5,1e5)); paste-back fails near curvature 2.6×10⁷ (1.88×), and a near-collinear triple (y + 1e-8) yields curvature-7 solutions failing paste-back at 7×. R10 and R11 cannot pass on empty output; no R/N contradiction.
+Assumption: the parity test can see `../descartes.py` from every harness that runs the crate's tests; refuted for cargo-mutants.
+Disposition: Addressed (operator, 2026-11-15): `descartes-rs/.cargo/mutants.toml` excludes `parity.rs` via `additional_cargo_test_args` (verified in a throwaway crate; `INSIDE_CARGO_MUTANTS` checked and absent in 27.1.0), R15 extended; the paste-back limits are documented in Output rather than loosening the tolerance.
