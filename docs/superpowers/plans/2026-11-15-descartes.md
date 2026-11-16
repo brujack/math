@@ -139,7 +139,7 @@ description: ADR-0030 CLI with --root, --solve, --precision, --no-draw; outputs 
 role: executor
 model: sonnet
 tdd: required
-requirements: [R6, R7, R8, R9, R10, R11]
+requirements: [R6, R7, R8, R9, R10, R11, R27]
 acceptance:
   - cmd: python3 -m pytest descartes/test_descartes.py -q
     exit_code: 0
@@ -159,7 +159,7 @@ depends_on: [3]
 - Copy `parse_args`, `refuse_large_run` and the prompt/end-of-input text from `amicable/amicable.py`, then add `--root A B C D`, `--solve K,X,Y ×3`, `--precision P`, `--no-draw`; `--solve` excludes SIZE. K outside 1-6 exits 2 naming the range.
 - Packing stdout order: `root a b c d`, `circles N`, `distinct M`, `Saved to <file>`, drawing; elapsed time on stderr. File `descartes_1eK.txt` or `descartes_1eK_root_A_B_C_D.txt`, one curvature per line ascending; empty packing gives an empty file and no drawing.
 - Solve prints the table at full precision (`repr`) or `--precision P` places, then the drawing.
-- Canvas: terminal size on a TTY, else 60×24. Drawing filter: curvature `≤ min(N, 2 × width × 2)`.
+- Canvas: terminal size on a TTY clamped per R27 (1×1 to 1000×500, height one short), else 60×24. Drawing filter: curvature `≤ min(N, 2 × width × 2)`.
 - `NoSolution` exits 1, `BadInput` exits 2, message on stderr.
 - Tests run `main([...])` with `contextlib.redirect_stdout`/`redirect_stderr` into `io.StringIO` and a `tempfile.TemporaryDirectory` cwd for every R6-R11 case, asserting exit codes, stdout lines and file contents.
 
@@ -279,7 +279,7 @@ description: clap CLI matching Python, with tests/cli.rs failure modes
 role: executor
 model: sonnet
 tdd: required
-requirements: [R14, R17]
+requirements: [R14, R17, R27]
 acceptance:
   - cmd: make -C descartes/descartes-rs test </dev/null
     exit_code: 0
