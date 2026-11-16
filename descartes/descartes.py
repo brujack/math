@@ -1,17 +1,28 @@
 #!/usr/bin/env python3
 """Descartes circle theorem helpers and integral Apollonian packings.
 
-Three pieces so far: the fourth-curvature formula, root validation with
-reduction to the packing's canonical root, and an enumerator that counts every
-circle of curvature at most n and records which curvatures occur.
-Standard library only.
+Pieces so far: the fourth-curvature formula, root validation with reduction
+to the packing's canonical root, an enumerator that counts every circle of
+curvature at most n and records which curvatures occur, and the geometry
+(centres of a root, the tangency check, the three-circle solver and the
+enumerator that carries centres). Standard library only.
 """
 
+import cmath
 import math
+from decimal import Decimal
+from fractions import Fraction
 
 # Largest n pack accepts: Python's N = 10^K ceiling (K <= 6, spec R7), about
 # 2.7e7 circles. The core enforces it so no caller can request an unbounded run.
 N_MAX = 10**6
+
+
+# (curvature, x, y): a circle of radius 1/k centred at (x, y).
+Circle = tuple[float, float, float]
+
+# Relative tolerance of the tangency check (spec Component 2, R24(a)).
+TANGENT_TOL = 1e-9
 
 
 class BadInput(Exception):
@@ -73,7 +84,7 @@ def _mark(bitmap: bytearray, k: int) -> None:
     bitmap[k >> 3] |= 1 << (k & 7)
 
 
-def _check_reduced_root(root: tuple[int, int, int, int]) -> None:
+def _check_reduced_root(root: tuple[int, int, int, int], op: str = "pack") -> None:
     """Raise BadInput unless root is a sorted, reduced Descartes root."""
     total = sum(root)
     problem = ""
@@ -86,15 +97,15 @@ def _check_reduced_root(root: tuple[int, int, int, int]) -> None:
     elif 2 * (root[0] + root[1] + root[2]) - root[3] < root[3]:
         problem = "not reduced (use validate_root first)"
     if problem:
-        raise BadInput(f"pack(root={root}, ...): root is {problem}")
+        raise BadInput(f"{op}(root={root}, ...): root is {problem}")
 
 
-def _check_n(n: int) -> None:
-    """Raise BadInput unless 0 <= n <= N_MAX."""
+def _check_n(n: int, op: str = "pack", arg: str = "n") -> None:
+    """Raise BadInput unless 0 <= n <= N_MAX; op and arg name the caller's argument."""
     if n < 0:
-        raise BadInput(f"pack(n={n}): n must not be negative")
+        raise BadInput(f"{op}({arg}={n}): {arg} must not be negative")
     if n > N_MAX:
-        raise BadInput(f"pack(n={n}): n must be at most {N_MAX}")
+        raise BadInput(f"{op}({arg}={n}): {arg} must be at most {N_MAX}")
 
 
 def pack(root: tuple[int, int, int, int], n: int) -> tuple[int, bytearray]:
@@ -141,3 +152,218 @@ def pack(root: tuple[int, int, int, int], n: int) -> tuple[int, bytearray]:
 def distinct(bitmap: bytearray) -> list[int]:
     """Return the curvatures marked in the bitmap, ascending."""
     return [k for k in range(len(bitmap) * 8) if bitmap[k >> 3] >> (k & 7) & 1]
+
+
+def _place_root(root: tuple[int, int, int, int]) -> list[Circle]:
+    """Centres of a reduced root: bounding circle at the origin, second on +x.
+
+    The third circle sits in the triangle of centre distances with y >= 0. That
+    triangle is done in exact rationals: float rounding on a collinear root
+    leaves a y squared of +-1e-16, whose square root (1e-8) would break the
+    fourth circle's tangency, while exact arithmetic gives 0 and never a
+    negative. The fourth is the candidate of curvature d (within the tangency
+    tolerance) with the larger y, from the complex theorem; no candidate of
+    that curvature is NoSolution. No tangency check runs here.
+    """
+    a, b, c, d = root
+    big_r = Fraction(1, -a)
+    r2 = Fraction(1, b)
+    r3 = Fraction(1, c)
+    x2 = big_r - r2
+    d1 = big_r - r3
+    d2 = r2 + r3
+    x3 = (d1 * d1 - d2 * d2 + x2 * x2) / (2 * x2)
+    y3 = math.sqrt(d1 * d1 - x3 * x3)
+    c1: Circle = (float(a), 0.0, 0.0)
+    c2: Circle = (float(b), float(x2), 0.0)
+    c3: Circle = (float(c), float(x3), y3)
+    fourths = [
+        f for f in _tangent_circles(c1, c2, c3) if abs(f[0] - d) <= TANGENT_TOL * abs(d)
+    ]
+    if not fourths:
+        raise NoSolution(
+            f"root {root}: no circle of curvature {d} is tangent to its first "
+            "three circles"
+        )
+    return [c1, c2, c3, max(fourths, key=lambda f: f[2])]
+
+
+def root_centres(root: tuple[int, int, int, int]) -> list[Circle]:
+    """Return the four circles (k, x, y) of a reduced root, for drawing."""
+    _check_reduced_root(root, "root_centres")
+    return _place_root(root)
+
+
+def _pair_gap(a: Circle, b: Circle) -> tuple[float, float, float]:
+    """Return (measured distance, expected distance, tolerance) for two circles.
+
+    Radii are signed (r = 1/k), so a pair is tangent when the centre distance
+    equals |r_a + r_b|: the sum for two positive circles, the difference when
+    one is the bounding circle.
+    """
+    r_a = 1.0 / a[0]
+    r_b = 1.0 / b[0]
+    measured = math.hypot(a[1] - b[1], a[2] - b[2])
+    return measured, abs(r_a + r_b), TANGENT_TOL * (abs(r_a) + abs(r_b))
+
+
+def _is_tangent(a: Circle, b: Circle) -> bool:
+    measured, expected, tol = _pair_gap(a, b)
+    return abs(measured - expected) <= tol
+
+
+def _short_decimal(v: float) -> bool:
+    """True for a non-integer whose positional shortest round-trip form has at most 6 decimals.
+
+    A non-integer has at least one decimal, so only the upper bound is tested;
+    counting from the Decimal exponent makes 1e-05 (repr's exponent form of
+    0.00001) count as 5 decimals.
+    """
+    if not math.isfinite(v) or v == int(v):
+        return False
+    return -int(Decimal(repr(v)).as_tuple().exponent) <= 6
+
+
+def _input_problem(k: float, x: float, y: float) -> str:
+    """Describe why a circle cannot be an input (spec R26), or return ''."""
+    if not all(math.isfinite(v) for v in (k, x, y)):
+        return "has a NaN or infinite value"
+    if k == 0:
+        return "has zero curvature"
+    if not math.isfinite(1.0 / k):
+        return "has a curvature whose radius 1/k is not finite"
+    return ""
+
+
+def check_tangent(circles: list[Circle]) -> None:
+    """Raise unless the circles are mutually tangent (pairs 1-2, 1-3, 2-3).
+
+    A non-finite value, a zero curvature or a non-finite radius is BadInput,
+    checked for every circle before any pair; the first failing pair is
+    NoSolution.
+    """
+    for number, (k, x, y) in enumerate(circles, start=1):
+        problem = _input_problem(k, x, y)
+        if problem:
+            raise BadInput(
+                f"solve{tuple(circles)}: circle {number} {problem} "
+                f"(curvature {k}, centre ({x}, {y}))"
+            )
+    for i in range(len(circles)):
+        for j in range(i + 1, len(circles)):
+            measured, expected, tol = _pair_gap(circles[i], circles[j])
+            if abs(measured - expected) <= tol:
+                continue
+            message = (
+                f"solve{tuple(circles)}: circles {i + 1} and {j + 1} are not "
+                f"tangent: measured distance {measured!r}, expected "
+                f"{expected!r}, tolerance {tol!r}"
+            )
+            if any(_short_decimal(v) for c in circles for v in c[1:]):
+                message += (
+                    "; a coordinate has 6 or fewer decimal places, so it may "
+                    "be rounded: use full-precision values"
+                )
+            raise NoSolution(message)
+
+
+def _same_circle(a: Circle, b: Circle) -> bool:
+    """True unless a and b differ in curvature or centre (spec R26).
+
+    Different means curvatures more than TANGENT_TOL * |k| apart or centres
+    more than TANGENT_TOL * |1/k| apart, so the test holds at every scale.
+    """
+    curvature_gap = abs(a[0] - b[0])
+    centre_gap = math.hypot(a[1] - b[1], a[2] - b[2])
+    return curvature_gap <= TANGENT_TOL * abs(b[0]) and centre_gap <= TANGENT_TOL * abs(
+        1.0 / b[0]
+    )
+
+
+def _circle_order(circle: Circle) -> tuple[float, float, float]:
+    """Sort key for solve's results: curvature, then y, then x (unpacked, so no index to slip)."""
+    k, x, y = circle
+    return (k, y, x)
+
+
+def _tangent_circles(c1: Circle, c2: Circle, c3: Circle) -> list[Circle]:
+    """Distinct circles tangent to all three, ordered by curvature, y, then x.
+
+    The four sign combinations of the complex theorem are tried and kept only
+    when tangent to all three inputs. A fourth curvature of 0 is a straight
+    line and is omitted.
+    """
+    (k1, x1, y1), (k2, x2, y2), (k3, x3, y3) = c1, c2, c3
+    z1, z2, z3 = complex(x1, y1), complex(x2, y2), complex(x3, y3)
+    w = k1 * k2 * z1 * z2 + k2 * k3 * z2 * z3 + k3 * k1 * z3 * z1
+    root_w = cmath.sqrt(w)
+    zsum = k1 * z1 + k2 * z2 + k3 * z3
+    line_limit = TANGENT_TOL * (abs(k1) + abs(k2) + abs(k3))
+    found: list[Circle] = []
+    for k in descartes_fourth(k1, k2, k3):
+        if abs(k) <= line_limit:
+            continue
+        for sign in (1, -1):
+            z = (zsum + sign * 2 * root_w) / k
+            cand: Circle = (k, z.real, z.imag)
+            if not all(_is_tangent(cand, c) for c in (c1, c2, c3)):
+                continue
+            if not any(_same_circle(cand, f) for f in found):
+                found.append(cand)
+    return sorted(found, key=_circle_order)
+
+
+def solve(c1: Circle, c2: Circle, c3: Circle) -> list[Circle]:
+    """Return the circles tangent to three mutually tangent circles."""
+    check_tangent([c1, c2, c3])
+    found = _tangent_circles(c1, c2, c3)
+    if not found:
+        raise NoSolution(f"solve({c1}, {c2}, {c3}): no circle is tangent to all three")
+    return found
+
+
+def _child(
+    ks: list[int], zs: list[complex], i: int, k: int
+) -> tuple[list[int], list[complex], int]:
+    """Replace circle i of the quadruple by its reflection of curvature k.
+
+    The new centre is (2 * sum(k*z) of the other three - k_i*z_i) / k.
+    """
+    others = sum(ks[m] * zs[m] for m in range(4) if m != i)
+    child_ks = list(ks)
+    child_zs = list(zs)
+    child_ks[i] = k
+    child_zs[i] = (2 * others - ks[i] * zs[i]) / k
+    return child_ks, child_zs, i
+
+
+def visible(root: tuple[int, int, int, int], limit: int) -> list[Circle]:
+    """Return every positive circle of the packing with curvature <= limit.
+
+    The same search as pack, carrying centres, so len(visible(root, n)) equals
+    pack(root, n)[0]. The growth test k_i < k' keeps the walk bounded as in
+    pack (spec R21). The bounding circle is not returned (spec R24(d)).
+    """
+    _check_n(limit, "visible", "limit")
+    _check_reduced_root(root, "visible")
+    placed = _place_root(root)
+    ks = list(root)
+    zs = [complex(x, y) for _, x, y in placed]
+    found = [c for c in placed[1:] if c[0] <= limit]
+    total = sum(ks)
+    stack: list[tuple[list[int], list[complex], int]] = []
+    for i in range(4):
+        k = 2 * (total - ks[i]) - ks[i]
+        if k <= limit:
+            stack.append(_child(ks, zs, i, k))
+    while stack:
+        quad, centres, j = stack.pop()
+        found.append((float(quad[j]), centres[j].real, centres[j].imag))
+        total = sum(quad)
+        for i in range(4):
+            if i == j:
+                continue
+            k = 2 * (total - quad[i]) - quad[i]
+            if quad[i] < k <= limit:
+                stack.append(_child(quad, centres, i, k))
+    return found
