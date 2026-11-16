@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 
-# Failure modes of the descartes Python CLI (spec R17). The Rust half lives in
+# Failure modes of the descartes Python CLI (spec R17, plus the R28 root cap),
+# and one success path as a control. The Rust half lives in
 # descartes-rs/tests/cli.rs (PR2), because scripts.yml runs BATS without
 # building any crate.
 
@@ -41,6 +42,14 @@ teardown() {
         "cd '${TMP_DIR}' && python3 '${PYTHON_CLI}' 2 --root -1 2 2 4 </dev/null"
     [ "${status}" -eq 1 ]
     [[ "${stderr}" == *"root (-1, 2, 2, 4) is not a Descartes quadruple"* ]]
+    [ -z "$(ls -A "${TMP_DIR}")" ]
+}
+
+@test "python: a root curvature above 10^8 exits 2 before any reduction" {
+    run --separate-stderr bash -c \
+        "cd '${TMP_DIR}' && python3 '${PYTHON_CLI}' 1 --root -1 2 2 100000001 </dev/null"
+    [ "${status}" -eq 2 ]
+    [[ "${stderr}" == *"curvatures must be at most 10^8 in absolute value"* ]]
     [ -z "$(ls -A "${TMP_DIR}")" ]
 }
 

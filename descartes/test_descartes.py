@@ -309,7 +309,7 @@ class TestDescartesFourth(unittest.TestCase):
 
 class TestRootCeiling(unittest.TestCase):
     # R28: one reduction step per reflection, and (-1, 2, n²+2, (n+1)²+2)
-    # needs n of them, so an uncapped root ran for hours (n = 10^12).
+    # needs n of them, so an uncapped root at n = 10^12 needed about 89 hours.
     def test_ceiling_is_ten_to_the_eight(self) -> None:
         self.assertEqual(descartes.ROOT_MAX, 10**8)
 
