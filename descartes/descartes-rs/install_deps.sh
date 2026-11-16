@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # install_deps.sh — install everything descartes-rs needs to build, test and lint.
 #
-# Rendered from scripts/crate_templates/install_deps.sh for all 11 crates; edit the
+# Rendered from scripts/crate_templates/install_deps.sh for all 12 crates; edit the
 # template and run `python3 scripts/render_crate_files.py --write`, never this copy.
 #
 # Installs:
-#   C libraries — GMP + MPFR (all 11 crates install the same set)
+#   C libraries — GMP + MPFR (all 12 crates install the same set)
 #   Rust        — rustup stable toolchain
 #   Cargo tools — cargo-nextest and cargo-machete (`make test` / `make lint`) and
 #                 cargo-tarpaulin (coverage), at the versions CI pins

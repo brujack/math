@@ -17,7 +17,8 @@ use descartes::{
 const K_MAX: i64 = 8;
 /// `--smoke` runs the packing at this K (ADR-0030).
 const SMOKE_SIZE: i64 = 2;
-/// 17 decimals round-trip any double; more only lets a flag write gigabytes (R27).
+/// 17 significant digits round-trip any double; `--precision` caps decimal places at 17
+/// to bound output size, since more only lets a flag write gigabytes (R27).
 const PRECISION_MAX: i64 = 17;
 const DEFAULT_ROOT: [i64; 4] = [-1, 2, 2, 3];
 /// Piped output uses this fixed canvas, in braille cells (R11).
@@ -428,8 +429,9 @@ fn run<R: BufRead, W: Write, E: Write>(
     }
 }
 
-/// Only the process entry point touches a real terminal: a closure, not a function, so no
-/// test has to fake a terminal to cover it (`stty_size` and `pick_size` hold the logic).
+/// `main` is excluded from coverage by `#[cfg(not(tarpaulin_include))]`. The terminal-size
+/// query is a closure inside it, so it adds no function for cargo-mutants to mutate;
+/// `stty_size` and `pick_size` hold the tested logic.
 #[cfg(not(tarpaulin_include))]
 fn main() {
     let term = Terminal {

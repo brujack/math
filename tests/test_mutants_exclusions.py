@@ -6,6 +6,9 @@ make two entries claim one mutant. cargo-mutants lists the mutants it would
 generate without running any, so this test compares each entry with that list.
 Run by `make test-python` and by pre-push when a crate's `src/` or its
 `mutants.toml` changes.
+
+A crate's `mutants.toml` may instead hold only `additional_cargo_test_args`: that
+selects which tests run and excludes no mutants, so `check_config` allows it.
 """
 
 import os

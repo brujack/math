@@ -22,6 +22,14 @@ jobs:
     permissions:
       contents: read
       issues: write
+  descartes:
+    uses: ./.github/workflows/release-sbom-monitor.yml
+    with:
+      binary_name: descartes
+      release_tag_pattern: "descartes-v"
+    permissions:
+      contents: read
+      issues: write
   e:
     uses: ./.github/workflows/release-sbom-monitor.yml
     with:

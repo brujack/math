@@ -8,7 +8,7 @@
 # The count guard fails closed: a glob that silently matches nothing (or a crate added
 # without updating this script) must not turn the gate into a no-op.
 
-readonly EXPECTED_CRATES=11
+readonly EXPECTED_CRATES=12
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 1
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)" || exit 1

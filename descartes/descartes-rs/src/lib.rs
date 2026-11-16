@@ -478,8 +478,9 @@ fn pick_fourth(candidates: &[Circle], d: f64, tol: f64) -> Option<Circle> {
 /// (R25). Overflow: a root past the `10^8` cap never gets here, so
 /// `A, b, c <= 10^8` and `b > A` (a circle inside the bounding circle has a
 /// larger curvature). Then `|P| <= 3 * 10^16`, `|h| <= 10^16`, `Q <= 10^24`,
-/// so `P^2 <= 9 * 10^32` and `h^2 <= 10^32`, a tenth of a millionth of
-/// `i128::MAX` (1.7 * 10^38): no operation can overflow, so none is checked.
+/// so `P^2 <= 9 * 10^32` and `h^2 <= 10^32`, about five millionths of
+/// `i128::MAX` (1.7 * 10^38; 9e32 / 1.7e38 is about 5e-6): no operation can
+/// overflow, so none is checked.
 /// `Q > 0` because `b > A`, so no division is by zero.
 ///
 /// The fourth is the candidate of curvature `d` with the larger y, from the
@@ -1236,7 +1237,7 @@ mod tests {
     // one just made, so the growth guard cannot be exercised on valid input. Both
     // roots break the relation: without the guard (-1, 1, 1, 1) reflects forever,
     // and with only `k != quad[i]` (-1, 1, 1, 2) pushes a falling curvature. The
-    // walk is budgeted so a missing guard fails in a few thousand steps.
+    // walk is budgeted so a missing guard fails within the 10,000-step budget.
     #[test]
     fn walk_terminates_when_the_root_invariant_is_broken() {
         for root in [[-1, 1, 1, 1], [-1, 1, 1, 2]] {
@@ -1373,7 +1374,8 @@ mod tests {
     #[test]
     fn root_centres_high_third_circle_matches_the_exact_values() {
         // (-15, 32, 32, 33): P = -161, Q = 8160, y3^2 = 240^2 / 8160^2, so the
-        // third circle's squared height is far above 2 x^2.
+        // third circle's squared height is about 11% above 2 x^2
+        // (y3^2 = 57600 against 2 x3^2 = 51842).
         let got = root_centres([-15, 32, 32, 33]).unwrap();
         assert!(close(got[2], (32.0, -161.0 / 8160.0, 240.0 / 8160.0), 1e-12), "{:?}", got[2]);
     }
@@ -2167,8 +2169,8 @@ mod tests {
 
     // As for pack: no valid quadruple can fail the growth test, so it is tested
     // on roots that break the Descartes relation, with the placement supplied
-    // directly and the walk budgeted so a missing guard fails in a few thousand
-    // steps (the weakened guard runs past the budget on (-1, 1, 3, 5)).
+    // directly and the walk budgeted so a missing guard fails within the 10,000-step
+    // budget (the weakened guard runs past the budget on (-1, 1, 3, 5)).
     #[test]
     fn walk_centres_terminates_when_the_root_invariant_is_broken() {
         for root in [[-1, 1, 1, 1], [-1, 1, 3, 5], [-1, 2, 2, 2]] {

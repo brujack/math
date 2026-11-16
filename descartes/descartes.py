@@ -520,7 +520,8 @@ SMOKE_SIZE = 2
 LARGE_RUN_THRESHOLD: int | None = None
 
 K_MAX = 6
-# 17 decimals round-trip any double; more only lets a flag write gigabytes.
+# 17 significant digits round-trip any double; `--precision` caps decimal places at 17
+# to bound output size, since more only lets a flag write gigabytes.
 PRECISION_MAX = 17
 # Canvas bounds in cells (spec R27): a hostile terminal size cannot make the
 # drawing limit, and so the memory used, unbounded.
