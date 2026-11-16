@@ -452,6 +452,18 @@ class TestCargoTomlShape(unittest.TestCase):
         )
         self.assertIn("*/*-rs/Cargo.toml", workflow[True]["pull_request"]["paths"])
 
+    def test_crate_workflow_triggers_on_the_python_twin(self):
+        # A crate's parity test runs the sibling Python program, so a PR that
+        # edits only <crate>/*.py must still run <crate>-rs.yml.
+        import yaml
+
+        for crate in rcf.CRATES:
+            with self.subTest(crate=crate):
+                workflow = yaml.safe_load(
+                    (REPO_ROOT / ".github/workflows" / f"{crate}-rs.yml").read_text()
+                )
+                self.assertIn(f"{crate}/*.py", workflow[True]["pull_request"]["paths"])
+
 
 class TestCrateClaudeMd(unittest.TestCase):
     def test_every_crate_has_its_own_claude_md(self):

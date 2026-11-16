@@ -1,5 +1,5 @@
 use clap::error::ErrorKind;
-use clap::{CommandFactory, Parser};
+use clap::{ArgAction, CommandFactory, Parser};
 use std::env;
 use std::ffi::OsString;
 use std::fmt::Display;
@@ -45,14 +45,15 @@ ill-conditioned. Run with no arguments at a terminal for interactive prompts.";
     about = "Enumerate an integral Apollonian packing up to curvature 10^K, or solve for the \
              circles tangent to three given circles",
     after_help = EPILOG,
-    allow_negative_numbers = true
+    allow_negative_numbers = true,
+    args_override_self = true
 )]
 struct Args {
     /// Exponent (curvature limit = 10^K, 1 to 8)
     #[arg(value_name = "K")]
     size: Option<i64>,
     /// Root quadruple, one negative value (default -1 2 2 3)
-    #[arg(long, num_args = 4, value_names = ["A", "B", "C", "D"])]
+    #[arg(long, num_args = 4, action = ArgAction::Set, value_names = ["A", "B", "C", "D"])]
     root: Option<Vec<i64>>,
     /// Also print each result line to stdout
     #[arg(long)]
@@ -68,6 +69,7 @@ struct Args {
     #[arg(
         long,
         num_args = 3,
+        action = ArgAction::Set,
         value_name = "K,X,Y",
         allow_hyphen_values = true,
         value_parser = parse_circle
@@ -188,10 +190,11 @@ fn parse_stty_size(text: &str) -> Option<(usize, usize)> {
     Some((columns, rows))
 }
 
-/// Ask `program size` (stty) for the terminal size on `stdin`; `None` if it cannot say.
-fn stty_size(program: &str, stdin: Stdio) -> Option<(usize, usize)> {
-    let output =
-        Command::new(program).arg("size").stdin(stdin).stderr(Stdio::null()).output().ok()?;
+/// Run `stty` (`command`, given the `size` argument) on `stdin`; `None` if it cannot say.
+/// Taking a `Command` lets tests pass `sh -c` instead of writing an executable file, which
+/// races with concurrent forks (ETXTBSY).
+fn stty_size(mut command: Command, stdin: Stdio) -> Option<(usize, usize)> {
+    let output = command.arg("size").stdin(stdin).stderr(Stdio::null()).output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -335,10 +338,11 @@ fn run_packing<R: BufRead, W: Write, E: Write>(
     stderr: &mut E,
 ) -> Result<(), Stop> {
     let k = exponent(args.size, stdin, stdout, stderr)?;
-    let requested = match args.root.as_deref() {
-        Some(&[a, b, c, d]) => [a, b, c, d],
-        _ => DEFAULT_ROOT,
-    };
+    // `num_args = 4` with `ArgAction::Set` leaves exactly four values (the last `--root` wins).
+    let requested = args
+        .root
+        .as_deref()
+        .map_or(DEFAULT_ROOT, |r| <[i64; 4]>::try_from(r).expect("clap yields four root values"));
     let root = validate_root(requested).map_err(|e| fail_descartes(stderr, &e))?;
     let n = 10_i64.pow(k);
     let filename = packing_filename(k, root);
@@ -438,7 +442,7 @@ fn main() {
         stdin_is_tty: io::stdin().is_terminal(),
         stdout_size: io::stdout().is_terminal().then(|| {
             let tty = File::open("/dev/tty").ok();
-            let stty = tty.and_then(|tty| stty_size("stty", Stdio::from(tty)));
+            let stty = tty.and_then(|tty| stty_size(Command::new("stty"), Stdio::from(tty)));
             let columns = env::var("COLUMNS").ok();
             pick_size(columns.as_deref(), env::var("LINES").ok().as_deref(), stty)
         }),
@@ -820,9 +824,57 @@ mod tests {
     }
 
     #[test]
+    fn root_at_the_cap_is_not_refused_as_too_big() {
+        let (o, _dir) = piped(&["1", "--root", "-1", "2", "2", "100000000"]);
+        assert_eq!(o.code, 1);
+        assert!(!o.stderr.contains("at most 10^8"), "{}", o.stderr);
+    }
+
+    #[test]
     fn the_default_root_given_explicitly_exits_0() {
         let (o, _dir) = piped(&["1", "--root", "-1", "2", "2", "3", "--no-draw"]);
         assert_eq!(o.code, 0);
+    }
+
+    #[test]
+    fn repeated_root_keeps_the_last_one_as_python_does() {
+        let (o, dir) = piped(&[
+            "1",
+            "--root",
+            "-11",
+            "21",
+            "24",
+            "28",
+            "--root",
+            "-11",
+            "21",
+            "24",
+            "28",
+            "--no-draw",
+        ]);
+        assert_eq!(o.code, 0, "{}", o.stderr);
+        assert!(o.stdout.starts_with("root -11 21 24 28\n"), "{}", o.stdout);
+        assert!(!no_files(&dir));
+        let (o, _dir) = piped(&["1", "--root", "-1", "2", "2", "3", "--root", "-2", "3", "6", "7"]);
+        assert_eq!(o.code, 0, "{}", o.stderr);
+        assert!(o.stdout.starts_with("root -2 3 6 7\n"), "{}", o.stdout);
+    }
+
+    #[test]
+    fn repeated_solve_keeps_the_last_one_as_python_does() {
+        let (o, _dir) = piped(&[
+            "--solve",
+            "-1,0,0",
+            "2,0.5,0",
+            "3,0,0.6666666666666666",
+            "--solve",
+            "9,9,9",
+            "1,1,1",
+            "2,2,2",
+        ]);
+        assert_eq!(o.code, 1, "{}", o.stderr);
+        assert!(o.stderr.contains("circles 1 and 2 are not tangent"), "{}", o.stderr);
+        assert_eq!(o.stdout, "");
     }
 
     #[test]
@@ -1189,31 +1241,26 @@ solution  2  6          0.16666666666666666  0.5   0.6666666666666666
         assert_eq!(pick_size(Some(" 7 "), Some(" 9 "), None), (7, 9));
     }
 
+    /// `sh -c <body> sh`: the later `size` argument becomes `$1`.
     #[cfg(unix)]
-    fn fake_stty(dir: &Path, body: &str) -> String {
-        use std::os::unix::fs::PermissionsExt;
-        let path = dir.join("fake-stty");
-        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        path.to_str().unwrap().to_string()
+    fn fake_stty(body: &str) -> Command {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", body, "sh"]);
+        command
     }
 
     #[cfg(unix)]
     #[test]
     fn stty_size_runs_the_program_with_size_and_parses_it() {
-        let dir = tempfile::tempdir().unwrap();
-        let ok = fake_stty(dir.path(), "[ \"$1\" = size ] && echo '30 100'");
-        assert_eq!(stty_size(&ok, Stdio::null()), Some((100, 30)));
+        let ok = fake_stty("[ \"$1\" = size ] && echo '30 100'");
+        assert_eq!(stty_size(ok, Stdio::null()), Some((100, 30)));
     }
 
     #[cfg(unix)]
     #[test]
     fn stty_size_is_none_when_the_program_fails_or_is_missing() {
-        let dir = tempfile::tempdir().unwrap();
-        let failing = fake_stty(dir.path(), "echo '30 100'; exit 1");
-        assert_eq!(stty_size(&failing, Stdio::null()), None);
-        let garbage = fake_stty(dir.path(), "echo hello");
-        assert_eq!(stty_size(&garbage, Stdio::null()), None);
-        assert_eq!(stty_size("/nonexistent/stty", Stdio::null()), None);
+        assert_eq!(stty_size(fake_stty("echo '30 100'; exit 1"), Stdio::null()), None);
+        assert_eq!(stty_size(fake_stty("echo hello"), Stdio::null()), None);
+        assert_eq!(stty_size(Command::new("/nonexistent/stty"), Stdio::null()), None);
     }
 }

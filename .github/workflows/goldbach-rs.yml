@@ -6,6 +6,7 @@ on:
       - master
     paths:
       - "goldbach/goldbach-rs/**"
+      - "goldbach/*.py"
       - ".github/workflows/goldbach-rs.yml"
 
 env:

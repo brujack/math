@@ -6,6 +6,7 @@ on:
       - master
     paths:
       - "perfect-numbers/perfect-numbers-rs/**"
+      - "perfect-numbers/*.py"
       - ".github/workflows/perfect-numbers-rs.yml"
 
 env:

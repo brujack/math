@@ -92,6 +92,14 @@ fn root_minus_11_21_24_28_matches_for_k_1_to_3() {
     }
 }
 
+#[test]
+fn repeated_root_keeps_the_last_for_k_2() {
+    assert_packing_parity(&[
+        "2", "--root", "-11", "21", "24", "28", "--root", "-11", "21", "24", "28",
+    ]);
+    assert_packing_parity(&["2", "--root", "-1", "2", "2", "3", "--root", "-2", "3", "6", "7"]);
+}
+
 /// The table rows after the header, split into cells.
 fn table_rows(stdout: &str) -> Vec<Vec<String>> {
     stdout

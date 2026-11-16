@@ -6,6 +6,7 @@ on:
       - master
     paths:
       - "fib/fib-rs/**"
+      - "fib/*.py"
       - ".github/workflows/fib-rs.yml"
 
 env:

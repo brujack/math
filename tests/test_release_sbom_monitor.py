@@ -296,10 +296,6 @@ class TestFilterFindings(unittest.TestCase):
         self.assertEqual(result.gh_log, "")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestScheduledMonitorCoversEveryCrate(unittest.TestCase):
     """The scheduled monitor holds one job per released crate.
 
@@ -326,3 +322,7 @@ class TestScheduledMonitorCoversEveryCrate(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertEqual(job["with"]["binary_name"], name)
                 self.assertEqual(job["with"]["release_tag_pattern"], f"{name}-v")
+
+
+if __name__ == "__main__":
+    unittest.main()

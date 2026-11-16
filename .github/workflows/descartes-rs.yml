@@ -6,6 +6,7 @@ on:
       - master
     paths:
       - "descartes/descartes-rs/**"
+      - "descartes/*.py"
       - ".github/workflows/descartes-rs.yml"
 
 env:

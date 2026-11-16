@@ -6,6 +6,7 @@ on:
       - master
     paths:
       - "sq/sq-rs/**"
+      - "sq/*.py"
       - ".github/workflows/sq-rs.yml"
 
 env:
