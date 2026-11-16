@@ -317,7 +317,9 @@ class TestRootCeiling(unittest.TestCase):
         for root in [
             (-1, 2, 2, 10**8 + 1),
             (-(10**8) - 1, 2, 2, 3),
-            (-1, 2, 10**24 + 2, (10**12 + 1) ** 2 + 2),
+            # n = 10^4: just above the cap, and only 10^4 steps without it, so a
+            # regressed cap fails here at once instead of hanging the suite.
+            (-1, 2, 10**8 + 2, (10**4 + 1) ** 2 + 2),
         ]:
             with (
                 self.subTest(root=root),
