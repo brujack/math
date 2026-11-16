@@ -38,6 +38,7 @@ CRATES = [
 PYTHON_PROJECTS = [
     "amicable",
     "collatz",
+    "descartes",
     "e",
     "factorial",
     "fib",

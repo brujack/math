@@ -8,7 +8,7 @@ spec: docs/superpowers/specs/2026-11-15-descartes-design.md
 
 **Architecture:** One module per language with the same functions: `descartes_fourth`, `validate_root`, `pack`, `root_centres`, `solve`, `visible`, `render`, then CLI glue. Per-project files are rendered from `scripts/crate_templates/`. Parity is checked by a Rust integration test that runs the Python program.
 
-**Tech Stack:** Python 3.14 standard library (`argparse`, `cmath`, `math`, `shutil`), pytest, ruff, pyright 1.1.411; Rust edition 2024, clap 4, cargo-nextest, cargo-tarpaulin, cargo-mutants 27.1.0.
+**Tech Stack:** Python 3.14 standard library (`argparse`, `cmath`, `math`, `shutil`), `unittest` (every test is a `unittest.TestCase`: the mutation gate runs `python3 -m unittest test_descartes`, so pytest-only features such as `parametrize`, fixtures and `monkeypatch` are not used; `make test` still runs them through pytest), ruff, pyright 1.1.411; Rust edition 2024, clap 4, cargo-nextest, cargo-tarpaulin, cargo-mutants 27.1.0.
 
 ## Global Constraints
 
@@ -18,7 +18,7 @@ spec: docs/superpowers/specs/2026-11-15-descartes-design.md
 - Python K 1-6, Rust K 1-8; `SMOKE_SIZE = 2`, `LARGE_RUN_THRESHOLD = None`.
 - Exit 2 = malformed input, exit 1 = well-formed input with no answer; every message names the operation and the input.
 - Elapsed time goes to stderr only.
-- Solve tangency per pair: `|d_ij − (r_i ± r_j)| ≤ 1e-9 × (|r_i| + |r_j|)`; pairs checked 1-2, 1-3, 2-3.
+- Solve tangency per pair with signed radii `r = 1/k` (R24(a)): `| |z_i − z_j| − |r_i + r_j| | ≤ 1e-9 × (|r_i| + |r_j|)`; pairs checked 1-2, 1-3, 2-3; non-finite input is `BadInput` (R26).
 - Piped canvas is 60 × 24 cells in both languages.
 - Work from a per-worktree venv: `python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt ruff==0.17.4 pytest==9.1.1 pytest-cov==7.1.0 hypothesis==6.168.5 cosmic-ray==8.7.0`. The shared pyenv `pyright` is 1.1.414 and fails `tests/test_root_pyright_scope.py`.
 - Root `CLAUDE.md` is 29,991 bytes against a 30,000 ceiling (`scripts/claude_md_budget.py`); any addition must trim an equal amount whose facts already live in an ai-config knowledge file (grep there first).
@@ -47,13 +47,15 @@ description: descartes_fourth, validate_root with reduction, and pack, with a te
 role: executor
 model: sonnet
 tdd: required
-requirements: [R2, R3, R4, R5]
+requirements: [R2, R3, R4, R5, R20, R21, R23, R28]
 acceptance:
   - cmd: python3 -m pytest descartes/test_descartes.py -q
     exit_code: 0
+  - cmd: cd descartes && python3 -m unittest test_descartes
+    exit_code: 0
   - cmd: ruff check descartes && ruff format --check descartes/descartes.py descartes/test_descartes.py
     exit_code: 0
-  - cmd: pyright descartes/descartes.py descartes/test_descartes.py
+  - cmd: 'd=$(mktemp -d) && printf "{\"executionEnvironments\": [{\"root\": \"%s/descartes\"}], \"stubPath\": \"%s/typings\", \"typeCheckingMode\": \"standard\"}" "$PWD" "$PWD" > "$d/pyrightconfig.json" && pyright -p "$d/pyrightconfig.json" descartes/descartes.py descartes/test_descartes.py'
     exit_code: 0
 max_retries: 3
 files_touched: [descartes/descartes.py, descartes/test_descartes.py]
@@ -62,9 +64,9 @@ depends_on: []
 
 **Files:** create `descartes/descartes.py`, `descartes/test_descartes.py`.
 
-- `descartes_fourth(k1, k2, k3) -> tuple[float, float]`: `k1+k2+k3 ± 2√(k1k2+k2k3+k3k1)`; a radicand below `-1e-12 × max(|k|)` raises `NoSolution`, otherwise it is clamped at 0.
+- `descartes_fourth(k1, k2, k3) -> tuple[float, float]`: `k1+k2+k3 ± 2√(k1k2+k2k3+k3k1)`; a radicand below `-1e-12 × (|k1k2|+|k2k3|+|k3k1|)` raises `NoSolution`, otherwise it is clamped at 0 (R23; a `max(|k|)` scale is wrong in units and in magnitude).
 - `validate_root(a, b, c, d) -> tuple[int, int, int, int]`: integers only (`BadInput` else); `(Σk)² == 2Σk²` and exactly one negative value (`NoSolution` else, the message naming the root and both sides, e.g. `(Σk)²=49, 2Σk²=50`); then repeatedly reflect the largest while that lowers it; return ascending.
-- `pack(root, n) -> tuple[int, bytearray]`: count each root curvature `0 < k ≤ n`; seed the four root reflections when `≤ n` with no growth test; then explicit-stack DFS keeping `k'` only when `k_i < k' ≤ n`; set bit `k` for each counted circle.
+- `pack(root, n) -> tuple[int, bytearray]`: count each root curvature `0 < k ≤ n`; seed the four root reflections when `≤ n` with no growth test; then explicit-stack DFS keeping `k'` only when `k_i < k' ≤ n`; set bit `k` for each counted circle. The growth test is load-bearing even though no valid quadruple fails it (R21): never remove it as dead code. `pack` raises `BadInput` for `n > N_MAX = 10**6` (R20); ceiling tests lower `N_MAX` first.
 - Tests: every R2 pair, the R3 set, R5 reductions, and an oracle class: breadth-first over geometric quadruples from `root_centres` (Task 2 adds it; until then build centres inline in the test), dedup by `(k, round(x,7), round(y,7))`, counting only `k ≤ n`, compared with `pack` for every R2 root at every n ≤ 1000.
 
 **Interfaces:** Produces `NoSolution(Exception)`, `BadInput(Exception)`, `descartes_fourth`, `validate_root`, `pack` as above.
@@ -77,13 +79,15 @@ description: root_centres, solve with per-pair tangency, and visible
 role: executor
 model: sonnet
 tdd: required
-requirements: [R9, R10]
+requirements: [R9, R10, R24, R25, R26]
 acceptance:
   - cmd: python3 -m pytest descartes/test_descartes.py -q
     exit_code: 0
+  - cmd: cd descartes && python3 -m unittest test_descartes
+    exit_code: 0
   - cmd: ruff check descartes && ruff format --check descartes/descartes.py descartes/test_descartes.py
     exit_code: 0
-  - cmd: pyright descartes/descartes.py descartes/test_descartes.py
+  - cmd: 'd=$(mktemp -d) && printf "{\"executionEnvironments\": [{\"root\": \"%s/descartes\"}], \"stubPath\": \"%s/typings\", \"typeCheckingMode\": \"standard\"}" "$PWD" "$PWD" > "$d/pyrightconfig.json" && pyright -p "$d/pyrightconfig.json" descartes/descartes.py descartes/test_descartes.py'
     exit_code: 0
 max_retries: 3
 files_touched: [descartes/descartes.py, descartes/test_descartes.py]
@@ -91,10 +95,10 @@ depends_on: [1]
 ```
 
 - `Circle = tuple[float, float, float]` `(k, x, y)`.
-- `root_centres(root) -> list[Circle]`: bounding circle at the origin, second on +x inside it, third from the centre-distance triangle with negative `y²` clamped to 0, fourth by the complex theorem; never calls the tangency check. Test the collinear root `(-2,3,6,7)`.
-- `check_tangent(circles)`: pairs 1-2, 1-3, 2-3; first failure raises `NoSolution("circles i and j are not tangent ...")`, adding a full-precision hint when any input has 6 or fewer decimal places. Zero curvature raises `BadInput`.
-- `solve(c1, c2, c3) -> list[Circle]`: complex theorem, keeping for each `k4` the centre tangent to all three.
-- `visible(root, limit) -> list[Circle]`: the `pack` search carrying centres, `z' = (2·Σ(k·z) of the other three − k_i·z_i) / k'`.
+- `root_centres(root) -> list[Circle]`: bounding circle at the origin, second on +x inside it, third from the centre-distance triangle computed exactly (R25, no clamp), fourth by the complex theorem with curvature `d` and the larger `y`, `NoSolution` naming the root if none; never calls the tangency check. Test the collinear root `(-2,3,6,7)`.
+- `check_tangent(circles)`: pairs 1-2, 1-3, 2-3; first failure raises `NoSolution("circles i and j are not tangent ...")`, adding the full-precision hint per R24(b) (a non-integer centre coordinate with 1-6 decimals in positional form). Zero curvature and non-finite values raise `BadInput` (R26).
+- `solve(c1, c2, c3) -> list[Circle]`: every distinct circle among the four sign combinations of the complex theorem that passes the tangency rule, ordered by curvature then y, lines omitted, `NoSolution` when none (R24(c), R25).
+- `visible(root, limit) -> list[Circle]`: the `pack` search carrying centres, `z' = (2·Σ(k·z) of the other three − k_i·z_i) / k'`, with the same growth test and a `limit ≤ N_MAX` check, so it is bounded like `pack` (R20, R21).
 - Tests: R9 values within 1e-9; R10 scaled ×100 passes; `0.6667` fails naming 1 and 3 with the hint; `0.7` fails; zero curvature is `BadInput`; `visible((-1,2,2,3), 30)` returns the 38 circles of R2.
 
 **Interfaces:** Consumes Task 1. Produces `Circle`, `root_centres`, `check_tangent`, `solve`, `visible`.
@@ -111,9 +115,11 @@ requirements: [R11]
 acceptance:
   - cmd: python3 -m pytest descartes/test_descartes.py -q
     exit_code: 0
+  - cmd: cd descartes && python3 -m unittest test_descartes
+    exit_code: 0
   - cmd: ruff check descartes && ruff format --check descartes/descartes.py descartes/test_descartes.py
     exit_code: 0
-  - cmd: pyright descartes/descartes.py descartes/test_descartes.py
+  - cmd: 'd=$(mktemp -d) && printf "{\"executionEnvironments\": [{\"root\": \"%s/descartes\"}], \"stubPath\": \"%s/typings\", \"typeCheckingMode\": \"standard\"}" "$PWD" "$PWD" > "$d/pyrightconfig.json" && pyright -p "$d/pyrightconfig.json" descartes/descartes.py descartes/test_descartes.py'
     exit_code: 0
 max_retries: 3
 files_touched: [descartes/descartes.py, descartes/test_descartes.py]
@@ -133,15 +139,17 @@ description: ADR-0030 CLI with --root, --solve, --precision, --no-draw; outputs 
 role: executor
 model: sonnet
 tdd: required
-requirements: [R6, R7, R8, R9, R10, R11]
+requirements: [R6, R7, R8, R9, R10, R11, R27]
 acceptance:
   - cmd: python3 -m pytest descartes/test_descartes.py -q
+    exit_code: 0
+  - cmd: cd descartes && python3 -m unittest test_descartes
     exit_code: 0
   - cmd: python3 scripts/cli_contract.py descartes/descartes.py
     exit_code: 0
   - cmd: ruff check descartes && ruff format --check descartes/descartes.py descartes/test_descartes.py
     exit_code: 0
-  - cmd: pyright descartes/descartes.py descartes/test_descartes.py
+  - cmd: 'd=$(mktemp -d) && printf "{\"executionEnvironments\": [{\"root\": \"%s/descartes\"}], \"stubPath\": \"%s/typings\", \"typeCheckingMode\": \"standard\"}" "$PWD" "$PWD" > "$d/pyrightconfig.json" && pyright -p "$d/pyrightconfig.json" descartes/descartes.py descartes/test_descartes.py'
     exit_code: 0
 max_retries: 3
 files_touched: [descartes/descartes.py, descartes/test_descartes.py]
@@ -151,9 +159,9 @@ depends_on: [3]
 - Copy `parse_args`, `refuse_large_run` and the prompt/end-of-input text from `amicable/amicable.py`, then add `--root A B C D`, `--solve K,X,Y ×3`, `--precision P`, `--no-draw`; `--solve` excludes SIZE. K outside 1-6 exits 2 naming the range.
 - Packing stdout order: `root a b c d`, `circles N`, `distinct M`, `Saved to <file>`, drawing; elapsed time on stderr. File `descartes_1eK.txt` or `descartes_1eK_root_A_B_C_D.txt`, one curvature per line ascending; empty packing gives an empty file and no drawing.
 - Solve prints the table at full precision (`repr`) or `--precision P` places, then the drawing.
-- Canvas: terminal size on a TTY, else 60×24. Drawing filter: curvature `≤ min(N, 2 × width × 2)`.
+- Canvas: terminal size on a TTY clamped per R27 (1×1 to 1000×500, height one short), else 60×24. Drawing filter: curvature `≤ min(N, 2 × width × 2)`.
 - `NoSolution` exits 1, `BadInput` exits 2, message on stderr.
-- Tests run `main([...])` with `capsys` and a `tmp_path` cwd for every R6-R11 case, asserting exit codes, stdout lines and file contents.
+- Tests run `main([...])` with `contextlib.redirect_stdout`/`redirect_stderr` into `io.StringIO` and a `tempfile.TemporaryDirectory` cwd for every R6-R11 case, asserting exit codes, stdout lines and file contents.
 
 **Interfaces:** Consumes Tasks 1-3. Produces `main(argv: list[str] | None = None) -> None`, `SMOKE_SIZE`, `LARGE_RUN_THRESHOLD`.
 
@@ -186,7 +194,7 @@ files_touched: [scripts/render_crate_files.py, descartes/Makefile, descartes/ins
 depends_on: [4]
 ```
 
-- Add `descartes` to `PYTHON_PROJECTS`; run `--write`; create an empty `descartes/mutants-equivalent.toml`.
+- Add `descartes` to `PYTHON_PROJECTS`; run `--write`; create `descartes/mutants-equivalent.toml` declaring the 28 equivalents (7 from Task 4 in commit `063ed22`'s body: `2 * DOTS_PER_CELL_X` to `**` in `_draw_packing` (the constant is 2), `_packing_filename` `==` to `>=`, `_format_value` `== 0` to `>=` after the minus test, the `__main__` guard `==` to `is` and `<=`, and the two `strict=True` zips in `_print_table`; 13 from Task 3 in commit `a4c668e`'s body: `+` to `|` and `^` in `render`'s `_BRAILLE_BASE + bits` and in `_midpoint_circle`'s two `+ 1` steps, the two `_midpoint_circle` sign flips, and the five `strict=True` zips in `_dot_circles`; four from Task 1, mechanisms in commit `15d2cf1`'s body; four from Task 2, in commit `f36e654`'s body: `_child` `m != i` to `is not` and `visible` `i == j` to `is` (CPython small-int cache on `range(4)`), `_tangent_circles` `zsum + sign` to `-` (the loop already runs both signs; only discovery order changes and the result is sorted), `_input_problem` `1.0 / k` to `//` (floor of the quotient is finite exactly when the quotient is; 0 disagreements on 305015 floats including subnormals)); the Task 1 four: `_check_reduced_root` `!=` to `>` (sorted is the lexicographic minimum permutation); `validate_root` and `_check_reduced_root` `+` to `%` on `v0 + v1` (a one-negative Descartes quad has every positive curvature strictly above `|v0|`); `pack` `i == j` to `is` (CPython small-int caching, an implementation detail, so say so). Confirm each against a capped cosmic-ray run first; line numbers will have moved. A full local session with the template config (unittest runner) took about 55 minutes for 769 mutants at Task 1 (about 4 s each), so run it in the background; a run killed by SIGTERM left its working copy mutated, so only ever run it through `make mutants`, which works in a scratch copy.
 - Add `descartes` beside `triangle` in every list: `all_dirs` in `mutation-testing-python.yml`, `PYTHON_DIRS` in both scripts, `dirs=` in `scripts/pre-commit`, the `scripts/pre-push` dir loop, its line-204 module regex and its `_entry` harness loop (`descartes:descartes`).
 - Update pinning tests: `test_crate_uniformity.py` Python counts 9 to 10 (lines 96 and 298), the `PROJECTS` tuples, `ALL9` (rename `ALL10`) and the loops in the bats files, `HARNESS_PROJECTS`, plus a `descartes` copy of the triangle-specific cases in `mutation_python_cell.bats` and `pre_push.bats`.
 - `.gitignore`: `descartes_1e*.txt`. Docs: `descartes/CLAUDE.md` and `README.md` (usage, layout, the known solve paste-back limits), root `README.md` CLI table, root `CLAUDE.md` sub-project line within 30,000 bytes.
@@ -201,7 +209,7 @@ description: create descartes-rs, register it as crate 12, and implement descart
 role: executor
 model: sonnet
 tdd: required
-requirements: [R13, R19]
+requirements: [R13, R19, R23]
 acceptance:
   - cmd: python3 scripts/render_crate_files.py --check
     exit_code: 0
@@ -220,7 +228,7 @@ depends_on: [5]
 - Add `descartes` to `CRATES`; `--write`. `.cargo/mutants.toml`: `additional_cargo_test_args = ["--lib", "--bins", "--test", "cli"]` only.
 - Counts 11 to 12 in `test_crate_uniformity.py` (lines 168, 177, 247) and `test_mutation_workflows.py` line 694; `test_mutants_exclusions.py`: add `descartes/descartes-rs` to `EXPECTED`, allow a file whose single key is `additional_cargo_test_args`, with a test that a file holding neither key still fails.
 - `descartes/descartes-rs` in `scripts/pre-commit` and the `scripts/pre-push` dir loop.
-- `lib.rs`: `pub fn descartes_fourth(k1: f64, k2: f64, k3: f64) -> Result<(f64, f64), DescartesError>` with unit tests; `main.rs` thin stub calling `run` with injectable writers.
+- `lib.rs`: `pub fn descartes_fourth(k1: f64, k2: f64, k3: f64) -> Result<(f64, f64), DescartesError>` with the R23 tolerance and unit tests, including the four `test_tolerance_is_one_ppt_of_the_summed_products` fixtures of `test_descartes.py` with the same raise/clamp outcome each (R14); `main.rs` thin stub calling `run` with injectable writers.
 
 **Interfaces:** Produces `DescartesError { BadInput(String), NoSolution(String) }` (derive Debug), `descartes_fourth`.
 
@@ -232,7 +240,7 @@ description: validate_root with reduction and pack in i64 with a distinct bitmap
 role: executor
 model: sonnet
 tdd: required
-requirements: [R14]
+requirements: [R14, R22, R28]
 acceptance:
   - cmd: make -C descartes/descartes-rs test </dev/null
     exit_code: 0
@@ -241,7 +249,7 @@ files_touched: [descartes/descartes-rs/src/lib.rs]
 depends_on: [6]
 ```
 
-- `pub fn validate_root(q: [i64; 4]) -> Result<[i64; 4], DescartesError>` and `pub fn pack(root: [i64; 4], n: i64) -> (i64, Vec<u64>)`, same rules as Python Task 1.
+- `pub fn validate_root(q: [i64; 4]) -> Result<[i64; 4], DescartesError>` and `pub fn pack(root: [i64; 4], n: i64) -> (i64, Vec<u64>)`, same rules as Python Task 1, including the growth test and a core ceiling `n ≤ 10^8` (R22).
 - Unit tests: every R2 pair, the R3 set, the R5 reductions, the R6 errors.
 
 ### Task 8: Rust geometry and render
@@ -252,7 +260,7 @@ description: root_centres, check_tangent, solve, visible and render in Rust
 role: executor
 model: sonnet
 tdd: required
-requirements: [R14]
+requirements: [R14, R24, R25, R26]
 acceptance:
   - cmd: make -C descartes/descartes-rs test </dev/null
     exit_code: 0
@@ -271,7 +279,7 @@ description: clap CLI matching Python, with tests/cli.rs failure modes
 role: executor
 model: sonnet
 tdd: required
-requirements: [R14, R17]
+requirements: [R14, R17, R27]
 acceptance:
   - cmd: make -C descartes/descartes-rs test </dev/null
     exit_code: 0
@@ -332,6 +340,10 @@ depends_on: [10]
 ## Requirements coverage note
 
 R16 is withdrawn by amendment and split into R18 (PR1) and R19 (PR2), because rendering `descartes` as a Python project writes `descartes-py.yml` in PR1 and `render_crate_files.py --check` fails until it exists.
+
+## Execution notes
+
+- 2026-11-15, Task 1 re-plan (swap approach): `pyright descartes/descartes.py ...` from the repo root resolves `import descartes` to the `descartes/` directory as a namespace package (triangle shows the same 14 errors from root), so Tasks 1-4 gate pyright through a temporary config rooted at `descartes/` until Task 5 renders `descartes/pyrightconfig.json`. Proven: 0 errors on Task 1's code, 1 error on a seeded `BAD: int = "x"`.
 
 ## Non-goal check
 

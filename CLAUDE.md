@@ -11,8 +11,8 @@ A trailing pointer on a rule means: before acting on that rule's subject, read t
 High-performance mathematical computation tools.
 
 Each sub-project's `CLAUDE.md` is the source of truth for its detail (a crate's is `<crate>/<crate>-rs/CLAUDE.md`); keep this file and those in sync. → ai-config/docs/knowledge/math-overview.md § Sub-project table
-Sub-projects (dir: language): `pi/` Python+Rust, `prime/` Rust, `fib/` Python+Rust, `sq/` Python+Rust, `twin-primes/` Rust, `e/` Python+Rust, `factorial/` Python+Rust, `perfect-numbers/` Python+Rust, `collatz/` Python+Rust, `goldbach/` Rust, `amicable/` Python+Rust, `triangle/` Python. → ai-config/docs/knowledge/math-overview.md § Sub-project table
-Rust crates live at `<project>/<project>-rs/` (all 11 crates, e.g. `pi/pi-rs`); the Python sub-projects sit at `<project>/` (pi, fib, sq, e, factorial, perfect-numbers, collatz, amicable, triangle).
+Sub-projects (dir: language): `pi/` Python+Rust, `prime/` Rust, `fib/` Python+Rust, `sq/` Python+Rust, `twin-primes/` Rust, `e/` Python+Rust, `factorial/` Python+Rust, `perfect-numbers/` Python+Rust, `collatz/` Python+Rust, `goldbach/` Rust, `amicable/` Python+Rust, `triangle/` Python, `descartes/` Python. → ai-config/docs/knowledge/math-overview.md § Sub-project table
+Rust crates live at `<project>/<project>-rs/` (all 11 crates, e.g. `pi/pi-rs`); the Python sub-projects sit at `<project>/` (pi, fib, sq, e, factorial, perfect-numbers, collatz, amicable, triangle, descartes).
 
 ## Architectural Decision Records
 
@@ -47,7 +47,7 @@ make install-deps    # Python deps + actionlint
 
 ### Python (`<project>/`)
 
-Run from `<project>/`; `<name>` is the module and test file stem: pi, fib, sq, e, factorial, `perfect_numbers` (dir `perfect-numbers`), collatz, amicable, triangle (so `make run` runs `python3 <name>.py`, `make test` runs `pytest test_<name>.py -v`).
+Run from `<project>/`; `<name>` is the module and test file stem: pi, fib, sq, e, factorial, `perfect_numbers` (dir `perfect-numbers`), collatz, amicable, triangle, descartes.
 
 ```bash
 cd <project>
@@ -249,7 +249,7 @@ Sub-project `CLAUDE.md` files hold implementation detail; this file is the entry
 
 Verify rust-check wrapper changes with unit tests (`python3 scripts/test_rust_check.py`) plus a full online+offline crate matrix before merge. → ai-config/docs/knowledge/math-quick-reference.md § rust-offline-wrapper learnings
 
-- Generated output files (`pi_*_digits.txt`, `e_*_digits.txt`, `factorial_*.txt`, and `<name>_1e*.txt` from primes, twin-primes, fib, sq, amicable, collatz and perfect-numbers) are artifacts — `.gitignore` covers them; do not commit them.
+- Generated output files (`pi_*_digits.txt`, `e_*_digits.txt`, `factorial_*.txt`, and `<name>_1e*.txt` from primes, twin-primes, fib, sq, amicable, collatz, perfect-numbers and descartes) are artifacts — `.gitignore` covers them; do not commit them.
 - See each project's `CLAUDE.md` for guidance, layout and editing rules.
 
 ## Definition of Done

@@ -13,34 +13,34 @@ setup() {
     export XDG_CONFIG_HOME="${BATS_TEST_TMPDIR}/xdg"
     export GIT_CONFIG_GLOBAL=/dev/null
     export GIT_CONFIG_NOSYSTEM=1
-    ALL9="amicable collatz e factorial fib perfect-numbers pi sq triangle"
+    ALL10="amicable collatz descartes e factorial fib perfect-numbers pi sq triangle"
 }
 
-@test "template path selects all nine" {
+@test "template path selects all ten" {
     export MOCK_GIT_DIFF_NAMES="scripts/crate_templates/python/Makefile"
     run -0 bash "${SCRIPT}" origin/master
-    [ "${lines[0]}" = "py_dirs=${ALL9}" ]
+    [ "${lines[0]}" = "py_dirs=${ALL10}" ]
     [ "${lines[1]}" = "has_py=true" ]
 }
 
-@test "a py workflow selects all nine" {
+@test "a py workflow selects all ten" {
     export MOCK_GIT_DIFF_NAMES=".github/workflows/fib-py.yml"
     run -0 bash "${SCRIPT}" origin/master
-    [ "${lines[0]}" = "py_dirs=${ALL9}" ]
+    [ "${lines[0]}" = "py_dirs=${ALL10}" ]
     [ "${lines[1]}" = "has_py=true" ]
 }
 
-@test "a python install_deps.sh selects all nine" {
+@test "a python install_deps.sh selects all ten" {
     export MOCK_GIT_DIFF_NAMES="pi/install_deps.sh"
     run -0 bash "${SCRIPT}" origin/master
-    [ "${lines[0]}" = "py_dirs=${ALL9}" ]
+    [ "${lines[0]}" = "py_dirs=${ALL10}" ]
     [ "${lines[1]}" = "has_py=true" ]
 }
 
-@test "mutation-pr.yml selects all nine" {
+@test "mutation-pr.yml selects all ten" {
     export MOCK_GIT_DIFF_NAMES=".github/workflows/mutation-pr.yml"
     run -0 bash "${SCRIPT}" origin/master
-    [ "${lines[0]}" = "py_dirs=${ALL9}" ]
+    [ "${lines[0]}" = "py_dirs=${ALL10}" ]
     [ "${lines[1]}" = "has_py=true" ]
 }
 
@@ -211,7 +211,7 @@ fixture_repo() {
     mkdir -p "${FIX}"
     git -C "${FIX}" init -q -b main
     local d m
-    for d in amicable collatz e factorial fib perfect-numbers pi sq triangle; do
+    for d in amicable collatz descartes e factorial fib perfect-numbers pi sq triangle; do
         m="${d//-/_}"
         mkdir -p "${FIX}/${d}"
         printf 'a = 1\nb = 2\nc = 3\n' > "${FIX}/${d}/${m}.py"
@@ -310,6 +310,15 @@ fix_run() {
     [ "${lines[5]}" = "py_src_dirs=" ]
 }
 
+@test "a binary file named like the descartes module is not selected" {
+    fixture_repo
+    printf '\000\001\002' > "${FIX}/descartes/descartes.py"
+    fix_commit "binary"
+    git -C "${FIX}" show --numstat --format= HEAD | grep -q '^-'
+    fix_run
+    [ "${lines[5]}" = "py_src_dirs=" ]
+}
+
 @test "a diff failure exits non-zero" {
     export MOCK_GIT_DIFF_NAMES="README.md"
     export MOCK_GIT_EXIT_DIFF=1
@@ -384,12 +393,12 @@ _detect_readonly() {
     [ "${n}" -eq 10 ]
 }
 
-@test "PYTHON_DIRS is exactly the nine dirs with a tracked cosmic-ray.toml and module" {
+@test "PYTHON_DIRS is exactly the ten dirs with a tracked cosmic-ray.toml and module" {
     PATH="${PATH#"${REPO_ROOT}/tests/mocks:"}"
     local want got d
     want="$(git -C "${REPO_ROOT}" ls-files '*/cosmic-ray.toml' | grep -v '.*/.*/' | sed 's|/cosmic-ray.toml$||' | sort | paste -sd' ' -)"
     got="$(_detect_readonly PYTHON_DIRS)"
-    [ "$(printf '%s\n' ${got} | wc -l)" -eq 9 ]
+    [ "$(printf '%s\n' ${got} | wc -l)" -eq 10 ]
     [ -n "${want}" ]
     [ "${got}" = "${want}" ]
     for d in ${got}; do

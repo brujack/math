@@ -1,0 +1,223 @@
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Add_BitOr"
+function = "_midpoint_circle"
+line = "decision += 2 * y + 1"
+col = 30
+above = "if decision <= 0:"
+reason = "2 * y is even, so its low bit is clear and adding 1 never carries: `+`, `|` and `^` give the same sum for every y (Python ints are two's complement, so this holds for negative values too)."
+
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Add_BitOr"
+function = "_midpoint_circle"
+line = "decision += 2 * (y - x) + 1"
+col = 36
+above = "x -= 1"
+reason = "2 * (y - x) is even for every integer x and y, so its low bit is clear and adding 1 never carries: `+`, `|` and `^` give the same result."
+
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Add_BitOr"
+function = "render"
+line = "return [\"\".join(chr(_BRAILLE_BASE + bits) for bits in row) for row in cells]"
+col = 38
+above = "_plot(cells, x, y, width, height)"
+reason = "_BRAILLE_BASE is 0x2800 and bits is at most 0xFF, so the operands share no set bits and `+`, `|` and `^` give the same code point."
+
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Add_BitXor"
+function = "_midpoint_circle"
+line = "decision += 2 * y + 1"
+col = 30
+above = "if decision <= 0:"
+reason = "2 * y is even, so its low bit is clear and adding 1 never carries: `+`, `|` and `^` give the same sum for every y (Python ints are two's complement, so this holds for negative values too)."
+
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Add_BitXor"
+function = "_midpoint_circle"
+line = "decision += 2 * (y - x) + 1"
+col = 36
+above = "x -= 1"
+reason = "2 * (y - x) is even for every integer x and y, so its low bit is clear and adding 1 never carries: `+`, `|` and `^` give the same result."
+
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Add_BitXor"
+function = "render"
+line = "return [\"\".join(chr(_BRAILLE_BASE + bits) for bits in row) for row in cells]"
+col = 38
+above = "_plot(cells, x, y, width, height)"
+reason = "_BRAILLE_BASE is 0x2800 and bits is at most 0xFF, so the operands share no set bits and `+`, `|` and `^` give the same code point."
+
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Add_Mod"
+function = "validate_root"
+line = "reflected = 2 * (values[0] + values[1] + values[2]) - values[3]"
+col = 35
+above = "while True:"
+reason = "After the one-negative check, values sorted ascending puts the lone negative first and every positive curvature strictly above its magnitude, so 0 < values[0] + values[1] < values[1] and `%` by values[1] equals the sum (floor modulo of a negative by a larger positive adds it)."
+
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Add_Mod"
+function = "_check_reduced_root"
+line = "elif 2 * (root[0] + root[1] + root[2]) - root[3] < root[3]:"
+col = 22
+above = "problem = \"needs exactly one negative curvature\""
+reason = "Earlier elif branches have already established a Descartes quadruple with exactly one negative, sorted ascending, so every positive curvature is strictly above the magnitude of the negative root[0]; then 0 < root[0] + root[1] < root[1] and `%` by root[1] equals the sum."
+
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Add_Sub"
+function = "_tangent_circles"
+line = "z = (zsum + sign * 2 * root_w) / k"
+col = 22
+above = "for sign in (1, -1):"
+reason = "The loop `for sign in (1, -1)` visits both signs, so zsum - sign * 2 * root_w visits the same two candidates in the other order; the found list is sorted afterwards, so the result is identical."
+
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Add_Sub"
+function = "_midpoint_circle"
+line = "dots.add((cx + sign_x * dx, cy + sign_y * dy))"
+col = 33
+above = "for sign_y in (1, -1):"
+reason = "The enclosing loops run sign_x and sign_y over (1, -1), so cx - sign * d visits the same set of dots as cx + sign * d; dots is a set, so the order does not matter."
+
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Add_Sub"
+function = "_midpoint_circle"
+line = "dots.add((cx + sign_x * dx, cy + sign_y * dy))"
+col = 51
+above = "for sign_y in (1, -1):"
+reason = "The enclosing loops run sign_x and sign_y over (1, -1), so cx - sign * d visits the same set of dots as cx + sign * d; dots is a set, so the order does not matter."
+
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Div_FloorDiv"
+function = "_input_problem"
+line = "if not math.isfinite(1.0 / k):"
+col = 29
+above = "return \"has zero curvature\""
+reason = "1.0 / k is finite exactly when 1.0 // k is finite (both overflow to inf on the same k; the floor of a finite quotient is finite); checked on 305015 floats including subnormals with 0 disagreements, and k == 0 is rejected before this test."
+
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Mul_Pow"
+function = "_draw_packing"
+line = "limit = min(n, 2 * DOTS_PER_CELL_X * width)"
+col = 21
+above = "# Circles above twice the canvas width in dots are under half a dot across."
+reason = "DOTS_PER_CELL_X is 2, so 2 * 2 and 2 ** 2 are both 4."
+
+[[equivalent]]
+operator = "core/ReplaceComparisonOperator_Eq_GtE"
+function = "_packing_filename"
+line = "if root == DEFAULT_ROOT:"
+col = 12
+above = "\"\"\"The output file name: the root joins the name unless it is the default.\"\"\""
+reason = "DEFAULT_ROOT (-1, 2, 2, 3) is the largest reduced root in tuple order (the first element is the least-magnitude negative, then the smallest positives), and a reduced root other than it compares strictly smaller, so `root >= DEFAULT_ROOT` holds exactly when `root == DEFAULT_ROOT`."
+
+[[equivalent]]
+operator = "core/ReplaceComparisonOperator_Eq_GtE"
+function = "_format_value"
+line = "if text.startswith(\"-\") and float(text) == 0:"
+col = 44
+above = "text = f\"{value:.{precision}f}\""
+reason = "Inside the startswith('-') branch float(text) is never positive (text is a decimal that starts with a minus), so float(text) >= 0 holds exactly when float(text) == 0, including -0.0."
+
+[[equivalent]]
+operator = "core/ReplaceComparisonOperator_Eq_Is"
+function = "pack"
+line = "if i == j:"
+col = 17
+above = "for i in range(4):"
+reason = "i and j are ints from range(4) / the quad index, within CPython's small-int cache, so `is` agrees with `==`; an implementation detail of CPython, so declared as such."
+
+[[equivalent]]
+operator = "core/ReplaceComparisonOperator_Eq_Is"
+function = "visible"
+line = "if i == j:"
+col = 17
+above = "for i in range(4):"
+reason = "i and j are ints from range(4) / the quad index, within CPython's small-int cache, so `is` agrees with `==`; an implementation detail of CPython, so declared as such."
+
+[[equivalent]]
+operator = "core/ReplaceComparisonOperator_Eq_Is"
+function = ""
+line = "if __name__ == \"__main__\":"
+col = 12
+above = "_run_packing(args)"
+reason = "`__name__` is the interned string \"__main__\" when the file runs as a script, so `is` agrees with `==`; an implementation detail of CPython, so declared as such."
+
+[[equivalent]]
+operator = "core/ReplaceComparisonOperator_Eq_LtE"
+function = ""
+line = "if __name__ == \"__main__\":"
+col = 12
+above = "_run_packing(args)"
+reason = "A module that imports descartes has __name__ \"descartes\", which sorts after \"__main__\" (\"d\" > \"_\"), so `<=` is false exactly when `==` is false, and it is true for \"__main__\" itself."
+
+[[equivalent]]
+operator = "core/ReplaceComparisonOperator_NotEq_Gt"
+function = "_check_reduced_root"
+line = "if list(root) != sorted(root):"
+col = 18
+above = "problem = \"\""
+reason = "sorted(root) is the lexicographic minimum permutation, so list(root) is never less than it: `!=` and `>` agree for every root."
+
+[[equivalent]]
+operator = "core/ReplaceComparisonOperator_NotEq_IsNot"
+function = "_child"
+line = "others = sum(ks[m] * zs[m] for m in range(4) if m != i)"
+col = 54
+above = "\"\"\""
+reason = "m and i are ints from range(4), within CPython's small-int cache, so `is not` agrees with `!=`; an implementation detail of CPython, so declared as such."
+
+[[equivalent]]
+operator = "core/ReplaceTrueWithFalse"
+function = "_dot_circles"
+line = "x_min = min(x - r for (_, x, _), r in zip(circles, radii, strict=True))"
+col = 69
+above = "radii = [abs(1.0 / k) for k, _, _ in circles]"
+reason = "The two iterables are the same length by construction: radii holds one entry per circle (a list comprehension over circles), so strict=True never raises and strict=False yields the same pairs."
+
+[[equivalent]]
+operator = "core/ReplaceTrueWithFalse"
+function = "_dot_circles"
+line = "x_max = max(x + r for (_, x, _), r in zip(circles, radii, strict=True))"
+col = 69
+above = "x_min = min(x - r for (_, x, _), r in zip(circles, radii, strict=True))"
+reason = "The two iterables are the same length by construction: radii holds one entry per circle (a list comprehension over circles), so strict=True never raises and strict=False yields the same pairs."
+
+[[equivalent]]
+operator = "core/ReplaceTrueWithFalse"
+function = "_dot_circles"
+line = "y_min = min(y - r for (_, _, y), r in zip(circles, radii, strict=True))"
+col = 69
+above = "x_max = max(x + r for (_, x, _), r in zip(circles, radii, strict=True))"
+reason = "The two iterables are the same length by construction: radii holds one entry per circle (a list comprehension over circles), so strict=True never raises and strict=False yields the same pairs."
+
+[[equivalent]]
+operator = "core/ReplaceTrueWithFalse"
+function = "_dot_circles"
+line = "y_max = max(y + r for (_, _, y), r in zip(circles, radii, strict=True))"
+col = 69
+above = "y_min = min(y - r for (_, _, y), r in zip(circles, radii, strict=True))"
+reason = "The two iterables are the same length by construction: radii holds one entry per circle (a list comprehension over circles), so strict=True never raises and strict=False yields the same pairs."
+
+[[equivalent]]
+operator = "core/ReplaceTrueWithFalse"
+function = "_dot_circles"
+line = "for (_, x, y), r in zip(circles, radii, strict=True)"
+col = 55
+above = ")"
+reason = "The two iterables are the same length by construction: radii holds one entry per circle (a list comprehension over circles), so strict=True never raises and strict=False yields the same pairs."
+
+[[equivalent]]
+operator = "core/ReplaceTrueWithFalse"
+function = "_print_table"
+line = "widths = [max(map(len, column)) for column in zip(*rows, strict=True)]"
+col = 68
+above = ")"
+reason = "Every row of the table has six cells (header and data rows are built to the same width), so strict=True never raises and strict=False yields the same columns."
+
+[[equivalent]]
+operator = "core/ReplaceTrueWithFalse"
+function = "_print_table"
+line = "cell.ljust(w) for cell, w in zip(row, widths, strict=True)"
+col = 69
+above = "\"  \".join("
+reason = "Each row has six cells and widths has one entry per column (six), so the two iterables are the same length and strict=True never raises."

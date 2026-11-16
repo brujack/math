@@ -37,6 +37,7 @@ ALLOWED = {
 for _project in (
     "amicable",
     "collatz",
+    "descartes",
     "e",
     "factorial",
     "fib",
@@ -164,7 +165,7 @@ class TestPipAuditRunsThroughTheAdvisoryWrapper(unittest.TestCase):
                 audit_steps.append((label, job_id, step.get("name"), run.strip()))
         self.assertEqual(
             len(audit_steps),
-            10,
+            11,
             f"{audit_steps}"
             "; when adding a Python sub-project, update this count with its workflow",
         )
@@ -225,7 +226,7 @@ class TestPipAuditAuditsAProjectInterpreter(unittest.TestCase):
                     )
         self.assertEqual(
             checked,
-            10,
+            11,
             "when adding a Python sub-project, update this count with its workflow",
         )
 

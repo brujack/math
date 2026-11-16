@@ -23,6 +23,7 @@ PRUNE = REPO_ROOT / "scripts" / "cosmic_ray_prune.py"
 PROJECTS = (
     "amicable",
     "collatz",
+    "descartes",
     "e",
     "factorial",
     "fib",
