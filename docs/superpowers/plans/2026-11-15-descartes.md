@@ -8,7 +8,7 @@ spec: docs/superpowers/specs/2026-11-15-descartes-design.md
 
 **Architecture:** One module per language with the same functions: `descartes_fourth`, `validate_root`, `pack`, `root_centres`, `solve`, `visible`, `render`, then CLI glue. Per-project files are rendered from `scripts/crate_templates/`. Parity is checked by a Rust integration test that runs the Python program.
 
-**Tech Stack:** Python 3.14 standard library (`argparse`, `cmath`, `math`, `shutil`), pytest, ruff, pyright 1.1.411; Rust edition 2024, clap 4, cargo-nextest, cargo-tarpaulin, cargo-mutants 27.1.0.
+**Tech Stack:** Python 3.14 standard library (`argparse`, `cmath`, `math`, `shutil`), `unittest` (every test is a `unittest.TestCase`: the mutation gate runs `python3 -m unittest test_descartes`, so pytest-only features such as `parametrize`, fixtures and `monkeypatch` are not used; `make test` still runs them through pytest), ruff, pyright 1.1.411; Rust edition 2024, clap 4, cargo-nextest, cargo-tarpaulin, cargo-mutants 27.1.0.
 
 ## Global Constraints
 
@@ -51,6 +51,8 @@ requirements: [R2, R3, R4, R5, R20, R21, R23]
 acceptance:
   - cmd: python3 -m pytest descartes/test_descartes.py -q
     exit_code: 0
+  - cmd: cd descartes && python3 -m unittest test_descartes
+    exit_code: 0
   - cmd: ruff check descartes && ruff format --check descartes/descartes.py descartes/test_descartes.py
     exit_code: 0
   - cmd: 'd=$(mktemp -d) && printf "{\"executionEnvironments\": [{\"root\": \"%s/descartes\"}], \"stubPath\": \"%s/typings\", \"typeCheckingMode\": \"standard\"}" "$PWD" "$PWD" > "$d/pyrightconfig.json" && pyright -p "$d/pyrightconfig.json" descartes/descartes.py descartes/test_descartes.py'
@@ -80,6 +82,8 @@ tdd: required
 requirements: [R9, R10]
 acceptance:
   - cmd: python3 -m pytest descartes/test_descartes.py -q
+    exit_code: 0
+  - cmd: cd descartes && python3 -m unittest test_descartes
     exit_code: 0
   - cmd: ruff check descartes && ruff format --check descartes/descartes.py descartes/test_descartes.py
     exit_code: 0
@@ -111,6 +115,8 @@ requirements: [R11]
 acceptance:
   - cmd: python3 -m pytest descartes/test_descartes.py -q
     exit_code: 0
+  - cmd: cd descartes && python3 -m unittest test_descartes
+    exit_code: 0
   - cmd: ruff check descartes && ruff format --check descartes/descartes.py descartes/test_descartes.py
     exit_code: 0
   - cmd: 'd=$(mktemp -d) && printf "{\"executionEnvironments\": [{\"root\": \"%s/descartes\"}], \"stubPath\": \"%s/typings\", \"typeCheckingMode\": \"standard\"}" "$PWD" "$PWD" > "$d/pyrightconfig.json" && pyright -p "$d/pyrightconfig.json" descartes/descartes.py descartes/test_descartes.py'
@@ -137,6 +143,8 @@ requirements: [R6, R7, R8, R9, R10, R11]
 acceptance:
   - cmd: python3 -m pytest descartes/test_descartes.py -q
     exit_code: 0
+  - cmd: cd descartes && python3 -m unittest test_descartes
+    exit_code: 0
   - cmd: python3 scripts/cli_contract.py descartes/descartes.py
     exit_code: 0
   - cmd: ruff check descartes && ruff format --check descartes/descartes.py descartes/test_descartes.py
@@ -153,7 +161,7 @@ depends_on: [3]
 - Solve prints the table at full precision (`repr`) or `--precision P` places, then the drawing.
 - Canvas: terminal size on a TTY, else 60×24. Drawing filter: curvature `≤ min(N, 2 × width × 2)`.
 - `NoSolution` exits 1, `BadInput` exits 2, message on stderr.
-- Tests run `main([...])` with `capsys` and a `tmp_path` cwd for every R6-R11 case, asserting exit codes, stdout lines and file contents.
+- Tests run `main([...])` with `contextlib.redirect_stdout`/`redirect_stderr` into `io.StringIO` and a `tempfile.TemporaryDirectory` cwd for every R6-R11 case, asserting exit codes, stdout lines and file contents.
 
 **Interfaces:** Consumes Tasks 1-3. Produces `main(argv: list[str] | None = None) -> None`, `SMOKE_SIZE`, `LARGE_RUN_THRESHOLD`.
 
