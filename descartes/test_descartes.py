@@ -8,6 +8,7 @@ Descartes theorem, so it checks the integer recurrence against geometry.
 import cmath
 import math
 from collections import deque
+from fractions import Fraction
 
 import pytest
 
@@ -54,6 +55,43 @@ PINNED: list[tuple[Root, int, int, int]] = [
 
 ALL_ROOTS = [ROOT_A, ROOT_B, ROOT_C, ROOT_D, ROOT_E]
 ORACLE_N = 1000
+
+
+def _reflect(quad: Root, i: int) -> Root:
+    """Descartes reflection: replace curvature i by 2 * (sum of the others) - itself."""
+    others = sum(quad) - quad[i]
+    a, b, c, d = (2 * others - quad[j] if j == i else quad[j] for j in range(4))
+    return (a, b, c, d)
+
+
+def _descendants(root: Root, depth: int) -> list[Root]:
+    """Sorted quads reachable from root in at most depth reflections.
+
+    Only quads with exactly one negative curvature are kept (reflecting the
+    bounding circle yields an all-positive quad that is not a valid root), and
+    the root itself is left out. Every kept quad is a valid but unreduced root
+    whose canonical root is `root`, derived from the reflection theorem alone.
+    """
+    seen = {root}
+    frontier = [root]
+    found: list[Root] = []
+    for _ in range(depth):
+        nxt: list[Root] = []
+        for quad in frontier:
+            for i in range(4):
+                a, b, c, d = sorted(_reflect(quad, i))
+                child = (a, b, c, d)
+                if child in seen:
+                    continue
+                seen.add(child)
+                nxt.append(child)
+                if sum(1 for k in child if k < 0) == 1:
+                    found.append(child)
+        frontier = nxt
+    return found
+
+
+UNREDUCED = [(root, quad) for root in ALL_ROOTS for quad in _descendants(root, 3)]
 
 
 # --- geometric oracle (test only) -------------------------------------------
@@ -198,6 +236,35 @@ class TestDescartesFourth:
         # s is exactly 0 in real arithmetic; rounding error grows like x**2.
         descartes_fourth(-2 * x / 7, 3 * x / 7, 6 * x / 7)
 
+    @pytest.mark.parametrize(
+        ("curvatures", "raises"),
+        [
+            # Products of comparable size and all three terms of the tolerance
+            # live: s sits at 2x the tolerance (raise) or 0.5x it (clamp).
+            ((0.003, 0.004, -0.0017142857142925713), True),
+            ((-0.20473980815368198, 0.361, 0.473), False),
+            ((0.203, 1.144, -0.1724068299927485), False),
+            # s is exactly -4 and the tolerance is 1e-12 * 4e12 = 4: equal is
+            # inside the window, so it clamps.
+            ((2.0, 999999999999.0, -2.0), False),
+        ],
+    )
+    def test_tolerance_is_one_ppt_of_the_summed_products(
+        self, curvatures: tuple[float, float, float], raises: bool
+    ) -> None:
+        k1, k2, k3 = curvatures
+        a, b, c = (Fraction(k) for k in curvatures)
+        s = a * b + b * c + c * a
+        tolerance = Fraction(abs(a * b) + abs(b * c) + abs(c * a), 10**12)
+        assert s < 0
+        assert (-s > tolerance) is raises  # the fixture is what it claims to be
+        if raises:
+            with pytest.raises(NoSolution):
+                descartes_fourth(k1, k2, k3)
+        else:
+            plus, minus = descartes_fourth(k1, k2, k3)
+            assert plus == minus == k1 + k2 + k3
+
     def test_result_satisfies_descartes_relation(self) -> None:
         for fourth in descartes_fourth(2, 3, 6):
             total = 2 + 3 + 6 + fourth
@@ -217,6 +284,16 @@ class TestValidateRoot:
     @pytest.mark.parametrize("root", [(-1, 2, 3, 6), (-1, 3, 6, 14), (-1, 2, 2, 3)])
     def test_reduces_to_root_a(self, root: Root) -> None:
         assert validate_root(*root) == ROOT_A
+
+    @pytest.mark.parametrize(("root", "quad"), UNREDUCED)
+    def test_every_descendant_reduces_to_its_root(self, root: Root, quad: Root) -> None:
+        # quad was built from root by reflections, so root is its canonical root.
+        assert validate_root(*quad) == root
+
+    def test_reduction_stops_at_a_tied_maximum(self) -> None:
+        # (-3, 5, 8, 12) reflects to (-3, 5, 8, 8); the reflected 8 ties the
+        # third curvature, and a tie must not end the reduction early.
+        assert validate_root(-3, 5, 8, 12) == ROOT_E
 
     def test_already_reduced_roots_are_fixed_points(self) -> None:
         for root in ALL_ROOTS:
@@ -326,8 +403,45 @@ class TestPackPreconditions:
             pack((-1, 2, 2, 4), 100)
 
     def test_two_negative_root_rejected(self) -> None:
-        with pytest.raises(BadInput, match="pack"):
+        with pytest.raises(BadInput, match="exactly one negative"):
             pack((-1, -1, 0, 0), 100)
+
+    def test_zero_is_not_a_negative_curvature(self) -> None:
+        # (0, 1, 1, 4) satisfies the relation with no negative curvature.
+        with pytest.raises(BadInput, match="exactly one negative"):
+            pack((0, 1, 1, 4), 100)
+
+    def test_no_negative_root_rejected(self) -> None:
+        # (0, 0, 1, 1) is sorted, satisfies the relation and is "reduced".
+        with pytest.raises(BadInput, match="exactly one negative"):
+            pack((0, 0, 1, 1), 100)
+
+    def test_unsorted_root_is_named_unsorted(self) -> None:
+        with pytest.raises(BadInput, match="not sorted"):
+            pack((2, -1, 2, 3), 100)
+
+    @pytest.mark.parametrize(
+        ("root", "what"),
+        [
+            # (Σk)² = 49 is below 2Σk² = 50, and 64 above 56: both directions.
+            ((-1, 2, 2, 4), "not a Descartes quadruple"),
+            ((-1, 3, 3, 3), "not a Descartes quadruple"),
+        ],
+    )
+    def test_relation_failure_is_named(self, root: Root, what: str) -> None:
+        with pytest.raises(BadInput, match=what):
+            pack(root, 100)
+
+    @pytest.mark.parametrize(("root", "quad"), UNREDUCED)
+    def test_every_unreduced_descendant_is_rejected(
+        self, root: Root, quad: Root
+    ) -> None:
+        with pytest.raises(BadInput, match="not reduced"):
+            pack(quad, 100)
+
+    @pytest.mark.parametrize("root", ALL_ROOTS)
+    def test_reduced_roots_are_accepted(self, root: Root) -> None:
+        pack(root, 100)
 
 
 class TestPackLimits:
