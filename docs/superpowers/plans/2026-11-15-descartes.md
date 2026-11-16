@@ -53,7 +53,7 @@ acceptance:
     exit_code: 0
   - cmd: ruff check descartes && ruff format --check descartes/descartes.py descartes/test_descartes.py
     exit_code: 0
-  - cmd: pyright descartes/descartes.py descartes/test_descartes.py
+  - cmd: 'd=$(mktemp -d) && printf "{\"executionEnvironments\": [{\"root\": \"%s/descartes\"}], \"stubPath\": \"%s/typings\", \"typeCheckingMode\": \"standard\"}" "$PWD" "$PWD" > "$d/pyrightconfig.json" && pyright -p "$d/pyrightconfig.json" descartes/descartes.py descartes/test_descartes.py'
     exit_code: 0
 max_retries: 3
 files_touched: [descartes/descartes.py, descartes/test_descartes.py]
@@ -83,7 +83,7 @@ acceptance:
     exit_code: 0
   - cmd: ruff check descartes && ruff format --check descartes/descartes.py descartes/test_descartes.py
     exit_code: 0
-  - cmd: pyright descartes/descartes.py descartes/test_descartes.py
+  - cmd: 'd=$(mktemp -d) && printf "{\"executionEnvironments\": [{\"root\": \"%s/descartes\"}], \"stubPath\": \"%s/typings\", \"typeCheckingMode\": \"standard\"}" "$PWD" "$PWD" > "$d/pyrightconfig.json" && pyright -p "$d/pyrightconfig.json" descartes/descartes.py descartes/test_descartes.py'
     exit_code: 0
 max_retries: 3
 files_touched: [descartes/descartes.py, descartes/test_descartes.py]
@@ -113,7 +113,7 @@ acceptance:
     exit_code: 0
   - cmd: ruff check descartes && ruff format --check descartes/descartes.py descartes/test_descartes.py
     exit_code: 0
-  - cmd: pyright descartes/descartes.py descartes/test_descartes.py
+  - cmd: 'd=$(mktemp -d) && printf "{\"executionEnvironments\": [{\"root\": \"%s/descartes\"}], \"stubPath\": \"%s/typings\", \"typeCheckingMode\": \"standard\"}" "$PWD" "$PWD" > "$d/pyrightconfig.json" && pyright -p "$d/pyrightconfig.json" descartes/descartes.py descartes/test_descartes.py'
     exit_code: 0
 max_retries: 3
 files_touched: [descartes/descartes.py, descartes/test_descartes.py]
@@ -141,7 +141,7 @@ acceptance:
     exit_code: 0
   - cmd: ruff check descartes && ruff format --check descartes/descartes.py descartes/test_descartes.py
     exit_code: 0
-  - cmd: pyright descartes/descartes.py descartes/test_descartes.py
+  - cmd: 'd=$(mktemp -d) && printf "{\"executionEnvironments\": [{\"root\": \"%s/descartes\"}], \"stubPath\": \"%s/typings\", \"typeCheckingMode\": \"standard\"}" "$PWD" "$PWD" > "$d/pyrightconfig.json" && pyright -p "$d/pyrightconfig.json" descartes/descartes.py descartes/test_descartes.py'
     exit_code: 0
 max_retries: 3
 files_touched: [descartes/descartes.py, descartes/test_descartes.py]
@@ -332,6 +332,10 @@ depends_on: [10]
 ## Requirements coverage note
 
 R16 is withdrawn by amendment and split into R18 (PR1) and R19 (PR2), because rendering `descartes` as a Python project writes `descartes-py.yml` in PR1 and `render_crate_files.py --check` fails until it exists.
+
+## Execution notes
+
+- 2026-11-15, Task 1 re-plan (swap approach): `pyright descartes/descartes.py ...` from the repo root resolves `import descartes` to the `descartes/` directory as a namespace package (triangle shows the same 14 errors from root), so Tasks 1-4 gate pyright through a temporary config rooted at `descartes/` until Task 5 renders `descartes/pyrightconfig.json`. Proven: 0 errors on Task 1's code, 1 error on a seeded `BAD: int = "x"`.
 
 ## Non-goal check
 
