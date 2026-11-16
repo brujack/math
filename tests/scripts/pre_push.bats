@@ -281,6 +281,18 @@ teardown() {
     assert_no_match "make -C ${BATS_TEST_TMPDIR}/fake-worktree/descartes"
 }
 
+@test "a python dir whose name ends in a crate's parent name does not select that crate" {
+    # Pins the ^ anchor on the parent-dir alternative: unanchored, e's
+    # "e/[^/]*\.py$" also matches triangle/triangle.py and runs e-rs.
+    setup_harness_stub # a module change also triggers the (stubbed) equivalents check
+    export MOCK_GIT_DIFF_NAMES="triangle/triangle.py"
+    run bash "${REPO_ROOT}/scripts/pre-push" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/triangle test" "${MOCK_CALLS_FILE}"
+    assert_no_match "make -C ${BATS_TEST_TMPDIR}/fake-worktree/e/e-rs"
+}
+
 @test "a doc-only change in a twinned dir runs neither suite" {
     export MOCK_GIT_DIFF_NAMES="descartes/README.md"
     run bash "${REPO_ROOT}/scripts/pre-push" \
