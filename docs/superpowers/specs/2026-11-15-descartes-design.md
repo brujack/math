@@ -163,3 +163,31 @@ TDD per function, with boundary, error-path and state-transition cases.
 - **N3.** No zero-curvature (straight line) circles in `--solve`, and no non-integral packings.
 - **N4.** No `rug`, `gmpy2` or arbitrary-precision arithmetic.
 - **N5.** No change to any existing sub-project's source or tests (root `scripts/`, `tests/`, hooks and docs may change to register the new project), and no edit to a rendered file except through its template.
+
+## Multi-Lens Review
+
+Reviewed at commit: `ce72885` (spec commit, before Step 8 dispatch)
+
+### Goal-Fit
+
+Finding: (1) R15 contradicts R8: elapsed time on stdout cannot be byte-identical across two processes. (2) Byte parity is sound for integer output (curvature file, count lines) but not for float-derived output (solve table, braille): Python `round()` is half-even, Rust `f64::round` half-away; compare those numerically or fix one rounding rule. (3) Solve mode is a second program sharing only `descartes_fourth` with packing, outside the ADR-0030 SIZE shape; dropping it or deferring it to a later Python-only PR keeps most of the value at about half the parity and mutation surface. (4) Reads-it: the packing drawing is the same picture at every K (decoration); V2 has no action on failure (decoration); Rust K=8 writes about 3x10^7 lines (~300 MB) with no reader, so V1 should record file size. (5) `render_crate_files.py` hard-codes `CRATES` (11) and `PYTHON_PROJECTS` (9) and `test_crate_uniformity.py` asserts both lengths; R1/R13 should name those edits. (6) R11 "reads only a list" has no behavioural test; R15 passes when both binaries fail identically unless it asserts exit 0. Verified: an independent DFS reproduced every table value; `cli_contract.py` cases never reach the extra flags; rug-free crates already exist.
+Assumption: Python and Rust produce byte-identical float output (solve table at `--precision`, braille rasters). Settle by diffing `f'{x:.4f}'` against `format!("{:.4}", x)` on 10^6 random doubles and diffing both renderers on the `(-1,2,2,3)` circles.
+Disposition:
+
+### Ergonomics
+
+Finding: (1) Load-bearing: Rust clap will likely parse `--solve -1,0,0 ...` (a bounding circle first) as an unknown short flag unless the argument sets `allow_hyphen_values`; `allow_negative_numbers` does not cover `-1,0,0`. Python argparse 3.14 parses it (probed). The spec must state the parser setting. (2) R15 vs R8 elapsed time, as Goal-Fit (1). (3) Solve prints 4 places by default, but the input tangency check has no stated tolerance; pasting printed centres back (`0.6667` for 2/3) fails at 1e-9. State an input tolerance or print full precision. (4) The packing drawing's circle set changes with terminal width; say so in help. (5) R11 passes for a renderer that draws nothing; R17 Rust cases go green by skip in any job without the binary; add a non-empty-drawing check.
+Assumption: byte-identical braille from float centres across languages (rounding rule, complex sqrt branch). Settle by running the R15 cases with drawing on and `cmp` after masking the time line.
+Disposition:
+
+### Risk
+
+Finding: (1) R8/R15 elapsed-time contradiction. (2) The R9 geometry is dyadic, so scaled coordinates land on exact .5 ties where Python and Rust round differently; name one rule, for example `floor(x+0.5)`, in both. (3) R9 is degenerate: for curvatures (-1,2,2) the radicand is 0 and both solutions are 3, so curvature-to-centre pairing is never tested on distinct k4; add a case such as three unit circles. (4) Vacuous passes: R15 (two empty stdouts compare equal; assert exit 0 and non-empty), R11 (never-drawing program passes), R10 (always-exit-2 program passes). (5) Otherwise proportionate: K=8 about 1.1x10^10 circles, likely 1-2 min Rust, guarded by V1; bitmap 12.5 MB; i64 safe; reduction terminates; a new crate is all changed lines, so `mutation-rs` 0 survivors covers the whole crate and tolerance comparisons will need equivalent entries. Verified every table value and both reductions with an independent DFS.
+Assumption: same float byte-parity assumption; check whether any scaled R9 coordinate is an exact .5.
+Disposition:
+
+### Adversarial Spec Review (comparison/judge designs only)
+
+Trigger: borderline (oracle-versus-implementation comparison); run per the default-to-run rule. Finding: pinned values are correct, confirmed by an exact integer oracle sharing no code with the spec (circles as exact (k, k*z) pairs, every reflection applied, exact dedup): (-1,2,2,3) 38/11, 168/33, 3328/324 and K=4 67166/3299; every R2 value for the other two roots; the R3 set. The spec's `pack` rule also matches a float oracle on (-11,21,24,28) 144/114, (-3,5,8,8) 785/203 and (-6,10,15,19) 322/143 at N=1000. Gaps, by weight: (1) nothing checks Rust correctness above K=3; pin K=4 (67166/3299) and K=5 (1359170/33273) in both languages and compare Python and Rust at K=4-6; state the count type (K=8 overflows `u32`). (2) All three tested roots satisfy d = a+b+c, the shape that caused the probe bug; add (-11,21,24,28) or (-3,5,8,8). (3) The empty result is untested: (-11,21,24,28) at K=1 yields 0 circles (empty file, no drawing). (4) Collinear roots are a float hazard: for (-2,3,6,7) the probe put the third centre at y = sqrt(1.1e-16), about 1e-8, failing a 1e-9 tangency check; if `root_centres` routes through `solve`'s check, two of three table roots fail. Bias: the oracle shares the reduced root and `root_centres` with `pack`, so a wrong reduction is invisible to it; R5 covers only two reductions.
+Assumption: byte parity at K<=3 implies Rust correct to K=8; refuted or confirmed by running Rust at K=4-6 against Python's counts.
+Disposition:
