@@ -9,6 +9,10 @@ Standard library only.
 
 import math
 
+# Largest n pack accepts: Python's N = 10^K ceiling (K <= 6, spec R7), about
+# 2.7e7 circles. The core enforces it so no caller can request an unbounded run.
+N_MAX = 10**6
+
 
 class BadInput(Exception):
     """The input is malformed (CLI exit 2)."""
@@ -85,15 +89,24 @@ def _check_reduced_root(root: tuple[int, int, int, int]) -> None:
         raise BadInput(f"pack(root={root}, ...): root is {problem}")
 
 
+def _check_n(n: int) -> None:
+    """Raise BadInput unless 0 <= n <= N_MAX."""
+    if n < 0:
+        raise BadInput(f"pack(n={n}): n must not be negative")
+    if n > N_MAX:
+        raise BadInput(f"pack(n={n}): n must be at most {N_MAX}")
+
+
 def pack(root: tuple[int, int, int, int], n: int) -> tuple[int, bytearray]:
     """Count circles of curvature at most n in the packing and mark their curvatures.
 
-    The root must come from validate_root. For a reduced root, reflecting any
-    position except the one just replaced always increases its curvature, so
-    the DFS needs only the bound k <= n to stop.
+    The root must come from validate_root. Termination does not rest on that:
+    a reflection is pushed only when it strictly increases the curvature it
+    replaces and stays at most n, so every DFS path climbs a finite integer
+    range. For a reduced root the increase always holds, so the guard never
+    prunes a valid circle; it exists to bound the walk if the invariant breaks.
     """
-    if n < 0:
-        raise BadInput(f"pack(n={n}): n must not be negative")
+    _check_n(n)
     _check_reduced_root(root)
     bitmap = bytearray(n // 8 + 1)
     count = 0
@@ -118,7 +131,7 @@ def pack(root: tuple[int, int, int, int], n: int) -> tuple[int, bytearray]:
             if i == j:
                 continue
             k = 2 * (total - quad[i]) - quad[i]
-            if k <= n:
+            if quad[i] < k <= n:
                 child = list(quad)
                 child[i] = k
                 stack.append((child, i))

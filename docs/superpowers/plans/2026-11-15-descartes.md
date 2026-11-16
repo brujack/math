@@ -47,7 +47,7 @@ description: descartes_fourth, validate_root with reduction, and pack, with a te
 role: executor
 model: sonnet
 tdd: required
-requirements: [R2, R3, R4, R5]
+requirements: [R2, R3, R4, R5, R20, R21]
 acceptance:
   - cmd: python3 -m pytest descartes/test_descartes.py -q
     exit_code: 0
@@ -64,7 +64,7 @@ depends_on: []
 
 - `descartes_fourth(k1, k2, k3) -> tuple[float, float]`: `k1+k2+k3 ± 2√(k1k2+k2k3+k3k1)`; a radicand below `-1e-12 × max(|k|)` raises `NoSolution`, otherwise it is clamped at 0.
 - `validate_root(a, b, c, d) -> tuple[int, int, int, int]`: integers only (`BadInput` else); `(Σk)² == 2Σk²` and exactly one negative value (`NoSolution` else, the message naming the root and both sides, e.g. `(Σk)²=49, 2Σk²=50`); then repeatedly reflect the largest while that lowers it; return ascending.
-- `pack(root, n) -> tuple[int, bytearray]`: count each root curvature `0 < k ≤ n`; seed the four root reflections when `≤ n` with no growth test; then explicit-stack DFS keeping `k'` only when `k_i < k' ≤ n`; set bit `k` for each counted circle.
+- `pack(root, n) -> tuple[int, bytearray]`: count each root curvature `0 < k ≤ n`; seed the four root reflections when `≤ n` with no growth test; then explicit-stack DFS keeping `k'` only when `k_i < k' ≤ n`; set bit `k` for each counted circle. The growth test is load-bearing even though no valid quadruple fails it (R21): never remove it as dead code. `pack` raises `BadInput` for `n > N_MAX = 10**6` (R20); ceiling tests lower `N_MAX` first.
 - Tests: every R2 pair, the R3 set, R5 reductions, and an oracle class: breadth-first over geometric quadruples from `root_centres` (Task 2 adds it; until then build centres inline in the test), dedup by `(k, round(x,7), round(y,7))`, counting only `k ≤ n`, compared with `pack` for every R2 root at every n ≤ 1000.
 
 **Interfaces:** Produces `NoSolution(Exception)`, `BadInput(Exception)`, `descartes_fourth`, `validate_root`, `pack` as above.
@@ -94,7 +94,7 @@ depends_on: [1]
 - `root_centres(root) -> list[Circle]`: bounding circle at the origin, second on +x inside it, third from the centre-distance triangle with negative `y²` clamped to 0, fourth by the complex theorem; never calls the tangency check. Test the collinear root `(-2,3,6,7)`.
 - `check_tangent(circles)`: pairs 1-2, 1-3, 2-3; first failure raises `NoSolution("circles i and j are not tangent ...")`, adding a full-precision hint when any input has 6 or fewer decimal places. Zero curvature raises `BadInput`.
 - `solve(c1, c2, c3) -> list[Circle]`: complex theorem, keeping for each `k4` the centre tangent to all three.
-- `visible(root, limit) -> list[Circle]`: the `pack` search carrying centres, `z' = (2·Σ(k·z) of the other three − k_i·z_i) / k'`.
+- `visible(root, limit) -> list[Circle]`: the `pack` search carrying centres, `z' = (2·Σ(k·z) of the other three − k_i·z_i) / k'`, with the same growth test and a `limit ≤ N_MAX` check, so it is bounded like `pack` (R20, R21).
 - Tests: R9 values within 1e-9; R10 scaled ×100 passes; `0.6667` fails naming 1 and 3 with the hint; `0.7` fails; zero curvature is `BadInput`; `visible((-1,2,2,3), 30)` returns the 38 circles of R2.
 
 **Interfaces:** Consumes Task 1. Produces `Circle`, `root_centres`, `check_tangent`, `solve`, `visible`.
@@ -232,7 +232,7 @@ description: validate_root with reduction and pack in i64 with a distinct bitmap
 role: executor
 model: sonnet
 tdd: required
-requirements: [R14]
+requirements: [R14, R22]
 acceptance:
   - cmd: make -C descartes/descartes-rs test </dev/null
     exit_code: 0
@@ -241,7 +241,7 @@ files_touched: [descartes/descartes-rs/src/lib.rs]
 depends_on: [6]
 ```
 
-- `pub fn validate_root(q: [i64; 4]) -> Result<[i64; 4], DescartesError>` and `pub fn pack(root: [i64; 4], n: i64) -> (i64, Vec<u64>)`, same rules as Python Task 1.
+- `pub fn validate_root(q: [i64; 4]) -> Result<[i64; 4], DescartesError>` and `pub fn pack(root: [i64; 4], n: i64) -> (i64, Vec<u64>)`, same rules as Python Task 1, including the growth test and a core ceiling `n ≤ 10^8` (R22).
 - Unit tests: every R2 pair, the R3 set, the R5 reductions, the R6 errors.
 
 ### Task 8: Rust geometry and render

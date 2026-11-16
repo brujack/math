@@ -330,6 +330,50 @@ class TestPackPreconditions:
             pack((-1, -1, 0, 0), 100)
 
 
+class TestPackLimits:
+    """pack is bounded by construction: a ceiling on n and a strictly
+    increasing curvature on every pushed reflection."""
+
+    def test_ceiling_matches_largest_k(self) -> None:
+        assert descartes.N_MAX == 10**6
+
+    # Every ceiling test lowers N_MAX first. Called with the real ceiling, a
+    # missing or broken check would make the test itself a ~1e10-circle run.
+    def test_n_above_ceiling_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(descartes, "N_MAX", 30)
+        with pytest.raises(BadInput, match=r"pack\(n=31\): n must be at most 30"):
+            pack(ROOT_A, 31)
+
+    def test_n_at_ceiling_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(descartes, "N_MAX", 30)
+        assert pack(ROOT_A, 30)[0] == 38
+
+    # For any real Descartes quadruple the only decreasing reflection is the one
+    # just made, which the DFS already skips, so the guard cannot be tested on
+    # valid input. Both roots break the Descartes relation: without the guard
+    # (-1, 1, 1, 1) reflects forever, and with only k != quad[i] (-1, 1, 1, 2)
+    # pushes a falling curvature that goes negative. _mark is budgeted so a
+    # missing guard fails fast instead of eating RAM.
+    @pytest.mark.parametrize("root", [(-1, 1, 1, 1), (-1, 1, 1, 2)])
+    def test_dfs_terminates_when_root_invariant_is_broken(
+        self, monkeypatch: pytest.MonkeyPatch, root: Root
+    ) -> None:
+        calls = 0
+        real_mark = descartes._mark
+
+        def budgeted_mark(bitmap: bytearray, k: int) -> None:
+            nonlocal calls
+            calls += 1
+            assert calls < 10_000, "pack DFS did not terminate"
+            real_mark(bitmap, k)
+
+        monkeypatch.setattr(descartes, "_check_reduced_root", lambda _root: None)
+        monkeypatch.setattr(descartes, "_mark", budgeted_mark)
+        count, bitmap = pack(root, 30)
+        assert count == calls
+        assert all(0 <= k <= 30 for k in distinct(bitmap))
+
+
 class TestPackState:
     def test_repeated_calls_equal(self) -> None:
         assert pack(ROOT_A, 100) == pack(ROOT_A, 100)
