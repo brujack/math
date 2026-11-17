@@ -172,3 +172,29 @@ prints `Error: cannot write SVG '<path>': <reason>` to stderr and exits 1.
 - **N3.** No change to any exit code or message on the non-interactive (command-line value) path, except the new `--svg` error.
 - **N4.** No prompt added to amicable-rs or twin-primes-rs.
 - **N5.** No terminal graphics protocol (sixel, kitty, iTerm2) and no PNG output.
+
+## Multi-Lens Review
+
+Reviewed at commit: `fd9bd8c` (Step 7 self-review commit, before Step 8 dispatch)
+
+### Goal-Fit
+
+Finding: (1) Premise false: Context item 4 says non-TTY stdin is refused before the prompt, so the end-of-input defect is Ctrl-D-only. Only `descartes-rs/src/main.rs:442` checks `is_terminal()`. The orchestrator re-measured all ten fresh binaries with `timeout 2 <bin> </dev/null`: the nine PR2 crates each wrote the 50 MB output cap within 2 s, an infinite re-prompt loop, while `descartes-rs` wrote 119 bytes. The original measurement ran stale Mach-O binaries, whose rc 2 came from the exec failure. Any piped, cron or CI run with closed stdin spins and fills the disk. V1 probes only the pty path and needs a non-TTY probe. (2) R6's "every `read_line`" also covers the y/n large-run confirmations (`fib-rs:60,118`, `sq-rs:98`, `e-rs:209,269`, `pi-rs:299`, `prime-rs:143`), where end of input already means "no". Checked and held: the Context items 2-3 behaviour, the 3,328-circle count, and `.3f`/`{:.3}` formatting agreement. Simpler path offered: SVG in Python only, which drops R12.
+Assumption: R12 assumes both languages compute bit-identical centres, not just format them alike. Settle it by dumping `visible()` floats from both for several roots and diffing.
+Disposition:
+
+### Ergonomics
+
+Finding: (1) At 1:1 scale most of the packing is invisible: of 3,328 circles, 2,004 have r < 1 unit (stroke ≤ 0.25), and `width="1000" height="1000"` overflows a laptop viewport. Drop width/height (viewBox only) or state that zoom is the intended reading. V2 is unfalsifiable without a zoom level. (2) The `--solve` fit to all circles breaks on a near-line solution (k ≈ 0.001, r ≈ 1000), which shrinks the givens to a dot. Fit to the givens instead. (3) No `Saved to <path>` line, and triangle SSA writes `t-1.svg`/`t-2.svg` but no `t.svg`, so the user cannot find the files. "Last extension" is ambiguous for `out.d/t`. (4) The flag interactions (`--svg` with `--solve`, `--smoke`, `--show`, `--precision`) are unspecified, and a bad `--svg` path is found only after the interactive prompt. (5) The byte-parity test passes on two header-only files. A root-level parity test is not triggered by `descartes/descartes.py` edits (the `scripts.yml` paths filter and the `scripts/pre-push:189` regex), and no root test builds a Rust binary. Python on Windows writes CRLF unless `newline="\n"` is set.
+Assumption: same as Goal-Fit, centres bit-identical across languages.
+Disposition:
+
+### Risk
+
+Finding: (1) R12 is already false for a valid root. Root (-12,25,25,28) differs at line 750: Python `436.563`, Rust `436.562`. The x is -203/19200, which maps to the exact tie 436.5625. Python computes `-0.010572916666666661` (orchestrator re-ran `visible((-12,25,25,28),12000)` and got this value) and Rust `-0.010572916666666663`, because the root-placement arithmetic differs (`descartes.py:180-210` Fraction/`cmath.sqrt` vs `lib.rs:274,488-509` i128/`c_sqrt`). Five other roots matched. Ties are structural in rational packings. (2) R6 at the y/n prompts breaks pi's documented "EOF reading as no with exit 0" and would exit 1 after a finished run at "Display all digits?". It is unnecessary there, because a declined confirmation returns to the number prompt. (3) The descartes spec's R27 "exit 2 at the prompt" clause is not amended (`2026-11-15-descartes-design.md:356`). (4) Parity cases without exit-0 and count assertions pass on two empty files. Checked and clean: the circle count is area-bounded (3,116-3,339 for every root tried, no K=8 blow-up), emission order is identical, open-before-pack truncation matches the existing `.txt` behaviour, BATS covers only the command-line path, and `main.rs` is not template-rendered.
+Assumption: bit-identical centres for whatever parity cases are chosen, measured false for one root and true for six.
+Disposition:
+
+### Adversarial Spec Review (comparison/judge designs only)
+
+N/A — spec has no comparison/evaluator/ambiguous-criteria trigger. The parity test is a test, not a judge.
