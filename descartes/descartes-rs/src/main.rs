@@ -256,22 +256,33 @@ fn table_lines(given: &[Circle], solutions: &[Circle], precision: Option<usize>)
         .collect()
 }
 
+/// The directory part of an SVG path exactly as Python's `os.path.dirname` derives it: the
+/// text up to the last `/` with trailing slashes stripped (unless only slashes remain), so
+/// `nod/` has directory `nod`, not the empty "current directory" that `Path::parent` reports.
+fn svg_dirname(path: &str) -> &str {
+    let Some(last) = path.rfind('/') else {
+        return "";
+    };
+    let head = &path[..=last];
+    if head.bytes().all(|b| b == b'/') {
+        return head;
+    }
+    head.trim_end_matches('/')
+}
+
 /// Refuse an SVG path that cannot be written, before any prompt: a missing or non-directory
 /// parent (an empty parent means the current directory) or a path that is a directory.
 fn check_svg_path(path: &Path) -> Result<(), String> {
-    let parent = match path.parent() {
-        Some(p) if !p.as_os_str().is_empty() => p,
-        _ => Path::new("."),
+    let text = path.to_string_lossy();
+    let parent = match svg_dirname(&text) {
+        "" => ".",
+        dir => dir,
     };
-    if !parent.is_dir() {
-        return Err(format!(
-            "cannot write SVG '{}': directory '{}' does not exist",
-            path.display(),
-            parent.display()
-        ));
+    if !Path::new(parent).is_dir() {
+        return Err(format!("cannot write SVG '{text}': directory '{parent}' does not exist"));
     }
     if path.is_dir() {
-        return Err(format!("cannot write SVG '{}': it is a directory", path.display()));
+        return Err(format!("cannot write SVG '{text}': it is a directory"));
     }
     Ok(())
 }
@@ -282,18 +293,16 @@ fn open_svg<E: Write>(path: &Path, stderr: &mut E) -> Result<File, Stop> {
         .map_err(|e| fail(stderr, format!("cannot write SVG '{}': {e}", path.display()), 1))
 }
 
-/// Write the SVG text and report the path on stdout.
-fn write_svg<W: Write, E: Write>(
+/// Write the SVG text; the caller reports the path once everything else is on stdout.
+fn write_svg<E: Write>(
     mut file: File,
     path: &Path,
     text: &str,
-    stdout: &mut W,
     stderr: &mut E,
 ) -> Result<(), Stop> {
     file.write_all(text.as_bytes())
-        .map_err(|e| fail(stderr, format!("cannot write SVG '{}': {e}", path.display()), 1))?;
-    writeln!(stdout, "Saved SVG to {}", path.display())?;
-    Ok(())
+        .and_then(|()| file.flush())
+        .map_err(|e| fail(stderr, format!("cannot write SVG '{}': {e}", path.display()), 1))
 }
 
 /// Draw the circles on the canvas the terminal allows.
@@ -323,7 +332,8 @@ fn run_solve<W: Write, E: Write>(
         writeln!(stdout, "{line}")?;
     }
     if let (Some(file), Some(path)) = (svg_file, args.svg.as_deref()) {
-        write_svg(file, path, &svg_solve(given, &solutions), stdout, stderr)?;
+        write_svg(file, path, &svg_solve(given, &solutions), stderr)?;
+        writeln!(stdout, "Saved SVG to {}", path.display())?;
     }
     if !args.no_draw {
         let all: Vec<Circle> = given.iter().chain(&solutions).copied().collect();
@@ -416,6 +426,11 @@ fn run_packing<R: BufRead, W: Write, E: Write>(
         writeln!(writer, "{curvature}")?;
     }
     writer.flush()?;
+    // The SVG is written before any stdout line, as in Python, so a failed write prints nothing.
+    if let (Some(file), Some(path)) = (svg_file, args.svg.as_deref()) {
+        let text = svg_packing(root, k).map_err(|e| fail_descartes(stderr, &e))?;
+        write_svg(file, path, &text, stderr)?;
+    }
     let elapsed = start.elapsed().as_secs_f64();
     if args.show {
         for curvature in &curvatures {
@@ -426,9 +441,8 @@ fn run_packing<R: BufRead, W: Write, E: Write>(
     writeln!(stdout, "circles {count}")?;
     writeln!(stdout, "distinct {}", curvatures.len())?;
     writeln!(stdout, "Saved to {filename}")?;
-    if let (Some(file), Some(path)) = (svg_file, args.svg.as_deref()) {
-        let text = svg_packing(root, k).map_err(|e| fail_descartes(stderr, &e))?;
-        write_svg(file, path, &text, stdout, stderr)?;
+    if let Some(path) = args.svg.as_deref() {
+        writeln!(stdout, "Saved SVG to {}", path.display())?;
     }
     writeln!(stderr, "Elapsed: {elapsed:.2}s")?;
     if count > 0 && !args.no_draw {
@@ -1487,6 +1501,113 @@ solution  2  6          0.16666666666666666  0.5   0.6666666666666666
         let o = run_in(&["--svg", &svg], "3\n", &term, dir.path());
         assert_eq!(o.code, 1);
         assert!(!o.stdout.contains("Enter exponent"));
+    }
+
+    fn assert_trailing_slash_refused(setup: fn(&std::path::Path), name: &str, detail: &str) {
+        let dir = tempfile::tempdir().unwrap();
+        setup(dir.path());
+        let svg = format!("{}/{name}", dir.path().display());
+        let expected = match detail {
+            "dir" => format!("Error: cannot write SVG '{svg}': it is a directory\n"),
+            _ => format!(
+                "Error: cannot write SVG '{svg}': directory '{}/{}' does not exist\n",
+                dir.path().display(),
+                name.trim_end_matches('/')
+            ),
+        };
+        let listing = |d: &tempfile::TempDir| {
+            let mut names: Vec<_> =
+                std::fs::read_dir(d.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
+            names.sort();
+            names
+        };
+        let before = listing(&dir);
+        let term = Terminal { stdin_is_tty: true, stdout_size: None };
+        let o = run_in(&["--svg", &svg], "3\n", &term, dir.path());
+        assert_eq!(o.code, 1);
+        assert_eq!(o.stderr, expected);
+        assert!(!o.stdout.contains("Enter exponent"));
+        assert_eq!(listing(&dir), before);
+    }
+
+    #[test]
+    fn svg_cli_trailing_slash_missing_dir_refused_before_prompt() {
+        assert_trailing_slash_refused(|_| {}, "nod/", "missing");
+    }
+
+    #[test]
+    fn svg_cli_trailing_slash_on_file_refused_before_prompt() {
+        assert_trailing_slash_refused(
+            |d| std::fs::write(d.join("f"), "x").unwrap(),
+            "f/",
+            "missing",
+        );
+    }
+
+    #[test]
+    fn svg_cli_trailing_slash_on_directory_refused_before_prompt() {
+        assert_trailing_slash_refused(|d| std::fs::create_dir(d.join("d")).unwrap(), "d/", "dir");
+    }
+
+    #[test]
+    fn svg_cli_dirname_matches_python_os_path_dirname() {
+        assert_eq!(svg_dirname("nod/"), "nod");
+        assert_eq!(svg_dirname("a/b/"), "a/b");
+        assert_eq!(svg_dirname("/"), "/");
+        assert_eq!(svg_dirname("//"), "//");
+        assert_eq!(svg_dirname("/x"), "/");
+        assert_eq!(svg_dirname("a//b"), "a");
+        assert_eq!(svg_dirname("x.svg"), "");
+        assert_eq!(svg_dirname(""), "");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn svg_cli_write_error_leaves_stdout_empty_in_packing() {
+        let dir = tempfile::tempdir().unwrap();
+        for extra in [&[][..], &["--show"][..]] {
+            let mut argv = vec!["2", "--no-draw", "--svg", "/dev/full"];
+            argv.extend_from_slice(extra);
+            let o = run_in(&argv, "", &PIPED, dir.path());
+            assert_eq!(o.code, 1);
+            assert_eq!(o.stdout, "");
+            assert_eq!(
+                o.stderr,
+                "Error: cannot write SVG '/dev/full': No space left on device (os error 28)\n"
+            );
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn svg_cli_write_error_in_solve_prints_table_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let o = run_in(
+            &[
+                "--solve",
+                "-1,0,0",
+                "2,0.5,0",
+                "3,0,0.6666666666666666",
+                "--no-draw",
+                "--svg",
+                "/dev/full",
+            ],
+            "",
+            &PIPED,
+            dir.path(),
+        );
+        assert_eq!(o.code, 1);
+        assert_eq!(
+            o.stderr,
+            "Error: cannot write SVG '/dev/full': No space left on device (os error 28)\n"
+        );
+        assert!(o.stdout.starts_with("kind      #  curvature"));
+        assert!(
+            o.stdout.ends_with(
+                "solution  2  6          0.16666666666666666  0.5   0.6666666666666666\n"
+            )
+        );
+        assert!(!o.stdout.contains("Saved SVG"));
     }
 
     #[cfg(target_os = "linux")]
