@@ -13,6 +13,7 @@ make run                                   # interactive prompts (terminal only)
 python3 triangle.py -a 3 -b 4 -c 5         # SSS
 python3 triangle.py -a 6 -b 8 -A 30 --no-draw   # SSA, two solutions
 python3 triangle.py --smoke                # solve and draw 3-4-5
+python3 triangle.py -a 3 -b 4 -c 5 --no-draw --svg t.svg  # also write t.svg
 make test
 ```
 
@@ -26,6 +27,7 @@ make test
 | `--precision N`   | decimals in the table (default 4)        |
 | `--no-draw`       | table only                               |
 | `--smoke`         | solve and draw 3-4-5                     |
+| `--svg PATH`      | also write an SVG drawing to PATH        |
 
 With no value flags at a terminal, the program prompts for `a`, `b`, `c`, `A (degrees)`, `B (degrees)`, `C (degrees)`; an empty answer means unknown. With no flags and stdin not a terminal, it prints usage and exits 2.
 
@@ -67,6 +69,34 @@ C                  11.8103  derived
 area                4.9121
 perimeter          16.4561
 ```
+
+### SVG output
+
+```text
+$ python3 triangle.py -a 3 -b 4 -c 5 --no-draw --svg t.svg
+a                   3.0000  given
+b                   4.0000  given
+c                   5.0000  given
+A                  36.8699  derived
+B                  53.1301  derived
+C                  90.0000  derived
+area                6.0000
+perimeter          12.0000
+Saved SVG to t.svg
+```
+
+SSA with two solutions, `-a 6 -b 8 -A 30 --no-draw --svg out.svg` (tables as above):
+
+```text
+Solution 1
+...
+Saved SVG to out-1.svg
+Solution 2
+...
+Saved SVG to out-2.svg
+```
+
+`--svg PATH` draws the polygon with side labels a, b, c and vertex labels A, B, C. The path is checked before any prompt and refused with exit 1: `Error: cannot write SVG '<path>': directory '<dir>' does not exist` (missing parent, or a parent that is a file; an empty directory part means `.`), `Error: cannot write SVG '<path>': it is a directory`, or `Error: cannot write SVG '<path>': <reason>` when the open fails. Files are opened before anything prints, so a refusal leaves none. One solution writes PATH. Two solutions (SSA) write `<stem>-1<ext>` and `<stem>-2<ext>`, the suffix going before the basename's extension only (`out.d/t` becomes `out.d/t-1`); each `Saved SVG to <name>` follows its solution's table.
 
 ## Cases
 

@@ -22,9 +22,10 @@ descartes 3 --no-draw                      # packing up to curvature 10^3
 descartes 3 --root -11 21 24 28 --no-draw  # another reduced root
 descartes --solve -1,0,0 2,0.5,0 3,0,0.6666666666666666 --no-draw
 descartes --smoke                          # packing at SMOKE_SIZE = 2
+descartes 3 --no-draw --svg p.svg          # also write p.svg
 ```
 
-Flags: positional `K` (1-8), `--root A B C D`, `--show`, `--yes`, `--smoke`, `--solve K,X,Y K,X,Y K,X,Y`, `--precision P` (0-17, `--solve` only), `--no-draw`.
+Flags: positional `K` (1-8), `--root A B C D`, `--show`, `--yes`, `--smoke`, `--solve K,X,Y K,X,Y K,X,Y`, `--precision P` (0-17, `--solve` only), `--no-draw`, `--svg PATH`.
 
 Real output for `descartes 3 --no-draw` from a temporary directory (`Elapsed: 0.00s` goes to stderr):
 
@@ -46,6 +47,16 @@ solution  1  2          0.5                  -0.5  0
 solution  2  6          0.16666666666666666  0.5   0.6666666666666666
 ```
 
+Real output for `descartes 2 --no-draw --svg p.svg` (stdout):
+
+```text
+root -1 2 2 3
+circles 168
+distinct 33
+Saved to descartes_1e2.txt
+Saved SVG to p.svg
+```
+
 ## Code Layout
 
 - `DescartesError { BadInput, NoSolution }` — exit 2 and exit 1, as in Python
@@ -61,6 +72,8 @@ solution  2  6          0.16666666666666666  0.5   0.6666666666666666
 - **Caps (R20, R27, R28):** `N_MAX = 10^8` (K 1-8; Python's is 10^6, K 1-6); `ROOT_MAX = 10^8` bounds every `--root` curvature; the canvas is the terminal size clamped to 1 x 1 .. 1000 x 500 cells (piped: 60 x 24), so the drawing's curvature limit is `min(10^K, 4 x width)`; `--precision` is 0-17.
 - **Differences from Python's output:** numbers print with Rust `Display`, so `-1` where Python's `repr` prints `-1.0` (the `--solve` table above vs `descartes/CLAUDE.md`); usage errors use clap's format (`error: K is required when stdin is not a terminal`, then `Usage: descartes [OPTIONS] [K]`) where Python prints argparse's `usage: descartes.py ...` block; the range errors read alike (`K must be between 1 and 8, got 9.`). The packing output (`root`, `circles`, `distinct`, file) is identical.
 - **Known `--solve` paste-back limits:** full-precision output stops passing the `1e-9` tolerance near curvature 2.6e7, and nearly collinear inputs are ill-conditioned: a triple that passes the input check can yield solutions that do not pass when pasted back. `--help` states both.
+- **`--svg PATH` (every mode):** Checked before any prompt. It exits 1 with `Error: cannot write SVG '<path>': directory '<dir>' does not exist` (missing parent, or a parent that is a file; an empty directory part means `.`), `Error: cannot write SVG '<path>': it is a directory`, or `Error: cannot write SVG '<path>': <reason>` when the open or write fails. The SVG opens before the `.txt` and before computing, so a refusal leaves no files. The drawing is 1000 x 1000 with a white background and black circles; circles with SVG radius of at least 20 carry their integer curvature, the outer circle is unlabelled (26 labels at K=3 on the default root). `--solve` draws the givens black and the solutions red dashed, fitted to the givens plus any enclosing (negative-curvature) solution. `--precision` does not change the SVG. Order of stdout: `Saved to ...`, then `Saved SVG to <path>`, then the braille; for `--solve` the table, `Saved SVG to <path>`, then the braille.
+- **SVG parity:** `tests/parity.rs` compares the Python and Rust SVG by structure, numbers as integer thousandths with |delta| <= 1 (default root K=1/2/3, tie root K=5, `--solve`).
 - **Repeated flags keep the last value:** `--root`, `--solve` and `--precision` given twice use the second, as argparse does (clap `args_override_self`).
 - **CI trigger:** `descartes-rs.yml` also runs on `descartes/*.py`, so a Python-only edit runs the parity test in CI and in `scripts/pre-push`.
 - **`.cargo/mutants.toml`** sets only `additional_cargo_test_args = ["--lib", "--bins", "--test", "cli"]`, excluding `tests/parity.rs`: it runs `../descartes.py`, which is absent from cargo-mutants' crate-only copy, so the parity test would fail the baseline. `tests/test_mutants_exclusions.py` pins that this file selects tests and excludes no mutants.

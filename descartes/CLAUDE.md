@@ -29,9 +29,10 @@ python3 descartes.py 3 --no-draw           # packing up to curvature 10^3
 python3 descartes.py 3 --root -11 21 24 28 # another reduced root
 python3 descartes.py --solve -1,0,0 2,0.5,0 3,0,0.6666666666666666 --no-draw
 python3 descartes.py --smoke               # packing at SMOKE_SIZE = 2
+python3 descartes.py 3 --no-draw --svg p.svg  # also write p.svg
 ```
 
-Flags: positional `K` (1-6, curvature limit 10^K), `--root A B C D`, `--show`, `--yes`, `--smoke`, `--solve K,X,Y K,X,Y K,X,Y`, `--precision P` (0-17, `--solve` only), `--no-draw`.
+Flags: positional `K` (1-6, curvature limit 10^K), `--root A B C D`, `--show`, `--yes`, `--smoke`, `--solve K,X,Y K,X,Y K,X,Y`, `--precision P` (0-17, `--solve` only), `--no-draw`, `--svg PATH`.
 
 Real output for `python3 descartes.py 3 --no-draw` (stdout; the elapsed line goes to stderr):
 
@@ -53,6 +54,16 @@ solution  1  2.0        0.5                  -0.5  0.0
 solution  2  6.0        0.16666666666666666  0.5   0.6666666666666666
 ```
 
+Real output for `python3 descartes.py 2 --no-draw --svg p.svg` (stdout):
+
+```text
+root -1 2 2 3
+circles 168
+distinct 33
+Saved to descartes_1e2.txt
+Saved SVG to p.svg
+```
+
 ## Code Layout
 
 - `validate_root(root)` — checks a Descartes quadruple with exactly one negative value and reduces it to its root; `_check_reduced_root` rejects an unreduced or unsorted one at the `pack` boundary.
@@ -67,6 +78,7 @@ solution  2  6.0        0.16666666666666666  0.5   0.6666666666666666
 - **Caps (R20, R27, R28):** `N_MAX = 10**6`; `ROOT_MAX = 10**8` bounds every `--root` curvature, which bounds the reduction loop (about 10^4 steps; an uncapped valid root ran for hours); the canvas is the terminal size clamped to 1 x 1 .. 1000 x 500 cells (`CANVAS_MAX_WIDTH`), which caps the drawing's curvature limit at `4 x width`, at most 4000 (20,360 circles for the default root); `--precision` is 0-17. Each bound keeps a hostile terminal or flag from exhausting memory.
 - **Mode flags:** `--solve` with K, `--root`, `--smoke`, `--show` or `--yes`, and `--precision` without `--solve`, exit 2.
 - **Elapsed:** `Elapsed: <seconds>s` goes to stderr only. The output file `descartes_1e<K>.txt` (with the root in the name unless it is the default) is opened before `pack` runs, so a path or permission error exits 1 before the computation.
+- **`--svg PATH` (every mode):** Checked before any prompt. It exits 1 with `Error: cannot write SVG '<path>': directory '<dir>' does not exist` (missing parent, or a parent that is a file; an empty directory part means `.`), `Error: cannot write SVG '<path>': it is a directory`, or `Error: cannot write SVG '<path>': <reason>` when the open or write fails. The SVG opens before the `.txt` and before computing, so a refusal leaves no files. The drawing is 1000 x 1000 with a white background and black circles; circles with SVG radius of at least 20 carry their integer curvature, the outer circle is unlabelled (26 labels at K=3 on the default root). `--solve` draws the givens black and the solutions red dashed, fitted to the givens plus any enclosing (negative-curvature) solution. `--precision` does not change the SVG. Order of stdout: `Saved to ...`, then `Saved SVG to <path>`, then the braille; for `--solve` the table, `Saved SVG to <path>`, then the braille.
 - **CLI contract:** `SMOKE_SIZE = 2`, `LARGE_RUN_THRESHOLD = None`; `make test` runs `python3 ../scripts/cli_contract.py descartes.py` after pytest.
 - **Known `--solve` paste-back limits:** `--solve` prints full-precision values, but pasting them back stops passing the `1e-9` tolerance at curvatures near 2.6e7 (measured ratio 1.88 of the tolerance), and nearly collinear inputs are ill-conditioned: a triple that passes the input check can yield solutions that do not pass when pasted back (the collinear `(-2,3,6)` triple with y perturbed by 1e-8 passes at 0.22 of the tolerance; its curvature-7 solutions fail at 7x). `--help` states both.
 - **Mutation equivalents:** `mutants-equivalent.toml` names each equivalent by operator, function, source line, column and the line above; when an edit shifts or rewrites one of those lines the entry goes stale and `tests/test_mutants_equivalent.py` fails, so re-confirm it in the same PR.
