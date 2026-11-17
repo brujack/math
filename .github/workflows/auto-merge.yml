@@ -107,7 +107,7 @@ jobs:
       # The cargo-deny fixture tests in the bats suite fail closed when CI is
       # set and cargo-deny is missing; tests/test_deny_policy.py pins this.
       - name: Install cargo-deny
-        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
+        uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
         with:
           tool: cargo-deny@0.20.2
           fallback: none

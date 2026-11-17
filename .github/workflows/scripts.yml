@@ -73,7 +73,7 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements-dev.txt ruff==0.17.4 pip-audit==2.10.1 cosmic-ray==8.7.0 hypothesis==6.168.5
       - name: Install cargo-deny and cargo-mutants
-        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
+        uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
         with:
           tool: cargo-deny@0.20.2,cargo-mutants@27.1.0
           fallback: none
