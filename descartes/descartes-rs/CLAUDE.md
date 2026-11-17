@@ -76,7 +76,7 @@ Saved SVG to p.svg
 - **SVG parity:** `tests/parity.rs` compares the Python and Rust SVG by structure, numbers as integer thousandths with |delta| <= 1 (default root K=1/2/3, tie root K=5, `--solve`).
 - **Repeated flags keep the last value:** `--root`, `--solve` and `--precision` given twice use the second, as argparse does (clap `args_override_self`).
 - **CI trigger:** `descartes-rs.yml` also runs on `descartes/*.py`, so a Python-only edit runs the parity test in CI and in `scripts/pre-push`.
-- **`.cargo/mutants.toml`** sets only `additional_cargo_test_args = ["--lib", "--bins", "--test", "cli"]`, excluding `tests/parity.rs`: it runs `../descartes.py`, which is absent from cargo-mutants' crate-only copy, so the parity test would fail the baseline. It also excludes one equivalent mutant: `<` → `<=` in `svg_solve`'s `k < 0` frame filter, since `solve` never returns a curvature-0 solution. Its pattern embeds `src/lib.rs:<line>:<col>`, so update it when that line moves; `tests/test_mutants_exclusions.py` checks the drift.
+- **`.cargo/mutants.toml`** sets `additional_cargo_test_args = ["--lib", "--bins", "--test", "cli"]`, excluding `tests/parity.rs`: it runs `../descartes.py`, which is absent from cargo-mutants' crate-only copy, so the parity test would fail the baseline. It also excludes one equivalent mutant: `<` → `<=` in `svg_solve`'s `k < 0` frame filter, since `solve` never returns a curvature-0 solution. Its pattern embeds `src/lib.rs:<line>:<col>`, so update it when that line moves; `tests/test_mutants_exclusions.py` checks the drift.
 
 ## Coverage
 

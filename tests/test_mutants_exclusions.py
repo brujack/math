@@ -9,6 +9,7 @@ Run by `make test-python` and by pre-push when a crate's `src/` or its
 
 A crate's `mutants.toml` may instead hold only `additional_cargo_test_args`: that
 selects which tests run and excludes no mutants, so `check_config` allows it.
+descartes-rs sets it and `exclude_re` both, so it is checked like any other crate.
 """
 
 import os
@@ -58,8 +59,9 @@ def check_config(config: dict) -> list[str]:
     """Return problems with one parsed `mutants.toml`.
 
     `exclude_re` is required, with one exception: a config whose single key is
-    `additional_cargo_test_args` only selects which tests run (descartes-rs, whose
-    parity test runs Python and so cannot run in cargo-mutants' crate-only copy).
+    `additional_cargo_test_args` only selects which tests run (a crate whose
+    excluded test, like descartes-rs' Python parity test, cannot run in
+    cargo-mutants' crate-only copy).
     """
     if set(config) == {"additional_cargo_test_args"}:
         return []

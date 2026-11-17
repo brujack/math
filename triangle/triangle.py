@@ -802,7 +802,10 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _write_svgs(names: list[str], solutions: list[Triangle]) -> bool:
-    """Refuse bad names, open every file, then write; False after printing an error."""
+    """Refuse bad names, open every file, then write, flush and close each in turn.
+
+    Returns False after printing one error naming the file that failed.
+    """
     for name in names:
         reason = _svg_refusal(name)
         if reason is not None:
