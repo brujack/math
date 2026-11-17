@@ -224,6 +224,15 @@ class TestGetExponent(unittest.TestCase):
             self.assertEqual(get_exponent(args), 3)
         self.assertEqual(err.getvalue(), "Invalid input: 'a'b' is not an integer N.\n")
 
+    def test_reprompt_drops_trailing_carriage_return(self):
+        args = self._interactive_args()
+        with (
+            unittest.mock.patch("builtins.input", side_effect=["x\r", "3"]),
+            unittest.mock.patch("sys.stderr", new_callable=io.StringIO) as err,
+        ):
+            self.assertEqual(get_exponent(args), 3)
+        self.assertEqual(err.getvalue(), "Invalid input: 'x' is not an integer N.\n")
+
     def test_reprompt_after_out_of_range(self):
         args = self._interactive_args()
         with (

@@ -2154,11 +2154,16 @@ class TestGetExponent(unittest.TestCase):
         self.assertEqual(calls, 2)
 
     def test_reprompt_quotes_input_like_descartes_rs(self) -> None:
-        # Plain single quotes, not repr(): matches descartes-rs for any text.
+        # Plain single quotes, not repr(), trailing CR dropped: as descartes-rs prints.
         k, err, calls = self.prompted(["a'b", "3"])
         self.assertEqual(k, 3)
         self.assertEqual(err, "Invalid input: 'a'b' is not an integer K.\n")
         self.assertEqual(calls, 2)
+
+    def test_reprompt_drops_trailing_carriage_return(self) -> None:
+        k, err, _ = self.prompted(["x\r", "3"])
+        self.assertEqual(k, 3)
+        self.assertEqual(err, "Invalid input: 'x' is not an integer K.\n")
 
     def test_reprompt_after_out_of_range(self) -> None:
         k, err, calls = self.prompted(["9", "3"])

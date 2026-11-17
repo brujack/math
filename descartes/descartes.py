@@ -673,7 +673,8 @@ def get_exponent(args: argparse.Namespace) -> int:
         try:
             k = int(text)
         except ValueError:
-            print(f"Invalid input: '{text}' is not an integer K.", file=sys.stderr)
+            shown = text.rstrip("\r")  # as descartes-rs: a CRLF terminal leaves "\r"
+            print(f"Invalid input: '{shown}' is not an integer K.", file=sys.stderr)
             continue
         if 1 <= k <= K_MAX:
             return k
