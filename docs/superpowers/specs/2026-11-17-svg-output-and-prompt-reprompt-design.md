@@ -326,6 +326,34 @@ Review stopped after round 3: its findings were wording corrections that removed
 - R16 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R16 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff.
 - finding R17 (2026-11-17, reviewer both): NOT-BUILT — docs/superpowers/specs/2026-11-15-descartes-design.md is not in the diff (only plans are excluded, specs are not).
 - R17 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R17 is built by PR1 (plan Tasks 6-9, branch feat/prompt-reprompt) and is reviewed against that PR's diff.
+- finding R1 (2026-11-17, reviewer B): DIFFERS — Re-prompting on a non-integer is built in both (Python `continue` at 677, Rust `loop` at 294), and Rust prints the literal `'{text}'`, but Python formats the input with `{text!r}`, so an answer containing a single quote or backslash (e.g. `a'b`) prints `"a'b"` or escaped text instead of `'<text>'`, so the message differs from the requirement and from Rust.
+- R1 reviewed: fixed in 36ebda5 — descartes.py and amicable.py now print the rejected answer in plain single quotes ('{text}'), matching descartes-rs and the requirement; test_reprompt_quotes_* pin it.
+- finding R3 (2026-11-17, reviewer B): DIFFERS — Re-prompting and the out-of-range message `N must be between 1 and 7, got {n}.` match, but the non-integer message uses `{text!r}`, so an answer containing a single quote or backslash is not printed as `'<text>'`.
+- R3 reviewed: fixed in 36ebda5 — descartes.py and amicable.py now print the rejected answer in plain single quotes ('{text}'), matching descartes-rs and the requirement; test_reprompt_quotes_* pin it.
+- finding R6 (2026-11-17, reviewer both): NOT-BUILT — Looked for read_line==0 EOF handling in collatz-rs, e-rs, factorial-rs, fib-rs, goldbach-rs, perfect-numbers-rs, pi-rs, prime-rs, sq-rs; none of those crates appears in the diff.
+- R6 reviewed: not this branch's scope — built and merged by PR2 (math#229, 02390d7), which is on master; this PR1 branch (feat/prompt-reprompt) builds R1-R5 and R17.
+- finding R7 (2026-11-17, reviewer both): NOT-BUILT — Looked for a `--svg PATH` flag in descartes.py, descartes-rs and triangle.py; no such flag or triangle file appears in the diff.
+- R7 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- finding R8 (2026-11-17, reviewer both): NOT-BUILT — Looked for SVG header/viewBox/rect/number-formatting code; no SVG writer appears in the diff.
+- R8 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- finding R9 (2026-11-17, reviewer both): NOT-BUILT — Looked for packing SVG circle emission with the curvature cutoff and stroke width; not in the diff.
+- R9 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- finding R10 (2026-11-17, reviewer both): NOT-BUILT — Looked for `<text ...>k</text>` label emission for packing circles; not in the diff.
+- R10 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- finding R11 (2026-11-17, reviewer both): NOT-BUILT — Looked for `--solve` SVG drawing with `#c00` dashed solutions and bounding-box fit; not in the diff.
+- R11 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- finding R12 (2026-11-17, reviewer both): NOT-BUILT — Looked for descartes-rs/tests/parity.rs SVG comparison; the file is not in the diff.
+- R12 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- finding R13 (2026-11-17, reviewer both): NOT-BUILT — Looked for a triangle `<polygon>` SVG with side/vertex labels; triangle is not in the diff.
+- R13 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- finding R14 (2026-11-17, reviewer both): NOT-BUILT — Looked for `-1`/`-2` suffixing of the SVG path for two-solution triangles; not in the diff.
+- R14 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- finding R15 (2026-11-17, reviewer both): NOT-BUILT — Looked for pre-prompt `--svg` path checks and `Error: cannot write SVG '<path>': <reason>`; not in the diff.
+- R15 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- finding R16 (2026-11-17, reviewer both): NOT-BUILT — Looked for `Saved SVG to <path>` output; not in the diff.
+- R16 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- finding R18 (2026-11-17, reviewer both): NOT-BUILT — Looked for confirmation-prompt EOF handling in pi-rs, e-rs, fib-rs and prime-rs; none of those crates appears in the diff.
+- R18 reviewed: not this branch's scope — built and merged by PR2 (math#229, 02390d7), which is on master; this PR1 branch (feat/prompt-reprompt) builds R1-R5 and R17.
 
 ## Spec alignment (2026-11-17)
 
