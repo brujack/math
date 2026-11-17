@@ -3086,5 +3086,116 @@ def test_svg_cli_open_failure_exits_1(
     assert not (tmp_path / "descartes_1e1.txt").exists()
 
 
+_TIE_ROOT = (-12, 25, 25, 28)
+
+
+def test_svg_packing_tie_root_counts_pin_cap_and_label_rule() -> None:
+    # 1000*|k0| = 12000 is below 10**5, so the cap, not 10**k, bounds the circles.
+    text = descartes.svg_packing(_TIE_ROOT, 5)
+    assert text.count("<circle ") == 3327
+    assert text.count("<text ") == 30
+
+
+def test_svg_packing_tie_root_exact_stroke_font_and_radius_20_label() -> None:
+    lines = descartes.svg_packing(_TIE_ROOT, 5).split("\n")
+    small = (
+        '<circle cx="990.002" cy="420.014" r="3.513" fill="none"'
+        ' stroke="black" stroke-width="0.878"/>'
+    )
+    assert small in lines
+    big = (
+        '<circle cx="823.949" cy="204.996" r="61.856" fill="none"'
+        ' stroke="black" stroke-width="1.000"/>'
+    )
+    assert lines[lines.index(big) + 1] == (
+        '<text x="823.949" y="204.996" font-size="37.113"'
+        ' text-anchor="middle" dominant-baseline="central">97</text>'
+    )
+    # r == 20 exactly: the threshold is inclusive, so it is labelled.
+    edge = (
+        '<circle cx="943.077" cy="684.615" r="20.000" fill="none"'
+        ' stroke="black" stroke-width="1.000"/>'
+    )
+    assert lines[lines.index(edge) + 1] == (
+        '<text x="943.077" y="684.615" font-size="12.000"'
+        ' text-anchor="middle" dominant-baseline="central">300</text>'
+    )
+
+
+def test_svg_solve_positive_solutions_do_not_widen_frame() -> None:
+    givens = [(1.0, -1.0, 0.0), (1.0, 1.0, 0.0), (10.0, 0.0, math.sqrt(0.21))]
+    sols = descartes.solve(*givens)
+    assert all(k > 0 for k, _, _ in sols)
+    # A positive solution pokes out of the givens' box (y up to 1.264 > 1).
+    assert any(y + 1 / k > 1 for k, _, y in sols)
+    lines = descartes.svg_solve(givens, sols).split("\n")
+    assert lines[3] == (
+        '<circle cx="272.727" cy="500.000" r="227.273" fill="none"'
+        ' stroke="black" stroke-width="1.000"/>'
+    )
+
+
+def test_svg_solve_single_solution_when_other_is_a_line() -> None:
+    givens = [(1.0, -1.0, 0.0), (1.0, 1.0, 0.0), (4.0, 0.0, 0.75)]
+    sols = descartes.solve(*givens)
+    assert len(sols) == 1
+    text = descartes.svg_solve(givens, sols)
+    assert text.count('stroke="black"') == 3
+    assert text.count('stroke="#c00" stroke-dasharray="6 4"') == 1
+    assert text.count("<circle ") == 4
+
+
+def test_svg_cli_solve_saved_line_precedes_drawing(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    code, out, _ = _svg_main(
+        capsys, "--solve", "1,-1,0", "1,1,0", "4,0,0.75", "--svg", "o.svg"
+    )
+    assert code == 0
+    lines = out.splitlines()
+    saved = lines.index("Saved SVG to o.svg")
+    first_braille = next(
+        i
+        for i, line in enumerate(lines)
+        if any(0x2800 <= ord(c) <= 0x28FF for c in line)
+    )
+    assert saved < first_braille
+
+
+@pytest.mark.skipif(not os.path.exists("/dev/full"), reason="needs /dev/full")
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["1", "--no-draw"],
+        ["--solve", "1,-1,0", "1,1,0", "4,0,0.75", "--no-draw"],
+    ],
+    ids=["packing", "solve"],
+)
+def test_svg_cli_write_failure_exits_1_one_line(
+    tmp_path: pathlib.Path, argv: list[str]
+) -> None:
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(pathlib.Path(descartes.__file__)),
+            *argv,
+            "--svg",
+            "/dev/full",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+        cwd=tmp_path,
+    )
+    assert proc.returncode == 1
+    assert proc.stderr == (
+        "Error: cannot write SVG '/dev/full': No space left on device\n"
+    )
+
+
 if __name__ == "__main__":
     unittest.main()

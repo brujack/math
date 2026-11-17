@@ -835,6 +835,9 @@ def _write_svg(handle: TextIO | None, path: str | None, text: str) -> None:
         handle.write(text)
         handle.flush()
     except OSError as error:
+        # close() would flush the unwritten buffer again and raise over the exit.
+        with contextlib.suppress(OSError):
+            handle.close()
         _svg_error(path, error)
 
 
