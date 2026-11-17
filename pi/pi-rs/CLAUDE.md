@@ -71,6 +71,8 @@ Integer::from(&r.q * &l.t) + Integer::from(&l.p * &r.t)
 
 Tests live in a `#[cfg(test)] mod tests` block at the bottom of `src/main.rs`.
 
+Any unit test that reaches `compute_pi` (directly or through `run`) must hold `BS_COUNTER_LOCK` (`let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());`): each computation resets the global `BS_LEAF_COUNT`, and `cargo test`/tarpaulin run unit tests as threads in one process, so an unlocked computing test can zero the counter under `test_bs_leaf_increments_counter` (CI Coverage pi-rs failure, math#229). Nothing enforces this; find the set by making the reset panic.
+
 Run the full suite:
 
 ```bash

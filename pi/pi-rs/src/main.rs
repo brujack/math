@@ -358,7 +358,10 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    // Tests run as threads under tarpaulin and computing resets the global leaf counter.
+    // Unit tests share one process under `cargo test` and tarpaulin (nextest isolates
+    // them). Every computation resets the global BS_LEAF_COUNT to 0, which can land
+    // between test_bs_leaf_increments_counter's two loads; any test that reaches
+    // compute_pi (directly or through run) must hold this lock.
     static BS_COUNTER_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     use super::*;
