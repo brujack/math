@@ -43,6 +43,24 @@ teardown() {
     [ ! -e "${TMP_DIR}/t-1.svg" ]
 }
 
+@test "python: --svg with a file as the directory part exits 1 before any output" {
+    : > "${TMP_DIR}/f"
+    run --separate-stderr bash -c \
+        "cd '${TMP_DIR}' && python3 '${PYTHON_CLI}' -a 3 -b 4 -c 5 --no-draw --svg f/x.svg </dev/null"
+    [ "${status}" -eq 1 ]
+    [ "${output}" = "" ]
+    [ "${stderr}" = "Error: cannot write SVG 'f/x.svg': directory 'f' does not exist" ]
+}
+
+@test "python: --svg /dev/full exits 1 with one error line and no stdout" {
+    [ -e /dev/full ] || skip "no /dev/full on this platform"
+    run --separate-stderr bash -c \
+        "python3 '${PYTHON_CLI}' -a 3 -b 4 -c 5 --no-draw --svg /dev/full </dev/null"
+    [ "${status}" -eq 1 ]
+    [ "${output}" = "" ]
+    [ "${stderr}" = "Error: cannot write SVG '/dev/full': No space left on device" ]
+}
+
 @test "python: one solution writes PATH itself" {
     run --separate-stderr bash -c \
         "cd '${TMP_DIR}' && python3 '${PYTHON_CLI}' -a 3 -b 4 -c 5 --no-draw --svg t.svg </dev/null"

@@ -5,11 +5,13 @@ Standard library only.
 """
 
 import argparse
+import contextlib
 import math
 import os
 import shutil
 import sys
 from dataclasses import dataclass, replace
+from typing import TextIO
 
 
 class TriangleInputError(ValueError):
@@ -806,20 +808,27 @@ def _write_svgs(names: list[str], solutions: list[Triangle]) -> bool:
         if reason is not None:
             print(f"Error: cannot write SVG '{name}': {reason}", file=sys.stderr)
             return False
-    handles = []
-    failed = ""
+    handles: list[tuple[str, TextIO]] = []
+    current = ""
     try:
         for name in names:
-            failed = name
-            handles.append(open(name, "w", encoding="utf-8", newline="\n"))  # noqa: SIM115
-        for handle, t in zip(handles, solutions, strict=True):
+            current = name
+            handles.append((name, open(name, "w", encoding="utf-8", newline="\n")))  # noqa: SIM115
+        for (name, handle), t in zip(handles, solutions, strict=True):
+            current = name
             handle.write(svg(t))
+            handle.flush()
+        for name, handle in handles:
+            current = name
+            handle.close()
     except OSError as error:
-        print(f"Error: cannot write SVG '{failed}': {error.strerror}", file=sys.stderr)
+        print(f"Error: cannot write SVG '{current}': {error.strerror}", file=sys.stderr)
         return False
     finally:
-        for handle in handles:
-            handle.close()
+        # Releases handles on any exit; a second close of a closed file is a no-op.
+        for _, handle in handles:
+            with contextlib.suppress(OSError):
+                handle.close()
     return True
 
 

@@ -1259,6 +1259,54 @@ class TestSvgCli(unittest.TestCase):
         self.assertIn("Error: cannot write SVG", err)
         self.assertFalse(os.path.exists(os.path.join(self.tmp, "t-1")))
 
+    def test_svg_cli_refuses_file_as_dir_part(self):
+        blocker = os.path.join(self.tmp, "f")
+        with open(blocker, "w", encoding="utf-8") as f:
+            f.write("x")
+        path = os.path.join(blocker, "x.svg")
+        rc, out, err, fake_input = _run(["--svg", path], stdin_tty=True)
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertEqual(
+            err,
+            f"Error: cannot write SVG '{path}': directory '{blocker}' does not exist\n",
+        )
+        fake_input.assert_not_called()
+
+    @unittest.skipUnless(os.path.exists("/dev/full"), "needs /dev/full")
+    def test_svg_cli_write_failure_reports_one_line(self):
+        rc, out, err, _ = _run(
+            ["-a", "3", "-b", "4", "-c", "5", "--no-draw", "--svg", "/dev/full"]
+        )
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertEqual(
+            err, "Error: cannot write SVG '/dev/full': No space left on device\n"
+        )
+
+    def _run_with_failing_handle(self, bad_index, method):
+        path = os.path.join(self.tmp, "t.svg")
+        handles = [mock.MagicMock(), mock.MagicMock()]
+        getattr(handles[bad_index], method).side_effect = OSError(28, "No space left")
+        with mock.patch("builtins.open", side_effect=handles):
+            rc, out, err, _ = _run(["-a", "6", "-b", "8", "-A", "30", "--svg", path])
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        return err
+
+    def test_svg_cli_write_failure_names_failing_file(self):
+        first = os.path.join(self.tmp, "t-1.svg")
+        second = os.path.join(self.tmp, "t-2.svg")
+        err = self._run_with_failing_handle(0, "write")
+        self.assertEqual(err, f"Error: cannot write SVG '{first}': No space left\n")
+        err = self._run_with_failing_handle(1, "write")
+        self.assertEqual(err, f"Error: cannot write SVG '{second}': No space left\n")
+
+    def test_svg_cli_close_failure_is_reported_not_raised(self):
+        second = os.path.join(self.tmp, "t-2.svg")
+        err = self._run_with_failing_handle(1, "close")
+        self.assertEqual(err, f"Error: cannot write SVG '{second}': No space left\n")
+
     def test_svg_cli_open_failure_exits_1_without_output(self):
         path = os.path.join(self.tmp, "t.svg")
         with mock.patch(
