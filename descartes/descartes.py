@@ -511,6 +511,107 @@ def render(circles: list[Circle], width: int, height: int) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# SVG output
+# ---------------------------------------------------------------------------
+
+# The picture is a 1000 x 1000 user-unit square; the Rust crate emits the
+# same text, so the format below is fixed (numbers may differ in the last digit).
+_SVG_SIZE = 1000
+_SVG_HEAD = (
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {_SVG_SIZE} {_SVG_SIZE}">',
+    f'<rect width="{_SVG_SIZE}" height="{_SVG_SIZE}" fill="white"/>',
+)
+# A circle needs at least this radius (user units) to get a curvature label.
+_SVG_LABEL_MIN_RADIUS = 20
+
+
+def _fmt3(value: float) -> str:
+    """Format with three decimals; a negative zero prints as 0.000."""
+    text = f"{value:.3f}"
+    return "0.000" if text == "-0.000" else text
+
+
+def _svg_circle(x: float, y: float, r: float, style: str) -> str:
+    """One <circle> element; style is the stroke attributes before stroke-width."""
+    width = _fmt3(min(1, r / 4))
+    return (
+        f'<circle cx="{_fmt3(x)}" cy="{_fmt3(y)}" r="{_fmt3(r)}" fill="none" '
+        f'{style} stroke-width="{width}"/>'
+    )
+
+
+def _svg_label(x: float, y: float, r: float, k: float) -> str:
+    """One <text> element centred on a circle, showing its integer curvature."""
+    size = _fmt3(min(48, 0.6 * r))
+    return (
+        f'<text x="{_fmt3(x)}" y="{_fmt3(y)}" font-size="{size}" '
+        f'text-anchor="middle" dominant-baseline="central">{round(k)}</text>'
+    )
+
+
+def _svg_document(elements: list[str]) -> str:
+    """Join the fixed header, the elements and the closing tag, newline-ended."""
+    return "\n".join([*_SVG_HEAD, *elements, "</svg>"]) + "\n"
+
+
+def svg_packing(root: tuple[int, int, int, int], k: int) -> str:
+    """Return the packing up to curvature 10^k as SVG text (spec R8-R9).
+
+    The outer circle fills the square; every other circle of radius at least
+    20 units is labelled with its curvature.
+    """
+    outer = root_centres(root)[0]
+    k0, x0, y0 = outer
+    scale = 500 * abs(k0)
+    limit = min(10**k, 1000 * abs(k0))
+    elements: list[str] = []
+    for index, (kc, x, y) in enumerate([outer, *visible(root, limit)]):
+        px = 500 + (x - x0) * scale
+        py = 500 - (y - y0) * scale
+        r = scale / abs(kc)
+        elements.append(_svg_circle(px, py, r, 'stroke="black"'))
+        if index > 0 and r >= _SVG_LABEL_MIN_RADIUS:
+            elements.append(_svg_label(px, py, r, kc))
+    return _svg_document(elements)
+
+
+def svg_solve(given: list[Circle], solutions: list[Circle]) -> str:
+    """Return the three given circles (black) and the solutions (red dashed) as SVG.
+
+    The view is the bounding box of the givens and every enclosing solution
+    (k < 0), centred and padded by 10%; no labels (spec R10-R11).
+    """
+    boxed = [*given, *(c for c in solutions if c[0] < 0)]
+    x_lo = min(x - 1 / abs(k) for k, x, _ in boxed)
+    x_hi = max(x + 1 / abs(k) for k, x, _ in boxed)
+    y_lo = min(y - 1 / abs(k) for k, _, y in boxed)
+    y_hi = max(y + 1 / abs(k) for k, _, y in boxed)
+    cx, cy = (x_lo + x_hi) / 2, (y_lo + y_hi) / 2
+    scale = _SVG_SIZE / (1.1 * max(x_hi - x_lo, y_hi - y_lo))
+    elements = []
+    for kc, x, y in given:
+        elements.append(
+            _svg_circle(
+                500 + (x - cx) * scale,
+                500 - (y - cy) * scale,
+                scale / abs(kc),
+                'stroke="black"',
+            )
+        )
+    for kc, x, y in solutions:
+        elements.append(
+            _svg_circle(
+                500 + (x - cx) * scale,
+                500 - (y - cy) * scale,
+                scale / abs(kc),
+                'stroke="#c00" stroke-dasharray="6 4"',
+            )
+        )
+    return _svg_document(elements)
+
+
+# ---------------------------------------------------------------------------
 # Command line
 # ---------------------------------------------------------------------------
 

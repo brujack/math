@@ -2858,5 +2858,65 @@ class TestEntryPointGuard(unittest.TestCase):
         self.assertEqual(proc.stdout.splitlines()[:3], ["2", "3", "6"])
 
 
+def test_svg_packing_default_root_k3_counts() -> None:
+    text = descartes.svg_packing((-1, 2, 2, 3), 3)
+    assert text.count("<circle ") == 3329
+    assert text.count("<text ") == 26
+
+
+def test_svg_packing_first_lines_exact() -> None:
+    text = descartes.svg_packing((-1, 2, 2, 3), 3)
+    lines = text.split("\n")
+    assert lines[:4] == [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">',
+        '<rect width="1000" height="1000" fill="white"/>',
+        (
+            '<circle cx="500.000" cy="500.000" r="500.000" fill="none"'
+            ' stroke="black" stroke-width="1.000"/>'
+        ),
+    ]
+    assert text.endswith("</svg>\n")
+    assert lines[-2] == "</svg>"
+    assert lines[-1] == ""
+
+
+def test_svg_packing_k1_limit_is_10_pow_k() -> None:
+    text = descartes.svg_packing((-1, 2, 2, 3), 1)
+    assert text.count("<circle ") == 9
+
+
+def test_svg_fmt3_negative_zero() -> None:
+    assert descartes._fmt3(-0.0001) == "0.000"
+    assert descartes._fmt3(-0.0) == "0.000"
+    assert descartes._fmt3(1.23456) == "1.235"
+
+
+def test_svg_solve_counts_and_styles() -> None:
+    givens = [(-1.0, 0.0, 0.0), (2.0, 0.5, 0.0), (3.0, 0.0, 0.6666666666666666)]
+    sols = descartes.solve(*givens)
+    text = descartes.svg_solve(givens, sols)
+    assert text.count("<circle ") == 5
+    assert text.count('stroke="black"') == 3
+    assert text.count('stroke="#c00" stroke-dasharray="6 4"') == 2
+    assert text.count("<text ") == 0
+    assert text.endswith("</svg>\n")
+
+
+def test_svg_solve_enclosing_solution_inside_view() -> None:
+    givens = descartes.root_centres((-1, 2, 2, 3))[1:]
+    sols = descartes.solve(*givens)
+    assert any(k < 0 for k, _, _ in sols)
+    text = descartes.svg_solve(givens, sols)
+    found = re.findall(r'<circle cx="(-?[\d.]+)" cy="(-?[\d.]+)" r="([\d.]+)"', text)
+    assert len(found) == 5
+    for cx, cy, r in found:
+        x, y, rad = float(cx), float(cy), float(r)
+        assert x - rad >= -0.01
+        assert x + rad <= 1000.01
+        assert y - rad >= -0.01
+        assert y + rad <= 1000.01
+
+
 if __name__ == "__main__":
     unittest.main()
