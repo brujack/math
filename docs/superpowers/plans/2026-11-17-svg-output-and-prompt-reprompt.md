@@ -6,6 +6,8 @@ spec: docs/superpowers/specs/2026-11-17-svg-output-and-prompt-reprompt-design.md
 
 **Goal:** Re-prompt on bad input at the descartes and amicable prompts (PR1), stop nine Rust prompts spinning on end of input (PR2), and add `--svg PATH` to descartes (Python and Rust) and triangle (PR3).
 
+> **Status:** PR2 merged (math#229, 2026-11-17). Executing PR1 next, then PR3. The plan has no `scope:` line, so `spec-alignment-review` on each PR reports the other PRs' requirements as NOT-BUILT; answer each `reviewed:` naming the PR that builds it.
+
 **Architecture:** Three independent PRs, one branch and worktree each, executed in order PR2, PR1, PR3 (PR2 is the disk-filling bug). Each PR's tasks touch disjoint files so its code tasks can run as a wave; a docs task closes each PR. SVG text is built by pure functions (`svg_packing`, `svg_solve`, triangle `svg`) that return a `str`/`String`, so tests pin exact elements without touching the filesystem; the CLI layer only checks the path, opens, writes and prints `Saved SVG to`.
 
 **Tech Stack:** Python 3 standard library (`argparse`, `math`, `os`); tests check SVG text by string matching (no XML parser: `defusedxml` is pinned only at root scope, not in any sub-project's installer or workflow); Rust 2024 crates with `clap`, `tempfile` (dev), `cargo-nextest`; no new dependency anywhere (spec N1).
@@ -186,7 +188,7 @@ tdd: not-applicable
 acceptance:
   - cmd: bash -c "for c in collatz goldbach factorial perfect-numbers sq pi e fib prime; do grep -q 'no input; pass SIZE' $c/$c-rs/CLAUDE.md || { echo missing $c; exit 1; }; done"
     exit_code: 0
-  - cmd: python3 scripts/claude_md_budget.py
+  - cmd: python3 scripts/claude_md_budget.py HEAD
     exit_code: 0
 max_retries: 2
 files_touched: [collatz/collatz-rs/CLAUDE.md, goldbach/goldbach-rs/CLAUDE.md, factorial/factorial-rs/CLAUDE.md, perfect-numbers/perfect-numbers-rs/CLAUDE.md, sq/sq-rs/CLAUDE.md, pi/pi-rs/CLAUDE.md, e/e-rs/CLAUDE.md, fib/fib-rs/CLAUDE.md, prime/prime-rs/CLAUDE.md]
@@ -527,7 +529,7 @@ tdd: not-applicable
 acceptance:
   - cmd: bash -c "for f in descartes/CLAUDE.md descartes/README.md descartes/descartes-rs/CLAUDE.md descartes/descartes-rs/README.md triangle/CLAUDE.md triangle/README.md README.md; do grep -q -- '--svg' $f || { echo missing $f; exit 1; }; done"
     exit_code: 0
-  - cmd: python3 scripts/claude_md_budget.py
+  - cmd: python3 scripts/claude_md_budget.py HEAD
     exit_code: 0
 max_retries: 2
 files_touched: [descartes/CLAUDE.md, descartes/README.md, descartes/descartes-rs/CLAUDE.md, descartes/descartes-rs/README.md, triangle/CLAUDE.md, triangle/README.md, README.md]

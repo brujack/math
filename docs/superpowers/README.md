@@ -63,7 +63,7 @@ Master status index for all specs and implementation plans in this directory.
 | 2026-11-06 | [worldclass-slice7-mutant-core-dumps](plans/2026-11-06-worldclass-slice7-mutant-core-dumps.md) | [spec](specs/2026-11-06-worldclass-slice7-mutant-core-dumps-design.md) | Done (math#218; V1 run 42328612206) |
 | 2026-11-07 | [worldclass-slice8-python-pr-mutation-gate](plans/2026-11-07-worldclass-slice8-python-pr-mutation-gate.md) | [spec](specs/2026-11-07-worldclass-slice8-python-pr-mutation-gate-design.md) | Done (math#219) |
 | 2026-11-15 | [descartes](plans/2026-11-15-descartes.md) | [spec](specs/2026-11-15-descartes-design.md) | Done (PR1 Python #224; PR2 Rust #225) |
-| 2026-11-17 | [svg-output-and-prompt-reprompt](plans/2026-11-17-svg-output-and-prompt-reprompt.md) | [spec](specs/2026-11-17-svg-output-and-prompt-reprompt-design.md) | Planned (PR2, PR1, PR3) |
+| 2026-11-17 | [svg-output-and-prompt-reprompt](plans/2026-11-17-svg-output-and-prompt-reprompt.md) | [spec](specs/2026-11-17-svg-output-and-prompt-reprompt-design.md) | PR2 Done (math#229); PR1, PR3 pending |
 | 2026-10-31 | [shared-push-content-gate](plans/2026-10-31-shared-push-content-gate.md) | ai-config `2026-10-30-shared-push-content-gate-design.md` (cross-repo) | Done |
 
 ---
@@ -162,6 +162,7 @@ Add a new row to the group that matches its priority.
 | Descartes graphical output | A Desmos-style window outside the terminal (macOS first) for `descartes` circles and packings. v1 draws braille only; `render` reads a plain `(k, x, y)` circle list so a new back end needs no math changes. Spec `specs/2026-11-15-descartes-design.md` N1. |
 | Parallel Descartes packing in Rust | Split the packing search across rayon threads by subtree. Serial Python runs ~0.74M circles/s; Rust K=8 is ~1.1e10 circles (growth exponent 1.3057 measured K=3-5). Build only if V1 shows serial is too slow. Spec N2. |
 | amicable-rs has no interactive prompt | `amicable.py` prompts for N at a terminal; `amicable-rs` has no prompt (0 `read_line` calls), so the pair differs on a bare TTY run. Found while scoping the 2026-11-17 re-prompt spec (N4 keeps it out). |
+| perfect-numbers-rs test table off by one | `perfect-numbers/perfect-numbers-rs/CLAUDE.md`'s per-area test table sums to 29 while the crate has 30 tests (26 in `src/main.rs`, 4 in `tests/cli.rs`); the gap predates math#229 (26 vs 27 before it). Found by the math#229 delta review. |
 | Mutation score threshold    | Move cosmic-ray (Python) from monthly advisory to a CI gate with a minimum score; Rust already holds 0 missed (ADR-0041, ADR-0042)                                           |
 | Snapshot testing (`insta`)  | Lock Rust CLI stdout format with `insta`; any unexpected output change becomes a visible diff rather than a silent regression                                             |
 | Kani formal verification    | Prove correctness properties on pure math functions (Goldbach, primality, Collatz); exhaustive proof rather than sampling; AWS uses on crypto libs                        |
