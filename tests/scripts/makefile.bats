@@ -519,9 +519,10 @@ _tmpdir_run() {
 }
 
 # Every test that drives _term_group_twice is a SIGTERM timing test, and each one of them,
-# Python and Rust, has timed out under CI's bash-coverage tracer (Backlog rows 105, 152:
-# runs 42126186260, 42327936247, 42516108857, 42550879158, 43991758036), always with an
-# empty process-state dump. A new one must skip there too, or it brings the flake back.
+# Python and Rust, has timed out under CI's bash-coverage tracer (Backlog row "SIGTERM tests
+# fail under the coverage tracer in CI only (root cause)": runs 42126186260, 42327936247,
+# 42516108857, 42550879158, 43991758036), always with an empty process-state dump. A new
+# one must skip there too, or it brings the flake back.
 @test "every SIGTERM-twice test skips under the bash-coverage tracer" {
     local missing
     missing="$(awk '
@@ -533,7 +534,8 @@ _tmpdir_run() {
         inside { body = body "\n" $0 }
     ' "${BATS_TEST_FILENAME}")"
     [ -z "${missing}" ] || { printf 'SIGTERM-twice tests without the tracer skip:\n%s\n' "${missing}" >&2; return 1; }
-    [ "$(command grep -c '^    .*_term_group_twice ' "${BATS_TEST_FILENAME}")" -ge 3 ]
+    # Floor on the call sites (stub env, then the helper), a shape this line cannot match.
+    [ "$(command grep -cE '^    STUB_[A-Z_]+=1 .*_term_group_twice' "${BATS_TEST_FILENAME}")" -ge 3 ]
 }
 
 # A CI cancel signals the whole group more than once; the second TERM must not kill the cleanup rm.
