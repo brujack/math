@@ -1,0 +1,63 @@
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Sub_RShift"
+function = "_report"
+line = "print(f\"Saved SVG to {svg_names[i - 1]}\")"
+col = 46
+above = "if svg_names:"
+reason = "svg_names holds one name per solution and solve() returns at most two solutions, so i is 1 or 2 and i >> 1 equals i - 1 for both (0 and 1); the two differ only from i = 3, which cannot occur."
+
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Sub_Add"
+function = "svg"
+line = "scale = 900 / max(max(xs) - min(xs), max(ys) - min(ys))"
+col = 49
+above = "ys = [y for _, y in model]"
+reason = "min(ys) is exactly 0.0: A and B sit at y = 0 and C is at b*sin(A) with A in (0, pi), so never negative; max(ys) + 0.0 equals max(ys) - 0.0."
+
+[[equivalent]]
+operator = "core/ReplaceComparisonOperator_Eq_LtE"
+function = "_svg_names"
+line = "if count == 1:"
+col = 13
+above = "\"\"\"PATH for one solution; -1, -2 before the basename's extension for two.\"\"\""
+reason = "count is len(solutions) and solve() raises before returning an empty list, so count is 1 or 2 and count <= 1 holds exactly when count == 1; they differ only for count 0, which cannot occur."
+
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Add_BitOr"
+function = "_svg_names"
+line = "return [os.path.join(head, f\"{stem}-{i}{ext}\") for i in range(1, count + 1)]"
+col = 75
+above = "stem, ext = os.path.splitext(base)"
+reason = "the multi-solution branch runs only for count 2 (count 1 returns earlier and solve() never returns none), and 2 | 1 and 2 ^ 1 both equal 2 + 1 = 3."
+
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Add_BitXor"
+function = "_svg_names"
+line = "return [os.path.join(head, f\"{stem}-{i}{ext}\") for i in range(1, count + 1)]"
+col = 75
+above = "stem, ext = os.path.splitext(base)"
+reason = "the multi-solution branch runs only for count 2 (count 1 returns earlier and solve() never returns none), and 2 | 1 and 2 ^ 1 both equal 2 + 1 = 3."
+
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Add_Sub"
+function = "svg"
+line = "cy = (max(ys) + min(ys)) / 2"
+col = 18
+above = "cx = (max(xs) + min(xs)) / 2"
+reason = "min(ys) is exactly 0.0 (A and B sit at y = 0 and C is at b*sin(A), never negative), so (max(ys) + 0.0) / 2 equals (max(ys) - 0.0) / 2."
+
+[[equivalent]]
+operator = "core/ReplaceComparisonOperator_Eq_LtE"
+function = "_fmt3"
+line = "return \"0.000\" if text == \"-0.000\" else text"
+col = 27
+above = "text = f\"{v:.3f}\""
+reason = "text is the output of a .3f format: a negative one is '-' then a digit from 0 up, so '-0.000' is the smallest string that starts with '-' and every positive one starts with a digit, which sorts after '-'; text <= '-0.000' holds exactly when text == '-0.000'."
+
+[[equivalent]]
+operator = "core/ReplaceTrueWithFalse"
+function = "_write_svgs"
+line = "for (name, handle), t in zip(handles, solutions, strict=True):"
+col = 64
+above = "handles.append((name, open(name, \"w\", encoding=\"utf-8\", newline=\"\\n\")))  # noqa: SIM115"
+reason = "handles gets one entry per name and the only caller passes one solution per name, so the lengths always match and strict only changes behaviour for a length mismatch that cannot occur."

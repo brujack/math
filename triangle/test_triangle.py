@@ -1,6 +1,8 @@
 """Unit tests for triangle.py (solver, renderer and CLI sections)."""
 
+import argparse
 import contextlib
+import inspect
 import io
 import math
 import os
@@ -10,10 +12,14 @@ import re
 import subprocess
 import sys
 import tempfile
+import typing
 import unittest
 from dataclasses import replace
 from unittest import mock
 
+import annotationlib
+
+import triangle
 from triangle import (
     _RANGE_ERROR,
     CONTRACT_ARGS,
@@ -1182,6 +1188,60 @@ class TestSvg(unittest.TestCase):
         for n in nums:
             self.assertTrue(0.0 <= n <= 1000.0, n)
 
+    def test_svg_obtuse_a_exact(self) -> None:
+        t = solve({"a": 5, "b": 3, "c": 3}).solutions[0]
+        self.assertEqual(
+            svg(t),
+            """<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+<rect width="1000" height="1000" fill="white"/>
+<polygon points="302.000,798.496 950.000,798.496 50.000,201.504" fill="none" stroke="black" stroke-width="2"/>
+<text x="511.055" y="483.333" font-size="24" text-anchor="middle" dominant-baseline="central">a</text>
+<text x="157.340" y="492.804" font-size="24" text-anchor="middle" dominant-baseline="central">b</text>
+<text x="639.887" y="812.889" font-size="24" text-anchor="middle" dominant-baseline="central">c</text>
+<text x="288.181" y="819.330" font-size="24" text-anchor="middle" dominant-baseline="central">A</text>
+<text x="973.326" y="807.492" font-size="24" text-anchor="middle" dominant-baseline="central">B</text>
+<text x="32.641" y="183.513" font-size="24" text-anchor="middle" dominant-baseline="central">C</text>
+</svg>
+""",
+        )
+
+    def test_svg_tall_exact(self) -> None:
+        t = solve({"a": 5, "b": 5, "c": 2}).solutions[0]
+        self.assertEqual(
+            svg(t),
+            """<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+<rect width="1000" height="1000" fill="white"/>
+<polygon points="316.288,950.000 683.712,950.000 500.000,50.000" fill="none" stroke="black" stroke-width="2"/>
+<text x="602.301" y="482.944" font-size="24" text-anchor="middle" dominant-baseline="central">a</text>
+<text x="397.699" y="482.944" font-size="24" text-anchor="middle" dominant-baseline="central">b</text>
+<text x="500.000" y="970.000" font-size="24" text-anchor="middle" dominant-baseline="central">c</text>
+<text x="303.232" y="971.320" font-size="24" text-anchor="middle" dominant-baseline="central">A</text>
+<text x="696.768" y="971.320" font-size="24" text-anchor="middle" dominant-baseline="central">B</text>
+<text x="500.000" y="25.000" font-size="24" text-anchor="middle" dominant-baseline="central">C</text>
+</svg>
+""",
+        )
+
+    def test_svg_scalene_exact(self) -> None:
+        t = solve({"a": 5, "b": 6, "c": 7}).solutions[0]
+        self.assertEqual(
+            svg(t),
+            """<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+<rect width="1000" height="1000" fill="white"/>
+<polygon points="50.000,769.944 950.000,769.944 601.020,230.056" fill="none" stroke="black" stroke-width="2"/>
+<text x="794.255" y="493.026" font-size="24" text-anchor="middle" dominant-baseline="central">a</text>
+<text x="307.152" y="492.064" font-size="24" text-anchor="middle" dominant-baseline="central">b</text>
+<text x="496.322" y="789.603" font-size="24" text-anchor="middle" dominant-baseline="central">c</text>
+<text x="26.569" y="778.662" font-size="24" text-anchor="middle" dominant-baseline="central">A</text>
+<text x="972.948" y="779.863" font-size="24" text-anchor="middle" dominant-baseline="central">B</text>
+<text x="605.618" y="205.483" font-size="24" text-anchor="middle" dominant-baseline="central">C</text>
+</svg>
+""",
+        )
+
     def test_svg_fmt3_negative_zero(self) -> None:
         self.assertEqual(_fmt3(-0.0), "0.000")
         self.assertEqual(_fmt3(-0.0004), "0.000")
@@ -1336,6 +1396,44 @@ class TestSvgCli(unittest.TestCase):
         # braille drawing follows the Saved line
         self.assertIsNotNone(_BRAILLE.search(out[i1 : out.index("Solution 2")]))
         self.assertIsNone(_BRAILLE.search(out[:i1]))
+
+
+class TestAnnotations(unittest.TestCase):
+    """Python 3.14 never evaluates annotations, so resolve the unions here."""
+
+    NONE = type(None)
+
+    def expected(self) -> dict[typing.Callable[..., object], dict[str, object]]:
+        return {
+            triangle._svg_refusal: {"path": str, "return": str | self.NONE},
+            triangle._svg_arg_ok: {"path": str | self.NONE, "return": bool},
+            triangle._reject_reason: {"text": str, "return": str | self.NONE},
+            triangle._report: {
+                "solved": Solved,
+                "values": dict[str, float],
+                "args": argparse.Namespace,
+                "svg_names": list[str] | self.NONE,
+                "return": self.NONE,
+            },
+            triangle.main: {"argv": list[str] | self.NONE, "return": int},
+        }
+
+    def test_resolved_hints_are_exact(self) -> None:
+        for function, hints in self.expected().items():
+            with self.subTest(function=function.__name__):
+                self.assertEqual(typing.get_type_hints(function), hints)
+
+    def test_every_function_with_a_union_is_listed(self) -> None:
+        listed = set(self.expected())
+        for name, function in inspect.getmembers(triangle, inspect.isfunction):
+            if function.__module__ != "triangle":
+                continue
+            strings = annotationlib.get_annotations(
+                function, format=annotationlib.Format.STRING
+            )
+            if any("|" in text for text in strings.values()):
+                with self.subTest(function=name):
+                    self.assertIn(function, listed)
 
 
 if __name__ == "__main__":
