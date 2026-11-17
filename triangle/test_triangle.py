@@ -1303,7 +1303,12 @@ class TestSvgCli(unittest.TestCase):
         self.assertEqual(err, f"Error: cannot write SVG '{second}': No space left\n")
 
     def test_svg_cli_close_failure_is_reported_not_raised(self):
+        first = os.path.join(self.tmp, "t-1.svg")
         second = os.path.join(self.tmp, "t-2.svg")
+        # Handle 0: after the write loop the tracked name is the last one, so only
+        # a failure on the first close shows the close loop tracks its own name.
+        err = self._run_with_failing_handle(0, "close")
+        self.assertEqual(err, f"Error: cannot write SVG '{first}': No space left\n")
         err = self._run_with_failing_handle(1, "close")
         self.assertEqual(err, f"Error: cannot write SVG '{second}': No space left\n")
 
