@@ -3,11 +3,13 @@
 import contextlib
 import io
 import math
+import os
 import pathlib
 import random
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 from dataclasses import replace
 from unittest import mock
@@ -1185,6 +1187,102 @@ class TestSvg(unittest.TestCase):
         self.assertEqual(_fmt3(-0.0004), "0.000")
         self.assertEqual(_fmt3(-0.0006), "-0.001")
         self.assertEqual(_fmt3(1.23456), "1.235")
+
+
+class TestSvgCli(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
+
+    def test_svg_cli_one_solution_exact_path(self):
+        path = os.path.join(self.tmp, "tri.svg")
+        rc, out, _, _ = _run(
+            ["-a", "3", "-b", "4", "-c", "5", "--no-draw", "--svg", path]
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(os.listdir(self.tmp), ["tri.svg"])
+        with open(path, encoding="utf-8", newline="") as f:
+            text = f.read()
+        self.assertTrue(text.startswith('<?xml version="1.0" encoding="UTF-8"?>\n'))
+        self.assertIn("<polygon ", text)
+        self.assertEqual(out.count(f"Saved SVG to {path}\n"), 1)
+
+    def test_svg_cli_ssa_two_files_suffixed(self):
+        path = os.path.join(self.tmp, "tri.svg")
+        rc, _, _, _ = _run(
+            ["-a", "6", "-b", "8", "-A", "30", "--no-draw", "--svg", path]
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(sorted(os.listdir(self.tmp)), ["tri-1.svg", "tri-2.svg"])
+        texts = []
+        for name in ("tri-1.svg", "tri-2.svg"):
+            with open(os.path.join(self.tmp, name), encoding="utf-8") as f:
+                texts.append(f.read())
+        self.assertNotEqual(texts[0], texts[1])
+
+    def test_svg_cli_suffix_skips_directory_dots(self):
+        sub = os.path.join(self.tmp, "out.d")
+        os.mkdir(sub)
+        path = os.path.join(sub, "t")
+        rc, _, _, _ = _run(
+            ["-a", "6", "-b", "8", "-A", "30", "--no-draw", "--svg", path]
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(sorted(os.listdir(sub)), ["t-1", "t-2"])
+
+    def test_svg_cli_refuses_missing_dir_before_prompt(self):
+        path = os.path.join(self.tmp, "nope", "t.svg")
+        rc, out, err, fake_input = _run(["--svg", path], stdin_tty=True)
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        parent = os.path.dirname(path)
+        self.assertEqual(
+            err,
+            f"Error: cannot write SVG '{path}': directory '{parent}' does not exist\n",
+        )
+        fake_input.assert_not_called()
+
+    def test_svg_cli_refuses_existing_directory(self):
+        rc, out, err, _ = _run(["-a", "3", "-b", "4", "-c", "5", "--svg", self.tmp])
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertEqual(
+            err, f"Error: cannot write SVG '{self.tmp}': it is a directory\n"
+        )
+        # A computed suffixed name that is a directory is refused before any output.
+        os.mkdir(os.path.join(self.tmp, "t-2"))
+        path = os.path.join(self.tmp, "t")
+        rc, out, err, _ = _run(["-a", "6", "-b", "8", "-A", "30", "--svg", path])
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertIn("Error: cannot write SVG", err)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "t-1")))
+
+    def test_svg_cli_open_failure_exits_1_without_output(self):
+        path = os.path.join(self.tmp, "t.svg")
+        with mock.patch(
+            "builtins.open", side_effect=PermissionError(13, "Permission denied")
+        ):
+            rc, out, err, _ = _run(["-a", "3", "-b", "4", "-c", "5", "--svg", path])
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertEqual(err, f"Error: cannot write SVG '{path}': Permission denied\n")
+
+    def test_svg_cli_saved_line_after_each_table(self):
+        path = os.path.join(self.tmp, "t.svg")
+        _, out, _, _ = _run(["-a", "6", "-b", "8", "-A", "30", "--svg", path])
+        p1 = os.path.join(self.tmp, "t-1.svg")
+        p2 = os.path.join(self.tmp, "t-2.svg")
+        i1 = out.index(f"Saved SVG to {p1}\n")
+        i2 = out.index(f"Saved SVG to {p2}\n")
+        self.assertLess(out.index("Solution 1"), out.index("perimeter"))
+        self.assertLess(out.index("perimeter"), i1)
+        self.assertLess(i1, out.index("Solution 2"))
+        self.assertLess(out.index("Solution 2"), i2)
+        # braille drawing follows the Saved line
+        self.assertIsNotNone(_BRAILLE.search(out[i1 : out.index("Solution 2")]))
+        self.assertIsNone(_BRAILLE.search(out[:i1]))
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ Standard library only.
 
 import argparse
 import math
+import os
 import shutil
 import sys
 from dataclasses import dataclass, replace
@@ -647,7 +648,40 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--no-draw", action="store_true", help="table only")
     parser.add_argument("--smoke", action="store_true", help="solve and draw 3-4-5")
+    parser.add_argument(
+        "--svg",
+        default=None,
+        metavar="PATH",
+        help="also write an SVG (two SSA solutions: PATH-1 and PATH-2)",
+    )
     return parser
+
+
+def _svg_refusal(path: str) -> str | None:
+    """Why PATH cannot be written (a directory, or no directory to hold it), else None."""
+    if os.path.isdir(path):
+        return "it is a directory"
+    parent = os.path.dirname(path) or "."
+    if not os.path.isdir(parent):
+        return f"directory '{parent}' does not exist"
+    return None
+
+
+def _svg_arg_ok(path: str | None) -> bool:
+    """Check --svg before any prompt; print the refusal and return False if unusable."""
+    reason = None if path is None else _svg_refusal(path)
+    if reason is not None:
+        print(f"Error: cannot write SVG '{path}': {reason}", file=sys.stderr)
+    return reason is None
+
+
+def _svg_names(path: str, count: int) -> list[str]:
+    """PATH for one solution; -1, -2 before the basename's extension for two."""
+    if count == 1:
+        return [path]
+    head, base = os.path.split(path)
+    stem, ext = os.path.splitext(base)
+    return [os.path.join(head, f"{stem}-{i}{ext}") for i in range(1, count + 1)]
 
 
 def _reject_reason(text: str) -> str | None:
@@ -708,7 +742,12 @@ def _print_extras(solved: Solved, precision: int) -> None:
         )
 
 
-def _report(solved: Solved, values: dict[str, float], args: argparse.Namespace) -> None:
+def _report(
+    solved: Solved,
+    values: dict[str, float],
+    args: argparse.Namespace,
+    svg_names: list[str] | None = None,
+) -> None:
     given = set(values)
     width, height = _canvas_size()
     many = len(solved.solutions) > 1
@@ -716,6 +755,8 @@ def _report(solved: Solved, values: dict[str, float], args: argparse.Namespace) 
         if many:
             print(f"Solution {i}")
         _print_table(t, given, args.precision, args.radians)
+        if svg_names:
+            print(f"Saved SVG to {svg_names[i - 1]}")
         if not args.no_draw:
             print("\n".join(render(t, width, height)))
     _print_extras(solved, args.precision)
@@ -724,6 +765,8 @@ def _report(solved: Solved, values: dict[str, float], args: argparse.Namespace) 
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if not _svg_arg_ok(args.svg):
+        return 1
     if args.smoke:
         values: dict[str, float] = {"a": 3.0, "b": 4.0, "c": 5.0}
     else:
@@ -747,8 +790,37 @@ def main(argv: list[str] | None = None) -> int:
     except NoTriangle as error:
         print(error, file=sys.stderr)
         return 1
-    _report(solved, values, args)
+    svg_names = None
+    if args.svg is not None:
+        svg_names = _svg_names(args.svg, len(solved.solutions))
+        if not _write_svgs(svg_names, solved.solutions):
+            return 1
+    _report(solved, values, args, svg_names)
     return 0
+
+
+def _write_svgs(names: list[str], solutions: list[Triangle]) -> bool:
+    """Refuse bad names, open every file, then write; False after printing an error."""
+    for name in names:
+        reason = _svg_refusal(name)
+        if reason is not None:
+            print(f"Error: cannot write SVG '{name}': {reason}", file=sys.stderr)
+            return False
+    handles = []
+    failed = ""
+    try:
+        for name in names:
+            failed = name
+            handles.append(open(name, "w", encoding="utf-8", newline="\n"))  # noqa: SIM115
+        for handle, t in zip(handles, solutions, strict=True):
+            handle.write(svg(t))
+    except OSError as error:
+        print(f"Error: cannot write SVG '{failed}': {error.strerror}", file=sys.stderr)
+        return False
+    finally:
+        for handle in handles:
+            handle.close()
+    return True
 
 
 if __name__ == "__main__":
