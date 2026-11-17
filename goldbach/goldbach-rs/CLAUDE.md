@@ -39,7 +39,7 @@ make test       # lint + cargo test
 ## Testing
 
 Coverage floor: ≥90% (enforced via `cargo tarpaulin --fail-under 90` in CI).
-Current local coverage: 97.30% (72/74 lines).
+Current local coverage: 98.73% (78/79 lines, Linux tarpaulin, 2026-11-17).
 
 | Area             | Tests |
 | ---------------- | ----- |

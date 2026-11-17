@@ -238,9 +238,11 @@ fn confirm_large_digits_with<R: BufRead, W: Write, E: Write>(
 // Run / Entry point
 // ---------------------------------------------------------------------------
 
-/// Orchestrates a single CLI invocation. Returns the process exit code
-/// (0 on success, 1 on validation error). All I/O is parameterised so tests
-/// can inject pipes and a temp output directory.
+/// Orchestrates a single CLI invocation. Returns the process exit code:
+/// 0 on success or when input ends at the large-run confirmation (nothing
+/// computed), 1 on validation error or when input ends at the digit prompt.
+/// All I/O is parameterised so tests can inject pipes and a temp output
+/// directory.
 fn run<R: BufRead, W: Write, E: Write>(
     cli: Cli,
     reader: &mut R,

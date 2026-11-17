@@ -39,7 +39,7 @@ make test      # lint + cargo test
 ## Testing
 
 Coverage floor: ≥90% (enforced via `cargo tarpaulin --fail-under 90` in CI).
-Current coverage: 96.72% (59/61 lines covered, macOS tarpaulin).
+Current coverage: 98.46% (64/65 lines covered, Linux tarpaulin, 2026-11-17).
 
 | Area               | Tests |
 |--------------------|-------|

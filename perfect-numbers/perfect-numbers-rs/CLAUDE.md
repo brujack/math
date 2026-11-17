@@ -43,6 +43,7 @@ Coverage floor: ≥90% (enforced via `cargo tarpaulin --fail-under 90` in CI).
 | `generate_perfect_numbers` | 5     | empty, N=1, N=4, N=6 boundary, N=54 (all 10)                                                 |
 | `run`                      | 6     | N=0 exit 1, N=55 exit 1, N=1 creates file, no-arg prompts, reject-0-then-accept, N=4 finds 4 |
 | injection                  | 2     | stdout failure, stderr failure                                                               |
+| prompt end of input        | 3     | EOF at prompt exits 1, EOF after a rejected answer exits 1, `read_line_from` EOF vs blank line |
 | `tests/cli.rs`             | 4     | arg=0 exit 1, arg=1 creates file, no-arg prompts, unwritable dir                             |
 
 ## Keeping This File Up To Date
