@@ -225,6 +225,37 @@ class TestGetExponent(unittest.TestCase):
         self.assertEqual(inp.call_count, 2)
         self.assertEqual(err.getvalue(), "N must be between 1 and 7, got 9.\n")
 
+    def _prompted(self, answers):
+        args = self._interactive_args()
+        with (
+            unittest.mock.patch("builtins.input", side_effect=answers) as inp,
+            unittest.mock.patch("sys.stderr", new_callable=io.StringIO) as err,
+        ):
+            n = get_exponent(args)
+        return n, err.getvalue(), inp.call_count
+
+    def test_reprompt_accepts_bounds(self):
+        for text, want in (("1", 1), ("7", 7)):
+            with self.subTest(text=text):
+                n, err, calls = self._prompted([text])
+                self.assertEqual(n, want)
+                self.assertEqual(err, "")
+                self.assertEqual(calls, 1)
+
+    def test_reprompt_rejects_just_outside_bounds(self):
+        for text in ("0", "8"):
+            with self.subTest(text=text):
+                n, err, calls = self._prompted([text, "3"])
+                self.assertEqual(n, 3)
+                self.assertEqual(err, f"N must be between 1 and 7, got {text}.\n")
+                self.assertEqual(calls, 2)
+
+    def test_reprompt_accepts_surrounding_whitespace(self):
+        n, err, calls = self._prompted([" 3 "])
+        self.assertEqual(n, 3)
+        self.assertEqual(err, "")
+        self.assertEqual(calls, 1)
+
     def test_reprompt_then_end_of_input_exits_1(self):
         args = self._interactive_args()
         with (

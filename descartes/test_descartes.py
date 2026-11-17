@@ -2191,6 +2191,12 @@ class TestGetExponent(unittest.TestCase):
         self.assertEqual(err, "")
         self.assertEqual(calls, 1)
 
+    def test_reprompt_at_upper_bound(self) -> None:
+        k, err, calls = self.prompted(["7", "6"])
+        self.assertEqual(k, 6)
+        self.assertEqual(err, "K must be between 1 and 6, got 7.\n")
+        self.assertEqual(calls, 2)
+
 
 class TestCanvasSize(unittest.TestCase):
     def test_pipe_is_fixed(self) -> None:

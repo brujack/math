@@ -311,7 +311,8 @@ fn prompt_exponent<R: BufRead, W: Write, E: Write>(
     }
 }
 
-/// K from the argument or the prompt, checked against 1..=`K_MAX`.
+/// K from the argument or the prompt. Only the argument is checked against
+/// 1..=`K_MAX` here; `prompt_exponent` already returns in-range values.
 fn exponent<R: BufRead, W: Write, E: Write>(
     size: Option<i64>,
     stdin: &mut R,
@@ -786,6 +787,15 @@ mod tests {
         assert_eq!(o.code, 0);
         assert_eq!(o.stderr.matches("K must be between 1 and 8, got 9.\n").count(), 1);
         assert!(o.stderr.starts_with("K must be between 1 and 8, got 9.\n"), "{}", o.stderr);
+        assert_eq!(o.stdout.matches(PROMPT).count(), 2, "{}", o.stdout);
+    }
+
+    #[test]
+    fn reprompt_rejects_zero_then_accepts_one() {
+        let (o, _dir) = at_terminal(&["--no-draw"], "0\n1\n");
+        assert_eq!(o.code, 0);
+        assert_eq!(o.stderr.matches("K must be between 1 and 8, got 0.\n").count(), 1);
+        assert!(o.stderr.starts_with("K must be between 1 and 8, got 0.\n"), "{}", o.stderr);
         assert_eq!(o.stdout.matches(PROMPT).count(), 2, "{}", o.stdout);
     }
 

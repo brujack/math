@@ -83,8 +83,9 @@ def get_exponent(args: argparse.Namespace) -> int:
     """
     Get and validate the exponent N from args.
 
-    If args.size is None, prompt interactively. Validate that 1 <= N <= 7.
-    Exit with code 1 if validation fails.
+    A command-line N outside 1 <= N <= 7 exits with code 1. If args.size is
+    None, prompt interactively: a non-integer or out-of-range answer prints
+    a message to stderr and asks again, and end of input exits with code 1.
 
     Returns the validated exponent.
     """
