@@ -50,10 +50,18 @@ struct Cli {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<String> {
+/// Reads one trimmed line; `None` means end of input, distinct from a blank line.
+fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<Option<String>> {
     let mut line = String::new();
-    reader.read_line(&mut line)?;
-    Ok(line.trim().to_string())
+    if reader.read_line(&mut line)? == 0 {
+        return Ok(None);
+    }
+    Ok(Some(line.trim().to_string()))
+}
+
+/// True when the reader produced a line that means "yes"; end of input reads as "no".
+fn is_yes(answer: Option<String>) -> bool {
+    matches!(answer.as_deref(), Some("y" | "yes"))
 }
 
 fn confirm_large_n_with<R: BufRead, W: Write, E: Write>(
@@ -72,20 +80,24 @@ fn confirm_large_n_with<R: BufRead, W: Write, E: Write>(
     writeln!(err, "         and produce a very large output file.")?;
     write!(out, "Continue? (y/n): ")?;
     out.flush()?;
-    let answer = read_line_from(reader)?;
-    Ok(matches!(answer.as_str(), "y" | "yes"))
+    Ok(is_yes(read_line_from(reader)?))
 }
 
 fn prompt_n_with<R: BufRead, W: Write, E: Write>(
     reader: &mut R,
     out: &mut W,
     err: &mut E,
-) -> io::Result<u32> {
+) -> io::Result<Result<u32, i32>> {
     loop {
         write!(out, "Enter N (finds all primes up to 10^N, max 18): ")?;
         out.flush()?;
-        match read_line_from(reader)?.parse::<u32>() {
-            Ok(n) if (1..=18).contains(&n) => return Ok(n),
+        let Some(line) = read_line_from(reader)? else {
+            writeln!(out)?;
+            writeln!(err, "Error: no input; pass SIZE as an argument (e.g. prime 1).")?;
+            return Ok(Err(1));
+        };
+        match line.parse::<u32>() {
+            Ok(n) if (1..=18).contains(&n) => return Ok(Ok(n)),
             Ok(_) => writeln!(err, "N must be between 1 and 18.")?,
             _ => writeln!(err, "Please enter a positive integer.")?,
         }
@@ -114,7 +126,10 @@ fn run<R: BufRead, W: Write, E: Write>(
             }
             d
         }
-        None => prompt_n_with(reader, out, err)?,
+        None => match prompt_n_with(reader, out, err)? {
+            Ok(n) => n,
+            Err(code) => return Ok(code),
+        },
     };
 
     let limit: u64 = 10u64.pow(digits);
@@ -140,7 +155,7 @@ fn run<R: BufRead, W: Write, E: Write>(
         writeln!(out, "\nFound {} primes up to 10^{}", fmt_int(count), digits)?;
         write!(out, "Display all {} primes? (y/n): ", fmt_int(count))?;
         out.flush()?;
-        if matches!(read_line_from(reader)?.as_str(), "y" | "yes") {
+        if is_yes(read_line_from(reader)?) {
             out.write_all(&buf)?;
         } else {
             let path = dir.join(format!("primes_1e{}.txt", digits));
@@ -478,19 +493,19 @@ mod tests {
     #[test]
     fn test_read_line_from_trims_newline() {
         let mut r = io::Cursor::new(b"hello\n");
-        assert_eq!(read_line_from(&mut r).unwrap(), "hello");
+        assert_eq!(read_line_from(&mut r).unwrap(), Some("hello".to_string()));
     }
 
     #[test]
     fn test_read_line_from_empty() {
         let mut r = io::Cursor::new(b"");
-        assert_eq!(read_line_from(&mut r).unwrap(), "");
+        assert_eq!(read_line_from(&mut r).unwrap(), None);
     }
 
     #[test]
     fn test_read_line_from_trims_whitespace() {
         let mut r = io::Cursor::new(b"  hello  \n");
-        assert_eq!(read_line_from(&mut r).unwrap(), "hello");
+        assert_eq!(read_line_from(&mut r).unwrap(), Some("hello".to_string()));
     }
 
     // --- confirm_large_n_with ---
@@ -529,6 +544,96 @@ mod tests {
         assert!(!confirm_large_n_with(&mut r, &mut out, &mut err, 12).unwrap());
     }
 
+    // --- end of input ---
+
+    #[test]
+    fn prompt_eof_at_prompt_exits_1_with_no_input_message() {
+        let mut r = io::Cursor::new(b"" as &[u8]);
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let got = prompt_n_with(&mut r, &mut out, &mut err).unwrap();
+        assert_eq!(got, Err(1));
+        assert_eq!(
+            String::from_utf8(err).unwrap(),
+            "Error: no input; pass SIZE as an argument (e.g. prime 1).\n"
+        );
+        assert!(String::from_utf8(out).unwrap().ends_with("\n"));
+    }
+
+    #[test]
+    fn prompt_eof_after_a_rejected_answer_exits_1() {
+        let mut r = io::Cursor::new(b"abc\n" as &[u8]);
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let got = prompt_n_with(&mut r, &mut out, &mut err).unwrap();
+        assert_eq!(got, Err(1));
+        let stderr = String::from_utf8(err).unwrap();
+        assert!(stderr.contains("positive integer"), "stderr: {}", stderr);
+        assert!(stderr.contains("no input"), "stderr: {}", stderr);
+    }
+
+    #[test]
+    fn prompt_eof_read_line_from_eof_differs_from_blank_line() {
+        let mut eof = io::Cursor::new(b"" as &[u8]);
+        let mut blank = io::Cursor::new(b"\n" as &[u8]);
+        assert_eq!(read_line_from(&mut eof).unwrap(), None);
+        assert_eq!(read_line_from(&mut blank).unwrap(), Some(String::new()));
+    }
+
+    #[test]
+    fn prompt_eof_run_no_arg_exits_1() {
+        let dir = tempdir().unwrap();
+        let mut r = io::Cursor::new(b"" as &[u8]);
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(Cli { digits: None }, &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 1);
+    }
+
+    #[test]
+    fn prompt_eof_at_confirmation_exits_0_without_computing() {
+        // N=11 is the first size that asks for confirmation.
+        let dir = tempdir().unwrap();
+        let mut r = io::Cursor::new(b"11\n" as &[u8]);
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(Cli { digits: None }, &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        assert!(!dir.path().join("primes_1e11.txt").exists());
+        assert!(String::from_utf8(err).unwrap().contains("Warning:"));
+    }
+
+    #[test]
+    fn prompt_eof_declined_confirmation_exits_0_without_computing() {
+        let dir = tempdir().unwrap();
+        let mut r = io::Cursor::new(b"11\nn\n" as &[u8]);
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(Cli { digits: None }, &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        assert!(!dir.path().join("primes_1e11.txt").exists());
+    }
+
+    #[test]
+    fn prompt_eof_at_display_all_reads_as_no() {
+        let dir = tempdir().unwrap();
+        let mut r = io::Cursor::new(b"" as &[u8]);
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(Cli { digits: Some(1) }, &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        assert!(dir.path().join("primes_1e1.txt").exists());
+        assert!(!String::from_utf8(out).unwrap().contains("\n7\n"));
+    }
+
+    #[test]
+    fn prompt_eof_confirm_eof_is_no() {
+        let mut r = io::Cursor::new(b"" as &[u8]);
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        assert!(!confirm_large_n_with(&mut r, &mut out, &mut err, 11).unwrap());
+    }
+
     // --- prompt_n_with ---
 
     #[test]
@@ -536,7 +641,7 @@ mod tests {
         let mut r = io::Cursor::new(b"9\n");
         let mut out = Vec::new();
         let mut err = Vec::new();
-        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 9);
+        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), Ok(9));
     }
 
     #[test]
@@ -544,7 +649,7 @@ mod tests {
         let mut r = io::Cursor::new(b"1\n");
         let mut out = Vec::new();
         let mut err = Vec::new();
-        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 1);
+        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), Ok(1));
     }
 
     #[test]
@@ -552,7 +657,7 @@ mod tests {
         let mut r = io::Cursor::new(b"18\n");
         let mut out = Vec::new();
         let mut err = Vec::new();
-        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 18);
+        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), Ok(18));
     }
 
     #[test]
@@ -561,7 +666,7 @@ mod tests {
         let mut r = io::Cursor::new(b"0\n5\n");
         let mut out = Vec::new();
         let mut err = Vec::new();
-        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 5);
+        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), Ok(5));
         let stderr = String::from_utf8(err).unwrap();
         assert!(stderr.contains("between 1 and 18"), "stderr: {}", stderr);
     }
@@ -571,7 +676,7 @@ mod tests {
         let mut r = io::Cursor::new(b"abc\n7\n");
         let mut out = Vec::new();
         let mut err = Vec::new();
-        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 7);
+        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), Ok(7));
         let stderr = String::from_utf8(err).unwrap();
         assert!(stderr.contains("positive integer"), "stderr: {}", stderr);
     }
@@ -581,7 +686,7 @@ mod tests {
         let mut r = io::Cursor::new(b"19\n6\n");
         let mut out = Vec::new();
         let mut err = Vec::new();
-        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 6);
+        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), Ok(6));
     }
 
     proptest! {

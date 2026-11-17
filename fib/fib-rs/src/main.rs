@@ -19,22 +19,35 @@ struct Cli {
     exponent: Option<u32>,
 }
 
-fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<String> {
+/// Reads one trimmed line; `None` means end of input, distinct from a blank line.
+fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<Option<String>> {
     let mut line = String::new();
-    reader.read_line(&mut line)?;
-    Ok(line.trim().to_string())
+    if reader.read_line(&mut line)? == 0 {
+        return Ok(None);
+    }
+    Ok(Some(line.trim().to_string()))
+}
+
+/// True when the reader produced a line that means "yes"; end of input reads as "no".
+fn is_yes(answer: Option<String>) -> bool {
+    matches!(answer.as_deref(), Some("y" | "yes"))
 }
 
 fn prompt_exponent_with<R: BufRead, W: Write, E: Write>(
     reader: &mut R,
     out: &mut W,
     err: &mut E,
-) -> io::Result<u32> {
+) -> io::Result<Result<u32, i32>> {
     loop {
         write!(out, "Enter X (finds all Fibonacci numbers with up to 10^X digits, max 5): ")?;
         out.flush()?;
-        match read_line_from(reader)?.parse::<u32>() {
-            Ok(x) if (1..=5).contains(&x) => return Ok(x),
+        let Some(line) = read_line_from(reader)? else {
+            writeln!(out)?;
+            writeln!(err, "Error: no input; pass SIZE as an argument (e.g. fib 3).")?;
+            return Ok(Err(1));
+        };
+        match line.parse::<u32>() {
+            Ok(x) if (1..=5).contains(&x) => return Ok(Ok(x)),
             Ok(_) => writeln!(err, "X must be between 1 and 5.")?,
             _ => writeln!(err, "Please enter a positive integer.")?,
         }
@@ -57,7 +70,7 @@ fn confirm_large_n_with<R: BufRead, W: Write, E: Write>(
     writeln!(err, "         and produce a very large output file.")?;
     write!(out, "Continue? (y/n): ")?;
     out.flush()?;
-    Ok(matches!(read_line_from(reader)?.as_str(), "y" | "yes"))
+    Ok(is_yes(read_line_from(reader)?))
 }
 
 fn write_fib_file(dir: &Path, exponent: u32, buf: &[u8]) -> io::Result<PathBuf> {
@@ -93,7 +106,10 @@ fn run<R: BufRead, W: Write, E: Write>(
             }
             x
         }
-        None => prompt_exponent_with(reader, out, err)?,
+        None => match prompt_exponent_with(reader, out, err)? {
+            Ok(x) => x,
+            Err(code) => return Ok(code),
+        },
     };
 
     let max_digits = 10usize.pow(exponent);
@@ -115,7 +131,7 @@ fn run<R: BufRead, W: Write, E: Write>(
         writeln!(out, "\nFound {c} Fibonacci numbers with up to 10^{exponent} digits")?;
         write!(out, "Display all {c} Fibonacci numbers? (y/n): ")?;
         out.flush()?;
-        if matches!(read_line_from(reader)?.as_str(), "y" | "yes") {
+        if is_yes(read_line_from(reader)?) {
             out.write_all(&buf)?;
         } else {
             let path = write_fib_file(dir, exponent, &buf)?;
@@ -275,25 +291,25 @@ mod tests {
     #[test]
     fn test_read_line_from_trims_newline() {
         let mut input = Cursor::new(b"hello\n");
-        assert_eq!(read_line_from(&mut input).unwrap(), "hello");
+        assert_eq!(read_line_from(&mut input).unwrap(), Some("hello".to_string()));
     }
 
     #[test]
     fn test_read_line_from_trims_whitespace() {
         let mut input = Cursor::new(b"  spaced  \n");
-        assert_eq!(read_line_from(&mut input).unwrap(), "spaced");
+        assert_eq!(read_line_from(&mut input).unwrap(), Some("spaced".to_string()));
     }
 
     #[test]
     fn test_read_line_from_empty_eof() {
         let mut input = Cursor::new(b"");
-        assert_eq!(read_line_from(&mut input).unwrap(), "");
+        assert_eq!(read_line_from(&mut input).unwrap(), None);
     }
 
     #[test]
     fn test_read_line_from_only_first_line() {
         let mut input = Cursor::new(b"first\nsecond\n");
-        assert_eq!(read_line_from(&mut input).unwrap(), "first");
+        assert_eq!(read_line_from(&mut input).unwrap(), Some("first".to_string()));
     }
 
     // --- prompt_exponent_with ---
@@ -303,7 +319,7 @@ mod tests {
         let mut input = Cursor::new(b"1\n");
         let mut out: Vec<u8> = Vec::new();
         let mut err: Vec<u8> = Vec::new();
-        assert_eq!(prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(), 1);
+        assert_eq!(prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(), Ok(1));
         assert!(err.is_empty());
     }
 
@@ -312,7 +328,7 @@ mod tests {
         let mut input = Cursor::new(b"5\n");
         let mut out: Vec<u8> = Vec::new();
         let mut err: Vec<u8> = Vec::new();
-        assert_eq!(prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(), 5);
+        assert_eq!(prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(), Ok(5));
     }
 
     #[test]
@@ -320,7 +336,7 @@ mod tests {
         let mut input = Cursor::new(b"0\n3\n");
         let mut out: Vec<u8> = Vec::new();
         let mut err: Vec<u8> = Vec::new();
-        assert_eq!(prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(), 3);
+        assert_eq!(prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(), Ok(3));
         assert!(String::from_utf8(err).unwrap().contains("between 1 and 5"));
     }
 
@@ -329,7 +345,7 @@ mod tests {
         let mut input = Cursor::new(b"6\n2\n");
         let mut out: Vec<u8> = Vec::new();
         let mut err: Vec<u8> = Vec::new();
-        assert_eq!(prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(), 2);
+        assert_eq!(prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(), Ok(2));
         assert!(String::from_utf8(err).unwrap().contains("between 1 and 5"));
     }
 
@@ -338,7 +354,7 @@ mod tests {
         let mut input = Cursor::new(b"abc\n1\n");
         let mut out: Vec<u8> = Vec::new();
         let mut err: Vec<u8> = Vec::new();
-        assert_eq!(prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(), 1);
+        assert_eq!(prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(), Ok(1));
         assert!(String::from_utf8(err).unwrap().contains("positive integer"));
     }
 
@@ -347,7 +363,7 @@ mod tests {
         let mut input = Cursor::new(b"-1\n2\n");
         let mut out: Vec<u8> = Vec::new();
         let mut err: Vec<u8> = Vec::new();
-        assert_eq!(prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(), 2);
+        assert_eq!(prompt_exponent_with(&mut input, &mut out, &mut err).unwrap(), Ok(2));
         assert!(String::from_utf8(err).unwrap().contains("positive integer"));
     }
 
@@ -381,6 +397,96 @@ mod tests {
     #[test]
     fn test_confirm_large_n_blank_treated_as_no() {
         let mut input = Cursor::new(b"\n");
+        let mut out: Vec<u8> = Vec::new();
+        let mut err: Vec<u8> = Vec::new();
+        assert!(!confirm_large_n_with(&mut input, &mut out, &mut err, 4, 10_000).unwrap());
+    }
+
+    // --- end of input ---
+
+    #[test]
+    fn prompt_eof_at_prompt_exits_1_with_no_input_message() {
+        let mut input = Cursor::new(b"");
+        let mut out: Vec<u8> = Vec::new();
+        let mut err: Vec<u8> = Vec::new();
+        let got = prompt_exponent_with(&mut input, &mut out, &mut err).unwrap();
+        assert_eq!(got, Err(1));
+        assert_eq!(
+            String::from_utf8(err).unwrap(),
+            "Error: no input; pass SIZE as an argument (e.g. fib 3).\n"
+        );
+        assert!(String::from_utf8(out).unwrap().ends_with("\n"));
+    }
+
+    #[test]
+    fn prompt_eof_after_a_rejected_answer_exits_1() {
+        let mut input = Cursor::new(b"abc\n");
+        let mut out: Vec<u8> = Vec::new();
+        let mut err: Vec<u8> = Vec::new();
+        let got = prompt_exponent_with(&mut input, &mut out, &mut err).unwrap();
+        assert_eq!(got, Err(1));
+        let err = String::from_utf8(err).unwrap();
+        assert!(err.contains("positive integer"));
+        assert!(err.contains("no input"));
+    }
+
+    #[test]
+    fn prompt_eof_read_line_from_eof_differs_from_blank_line() {
+        let mut eof = Cursor::new(b"");
+        let mut blank = Cursor::new(b"\n");
+        assert_eq!(read_line_from(&mut eof).unwrap(), None);
+        assert_eq!(read_line_from(&mut blank).unwrap(), Some(String::new()));
+    }
+
+    #[test]
+    fn prompt_eof_run_no_arg_exits_1() {
+        let dir = tempdir().unwrap();
+        let mut input = Cursor::new(b"");
+        let mut out: Vec<u8> = Vec::new();
+        let mut err: Vec<u8> = Vec::new();
+        let code = run(Cli { exponent: None }, &mut input, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 1);
+    }
+
+    #[test]
+    fn prompt_eof_at_confirmation_exits_0_without_computing() {
+        let dir = tempdir().unwrap();
+        let mut input = Cursor::new(b"4\n");
+        let mut out: Vec<u8> = Vec::new();
+        let mut err: Vec<u8> = Vec::new();
+        let code = run(Cli { exponent: None }, &mut input, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        assert!(!dir.path().join("fib_1e4.txt").exists());
+        assert!(String::from_utf8(err).unwrap().contains("Warning"));
+    }
+
+    #[test]
+    fn prompt_eof_declined_confirmation_exits_0_without_computing() {
+        let dir = tempdir().unwrap();
+        let mut input = Cursor::new(b"4\nn\n");
+        let mut out: Vec<u8> = Vec::new();
+        let mut err: Vec<u8> = Vec::new();
+        let code = run(Cli { exponent: None }, &mut input, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        assert!(!dir.path().join("fib_1e4.txt").exists());
+    }
+
+    #[test]
+    fn prompt_eof_at_display_all_reads_as_no() {
+        let dir = tempdir().unwrap();
+        let mut input = Cursor::new(b"");
+        let mut out: Vec<u8> = Vec::new();
+        let mut err: Vec<u8> = Vec::new();
+        let code =
+            run(Cli { exponent: Some(1) }, &mut input, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        assert!(dir.path().join("fib_1e1.txt").exists());
+        assert!(!String::from_utf8(out).unwrap().contains("\n8\n"));
+    }
+
+    #[test]
+    fn prompt_eof_confirm_eof_is_no() {
+        let mut input = Cursor::new(b"");
         let mut out: Vec<u8> = Vec::new();
         let mut err: Vec<u8> = Vec::new();
         assert!(!confirm_large_n_with(&mut input, &mut out, &mut err, 4, 10_000).unwrap());
