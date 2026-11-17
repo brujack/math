@@ -83,15 +83,20 @@ def get_exponent(args: argparse.Namespace) -> int:
     """
     Get and validate the exponent N from args.
 
-    If args.size is None, prompt interactively. Validate that 1 <= N <= 7.
-    Exit with code 1 if validation fails.
+    A command-line N outside 1 <= N <= 7 exits with code 1. If args.size is
+    None, prompt interactively: a non-integer or out-of-range answer prints
+    a message to stderr and asks again, and end of input exits with code 1.
 
     Returns the validated exponent.
     """
-    n = args.size
-    if n is None:
+    if args.size is not None:
+        if args.size < 1 or args.size > 7:
+            print(f"N must be between 1 and 7, got {args.size}.", file=sys.stderr)
+            sys.exit(1)
+        return args.size
+    while True:
         try:
-            n = int(input("Enter exponent N (limit = 10^N, max 7): "))
+            text = input("Enter exponent N (limit = 10^N, max 7): ")
         except EOFError:
             print()
             print(
@@ -100,13 +105,15 @@ def get_exponent(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             sys.exit(1)
+        try:
+            n = int(text)
         except ValueError:
-            print("Invalid input.", file=sys.stderr)
-            sys.exit(1)
-    if n < 1 or n > 7:
+            shown = text.rstrip("\r")  # as descartes-rs: a CRLF terminal leaves "\r"
+            print(f"Invalid input: '{shown}' is not an integer N.", file=sys.stderr)
+            continue
+        if 1 <= n <= 7:
+            return n
         print(f"N must be between 1 and 7, got {n}.", file=sys.stderr)
-        sys.exit(1)
-    return n
 
 
 def main(argv: list[str] | None = None) -> None:

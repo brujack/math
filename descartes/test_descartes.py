@@ -2120,17 +2120,6 @@ class TestGetExponent(unittest.TestCase):
             self.assertEqual(get_exponent(args), 3)
         prompt.assert_called_once_with("Enter exponent K (limit = 10^K, max 6): ")
 
-    def test_interactive_out_of_range_exits_2(self) -> None:
-        with mock.patch("sys.stdin.isatty", return_value=True):
-            args = parse_args([])
-        with (
-            mock.patch("builtins.input", return_value="7"),
-            contextlib.redirect_stderr(io.StringIO()),
-            self.assertRaises(SystemExit) as ctx,
-        ):
-            get_exponent(args)
-        self.assertEqual(ctx.exception.code, 2)
-
     def test_interactive_eof_exits_1_with_contract_message(self) -> None:
         with mock.patch("sys.stdin.isatty", return_value=True):
             args = parse_args([])
@@ -2148,17 +2137,77 @@ class TestGetExponent(unittest.TestCase):
             "Error: no input; pass K as an argument (e.g. python3 descartes.py 2).\n",
         )
 
-    def test_interactive_non_integer_exits_2(self) -> None:
+    def prompted(self, answers: list[object]) -> tuple[int, str, int]:
         with mock.patch("sys.stdin.isatty", return_value=True):
             args = parse_args([])
         with (
-            mock.patch("builtins.input", return_value="abc"),
+            mock.patch("builtins.input", side_effect=answers) as prompt,
+            contextlib.redirect_stderr(io.StringIO()) as err,
+        ):
+            k = get_exponent(args)
+        return k, err.getvalue(), prompt.call_count
+
+    def test_reprompt_after_non_integer(self) -> None:
+        k, err, calls = self.prompted(["abc", "3"])
+        self.assertEqual(k, 3)
+        self.assertEqual(err, "Invalid input: 'abc' is not an integer K.\n")
+        self.assertEqual(calls, 2)
+
+    def test_reprompt_quotes_input_like_descartes_rs(self) -> None:
+        # Plain single quotes, not repr(), trailing CR dropped: as descartes-rs prints.
+        k, err, calls = self.prompted(["a'b", "3"])
+        self.assertEqual(k, 3)
+        self.assertEqual(err, "Invalid input: 'a'b' is not an integer K.\n")
+        self.assertEqual(calls, 2)
+
+    def test_reprompt_drops_trailing_carriage_return(self) -> None:
+        k, err, _ = self.prompted(["x\r", "3"])
+        self.assertEqual(k, 3)
+        self.assertEqual(err, "Invalid input: 'x' is not an integer K.\n")
+
+    def test_reprompt_after_out_of_range(self) -> None:
+        k, err, calls = self.prompted(["9", "3"])
+        self.assertEqual(k, 3)
+        self.assertEqual(err, "K must be between 1 and 6, got 9.\n")
+        self.assertEqual(calls, 2)
+
+    def test_reprompt_after_zero_and_negative(self) -> None:
+        k, err, calls = self.prompted(["0", "-1", "1"])
+        self.assertEqual(k, 1)
+        self.assertEqual(
+            err,
+            "K must be between 1 and 6, got 0.\nK must be between 1 and 6, got -1.\n",
+        )
+        self.assertEqual(calls, 3)
+
+    def test_reprompt_then_end_of_input_exits_1(self) -> None:
+        with mock.patch("sys.stdin.isatty", return_value=True):
+            args = parse_args([])
+        with (
+            mock.patch("builtins.input", side_effect=["abc", EOFError]),
+            contextlib.redirect_stdout(io.StringIO()),
             contextlib.redirect_stderr(io.StringIO()) as err,
             self.assertRaises(SystemExit) as ctx,
         ):
             get_exponent(args)
-        self.assertEqual(ctx.exception.code, 2)
-        self.assertEqual(err.getvalue(), "Invalid input: 'abc' is not an integer K.\n")
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertEqual(
+            err.getvalue(),
+            "Invalid input: 'abc' is not an integer K.\n"
+            "Error: no input; pass K as an argument (e.g. python3 descartes.py 2).\n",
+        )
+
+    def test_reprompt_accepts_surrounding_whitespace(self) -> None:
+        k, err, calls = self.prompted([" 3 "])
+        self.assertEqual(k, 3)
+        self.assertEqual(err, "")
+        self.assertEqual(calls, 1)
+
+    def test_reprompt_at_upper_bound(self) -> None:
+        k, err, calls = self.prompted(["7", "6"])
+        self.assertEqual(k, 6)
+        self.assertEqual(err, "K must be between 1 and 6, got 7.\n")
+        self.assertEqual(calls, 2)
 
 
 class TestCanvasSize(unittest.TestCase):

@@ -199,17 +199,106 @@ class TestGetExponent(unittest.TestCase):
             "Error: no input; pass SIZE as an argument (e.g. python3 amicable.py 5).\n",
         )
 
-    def test_interactive_non_integer_exits_1(self):
+    def _interactive_args(self):
         with unittest.mock.patch("sys.stdin.isatty", return_value=True):
-            args = parse_args([])
+            return parse_args([])
+
+    def test_reprompt_after_non_integer(self):
+        args = self._interactive_args()
         with (
-            unittest.mock.patch("builtins.input", return_value="abc"),
+            unittest.mock.patch("builtins.input", side_effect=["abc", "3"]) as inp,
+            unittest.mock.patch("sys.stderr", new_callable=io.StringIO) as err,
+        ):
+            self.assertEqual(get_exponent(args), 3)
+        self.assertEqual(inp.call_count, 2)
+        self.assertEqual(
+            err.getvalue().count("Invalid input: 'abc' is not an integer N."), 1
+        )
+
+    def test_reprompt_quotes_input_plainly(self):
+        args = self._interactive_args()
+        with (
+            unittest.mock.patch("builtins.input", side_effect=["a'b", "3"]),
+            unittest.mock.patch("sys.stderr", new_callable=io.StringIO) as err,
+        ):
+            self.assertEqual(get_exponent(args), 3)
+        self.assertEqual(err.getvalue(), "Invalid input: 'a'b' is not an integer N.\n")
+
+    def test_reprompt_drops_trailing_carriage_return(self):
+        args = self._interactive_args()
+        with (
+            unittest.mock.patch("builtins.input", side_effect=["x\r", "3"]),
+            unittest.mock.patch("sys.stderr", new_callable=io.StringIO) as err,
+        ):
+            self.assertEqual(get_exponent(args), 3)
+        self.assertEqual(err.getvalue(), "Invalid input: 'x' is not an integer N.\n")
+
+    def test_reprompt_after_out_of_range(self):
+        args = self._interactive_args()
+        with (
+            unittest.mock.patch("builtins.input", side_effect=["9", "3"]) as inp,
+            unittest.mock.patch("sys.stderr", new_callable=io.StringIO) as err,
+        ):
+            self.assertEqual(get_exponent(args), 3)
+        self.assertEqual(inp.call_count, 2)
+        self.assertEqual(err.getvalue(), "N must be between 1 and 7, got 9.\n")
+
+    def _prompted(self, answers):
+        args = self._interactive_args()
+        with (
+            unittest.mock.patch("builtins.input", side_effect=answers) as inp,
+            unittest.mock.patch("sys.stderr", new_callable=io.StringIO) as err,
+        ):
+            n = get_exponent(args)
+        return n, err.getvalue(), inp.call_count
+
+    def test_reprompt_accepts_bounds(self):
+        for text, want in (("1", 1), ("7", 7)):
+            with self.subTest(text=text):
+                n, err, calls = self._prompted([text])
+                self.assertEqual(n, want)
+                self.assertEqual(err, "")
+                self.assertEqual(calls, 1)
+
+    def test_reprompt_rejects_just_outside_bounds(self):
+        for text in ("0", "8"):
+            with self.subTest(text=text):
+                n, err, calls = self._prompted([text, "3"])
+                self.assertEqual(n, 3)
+                self.assertEqual(err, f"N must be between 1 and 7, got {text}.\n")
+                self.assertEqual(calls, 2)
+
+    def test_reprompt_accepts_surrounding_whitespace(self):
+        n, err, calls = self._prompted([" 3 "])
+        self.assertEqual(n, 3)
+        self.assertEqual(err, "")
+        self.assertEqual(calls, 1)
+
+    def test_reprompt_then_end_of_input_exits_1(self):
+        args = self._interactive_args()
+        with (
+            unittest.mock.patch("builtins.input", side_effect=["abc", EOFError]),
+            unittest.mock.patch("sys.stdout", new_callable=io.StringIO),
             unittest.mock.patch("sys.stderr", new_callable=io.StringIO) as err,
             self.assertRaises(SystemExit) as ctx,
         ):
             get_exponent(args)
         self.assertEqual(ctx.exception.code, 1)
-        self.assertIn("Invalid input", err.getvalue())
+        self.assertEqual(
+            err.getvalue(),
+            "Invalid input: 'abc' is not an integer N.\n"
+            "Error: no input; pass SIZE as an argument (e.g. python3 amicable.py 5).\n",
+        )
+
+    def test_cli_out_of_range_exits_1_with_message(self):
+        args = parse_args(["8"])
+        with (
+            unittest.mock.patch("sys.stderr", new_callable=io.StringIO) as err,
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            get_exponent(args)
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertEqual(err.getvalue(), "N must be between 1 and 7, got 8.\n")
 
 
 class TestMain(unittest.TestCase):

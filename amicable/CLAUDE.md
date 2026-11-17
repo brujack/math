@@ -22,7 +22,7 @@ make coverage  # pytest --cov, fails under 90%
 - `SMOKE_SIZE` (5) / `LARGE_RUN_THRESHOLD` (None: no large-run confirmation) — CLI contract constants
 - `parse_args(argv=None)` — `size` optional positional plus `--show`, `--yes`, `--smoke`; bare non-TTY run exits 2
 - `refuse_large_run(size, yes)` — exits 1 naming `--yes` at or above the threshold (inert here)
-- `get_exponent(args)` — validates `args.size` in [1,7]; interactive prompt if None, EOF exits 1
+- `get_exponent(args)` — validates a command-line `args.size` in [1,7] (out of range exits 1); interactive prompt if None, where a non-integer answer prints `Invalid input: 'abc' is not an integer N.` and an out-of-range one prints `N must be between 1 and 7, got N.`, each to stderr, and the prompt asks again, while EOF exits 1
 - `main(argv=None)` — entry point; always writes amicable_1eN.txt, prints a count line and `Saved to` line
 
 ## Important Behavior
