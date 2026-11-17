@@ -354,6 +354,30 @@ Review stopped after round 3: its findings were wording corrections that removed
 - R16 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
 - finding R18 (2026-11-17, reviewer both): NOT-BUILT — Looked for confirmation-prompt EOF handling in pi-rs, e-rs, fib-rs and prime-rs; none of those crates appears in the diff.
 - R18 reviewed: not this branch's scope — built and merged by PR2 (math#229, 02390d7), which is on master; this PR1 branch (feat/prompt-reprompt) builds R1-R5 and R17.
+- finding R6 (2026-11-17, reviewer both): NOT-BUILT — Looked for read_line==0 EOF handling in collatz-rs, e-rs, factorial-rs, fib-rs, goldbach-rs, perfect-numbers-rs, pi-rs, prime-rs and sq-rs; none of those crates appears in the diff.
+- R6 reviewed: not this branch's scope — built and merged by PR2 (math#229, 02390d7), on master; this PR1 branch builds R1-R5 and R17.
+- finding R7 (2026-11-17, reviewer both): NOT-BUILT — Looked for a `--svg PATH` flag in descartes.py, descartes-rs and triangle.py; no such flag and no triangle file appear in the diff.
+- R7 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- finding R8 (2026-11-17, reviewer both): NOT-BUILT — Looked for an SVG writer (XML header, viewBox, white rect, 3-decimal numbers); none in the diff.
+- R8 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- finding R9 (2026-11-17, reviewer both): NOT-BUILT — Looked for packing SVG circle emission with the min(10^K, 1000*|k_outer|) cutoff and min(1, r/4) stroke; not in the diff.
+- R9 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- finding R10 (2026-11-17, reviewer both): NOT-BUILT — Looked for `<text ...>k</text>` curvature labels on packing circles; not in the diff.
+- R10 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- finding R11 (2026-11-17, reviewer both): NOT-BUILT — Looked for `--solve` SVG output with `#c00` dashed solutions and bounding-box fit; not in the diff.
+- R11 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- finding R12 (2026-11-17, reviewer both): NOT-BUILT — Looked for descartes-rs/tests/parity.rs SVG comparison; the file is not in the diff.
+- R12 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- finding R13 (2026-11-17, reviewer both): NOT-BUILT — Looked for a triangle `<polygon>` SVG with side and vertex labels; triangle is not in the diff.
+- R13 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- finding R14 (2026-11-17, reviewer both): NOT-BUILT — Looked for `-1`/`-2` filename suffixing for two-solution triangles; not in the diff.
+- R14 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- finding R15 (2026-11-17, reviewer both): NOT-BUILT — Looked for pre-prompt `--svg` path checks and `Error: cannot write SVG '<path>': <reason>`; not in the diff.
+- R15 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- finding R16 (2026-11-17, reviewer both): NOT-BUILT — Looked for `Saved SVG to <path>` output; not in the diff.
+- R16 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- finding R18 (2026-11-17, reviewer both): NOT-BUILT — Looked for confirmation-prompt EOF handling in pi-rs, e-rs, fib-rs and prime-rs; none of those crates appears in the diff.
+- R18 reviewed: not this branch's scope — built and merged by PR2 (math#229, 02390d7), on master; this PR1 branch builds R1-R5 and R17.
 
 ## Spec alignment (2026-11-17)
 
@@ -366,22 +390,18 @@ Review stopped after round 3: its findings were wording corrections that removed
 
 | ID | Reviewer | Verdict | Reason | Amendment |
 | --- | --- | --- | --- | --- |
-| R1 | both | NOT-BUILT | Looked for descartes.py / descartes-rs prompt changes emitting `Invalid input: '<text>' is not an integer K.` and re-prompting; no descartes file is in the diff. | - R1 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R1 is built by PR1 (plan Tasks 6-9, branch feat/prompt-reprompt) and is reviewed against that PR's diff. |
-| R2 | both | NOT-BUILT | Looked for descartes.py / descartes-rs out-of-range K re-prompt with `K must be between 1 and <K_MAX>, got <k>.`; no descartes file is in the diff. | - R2 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R2 is built by PR1 (plan Tasks 6-9, branch feat/prompt-reprompt) and is reviewed against that PR's diff. |
-| R3 | both | NOT-BUILT | Looked for amicable.py prompt changes (non-integer and 1..7 range messages, re-prompt); no amicable file is in the diff. | - R3 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R3 is built by PR1 (plan Tasks 6-9, branch feat/prompt-reprompt) and is reviewed against that PR's diff. |
-| R4 | both | NOT-BUILT | Looked for EOF handling at the descartes and amicable prompts; neither sub-project appears in the diff. | - R4 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R4 is built by PR1 (plan Tasks 6-9, branch feat/prompt-reprompt) and is reviewed against that PR's diff. |
-| R5 | both | NOT-BUILT | No descartes or amicable code or test in the diff shows the command-line out-of-range exit codes (2 / 1); absence of a change is not evidence. | - R5 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R5 is built by PR1 (plan Tasks 6-9, branch feat/prompt-reprompt) and is reviewed against that PR's diff. |
-| R7 | both | NOT-BUILT | Looked for a `--svg PATH` flag in descartes.py, descartes-rs or triangle.py; none in the diff. | - R7 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R7 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff. |
-| R8 | both | NOT-BUILT | No SVG writer (XML header, viewBox, white rect, 3-decimal numbers) appears in the diff. | - R8 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R8 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff. |
-| R9 | both | NOT-BUILT | No descartes packing SVG code (circle mapping, curvature cutoff, stroke width) in the diff. | - R9 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R9 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff. |
-| R10 | both | NOT-BUILT | No `<text>` curvature labels for packing circles in the diff. | - R10 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R10 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff. |
-| R11 | both | NOT-BUILT | No descartes `--solve` SVG (black/#c00 dashed strokes, bounding-box fit) in the diff. | - R11 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R11 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff. |
-| R12 | both | NOT-BUILT | No descartes-rs/tests/parity.rs or Python/Rust SVG parity code in the diff. | - R12 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R12 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff. |
-| R13 | both | NOT-BUILT | No triangle SVG polygon or side/vertex labels in the diff. | - R13 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R13 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff. |
-| R14 | both | NOT-BUILT | No triangle two-solution `-1`/`-2` filename suffixing in the diff. | - R14 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R14 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff. |
-| R15 | both | NOT-BUILT | No `--svg` path validation or `Error: cannot write SVG '<path>': <reason>` message in the diff. | - R15 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R15 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff. |
-| R16 | both | NOT-BUILT | No `Saved SVG to <path>` output in the diff. | - R16 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R16 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff. |
-| R17 | both | NOT-BUILT | docs/superpowers/specs/2026-11-15-descartes-design.md is not in the diff (only plans are excluded, specs are not). | - R17 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R17 is built by PR1 (plan Tasks 6-9, branch feat/prompt-reprompt) and is reviewed against that PR's diff. |
+| R6 | both | NOT-BUILT | Looked for read_line==0 EOF handling in collatz-rs, e-rs, factorial-rs, fib-rs, goldbach-rs, perfect-numbers-rs, pi-rs, prime-rs and sq-rs; none of those crates appears in the diff. | - R6 reviewed: not this branch's scope — built and merged by PR2 (math#229, 02390d7), on master; this PR1 branch builds R1-R5 and R17. |
+| R7 | both | NOT-BUILT | Looked for a `--svg PATH` flag in descartes.py, descartes-rs and triangle.py; no such flag and no triangle file appear in the diff. | - R7 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17. |
+| R8 | both | NOT-BUILT | Looked for an SVG writer (XML header, viewBox, white rect, 3-decimal numbers); none in the diff. | - R8 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17. |
+| R9 | both | NOT-BUILT | Looked for packing SVG circle emission with the min(10^K, 1000*\|k_outer\|) cutoff and min(1, r/4) stroke; not in the diff. | - R9 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17. |
+| R10 | both | NOT-BUILT | Looked for `<text ...>k</text>` curvature labels on packing circles; not in the diff. | - R10 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17. |
+| R11 | both | NOT-BUILT | Looked for `--solve` SVG output with `#c00` dashed solutions and bounding-box fit; not in the diff. | - R11 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17. |
+| R12 | both | NOT-BUILT | Looked for descartes-rs/tests/parity.rs SVG comparison; the file is not in the diff. | - R12 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17. |
+| R13 | both | NOT-BUILT | Looked for a triangle `<polygon>` SVG with side and vertex labels; triangle is not in the diff. | - R13 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17. |
+| R14 | both | NOT-BUILT | Looked for `-1`/`-2` filename suffixing for two-solution triangles; not in the diff. | - R14 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17. |
+| R15 | both | NOT-BUILT | Looked for pre-prompt `--svg` path checks and `Error: cannot write SVG '<path>': <reason>`; not in the diff. | - R15 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17. |
+| R16 | both | NOT-BUILT | Looked for `Saved SVG to <path>` output; not in the diff. | - R16 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17. |
+| R18 | both | NOT-BUILT | Looked for confirmation-prompt EOF handling in pi-rs, e-rs, fib-rs and prime-rs; none of those crates appears in the diff. | - R18 reviewed: not this branch's scope — built and merged by PR2 (math#229, 02390d7), on master; this PR1 branch builds R1-R5 and R17. |
 
 ### Reviewed
 
@@ -401,9 +421,35 @@ Review stopped after round 3: its findings were wording corrections that removed
 - R15 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R15 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff.
 - R16 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R16 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff.
 - R17 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R17 is built by PR1 (plan Tasks 6-9, branch feat/prompt-reprompt) and is reviewed against that PR's diff.
+- R1 reviewed: fixed in 36ebda5 — descartes.py and amicable.py now print the rejected answer in plain single quotes ('{text}'), matching descartes-rs and the requirement; test_reprompt_quotes_* pin it.
+- R3 reviewed: fixed in 36ebda5 — descartes.py and amicable.py now print the rejected answer in plain single quotes ('{text}'), matching descartes-rs and the requirement; test_reprompt_quotes_* pin it.
+- R6 reviewed: not this branch's scope — built and merged by PR2 (math#229, 02390d7), which is on master; this PR1 branch (feat/prompt-reprompt) builds R1-R5 and R17.
+- R7 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- R8 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- R9 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- R10 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- R11 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- R12 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- R13 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- R14 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- R15 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- R16 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- R18 reviewed: not this branch's scope — built and merged by PR2 (math#229, 02390d7), which is on master; this PR1 branch (feat/prompt-reprompt) builds R1-R5 and R17.
+- R6 reviewed: not this branch's scope — built and merged by PR2 (math#229, 02390d7), on master; this PR1 branch builds R1-R5 and R17.
+- R7 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- R8 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- R9 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- R10 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- R11 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- R12 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- R13 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- R14 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- R15 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- R16 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- R18 reviewed: not this branch's scope — built and merged by PR2 (math#229, 02390d7), on master; this PR1 branch builds R1-R5 and R17.
 
 ### Verifications
 
-- V1: 2026-11-17 on claude, PR2 branch binaries: closed stdin (timeout 2 <bin> </dev/null) collatz 114, goldbach 116, factorial 90, perfect-numbers 191, sq 123, pi 195, e 192, fib 205, prime 179 bytes, all rc=1 (before: 50000000 bytes each); pty (script -qec) all nine rc=1 (before: rc=124); descartes-rs pty rc=1, closed stdin rc=2 (its existing bare non-TTY refusal, descartes R27, unchanged by this branch). pi/e '2000000' then EOF: rc=0, ~220 bytes.
+- V1: no evidence recorded
 - V2: no evidence recorded
-- V3: PR2 branch: root make test exit 0 in pinned venv (834 bats ok, 712 python ok, 2 skipped); 9 crate make test exit 0; local cargo mutants --in-diff (spec reviewers): 0 missed; CI mutation-pr pending.
+- V3: PR1 branch: root make test EXIT=0, make lint 0; descartes, amicable make test/coverage 0 (descartes 99.76%, amicable 98.70%); descartes-rs make test 0; mutation: Python 24/24 prompt-path mutants killed (test-quality-review), Rust cargo mutants --in-diff 6 caught 1 timeout 0 missed plus manual 1..K_MAX mutant killed by dc41e5c; CI mutation-pr pending.
