@@ -108,7 +108,7 @@ def get_exponent(args: argparse.Namespace) -> int:
         try:
             n = int(text)
         except ValueError:
-            print(f"Invalid input: {text!r} is not an integer N.", file=sys.stderr)
+            print(f"Invalid input: '{text}' is not an integer N.", file=sys.stderr)
             continue
         if 1 <= n <= 7:
             return n

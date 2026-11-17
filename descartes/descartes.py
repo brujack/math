@@ -673,7 +673,7 @@ def get_exponent(args: argparse.Namespace) -> int:
         try:
             k = int(text)
         except ValueError:
-            print(f"Invalid input: {text!r} is not an integer K.", file=sys.stderr)
+            print(f"Invalid input: '{text}' is not an integer K.", file=sys.stderr)
             continue
         if 1 <= k <= K_MAX:
             return k
