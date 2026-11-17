@@ -69,3 +69,29 @@ teardown() {
     [ "${lines[1]}" = "circles 8" ]
     [ "$(cat "${TMP_DIR}/descartes_1e1.txt")" = "$(printf '2\n3\n6')" ]
 }
+
+@test "python: --svg into a missing directory exits 1 before any prompt or file" {
+    run --separate-stderr bash -c \
+        "cd '${TMP_DIR}' && python3 '${PYTHON_CLI}' 1 --no-draw --svg nope/p.svg </dev/null"
+    [ "${status}" -eq 1 ]
+    [ "${stderr}" = "Error: cannot write SVG 'nope/p.svg': directory 'nope' does not exist" ]
+    [ -z "$(ls -A "${TMP_DIR}")" ]
+}
+
+@test "python: --svg naming a directory exits 1 and writes nothing" {
+    mkdir "${TMP_DIR}/d"
+    run --separate-stderr bash -c \
+        "cd '${TMP_DIR}' && python3 '${PYTHON_CLI}' 1 --no-draw --svg d </dev/null"
+    [ "${status}" -eq 1 ]
+    [ "${stderr}" = "Error: cannot write SVG 'd': it is a directory" ]
+    [ "$(ls -A "${TMP_DIR}")" = "d" ]
+}
+
+@test "python: --svg writes the drawing and reports it after the .txt" {
+    run --separate-stderr bash -c \
+        "cd '${TMP_DIR}' && python3 '${PYTHON_CLI}' 1 --no-draw --svg p.svg </dev/null"
+    [ "${status}" -eq 0 ]
+    [ "${lines[3]}" = "Saved to descartes_1e1.txt" ]
+    [ "${lines[4]}" = "Saved SVG to p.svg" ]
+    [ "$(grep -c '<circle ' "${TMP_DIR}/p.svg")" -eq 9 ]
+}
