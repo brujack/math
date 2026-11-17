@@ -372,8 +372,10 @@ _dump_group_state() {
     return 0
 }
 
-# The Python SIGTERM tests time out under CI's bash-coverage tracer only (math#212, run
-# 42126186260; not reproduced locally, including `make bash-coverage` on 2 CPUs). Makefile
+# The SIGTERM tests, Python and Rust, time out under CI's bash-coverage tracer only (math#212,
+# run 42126186260; the Rust ones from run 42327936247 on, last 43991758036; not reproduced
+# locally, including `make bash-coverage` on 2 CPUs; the dump shows the session already gone
+# with the cleanup rm never started, so cleanup was skipped, not slow). Makefile
 # recipes are outside the coverage denominator, so skipping them there loses no coverage;
 # they still run as real tests in the scripts job, and tests/test_mutants_cleanup_traps.py
 # pins the traps deterministically.
@@ -516,8 +518,27 @@ _tmpdir_run() {
     TMPDIR="${OUTER}" run _rs_make "${args[@]}"
 }
 
+# Every test that drives _term_group_twice is a SIGTERM timing test, and each one of them,
+# Python and Rust, has timed out under CI's bash-coverage tracer (Backlog rows 105, 152:
+# runs 42126186260, 42327936247, 42516108857, 42550879158, 43991758036), always with an
+# empty process-state dump. A new one must skip there too, or it brings the flake back.
+@test "every SIGTERM-twice test skips under the bash-coverage tracer" {
+    local missing
+    missing="$(awk '
+        /^@test / { name = $0; body = ""; inside = 1; next }
+        inside && /^}/ {
+            if (body ~ /_term_group_twice/ && body !~ /_skip_under_coverage_tracer/) print name
+            inside = 0; next
+        }
+        inside { body = body "\n" $0 }
+    ' "${BATS_TEST_FILENAME}")"
+    [ -z "${missing}" ] || { printf 'SIGTERM-twice tests without the tracer skip:\n%s\n' "${missing}" >&2; return 1; }
+    [ "$(command grep -c '^    .*_term_group_twice ' "${BATS_TEST_FILENAME}")" -ge 3 ]
+}
+
 # A CI cancel signals the whole group more than once; the second TERM must not kill the cleanup rm.
 @test "make mutants removes target/mutants-tmp when the whole process group gets SIGTERM twice" {
+    _skip_under_coverage_tracer
     _rs_stub_setup
     STUB_CARGO_HANG=1 STUB_RM_SLOW=1 _term_group_twice "${CRATE}" mutants
     [ -s "${BATS_TEST_TMPDIR}/rm-log" ]
@@ -525,6 +546,7 @@ _tmpdir_run() {
 }
 
 @test "make mutants-diff removes target/mutants-tmp when the whole process group gets SIGTERM twice" {
+    _skip_under_coverage_tracer
     _rs_stub_setup
     printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
     STUB_CARGO_HANG=1 STUB_RM_SLOW=1 _term_group_twice "${CRATE}" mutants-diff "DIFF=${BATS_TEST_TMPDIR}/pr.diff"
