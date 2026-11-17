@@ -358,6 +358,9 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    // Tests run as threads under tarpaulin and computing resets the global leaf counter.
+    static BS_COUNTER_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     use super::*;
     use proptest::prelude::*;
     use tempfile::tempdir;
@@ -425,6 +428,7 @@ mod tests {
 
     #[test]
     fn test_bs_leaf_increments_counter() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let before = BS_LEAF_COUNT.load(Ordering::Relaxed);
         bs_leaf(0);
         bs_leaf(1);
@@ -877,6 +881,7 @@ mod tests {
 
     #[test]
     fn test_run_with_one_digit_returns_zero_and_previews() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let cli = Cli { digits: Some(1) };
         let mut r = &b"y\n"[..];
         let mut out = Vec::<u8>::new();
@@ -893,6 +898,7 @@ mod tests {
 
     #[test]
     fn test_run_with_arg_displays_when_user_says_y() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let cli = Cli { digits: Some(10) };
         let mut r = &b"y\n"[..];
         let mut out = Vec::<u8>::new();
@@ -907,6 +913,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn test_run_with_arg_saves_when_user_says_n() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let cli = Cli { digits: Some(10) };
         let mut r = &b"n\n"[..];
         let mut out = Vec::<u8>::new();
@@ -920,6 +927,7 @@ mod tests {
 
     #[test]
     fn test_run_no_arg_prompts_for_digits() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let cli = Cli { digits: None };
         let mut r = &b"10\ny\n"[..];
         let mut out = Vec::<u8>::new();
@@ -934,6 +942,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn test_run_with_arg_above_10k_auto_saves() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let cli = Cli { digits: Some(20_000) };
         let mut r = &b""[..];
         let mut out = Vec::<u8>::new();
@@ -949,12 +958,14 @@ mod tests {
 
     #[test]
     fn test_compute_pi_10_digits() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let s = compute_pi(10);
         assert_eq!(&s[..12], &PI_REF[..12]);
     }
 
     #[test]
     fn test_compute_pi_50_digits() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let s = compute_pi(50);
         assert_eq!(s, PI_REF);
     }
@@ -993,6 +1004,7 @@ mod tests {
     proptest! {
         #[test]
         fn prop_generate_succeeds(max_digits in 1usize..=5usize) {
+            let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
             let result = compute_pi(max_digits);
             prop_assert!(!result.is_empty());
             prop_assert!(result.starts_with("3."));
@@ -1005,6 +1017,7 @@ mod tests {
 
     #[test]
     fn test_compute_pi_tiny_returns_before_one_progress_tick() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let t = Instant::now();
         let s = compute_pi(5);
         let elapsed = t.elapsed();
@@ -1121,6 +1134,7 @@ mod tests {
 
     #[test]
     fn prompt_eof_at_display_all_reads_as_no() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let cli = Cli { digits: None };
         let mut r = &b"10\n"[..];
         let mut out = Vec::<u8>::new();

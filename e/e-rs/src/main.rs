@@ -337,6 +337,9 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    // Tests run as threads under tarpaulin and computing resets the global leaf counter.
+    static BS_COUNTER_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     use super::*;
     use e::{
         BS_LEAF_COUNT, bs, bs_leaf, bs_merge, compute_e, e_to_string, format_series_progress,
@@ -402,6 +405,7 @@ mod tests {
 
     #[test]
     fn test_bs_leaf_increments_counter() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let before = BS_LEAF_COUNT.load(Ordering::Relaxed);
         bs_leaf(0);
         bs_leaf(1);
@@ -479,24 +483,28 @@ mod tests {
 
     #[test]
     fn test_compute_e_one_digit() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let s = compute_e(1);
         assert_eq!(s, "2.7");
     }
 
     #[test]
     fn test_compute_e_10_digits() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let s = compute_e(10);
         assert_eq!(&s[..12], &E_REF[..12]);
     }
 
     #[test]
     fn test_compute_e_50_digits() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let s = compute_e(50);
         assert_eq!(s, E_REF);
     }
 
     #[test]
     fn test_compute_e_400_digits_accurate() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         const E_400: &str = concat!(
             "2.",
             "71828182845904523536028747135266249775724709369995",
@@ -514,6 +522,7 @@ mod tests {
 
     #[test]
     fn test_compute_e_long_enough_for_progress_thread() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let s = compute_e(20_000);
         assert!(s.starts_with(&E_REF[..50]));
         assert!(s.len() >= 20_002);
@@ -914,6 +923,7 @@ mod tests {
 
     #[test]
     fn test_run_with_one_digit_returns_zero_and_previews() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempdir().unwrap();
         let cli = Cli { digits: Some(1) };
         let mut reader = &b"n\n"[..];
@@ -928,6 +938,7 @@ mod tests {
 
     #[test]
     fn test_run_with_exactly_10k_digits_prompts_instead_of_auto_saving() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempdir().unwrap();
         let cli = Cli { digits: Some(10_000) };
         let mut reader = &b"n\n"[..];
@@ -954,6 +965,7 @@ mod tests {
 
     #[test]
     fn test_run_with_arg_displays_when_user_says_y() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempdir().unwrap();
         let cli = Cli { digits: Some(10) };
         let mut reader = &b"y\n"[..];
@@ -968,6 +980,7 @@ mod tests {
 
     #[test]
     fn test_run_with_arg_saves_when_user_says_n() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempdir().unwrap();
         let cli = Cli { digits: Some(10) };
         let mut reader = &b"n\n"[..];
@@ -983,6 +996,7 @@ mod tests {
 
     #[test]
     fn test_run_with_arg_above_10k_auto_saves() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempdir().unwrap();
         let cli = Cli { digits: Some(10_001) };
         let mut reader = &b""[..];
@@ -999,6 +1013,7 @@ mod tests {
 
     #[test]
     fn test_run_no_arg_prompts_for_digits() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempdir().unwrap();
         let cli = Cli { digits: None };
         let mut reader = &b"10\nn\n"[..];
@@ -1015,6 +1030,7 @@ mod tests {
     proptest! {
         #[test]
         fn prop_generate_succeeds(max_digits in 1usize..=5usize) {
+            let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
             let result = compute_e(max_digits);
             prop_assert!(!result.is_empty());
             prop_assert!(result.starts_with("2."));
@@ -1058,6 +1074,7 @@ mod tests {
 
     #[test]
     fn test_compute_e_tiny_returns_before_one_progress_tick() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let t = Instant::now();
         let s = compute_e(5);
         let elapsed = t.elapsed();
@@ -1168,6 +1185,7 @@ mod tests {
 
     #[test]
     fn prompt_eof_at_display_all_reads_as_no() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let cli = Cli { digits: None };
         let mut r = &b"10\n"[..];
         let mut out = Vec::<u8>::new();
