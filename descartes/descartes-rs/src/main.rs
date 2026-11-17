@@ -783,6 +783,18 @@ mod tests {
     }
 
     #[test]
+    fn reprompt_accepts_k_max_at_the_prompt() {
+        // Called directly: running K_MAX through `run` would compute a K=8 packing.
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let k = prompt_exponent(&mut "9\n8\n".as_bytes(), &mut out, &mut err).ok();
+        assert_eq!(k, Some(K_MAX));
+        assert_eq!(
+            String::from_utf8(err).unwrap(),
+            format!("K must be between 1 and {K_MAX}, got 9.\n")
+        );
+    }
+
+    #[test]
     fn reprompt_after_out_of_range() {
         let (o, _dir) = at_terminal(&["--no-draw"], "9\n3\n");
         assert_eq!(o.code, 0);
