@@ -28,11 +28,7 @@ fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<Option<String>> {
     Ok(Some(line.trim().to_string()))
 }
 
-/// True when the reader produced a line that means "yes"; end of input reads as "no".
-fn is_yes(answer: Option<String>) -> bool {
-    matches!(answer.as_deref(), Some("y" | "yes"))
-}
-
+/// Outer `Err(code)` is the exit code to return when input ended before a valid answer.
 fn prompt_exponent_with<R: BufRead, W: Write, E: Write>(
     reader: &mut R,
     out: &mut W,
@@ -70,7 +66,7 @@ fn confirm_large_n_with<R: BufRead, W: Write, E: Write>(
     writeln!(err, "         and produce a very large output file.")?;
     write!(out, "Continue? (y/n): ")?;
     out.flush()?;
-    Ok(is_yes(read_line_from(reader)?))
+    Ok(matches!(read_line_from(reader)?.as_deref(), Some("y" | "yes")))
 }
 
 fn write_fib_file(dir: &Path, exponent: u32, buf: &[u8]) -> io::Result<PathBuf> {
@@ -131,7 +127,7 @@ fn run<R: BufRead, W: Write, E: Write>(
         writeln!(out, "\nFound {c} Fibonacci numbers with up to 10^{exponent} digits")?;
         write!(out, "Display all {c} Fibonacci numbers? (y/n): ")?;
         out.flush()?;
-        if is_yes(read_line_from(reader)?) {
+        if matches!(read_line_from(reader)?.as_deref(), Some("y" | "yes")) {
             out.write_all(&buf)?;
         } else {
             let path = write_fib_file(dir, exponent, &buf)?;

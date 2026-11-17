@@ -328,6 +328,8 @@ mod tests {
         let expected =
             format!("Invalid input 'abc'. Please enter a non-negative integer.\n{}", NO_INPUT_LINE);
         assert_eq!(String::from_utf8(err).unwrap(), expected);
+        let stdout = String::from_utf8(out).unwrap();
+        assert!(stdout.ends_with("Enter N to compute N! : \n"), "stdout: {stdout:?}");
     }
 
     #[test]

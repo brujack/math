@@ -1046,6 +1046,21 @@ mod tests {
     }
 
     #[test]
+    fn prompt_eof_run_no_arg_exits_1() {
+        let dir = tempdir().unwrap();
+        let mut r = &b""[..];
+        let mut out = Vec::<u8>::new();
+        let mut err = Vec::<u8>::new();
+        let code = run(Cli { digits: None }, &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 1);
+        let err_s = String::from_utf8(err).unwrap();
+        assert!(
+            err_s.contains("Error: no input; pass SIZE as an argument (e.g. pi 10000)."),
+            "{err_s}"
+        );
+    }
+
+    #[test]
     fn prompt_eof_after_a_rejected_answer_exits_1() {
         let mut r = &b"abc\n"[..];
         let mut out = Vec::<u8>::new();

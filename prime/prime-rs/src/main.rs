@@ -59,11 +59,6 @@ fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<Option<String>> {
     Ok(Some(line.trim().to_string()))
 }
 
-/// True when the reader produced a line that means "yes"; end of input reads as "no".
-fn is_yes(answer: Option<String>) -> bool {
-    matches!(answer.as_deref(), Some("y" | "yes"))
-}
-
 fn confirm_large_n_with<R: BufRead, W: Write, E: Write>(
     reader: &mut R,
     out: &mut W,
@@ -80,9 +75,10 @@ fn confirm_large_n_with<R: BufRead, W: Write, E: Write>(
     writeln!(err, "         and produce a very large output file.")?;
     write!(out, "Continue? (y/n): ")?;
     out.flush()?;
-    Ok(is_yes(read_line_from(reader)?))
+    Ok(matches!(read_line_from(reader)?.as_deref(), Some("y" | "yes")))
 }
 
+/// Outer `Err(code)` is the exit code to return when input ended before a valid answer.
 fn prompt_n_with<R: BufRead, W: Write, E: Write>(
     reader: &mut R,
     out: &mut W,
@@ -155,7 +151,7 @@ fn run<R: BufRead, W: Write, E: Write>(
         writeln!(out, "\nFound {} primes up to 10^{}", fmt_int(count), digits)?;
         write!(out, "Display all {} primes? (y/n): ", fmt_int(count))?;
         out.flush()?;
-        if is_yes(read_line_from(reader)?) {
+        if matches!(read_line_from(reader)?.as_deref(), Some("y" | "yes")) {
             out.write_all(&buf)?;
         } else {
             let path = dir.join(format!("primes_1e{}.txt", digits));
