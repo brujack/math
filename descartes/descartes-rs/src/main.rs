@@ -293,7 +293,7 @@ fn open_svg<E: Write>(path: &Path, stderr: &mut E) -> Result<File, Stop> {
         .map_err(|e| fail(stderr, format!("cannot write SVG '{}': {e}", path.display()), 1))
 }
 
-/// Write the SVG text; the caller reports the path once everything else is on stdout.
+/// Write the SVG text; the caller prints `Saved SVG to <path>` at its place in the stdout order.
 fn write_svg<E: Write>(
     mut file: File,
     path: &Path,
@@ -426,7 +426,7 @@ fn run_packing<R: BufRead, W: Write, E: Write>(
         writeln!(writer, "{curvature}")?;
     }
     writer.flush()?;
-    // The SVG is written before any stdout line, as in Python, so a failed write prints nothing.
+    // The SVG is written before any result line, as in Python, so a failed write prints none of them.
     if let (Some(file), Some(path)) = (svg_file, args.svg.as_deref()) {
         let text = svg_packing(root, k).map_err(|e| fail_descartes(stderr, &e))?;
         write_svg(file, path, &text, stderr)?;
