@@ -378,6 +378,24 @@ Review stopped after round 3: its findings were wording corrections that removed
 - R16 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
 - finding R18 (2026-11-17, reviewer both): NOT-BUILT — Looked for confirmation-prompt EOF handling in pi-rs, e-rs, fib-rs and prime-rs; none of those crates appears in the diff.
 - R18 reviewed: not this branch's scope — built and merged by PR2 (math#229, 02390d7), on master; this PR1 branch builds R1-R5 and R17.
+- finding R1 (2026-11-17, reviewer both): NOT-BUILT — Looked for a descartes.py / descartes-rs prompt loop printing `Invalid input: '<text>' is not an integer K.` and re-prompting; no hunk touches either prompt (only --svg code changed in main.rs and descartes.py).
+- R1 reviewed: PR1 scope (plan Tasks 6-9), shipped in math#230; this run reviews PR3's diff (Tasks 10-17), which does not touch the prompts.
+- finding R2 (2026-11-17, reviewer both): NOT-BUILT — Looked for an out-of-range K re-prompt (`K must be between 1 and <K_MAX>, got <k>.`) in descartes.py / descartes-rs prompt code; no prompt hunk is in the diff.
+- R2 reviewed: PR1 scope (plan Tasks 6-9), shipped in math#230; this run reviews PR3's diff (Tasks 10-17), which does not touch the prompts.
+- finding R3 (2026-11-17, reviewer both): NOT-BUILT — No amicable/ file appears in the diff; only a Backlog row (docs/superpowers/README.md:173) mentions an amicable re-prompt loop as shipped in a separate PR1, which is not evidence in this diff.
+- R3 reviewed: PR1 scope (plan Tasks 6-9), shipped in math#230; this run reviews PR3's diff (Tasks 10-17), which does not touch the prompts.
+- finding R4 (2026-11-17, reviewer both): NOT-BUILT — Looked for end-of-input handling (newline on stdout, `Error: no input; pass ...` on stderr, exit 1) at the descartes and amicable prompts, including after rejected answers; nothing in the diff touches or tests it.
+- R4 reviewed: PR1 scope (plan Tasks 6-9), shipped in math#230; this run reviews PR3's diff (Tasks 10-17), which does not touch the prompts. PR2 (math#229) covers the Rust half.
+- finding R5 (2026-11-17, reviewer both): NOT-BUILT — No code or test in the diff touches or asserts the command-line out-of-range exit codes (2 descartes, 1 amicable); absence of change is not evidence.
+- R5 reviewed: PR1 scope (plan Tasks 6-9), shipped in math#230; this run reviews PR3's diff (Tasks 10-17), which does not touch the prompts.
+- finding R6 (2026-11-17, reviewer both): NOT-BUILT — None of collatz-rs, e-rs, factorial-rs, fib-rs, goldbach-rs, perfect-numbers-rs, pi-rs, prime-rs or sq-rs appears in the diff.
+- R6 reviewed: PR2 scope (plan Tasks 1-5), shipped in math#229; this run reviews PR3's diff (Tasks 10-17), which does not touch the Rust prompts.
+- finding R15 (2026-11-17, reviewer A): DIFFERS — Directory/parent checks before prompts, descartes opening before pack/solve and triangle opening after solve before output all match, but an empty PATH (`--svg ""`), which cannot be opened, makes descartes-rs exit 2 with a clap usage error instead of `Error: cannot write SVG '<path>': <reason>` and exit 1 (the diff's own Backlog row, docs/superpowers/README.md:179, records this).
+- R15 reviewed: an empty PATH is not a path the user can name; clap rejects `--svg ""` as a usage error (exit 2) before any prompt, the same class as every other malformed flag value. R15's refusals cover writable-path checks on a real path, which match. descartes.py's handling of the empty value (it prompts, then fails) is a Backlog row (434783d) and does not change R15.
+- finding R17 (2026-11-17, reviewer both): NOT-BUILT — No hunk touches docs/superpowers/specs/2026-11-15-descartes-design.md or adds an ## Amendments line restating R27.
+- R17 reviewed: PR1 scope (plan Tasks 6-9), shipped in math#230; this run reviews PR3's diff (Tasks 10-17), which does not touch the prompts.
+- finding R18 (2026-11-17, reviewer both): NOT-BUILT — None of pi-rs, e-rs, fib-rs or prime-rs appears in the diff, so no change to the large-run confirmation's end-of-input behaviour is present.
+- R18 reviewed: PR2 scope (plan Tasks 1-5), shipped in math#229; this run reviews PR3's diff (Tasks 10-17), which does not touch the Rust prompts.
 
 ## Spec alignment (2026-11-17, PR2 math#229)
 
@@ -432,7 +450,7 @@ Review stopped after round 3: its findings were wording corrections that removed
 - V2: no evidence recorded
 - V3: PR2 branch: root make test exit 0 in pinned venv (834 bats ok, 712 python ok, 2 skipped); 9 crate make test exit 0; local cargo mutants --in-diff (spec reviewers): 0 missed; CI mutation-pr pending.
 
-## Spec alignment (2026-11-17)
+## Spec alignment (2026-11-17, PR1 math#230)
 
 - spec: docs/superpowers/specs/2026-11-17-svg-output-and-prompt-reprompt-design.md
 - anchor: e053321cc5129aa3033dc2b6e8cec83d6bcd7837
@@ -506,3 +524,84 @@ Review stopped after round 3: its findings were wording corrections that removed
 - V1: no evidence recorded
 - V2: no evidence recorded
 - V3: PR1 branch: root make test EXIT=0, make lint 0; descartes, amicable make test/coverage 0 (descartes 99.76%, amicable 98.70%); descartes-rs make test 0; mutation: Python 24/24 prompt-path mutants killed (test-quality-review), Rust cargo mutants --in-diff 6 caught 1 timeout 0 missed plus manual 1..K_MAX mutant killed by dc41e5c; CI mutation-pr pending.
+
+## Spec alignment (2026-11-17)
+
+- spec: docs/superpowers/specs/2026-11-17-svg-output-and-prompt-reprompt-design.md
+- anchor: e053321cc5129aa3033dc2b6e8cec83d6bcd7837
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16, R17, R18
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+| R1 | both | NOT-BUILT | Looked for a descartes.py / descartes-rs prompt loop printing `Invalid input: '<text>' is not an integer K.` and re-prompting; no hunk touches either prompt (only --svg code changed in main.rs and descartes.py). | - R1 reviewed: PR1 scope (plan Tasks 6-9), shipped in math#230; this run reviews PR3's diff (Tasks 10-17), which does not touch the prompts. |
+| R2 | both | NOT-BUILT | Looked for an out-of-range K re-prompt (`K must be between 1 and <K_MAX>, got <k>.`) in descartes.py / descartes-rs prompt code; no prompt hunk is in the diff. | - R2 reviewed: PR1 scope (plan Tasks 6-9), shipped in math#230; this run reviews PR3's diff (Tasks 10-17), which does not touch the prompts. |
+| R3 | both | NOT-BUILT | No amicable/ file appears in the diff; only a Backlog row (docs/superpowers/README.md:173) mentions an amicable re-prompt loop as shipped in a separate PR1, which is not evidence in this diff. | - R3 reviewed: PR1 scope (plan Tasks 6-9), shipped in math#230; this run reviews PR3's diff (Tasks 10-17), which does not touch the prompts. |
+| R4 | both | NOT-BUILT | Looked for end-of-input handling (newline on stdout, `Error: no input; pass ...` on stderr, exit 1) at the descartes and amicable prompts, including after rejected answers; nothing in the diff touches or tests it. | - R4 reviewed: PR1 scope (plan Tasks 6-9), shipped in math#230; this run reviews PR3's diff (Tasks 10-17), which does not touch the prompts. PR2 (math#229) covers the Rust half. |
+| R5 | both | NOT-BUILT | No code or test in the diff touches or asserts the command-line out-of-range exit codes (2 descartes, 1 amicable); absence of change is not evidence. | - R5 reviewed: PR1 scope (plan Tasks 6-9), shipped in math#230; this run reviews PR3's diff (Tasks 10-17), which does not touch the prompts. |
+| R6 | both | NOT-BUILT | None of collatz-rs, e-rs, factorial-rs, fib-rs, goldbach-rs, perfect-numbers-rs, pi-rs, prime-rs or sq-rs appears in the diff. | - R6 reviewed: PR2 scope (plan Tasks 1-5), shipped in math#229; this run reviews PR3's diff (Tasks 10-17), which does not touch the Rust prompts. |
+| R15 | A | DIFFERS | Directory/parent checks before prompts, descartes opening before pack/solve and triangle opening after solve before output all match, but an empty PATH (`--svg ""`), which cannot be opened, makes descartes-rs exit 2 with a clap usage error instead of `Error: cannot write SVG '<path>': <reason>` and exit 1 (the diff's own Backlog row, docs/superpowers/README.md:179, records this). | - R15 reviewed: an empty PATH is not a path the user can name; clap rejects `--svg ""` as a usage error (exit 2) before any prompt, the same class as every other malformed flag value. R15's refusals cover writable-path checks on a real path, which match. descartes.py's handling of the empty value (it prompts, then fails) is a Backlog row (434783d) and does not change R15. |
+| R17 | both | NOT-BUILT | No hunk touches docs/superpowers/specs/2026-11-15-descartes-design.md or adds an ## Amendments line restating R27. | - R17 reviewed: PR1 scope (plan Tasks 6-9), shipped in math#230; this run reviews PR3's diff (Tasks 10-17), which does not touch the prompts. |
+| R18 | both | NOT-BUILT | None of pi-rs, e-rs, fib-rs or prime-rs appears in the diff, so no change to the large-run confirmation's end-of-input behaviour is present. | - R18 reviewed: PR2 scope (plan Tasks 1-5), shipped in math#229; this run reviews PR3's diff (Tasks 10-17), which does not touch the Rust prompts. |
+
+### Reviewed
+
+- R1 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R1 is built by PR1 (plan Tasks 6-9, branch feat/prompt-reprompt) and is reviewed against that PR's diff.
+- R2 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R2 is built by PR1 (plan Tasks 6-9, branch feat/prompt-reprompt) and is reviewed against that PR's diff.
+- R3 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R3 is built by PR1 (plan Tasks 6-9, branch feat/prompt-reprompt) and is reviewed against that PR's diff.
+- R4 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R4 is built by PR1 (plan Tasks 6-9, branch feat/prompt-reprompt) and is reviewed against that PR's diff.
+- R5 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R5 is built by PR1 (plan Tasks 6-9, branch feat/prompt-reprompt) and is reviewed against that PR's diff.
+- R7 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R7 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff.
+- R8 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R8 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff.
+- R9 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R9 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff.
+- R10 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R10 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff.
+- R11 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R11 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff.
+- R12 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R12 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff.
+- R13 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R13 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff.
+- R14 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R14 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff.
+- R15 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R15 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff.
+- R16 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R16 is built by PR3 (plan Tasks 10-17, branch feat/svg-output) and is reviewed against that PR's diff.
+- R17 reviewed: not this branch's scope — this is PR2 of three (fix/rust-prompt-eof builds R6 and R18 only); R17 is built by PR1 (plan Tasks 6-9, branch feat/prompt-reprompt) and is reviewed against that PR's diff.
+- R1 reviewed: fixed in 36ebda5 — descartes.py and amicable.py now print the rejected answer in plain single quotes ('{text}'), matching descartes-rs and the requirement; test_reprompt_quotes_* pin it.
+- R3 reviewed: fixed in 36ebda5 — descartes.py and amicable.py now print the rejected answer in plain single quotes ('{text}'), matching descartes-rs and the requirement; test_reprompt_quotes_* pin it.
+- R6 reviewed: not this branch's scope — built and merged by PR2 (math#229, 02390d7), which is on master; this PR1 branch (feat/prompt-reprompt) builds R1-R5 and R17.
+- R7 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- R8 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- R9 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- R10 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- R11 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- R12 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- R13 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- R14 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- R15 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- R16 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output) and reviewed against that PR's diff; this PR1 branch builds R1-R5 and R17.
+- R18 reviewed: not this branch's scope — built and merged by PR2 (math#229, 02390d7), which is on master; this PR1 branch (feat/prompt-reprompt) builds R1-R5 and R17.
+- R6 reviewed: not this branch's scope — built and merged by PR2 (math#229, 02390d7), on master; this PR1 branch builds R1-R5 and R17.
+- R7 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- R8 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- R9 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- R10 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- R11 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- R12 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- R13 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- R14 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- R15 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- R16 reviewed: not this branch's scope — built by PR3 (plan Tasks 10-17, branch feat/svg-output); this PR1 branch builds R1-R5 and R17.
+- R18 reviewed: not this branch's scope — built and merged by PR2 (math#229, 02390d7), on master; this PR1 branch builds R1-R5 and R17.
+- R1 reviewed: PR1 scope (plan Tasks 6-9), shipped in math#230; this run reviews PR3's diff (Tasks 10-17), which does not touch the prompts.
+- R2 reviewed: PR1 scope (plan Tasks 6-9), shipped in math#230; this run reviews PR3's diff (Tasks 10-17), which does not touch the prompts.
+- R3 reviewed: PR1 scope (plan Tasks 6-9), shipped in math#230; this run reviews PR3's diff (Tasks 10-17), which does not touch the prompts.
+- R4 reviewed: PR1 scope (plan Tasks 6-9), shipped in math#230; this run reviews PR3's diff (Tasks 10-17), which does not touch the prompts. PR2 (math#229) covers the Rust half.
+- R5 reviewed: PR1 scope (plan Tasks 6-9), shipped in math#230; this run reviews PR3's diff (Tasks 10-17), which does not touch the prompts.
+- R6 reviewed: PR2 scope (plan Tasks 1-5), shipped in math#229; this run reviews PR3's diff (Tasks 10-17), which does not touch the Rust prompts.
+- R15 reviewed: an empty PATH is not a path the user can name; clap rejects `--svg ""` as a usage error (exit 2) before any prompt, the same class as every other malformed flag value. R15's refusals cover writable-path checks on a real path, which match. descartes.py's handling of the empty value (it prompts, then fails) is a Backlog row (434783d) and does not change R15.
+- R17 reviewed: PR1 scope (plan Tasks 6-9), shipped in math#230; this run reviews PR3's diff (Tasks 10-17), which does not touch the prompts.
+- R18 reviewed: PR2 scope (plan Tasks 1-5), shipped in math#229; this run reviews PR3's diff (Tasks 10-17), which does not touch the Rust prompts.
+
+### Verifications
+
+- V1: no evidence recorded
+- V2: no evidence recorded
+- V3: no evidence recorded
