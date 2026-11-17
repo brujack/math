@@ -1475,7 +1475,32 @@ solution  2  6          0.16666666666666666  0.5   0.6666666666666666
         let svg = svg_arg(&dir, "f/x.svg");
         let o = run_in(&["2", "--svg", &svg], "", &PIPED, dir.path());
         assert_eq!(o.code, 1);
-        assert!(o.stderr.starts_with(&format!("Error: cannot write SVG '{svg}': ")));
+        let missing = dir.path().join("f");
+        assert_eq!(
+            o.stderr,
+            format!(
+                "Error: cannot write SVG '{svg}': directory '{}' does not exist\n",
+                missing.display()
+            )
+        );
+        let term = Terminal { stdin_is_tty: true, stdout_size: None };
+        let o = run_in(&["--svg", &svg], "3\n", &term, dir.path());
+        assert_eq!(o.code, 1);
+        assert!(!o.stdout.contains("Enter exponent"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn svg_cli_write_error_is_reported() {
+        // /dev/full opens for writing and fails every write with ENOSPC.
+        let dir = tempfile::tempdir().unwrap();
+        let o = run_in(&["2", "--no-draw", "--svg", "/dev/full"], "", &PIPED, dir.path());
+        assert_eq!(o.code, 1);
+        assert_eq!(
+            o.stderr,
+            "Error: cannot write SVG '/dev/full': No space left on device (os error 28)\n"
+        );
+        assert!(!o.stdout.contains("Saved SVG"));
     }
 
     #[test]

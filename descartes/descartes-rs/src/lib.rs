@@ -2867,4 +2867,93 @@ mod tests {
         }
         assert_eq!(n, 3 + sols.len());
     }
+
+    const TIE_ROOT: [i64; 4] = [-12, 25, 25, 28];
+
+    #[test]
+    fn svg_packing_tie_root_counts_pin_cap_and_label_rule() {
+        // 1000 |k0| = 12000 is below 10^5, so the cap decides the circle count.
+        let svg = svg_packing(TIE_ROOT, 5).unwrap();
+        assert_eq!(svg.matches("<circle ").count(), 3327);
+        assert_eq!(svg.matches("<text ").count(), 30);
+    }
+
+    #[test]
+    fn svg_packing_tie_root_small_circle_stroke_is_quarter_radius() {
+        let svg = svg_packing(TIE_ROOT, 5).unwrap();
+        assert!(svg.lines().any(|l| l
+            == r#"<circle cx="990.002" cy="420.014" r="3.513" fill="none" stroke="black" stroke-width="0.878"/>"#));
+    }
+
+    #[test]
+    fn svg_packing_tie_root_label_font_is_six_tenths_of_radius() {
+        let svg = svg_packing(TIE_ROOT, 5).unwrap();
+        let lines = lines_of(&svg);
+        let at = lines
+            .iter()
+            .position(|l| l.starts_with(r#"<circle cx="823.949" cy="204.996" r="61.856""#))
+            .unwrap();
+        assert_eq!(
+            lines[at + 1],
+            r#"<text x="823.949" y="204.996" font-size="37.113" text-anchor="middle" dominant-baseline="central">97</text>"#
+        );
+    }
+
+    #[test]
+    fn svg_packing_radius_exactly_20_is_labelled() {
+        let svg = svg_packing(TIE_ROOT, 5).unwrap();
+        let lines = lines_of(&svg);
+        let circle = r#"<circle cx="943.077" cy="684.615" r="20.000" fill="none" stroke="black" stroke-width="1.000"/>"#;
+        let at = lines.iter().position(|l| *l == circle).unwrap();
+        assert_eq!(
+            lines[at + 1],
+            r#"<text x="943.077" y="684.615" font-size="12.000" text-anchor="middle" dominant-baseline="central">300</text>"#
+        );
+    }
+
+    #[test]
+    fn svg_solve_positive_solutions_do_not_move_the_frame() {
+        // Two unit circles at (0, +-1) and a k = 10 circle between them; the k = 2.83
+        // solution reaches x = 1.26, outside the givens' box, and must not be framed.
+        let givens = [(1.0, 0.0, 1.0), (1.0, 0.0, -1.0), (10.0, 0.458257569495584, 0.0)];
+        let sols = solve(givens[0], givens[1], givens[2]).unwrap();
+        assert!(sols.iter().all(|c| c.0 > 0.0));
+        assert!(sols.iter().any(|c| c.1 + 1.0 / c.0 > 1.0));
+        let svg = svg_solve(&givens, &sols);
+        let first = svg.lines().find(|l| l.starts_with("<circle ")).unwrap();
+        assert_eq!(
+            first,
+            r#"<circle cx="500.000" cy="272.727" r="227.273" fill="none" stroke="black" stroke-width="1.000"/>"#
+        );
+    }
+
+    #[test]
+    fn svg_solve_single_solution_gives_three_black_and_one_dashed() {
+        // Curvatures 1, 1, 4: the other solution is a line, which `solve` omits.
+        let givens = [(1.0, -1.0, 0.0), (1.0, 1.0, 0.0), (4.0, 0.0, 0.75)];
+        let sols = solve(givens[0], givens[1], givens[2]).unwrap();
+        assert_eq!(sols.len(), 1);
+        let svg = svg_solve(&givens, &sols);
+        assert_eq!(svg.matches("<circle ").count(), 4);
+        assert_eq!(svg.matches(r#"stroke="black""#).count(), 3);
+        assert_eq!(svg.matches(r##"stroke="#c00" stroke-dasharray="6 4""##).count(), 1);
+        // The x extent (4) beats the y extent (2), so the side is 1.1 * 4 and s = 227.273.
+        let first = svg.lines().find(|l| l.starts_with("<circle ")).unwrap();
+        assert_eq!(
+            first,
+            r#"<circle cx="272.727" cy="500.000" r="227.273" fill="none" stroke="black" stroke-width="1.000"/>"#
+        );
+    }
+
+    #[test]
+    fn svg_solve_frame_is_translation_invariant() {
+        // Moving every circle by (10, -20) must not move the drawing: this pins the
+        // centring `(lo + hi) / 2`, the extent `hi - lo` and the offset in `svg_geometry`.
+        let givens = [(1.0, -1.0, 0.0), (1.0, 1.0, 0.0), (4.0, 0.0, 0.75)];
+        let sols = solve(givens[0], givens[1], givens[2]).unwrap();
+        let shift = |cs: &[Circle]| -> Vec<Circle> {
+            cs.iter().map(|c| (c.0, c.1 + 10.0, c.2 - 20.0)).collect()
+        };
+        assert_eq!(svg_solve(&shift(&givens), &shift(&sols)), svg_solve(&givens, &sols));
+    }
 }
