@@ -16,13 +16,16 @@ Run with no arguments at a terminal for an interactive prompt, or supply K:
 
 import argparse
 import cmath
+import contextlib
 import math
+import os
 import shutil
 import sys
 import time
+from collections.abc import Iterator
 from decimal import Decimal
 from fractions import Fraction
-from typing import NoReturn
+from typing import NoReturn, TextIO
 
 # Largest n pack accepts: Python's N = 10^K ceiling (K <= 6, spec R7), about
 # 2.7e7 circles. The core enforces it so no caller can request an unbounded run.
@@ -710,6 +713,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--no-draw", action="store_true", help="do not draw the circles in braille"
     )
+    parser.add_argument(
+        "--svg", metavar="PATH", help="also write the drawing as SVG to PATH"
+    )
     args = parser.parse_args(argv)
     if args.precision is not None and not 0 <= args.precision <= PRECISION_MAX:
         parser.error(f"--precision must be between 0 and {PRECISION_MAX}")
@@ -788,6 +794,50 @@ def _fail(error: Exception, code: int) -> NoReturn:
     sys.exit(code)
 
 
+def _check_svg_path(path: str) -> None:
+    """Refuse an SVG path whose directory is missing or that names a directory."""
+    parent = os.path.dirname(path) or "."
+    if not os.path.isdir(parent):
+        _fail(
+            OSError(f"cannot write SVG '{path}': directory '{parent}' does not exist"),
+            1,
+        )
+    if os.path.isdir(path):
+        _fail(OSError(f"cannot write SVG '{path}': it is a directory"), 1)
+
+
+def _svg_error(path: str, error: OSError) -> NoReturn:
+    """Exit 1 with the SVG write-failure message."""
+    _fail(OSError(f"cannot write SVG '{path}': {error.strerror or error}"), 1)
+
+
+@contextlib.contextmanager
+def _open_svg(path: str | None) -> Iterator[TextIO | None]:
+    """Open the SVG file before any computation; yield None when not asked."""
+    if path is None:
+        yield None
+        return
+    with contextlib.ExitStack() as stack:
+        try:
+            handle = stack.enter_context(
+                open(path, "w", newline="\n", encoding="utf-8")
+            )
+        except OSError as error:
+            _svg_error(path, error)
+        yield handle
+
+
+def _write_svg(handle: TextIO | None, path: str | None, text: str) -> None:
+    """Write the SVG text, flushed so a full disk fails here, not at close."""
+    if handle is None or path is None:
+        return
+    try:
+        handle.write(text)
+        handle.flush()
+    except OSError as error:
+        _svg_error(path, error)
+
+
 def _canvas_size() -> tuple[int, int]:
     """Terminal size in cells, one row spared and clamped, else 60 x 24."""
     if not sys.stdout.isatty():
@@ -825,15 +875,17 @@ def _run_packing(args: argparse.Namespace) -> None:
         _fail(error, 1)
     n = 10**k
     filename = _packing_filename(k, root)
-    try:
-        # Open first: a path or permission error must not cost a computation.
-        with open(filename, "w") as f:
-            start = time.perf_counter()
-            count, bitmap = pack(root, n)
-            curvatures = distinct(bitmap)
-            f.writelines(f"{curvature}\n" for curvature in curvatures)
-    except OSError as error:
-        _fail(error, 1)
+    with _open_svg(args.svg) as svg_file:
+        try:
+            # Open first: a path or permission error must not cost a computation.
+            with open(filename, "w") as f:
+                start = time.perf_counter()
+                count, bitmap = pack(root, n)
+                curvatures = distinct(bitmap)
+                f.writelines(f"{curvature}\n" for curvature in curvatures)
+        except OSError as error:
+            _fail(error, 1)
+        _write_svg(svg_file, args.svg, svg_packing(root, k) if svg_file else "")
     elapsed = time.perf_counter() - start
     if args.show:
         for curvature in curvatures:
@@ -842,6 +894,8 @@ def _run_packing(args: argparse.Namespace) -> None:
     print(f"circles {count}")
     print(f"distinct {len(curvatures)}")
     print(f"Saved to {filename}")
+    if args.svg is not None:
+        print(f"Saved SVG to {args.svg}")
     print(f"Elapsed: {elapsed:.2f}s", file=sys.stderr)
     if count and not args.no_draw:
         _draw_packing(root, n)
@@ -879,13 +933,17 @@ def _print_table(
 
 def _run_solve(args: argparse.Namespace) -> None:
     given: list[Circle] = args.solve
-    try:
-        solutions = solve(given[0], given[1], given[2])
-    except BadInput as error:
-        _fail(error, 2)
-    except NoSolution as error:
-        _fail(error, 1)
-    _print_table(given, solutions, args.precision)
+    with _open_svg(args.svg) as svg_file:
+        try:
+            solutions = solve(given[0], given[1], given[2])
+        except BadInput as error:
+            _fail(error, 2)
+        except NoSolution as error:
+            _fail(error, 1)
+        _print_table(given, solutions, args.precision)
+        _write_svg(svg_file, args.svg, svg_solve(given, solutions) if svg_file else "")
+    if args.svg is not None:
+        print(f"Saved SVG to {args.svg}")
     if not args.no_draw:
         width, height = _canvas_size()
         print("\n".join(render(given + solutions, width, height)))
@@ -894,6 +952,8 @@ def _run_solve(args: argparse.Namespace) -> None:
 def main(argv: list[str] | None = None) -> None:
     """Main entry point."""
     args = parse_args(argv)
+    if args.svg is not None:
+        _check_svg_path(args.svg)
     if args.solve is not None:
         _run_solve(args)
     else:

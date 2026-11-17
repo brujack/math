@@ -20,10 +20,12 @@ import tempfile
 import typing
 import unittest
 from collections import deque
+from collections.abc import Iterator
 from fractions import Fraction
 from unittest import mock
 
 import annotationlib
+import pytest
 
 import descartes
 from descartes import (
@@ -2310,6 +2312,16 @@ class TestAnnotations(unittest.TestCase):
                 "precision": int | None,
                 "return": self.NONE,
             },
+            descartes._open_svg: {
+                "path": str | None,
+                "return": Iterator[typing.TextIO | None],
+            },
+            descartes._write_svg: {
+                "handle": typing.TextIO | None,
+                "path": str | None,
+                "text": str,
+                "return": self.NONE,
+            },
         }
 
     def test_resolved_hints_are_exact(self) -> None:
@@ -2916,6 +2928,162 @@ def test_svg_solve_enclosing_solution_inside_view() -> None:
         assert x + rad <= 1000.01
         assert y - rad >= -0.01
         assert y + rad <= 1000.01
+
+
+def _svg_main(capsys: pytest.CaptureFixture[str], *argv: str) -> tuple[int, str, str]:
+    """Return (exit code, stdout, stderr) of main(argv)."""
+    code = 0
+    try:
+        descartes.main(list(argv))
+    except SystemExit as exit_:
+        code = exit_.code if isinstance(exit_.code, int) else 1
+    captured = capsys.readouterr()
+    return code, captured.out, captured.err
+
+
+def test_svg_cli_packing_writes_file_and_line_order(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    code, out, _ = _svg_main(capsys, "1", "--no-draw", "--svg", "p.svg")
+    assert code == 0
+    assert out.splitlines() == [
+        "root -1 2 2 3",
+        "circles 8",
+        "distinct 3",
+        "Saved to descartes_1e1.txt",
+        "Saved SVG to p.svg",
+    ]
+    assert (tmp_path / "p.svg").read_text() == descartes.svg_packing((-1, 2, 2, 3), 1)
+
+
+def test_svg_cli_solve_writes_file(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    given = [(-1.0, 0.0, 0.0), (2.0, 0.5, 0.0), (3.0, 0.0, 0.6666666666666666)]
+    code, out, _ = _svg_main(
+        capsys,
+        "--solve",
+        "-1,0,0",
+        "2,0.5,0",
+        "3,0,0.6666666666666666",
+        "--no-draw",
+        "--svg",
+        "s.svg",
+    )
+    assert code == 0
+    lines = out.splitlines()
+    assert lines[-1] == "Saved SVG to s.svg"
+    assert lines[0].startswith("kind")
+    sols = descartes.solve(*given)
+    assert (tmp_path / "s.svg").read_text() == descartes.svg_solve(given, sols)
+
+
+def test_svg_cli_refuses_missing_dir_before_prompt(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "stdin", TtyStringIO())
+    prompt = mock.Mock(return_value="1")
+    monkeypatch.setattr("builtins.input", prompt)
+    path = str(tmp_path / "nodir" / "x.svg")
+    code, out, err = _svg_main(capsys, "--svg", path)
+    assert code == 1
+    assert out == ""
+    assert err == (
+        f"Error: cannot write SVG '{path}': directory '{tmp_path / 'nodir'}' "
+        "does not exist\n"
+    )
+    prompt.assert_not_called()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_svg_cli_refuses_existing_directory(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "d").mkdir()
+    code, _, err = _svg_main(capsys, "1", "--svg", "d")
+    assert code == 1
+    assert err == "Error: cannot write SVG 'd': it is a directory\n"
+    assert not (tmp_path / "descartes_1e1.txt").exists()
+
+
+def test_svg_cli_refuses_file_as_dir_part(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "f").write_text("x")
+    code, _, err = _svg_main(capsys, "1", "--svg", "f/x.svg")
+    assert code == 1
+    assert err == "Error: cannot write SVG 'f/x.svg': directory 'f' does not exist\n"
+
+
+def test_svg_cli_bare_name_accepted(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    code, out, _ = _svg_main(capsys, "1", "--no-draw", "--svg", "bare.svg")
+    assert code == 0
+    assert "Saved SVG to bare.svg" in out
+    assert (tmp_path / "bare.svg").is_file()
+
+
+def test_svg_cli_no_draw_still_writes(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    code, out, _ = _svg_main(capsys, "1", "--no-draw", "--svg", "n.svg")
+    assert code == 0
+    assert not any(0x2800 <= ord(ch) <= 0x28FF for ch in out)
+    assert (tmp_path / "n.svg").read_text().startswith("<?xml")
+
+
+def test_svg_cli_precision_does_not_change_svg(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    base = ["--solve", "-1,0,0", "2,0.5,0", "3,0,0.6666666666666666", "--no-draw"]
+    _svg_main(capsys, *base, "--svg", "a.svg")
+    _svg_main(capsys, *base, "--precision", "2", "--svg", "b.svg")
+    assert (tmp_path / "a.svg").read_text() == (tmp_path / "b.svg").read_text()
+
+
+def test_svg_cli_open_failure_exits_1(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    real_open = open
+
+    def refuse(file: typing.Any, *a: typing.Any, **k: typing.Any) -> typing.Any:
+        if str(file) == "o.svg":
+            raise PermissionError(13, "Permission denied")
+        return real_open(file, *a, **k)
+
+    monkeypatch.setattr("builtins.open", refuse)
+    code, _, err = _svg_main(capsys, "1", "--svg", "o.svg")
+    assert code == 1
+    assert err.startswith("Error: cannot write SVG 'o.svg': ")
+    assert not (tmp_path / "descartes_1e1.txt").exists()
 
 
 if __name__ == "__main__":
