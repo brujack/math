@@ -49,9 +49,9 @@ This pattern appears in `factorial_rec` where the squared half-factorial is mate
 
 - `fn fmt_int(n: u64) -> String` — formats an integer with thousands-separator commas (e.g. `1234567` → `"1,234,567"`).
 
-- `fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<String>` — reads one line, trims trailing newline/whitespace. Returns empty string on EOF.
+- `fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<Option<String>>` — reads one line, trims trailing newline/whitespace. Returns `None` at EOF, distinct from a blank line.
 
-- `fn prompt_n_with<R: BufRead, W: Write, E: Write>(reader, out, err) -> io::Result<u64>` — interactive loop; prints prompt to `out`, reads from `reader`, errors to `err`. Retries on non-numeric input.
+- `fn prompt_n_with<R: BufRead, W: Write, E: Write>(reader, out, err) -> io::Result<Result<u64, i32>>` — interactive loop; prints prompt to `out`, reads from `reader`, errors to `err`. Retries on non-numeric input; at EOF prints a newline to `out`, `Error: no input; pass SIZE as an argument (e.g. factorial 1000).` to `err`, and returns `Err(1)`.
 
 - `fn run<R: BufRead, W: Write, E: Write>(n_arg: Option<&str>, reader, out, err, dir: &Path) -> io::Result<i32>` — orchestrator. Parses `n_arg` (or prompts via `prompt_n_with`), computes factorial, writes result to `dir/factorial_<n>.txt`, reports to `err`. Returns exit code.
 
@@ -97,7 +97,7 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-### Test coverage (97.17% line coverage, 58 tests: 50 unit + 8 integration)
+### Test coverage (97.17% line coverage, 61 tests: 53 unit + 8 integration)
 
 | Area                                | Tests | Notes                                                                                                    |
 | ----------------------------------- | ----- | -------------------------------------------------------------------------------------------------------- |

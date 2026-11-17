@@ -193,10 +193,21 @@ fn save_pi<W: Write>(dir: &Path, pi_str: &str, digits: usize, out: &mut W) -> io
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<String> {
+/// Read one line; `None` means end of input, `Some("")` a blank line.
+fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<Option<String>> {
     let mut line = String::new();
-    reader.read_line(&mut line)?;
-    Ok(line.trim().to_string())
+    if reader.read_line(&mut line)? == 0 {
+        return Ok(None);
+    }
+    Ok(Some(line.trim().to_string()))
+}
+
+/// Answer to the large-size confirmation prompt.
+#[derive(Debug, PartialEq)]
+enum Confirm {
+    Yes,
+    No,
+    Eof,
 }
 
 fn confirm_large_digits_with<R, W, E>(
@@ -204,7 +215,7 @@ fn confirm_large_digits_with<R, W, E>(
     out: &mut W,
     _err: &mut E,
     n: usize,
-) -> io::Result<bool>
+) -> io::Result<Confirm>
 where
     R: BufRead,
     W: Write,
@@ -212,11 +223,19 @@ where
 {
     write!(out, "Continue with {} digits? (y/n): ", fmt_int(n))?;
     out.flush()?;
-    let line = read_line_from(reader)?;
-    Ok(matches!(line.as_str(), "y" | "yes"))
+    Ok(match read_line_from(reader)?.as_deref() {
+        None => Confirm::Eof,
+        Some("y" | "yes") => Confirm::Yes,
+        Some(_) => Confirm::No,
+    })
 }
 
-fn prompt_digits_with<R, W, E>(reader: &mut R, out: &mut W, err: &mut E) -> io::Result<usize>
+/// Returns `Ok(Err(code))` when input ends: 1 at the number prompt, 0 at the confirmation.
+fn prompt_digits_with<R, W, E>(
+    reader: &mut R,
+    out: &mut W,
+    err: &mut E,
+) -> io::Result<Result<usize, i32>>
 where
     R: BufRead,
     W: Write,
@@ -225,16 +244,22 @@ where
     loop {
         write!(out, "Enter the number of decimal places to calculate π: ")?;
         out.flush()?;
-        let line = read_line_from(reader)?;
+        let Some(line) = read_line_from(reader)? else {
+            writeln!(out)?;
+            writeln!(err, "Error: no input; pass SIZE as an argument (e.g. pi 10000).")?;
+            return Ok(Err(1));
+        };
         match line.parse::<usize>() {
             Ok(n) if n >= 1 => {
                 if warn_large_digits(n) {
                     writeln!(err, "Warning: very large numbers may take a long time.")?;
-                    if !confirm_large_digits_with(reader, out, err, n)? {
-                        continue;
+                    match confirm_large_digits_with(reader, out, err, n)? {
+                        Confirm::Yes => {}
+                        Confirm::No => continue,
+                        Confirm::Eof => return Ok(Err(0)),
                     }
                 }
-                return Ok(n);
+                return Ok(Ok(n));
             }
             _ => writeln!(err, "Please enter a positive integer.")?,
         }
@@ -265,7 +290,10 @@ where
             }
             d
         }
-        None => prompt_digits_with(reader, out, err)?,
+        None => match prompt_digits_with(reader, out, err)? {
+            Ok(n) => n,
+            Err(code) => return Ok(code),
+        },
     };
 
     writeln!(out, "Calculating π to {} decimal places…", fmt_int(digits))?;
@@ -296,7 +324,7 @@ where
     } else {
         write!(out, "\nDisplay all {} digits? (y/n): ", fmt_int(digits))?;
         out.flush()?;
-        if matches!(read_line_from(reader)?.as_str(), "y" | "yes") {
+        if matches!(read_line_from(reader)?.as_deref(), Some("y" | "yes")) {
             writeln!(out, "\nπ = {}", pi_str)?;
             writeln!(out, "\nTotal digits: {}", fmt_int(digits))?;
         } else {
@@ -330,6 +358,12 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    // Unit tests share one process under `cargo test` and tarpaulin (nextest isolates
+    // them). Every computation resets the global BS_LEAF_COUNT to 0, which can land
+    // between test_bs_leaf_increments_counter's two loads; any test that reaches
+    // compute_pi (directly or through run) must hold this lock.
+    static BS_COUNTER_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     use super::*;
     use proptest::prelude::*;
     use tempfile::tempdir;
@@ -397,6 +431,7 @@ mod tests {
 
     #[test]
     fn test_bs_leaf_increments_counter() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let before = BS_LEAF_COUNT.load(Ordering::Relaxed);
         bs_leaf(0);
         bs_leaf(1);
@@ -613,21 +648,21 @@ mod tests {
     fn test_read_line_from_trims_newline() {
         let input = b"hello\n";
         let mut r = &input[..];
-        assert_eq!(read_line_from(&mut r).unwrap(), "hello");
+        assert_eq!(read_line_from(&mut r).unwrap(), Some("hello".to_string()));
     }
 
     #[test]
-    fn test_read_line_from_empty_input_returns_empty() {
+    fn test_read_line_from_empty_input_returns_none() {
         let input = b"";
         let mut r = &input[..];
-        assert_eq!(read_line_from(&mut r).unwrap(), "");
+        assert_eq!(read_line_from(&mut r).unwrap(), None);
     }
 
     #[test]
     fn test_read_line_from_trims_whitespace() {
         let input = b"  42  \n";
         let mut r = &input[..];
-        assert_eq!(read_line_from(&mut r).unwrap(), "42");
+        assert_eq!(read_line_from(&mut r).unwrap(), Some("42".to_string()));
     }
 
     // --- confirm_large_digits_with ---
@@ -637,7 +672,10 @@ mod tests {
         let mut r = &b"y\n"[..];
         let mut out = Vec::<u8>::new();
         let mut err = Vec::<u8>::new();
-        assert!(confirm_large_digits_with(&mut r, &mut out, &mut err, 2_000_000).unwrap());
+        assert_eq!(
+            confirm_large_digits_with(&mut r, &mut out, &mut err, 2_000_000).unwrap(),
+            Confirm::Yes
+        );
     }
 
     #[test]
@@ -645,7 +683,10 @@ mod tests {
         let mut r = &b"yes\n"[..];
         let mut out = Vec::<u8>::new();
         let mut err = Vec::<u8>::new();
-        assert!(confirm_large_digits_with(&mut r, &mut out, &mut err, 2_000_000).unwrap());
+        assert_eq!(
+            confirm_large_digits_with(&mut r, &mut out, &mut err, 2_000_000).unwrap(),
+            Confirm::Yes
+        );
     }
 
     #[test]
@@ -653,7 +694,10 @@ mod tests {
         let mut r = &b"n\n"[..];
         let mut out = Vec::<u8>::new();
         let mut err = Vec::<u8>::new();
-        assert!(!confirm_large_digits_with(&mut r, &mut out, &mut err, 2_000_000).unwrap());
+        assert_eq!(
+            confirm_large_digits_with(&mut r, &mut out, &mut err, 2_000_000).unwrap(),
+            Confirm::No
+        );
     }
 
     #[test]
@@ -661,7 +705,10 @@ mod tests {
         let mut r = &b"maybe\n"[..];
         let mut out = Vec::<u8>::new();
         let mut err = Vec::<u8>::new();
-        assert!(!confirm_large_digits_with(&mut r, &mut out, &mut err, 2_000_000).unwrap());
+        assert_eq!(
+            confirm_large_digits_with(&mut r, &mut out, &mut err, 2_000_000).unwrap(),
+            Confirm::No
+        );
     }
 
     // --- prompt_digits_with ---
@@ -671,7 +718,7 @@ mod tests {
         let mut r = &b"10\n"[..];
         let mut out = Vec::<u8>::new();
         let mut err = Vec::<u8>::new();
-        assert_eq!(prompt_digits_with(&mut r, &mut out, &mut err).unwrap(), 10);
+        assert_eq!(prompt_digits_with(&mut r, &mut out, &mut err).unwrap().unwrap(), 10);
     }
 
     #[test]
@@ -679,7 +726,7 @@ mod tests {
         let mut r = &b"1\n"[..];
         let mut out = Vec::<u8>::new();
         let mut err = Vec::<u8>::new();
-        assert_eq!(prompt_digits_with(&mut r, &mut out, &mut err).unwrap(), 1);
+        assert_eq!(prompt_digits_with(&mut r, &mut out, &mut err).unwrap().unwrap(), 1);
     }
 
     #[test]
@@ -688,7 +735,7 @@ mod tests {
         let mut r = &input[..];
         let mut out = Vec::<u8>::new();
         let mut err = Vec::<u8>::new();
-        assert_eq!(prompt_digits_with(&mut r, &mut out, &mut err).unwrap(), 5);
+        assert_eq!(prompt_digits_with(&mut r, &mut out, &mut err).unwrap().unwrap(), 5);
         let err_str = String::from_utf8(err).unwrap();
         assert!(err_str.contains("positive integer"));
     }
@@ -699,7 +746,7 @@ mod tests {
         let mut r = &input[..];
         let mut out = Vec::<u8>::new();
         let mut err = Vec::<u8>::new();
-        assert_eq!(prompt_digits_with(&mut r, &mut out, &mut err).unwrap(), 7);
+        assert_eq!(prompt_digits_with(&mut r, &mut out, &mut err).unwrap().unwrap(), 7);
     }
 
     #[test]
@@ -708,7 +755,7 @@ mod tests {
         let mut r = &input[..];
         let mut out = Vec::<u8>::new();
         let mut err = Vec::<u8>::new();
-        assert_eq!(prompt_digits_with(&mut r, &mut out, &mut err).unwrap(), 5);
+        assert_eq!(prompt_digits_with(&mut r, &mut out, &mut err).unwrap().unwrap(), 5);
     }
 
     #[test]
@@ -717,7 +764,7 @@ mod tests {
         let mut r = &input[..];
         let mut out = Vec::<u8>::new();
         let mut err = Vec::<u8>::new();
-        assert_eq!(prompt_digits_with(&mut r, &mut out, &mut err).unwrap(), 2_000_001);
+        assert_eq!(prompt_digits_with(&mut r, &mut out, &mut err).unwrap().unwrap(), 2_000_001);
     }
 
     // --- write_pi_file ---
@@ -837,6 +884,7 @@ mod tests {
 
     #[test]
     fn test_run_with_one_digit_returns_zero_and_previews() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let cli = Cli { digits: Some(1) };
         let mut r = &b"y\n"[..];
         let mut out = Vec::<u8>::new();
@@ -853,6 +901,7 @@ mod tests {
 
     #[test]
     fn test_run_with_arg_displays_when_user_says_y() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let cli = Cli { digits: Some(10) };
         let mut r = &b"y\n"[..];
         let mut out = Vec::<u8>::new();
@@ -867,6 +916,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn test_run_with_arg_saves_when_user_says_n() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let cli = Cli { digits: Some(10) };
         let mut r = &b"n\n"[..];
         let mut out = Vec::<u8>::new();
@@ -880,6 +930,7 @@ mod tests {
 
     #[test]
     fn test_run_no_arg_prompts_for_digits() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let cli = Cli { digits: None };
         let mut r = &b"10\ny\n"[..];
         let mut out = Vec::<u8>::new();
@@ -894,6 +945,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn test_run_with_arg_above_10k_auto_saves() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let cli = Cli { digits: Some(20_000) };
         let mut r = &b""[..];
         let mut out = Vec::<u8>::new();
@@ -909,12 +961,14 @@ mod tests {
 
     #[test]
     fn test_compute_pi_10_digits() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let s = compute_pi(10);
         assert_eq!(&s[..12], &PI_REF[..12]);
     }
 
     #[test]
     fn test_compute_pi_50_digits() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let s = compute_pi(50);
         assert_eq!(s, PI_REF);
     }
@@ -953,6 +1007,7 @@ mod tests {
     proptest! {
         #[test]
         fn prop_generate_succeeds(max_digits in 1usize..=5usize) {
+            let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
             let result = compute_pi(max_digits);
             prop_assert!(!result.is_empty());
             prop_assert!(result.starts_with("3."));
@@ -965,6 +1020,7 @@ mod tests {
 
     #[test]
     fn test_compute_pi_tiny_returns_before_one_progress_tick() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let t = Instant::now();
         let s = compute_pi(5);
         let elapsed = t.elapsed();
@@ -986,5 +1042,111 @@ mod tests {
             elapsed < TICK_BUDGET,
             "write_pi_file took {elapsed:?}, progress thread delayed it"
         );
+    }
+
+    // --- end-of-input handling (spec R6, R18) ---
+
+    #[test]
+    fn prompt_eof_at_prompt_exits_1_with_no_input_message() {
+        let mut r = &b""[..];
+        let mut out = Vec::<u8>::new();
+        let mut err = Vec::<u8>::new();
+        let got = prompt_digits_with(&mut r, &mut out, &mut err).unwrap();
+        assert_eq!(got, Err(1));
+        let err_s = String::from_utf8(err).unwrap();
+        assert!(
+            err_s.contains("Error: no input; pass SIZE as an argument (e.g. pi 10000)."),
+            "{err_s}"
+        );
+        assert!(String::from_utf8(out).unwrap().ends_with('\n'));
+    }
+
+    #[test]
+    fn prompt_eof_run_no_arg_exits_1() {
+        let dir = tempdir().unwrap();
+        let mut r = &b""[..];
+        let mut out = Vec::<u8>::new();
+        let mut err = Vec::<u8>::new();
+        let code = run(Cli { digits: None }, &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 1);
+        let err_s = String::from_utf8(err).unwrap();
+        assert!(
+            err_s.contains("Error: no input; pass SIZE as an argument (e.g. pi 10000)."),
+            "{err_s}"
+        );
+    }
+
+    #[test]
+    fn prompt_eof_after_a_rejected_answer_exits_1() {
+        let mut r = &b"abc\n"[..];
+        let mut out = Vec::<u8>::new();
+        let mut err = Vec::<u8>::new();
+        let got = prompt_digits_with(&mut r, &mut out, &mut err).unwrap();
+        assert_eq!(got, Err(1));
+        let err_s = String::from_utf8(err).unwrap();
+        assert!(err_s.contains("Please enter a positive integer."), "{err_s}");
+        assert!(err_s.contains("no input"), "{err_s}");
+    }
+
+    #[test]
+    fn prompt_eof_read_line_from_eof_differs_from_blank_line() {
+        let mut eof = &b""[..];
+        assert_eq!(read_line_from(&mut eof).unwrap(), None);
+        let mut blank = &b"\n"[..];
+        assert_eq!(read_line_from(&mut blank).unwrap(), Some(String::new()));
+        let mut unterminated = &b" x "[..];
+        assert_eq!(read_line_from(&mut unterminated).unwrap(), Some("x".to_string()));
+    }
+
+    #[test]
+    fn prompt_eof_at_confirmation_exits_0_without_computing() {
+        let mut r = &b"2000000\n"[..];
+        let mut out = Vec::<u8>::new();
+        let mut err = Vec::<u8>::new();
+        let got = prompt_digits_with(&mut r, &mut out, &mut err).unwrap();
+        assert_eq!(got, Err(0));
+        let out_s = String::from_utf8(out).unwrap();
+        assert!(!out_s.contains("Calculating"), "{out_s}");
+        assert!(out_s.contains("(y/n): "), "{out_s}");
+        assert_eq!(
+            String::from_utf8(err).unwrap(),
+            "Warning: very large numbers may take a long time.\n"
+        );
+
+        let cli = Cli { digits: None };
+        let mut r = &b"2000000\n"[..];
+        let mut out = Vec::<u8>::new();
+        let mut err = Vec::<u8>::new();
+        let dir = tempdir().unwrap();
+        let code = run(cli, &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        assert!(!String::from_utf8(out).unwrap().contains("Calculating"));
+    }
+
+    #[test]
+    fn prompt_eof_declined_confirmation_then_eof_reprompts_then_exits_1() {
+        let mut r = &b"2000000\nn\n"[..];
+        let mut out = Vec::<u8>::new();
+        let mut err = Vec::<u8>::new();
+        let got = prompt_digits_with(&mut r, &mut out, &mut err).unwrap();
+        assert_eq!(got, Err(1));
+        let out_s = String::from_utf8(out).unwrap();
+        assert_eq!(out_s.matches("Enter the number of decimal places").count(), 2, "{out_s}");
+        assert!(String::from_utf8(err).unwrap().contains("no input"));
+    }
+
+    #[test]
+    fn prompt_eof_at_display_all_reads_as_no() {
+        let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let cli = Cli { digits: None };
+        let mut r = &b"10\n"[..];
+        let mut out = Vec::<u8>::new();
+        let mut err = Vec::<u8>::new();
+        let dir = tempdir().unwrap();
+        let code = run(cli, &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        let out_s = String::from_utf8(out).unwrap();
+        assert!(out_s.contains("Display all 10 digits? (y/n): "), "{out_s}");
+        assert!(!out_s.contains("Total digits"), "{out_s}");
     }
 }

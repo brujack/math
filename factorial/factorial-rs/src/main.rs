@@ -19,23 +19,31 @@ fn fmt_int(n: u64) -> String {
     result
 }
 
-fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<String> {
+/// Reads one trimmed line; `None` means end of input (distinct from a blank line).
+fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<Option<String>> {
     let mut line = String::new();
-    reader.read_line(&mut line)?;
-    Ok(line.trim().to_string())
+    if reader.read_line(&mut line)? == 0 {
+        return Ok(None);
+    }
+    Ok(Some(line.trim().to_string()))
 }
 
+/// Outer `Err(code)` is the exit code to return when input ended before a valid answer.
 fn prompt_n_with<R: BufRead, W: Write, E: Write>(
     reader: &mut R,
     out: &mut W,
     err: &mut E,
-) -> io::Result<u64> {
+) -> io::Result<Result<u64, i32>> {
     loop {
         write!(out, "Enter N to compute N! : ")?;
         out.flush()?;
-        let line = read_line_from(reader)?;
+        let Some(line) = read_line_from(reader)? else {
+            writeln!(out)?;
+            writeln!(err, "Error: no input; pass SIZE as an argument (e.g. factorial 1000).")?;
+            return Ok(Err(1));
+        };
         match line.parse::<u64>() {
-            Ok(n) => return Ok(n),
+            Ok(n) => return Ok(Ok(n)),
             Err(_) => {
                 writeln!(err, "Invalid input '{}'. Please enter a non-negative integer.", line)?
             }
@@ -62,7 +70,10 @@ fn run<R: BufRead, W: Write, E: Write>(
                 return Ok(1);
             }
         },
-        None => prompt_n_with(reader, out, err)?,
+        None => match prompt_n_with(reader, out, err)? {
+            Ok(n) => n,
+            Err(code) => return Ok(code),
+        },
     };
 
     writeln!(
@@ -165,19 +176,19 @@ mod tests {
     #[test]
     fn test_read_line_from_trims_newline() {
         let mut r = io::Cursor::new(b"hello\n");
-        assert_eq!(read_line_from(&mut r).unwrap(), "hello");
+        assert_eq!(read_line_from(&mut r).unwrap(), Some("hello".to_string()));
     }
 
     #[test]
     fn test_read_line_from_empty() {
         let mut r = io::Cursor::new(b"");
-        assert_eq!(read_line_from(&mut r).unwrap(), "");
+        assert_eq!(read_line_from(&mut r).unwrap(), None);
     }
 
     #[test]
     fn test_read_line_from_trims_whitespace() {
         let mut r = io::Cursor::new(b"  42  \n");
-        assert_eq!(read_line_from(&mut r).unwrap(), "42");
+        assert_eq!(read_line_from(&mut r).unwrap(), Some("42".to_string()));
     }
 
     // --- prompt_n_with ---
@@ -187,7 +198,7 @@ mod tests {
         let mut r = io::Cursor::new(b"10\n");
         let mut out = Vec::new();
         let mut err = Vec::new();
-        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 10);
+        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), Ok(10));
         let stdout = String::from_utf8(out).unwrap();
         assert!(stdout.contains("Enter N"), "stdout: {}", stdout);
     }
@@ -197,7 +208,7 @@ mod tests {
         let mut r = io::Cursor::new(b"0\n");
         let mut out = Vec::new();
         let mut err = Vec::new();
-        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 0);
+        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), Ok(0));
     }
 
     #[test]
@@ -205,7 +216,7 @@ mod tests {
         let mut r = io::Cursor::new(b"abc\n5\n");
         let mut out = Vec::new();
         let mut err = Vec::new();
-        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 5);
+        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), Ok(5));
         let stderr = String::from_utf8(err).unwrap();
         assert!(stderr.contains("Invalid input"), "stderr: {}", stderr);
     }
@@ -215,7 +226,7 @@ mod tests {
         let mut r = io::Cursor::new(b"-1\n3\n");
         let mut out = Vec::new();
         let mut err = Vec::new();
-        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), 3);
+        assert_eq!(prompt_n_with(&mut r, &mut out, &mut err).unwrap(), Ok(3));
     }
 
     // --- run ---
@@ -287,6 +298,44 @@ mod tests {
         }
         let content = std::fs::read_to_string(dir.path().join("factorial_3.txt")).unwrap();
         assert_eq!(content.trim(), "6");
+    }
+
+    // --- end of input at the prompt ---
+
+    const NO_INPUT_LINE: &str =
+        "Error: no input; pass SIZE as an argument (e.g. factorial 1000).\n";
+
+    #[test]
+    fn prompt_eof_at_prompt_exits_1_with_no_input_message() {
+        let dir = tempdir().unwrap();
+        let mut r = io::Cursor::new(b"" as &[u8]);
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(None, &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 1);
+        assert_eq!(String::from_utf8(out).unwrap(), "Enter N to compute N! : \n");
+        assert_eq!(String::from_utf8(err).unwrap(), NO_INPUT_LINE);
+    }
+
+    #[test]
+    fn prompt_eof_after_a_rejected_answer_exits_1() {
+        let dir = tempdir().unwrap();
+        let mut r = io::Cursor::new(b"abc\n" as &[u8]);
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(None, &mut r, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 1);
+        let expected =
+            format!("Invalid input 'abc'. Please enter a non-negative integer.\n{}", NO_INPUT_LINE);
+        assert_eq!(String::from_utf8(err).unwrap(), expected);
+        let stdout = String::from_utf8(out).unwrap();
+        assert!(stdout.ends_with("Enter N to compute N! : \n"), "stdout: {stdout:?}");
+    }
+
+    #[test]
+    fn prompt_eof_read_line_from_eof_differs_from_blank_line() {
+        assert_eq!(read_line_from(&mut io::Cursor::new("")).unwrap(), None);
+        assert_eq!(read_line_from(&mut io::Cursor::new("\n")).unwrap(), Some(String::new()));
     }
 
     proptest! {

@@ -47,9 +47,11 @@ A `Makefile` is provided in `pi-rs/`:
 - `fn write_pi_file_sized(dir, pi_str, digits, min_chunk)`: `#[cfg(unix)]` — builds `dir/pi_<digits>_digits.txt`, pre-allocates with `file.set_len()`, spawns a progress thread reporting write % and MB/s every 200 ms, parallel pwrite via rayon `par_chunks` (each chunk updates an `Arc<AtomicU64>` byte counter), joins thread and prints final MB/s; returns the written `PathBuf`
 - `fn save_pi(dir, pi_str, digits, out)`: `#[cfg(unix)]` — announces the filename then delegates to `write_pi_file`
 - `fn fmt_int(n)`: formats with thousands separators
-- `fn read_line_from<R: BufRead>(reader)`: reads one trimmed line from any `BufRead`
+- `fn read_line_from<R: BufRead>(reader)`: reads one trimmed line from any `BufRead`; returns `io::Result<Option<String>>`, `None` at end of input (distinct from a blank line)
 - `fn confirm_large_digits_with<R, W, E>(reader, out, err, n)`: y/n confirmation for large digit counts
-- `fn prompt_digits_with<R, W, E>(reader, out, err)`: trait-injected interactive prompt (loops until valid; defers to `confirm_large_digits_with` for n > 1_000_000)
+- `fn prompt_digits_with<R, W, E>(reader, out, err) -> io::Result<Result<usize, i32>>`: trait-injected interactive prompt (loops until valid; defers to `confirm_large_digits_with` for n > 1_000_000; inner `Err(code)` is the exit code)
+- `enum Confirm { Yes, No, Eof }`: result of `confirm_large_digits_with` (`Continue with N digits? (y/n)`); `No` returns to the number prompt, `Eof` exits 0 without computing (matches `pi.py`)
+- End of input at the number prompt prints a newline to stdout, then `Error: no input; pass SIZE as an argument (e.g. pi 10000).` to stderr and exits 1 (it used to re-prompt forever on closed stdin); EOF at a post-computation display prompt reads as no
 - `fn run<R, W, E>(cli, reader, out, err, dir)`: orchestration — returns process exit code; injects all I/O so tests can use pipes + temp dirs
 - `fn main()`: thin wrapper — locks stdin/stdout, passes unlocked `io::stderr()` (a held `StderrLock` deadlocks the progress thread's `eprint!`), calls `run`, exits with the returned code
 
@@ -69,6 +71,8 @@ Integer::from(&r.q * &l.t) + Integer::from(&l.p * &r.t)
 
 Tests live in a `#[cfg(test)] mod tests` block at the bottom of `src/main.rs`.
 
+Any unit test that reaches `compute_pi` (directly or through `run`) must hold `BS_COUNTER_LOCK` (`let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());`): each computation resets the global `BS_LEAF_COUNT`, and `cargo test`/tarpaulin run unit tests as threads in one process, so an unlocked computing test can zero the counter under `test_bs_leaf_increments_counter` (CI Coverage pi-rs failure, math#229). Nothing enforces this; find the set by making the reset panic.
+
 Run the full suite:
 
 ```bash
@@ -83,7 +87,7 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-#### Test coverage (92.39% line coverage, 73 tests: 67 unit + 6 integration)
+#### Test coverage (92.39% line coverage, 80 tests: 74 unit + 6 integration)
 
 | Area                                    | Tests | Notes                                                                                                 |
 | --------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------- |

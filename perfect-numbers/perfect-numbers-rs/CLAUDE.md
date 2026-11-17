@@ -25,8 +25,9 @@ make test             # lint + cargo test
 - `lucas_lehmer(p: u64)` — Lucas-Lehmer test using `rug::Integer` modular squaring
 - `verify_perfect(p: u64)` — σ formula: σ(n) = (2^p−1)×2^p = 2n
 - `generate_perfect_numbers(limit: &Integer)` — collects all (p, n) with n ≤ limit (test-only)
-- `read_line_from<R: BufRead>` — reads one trimmed line
-- `prompt_n_with<R, W, E>` — interactive N prompt, loops until valid
+- `read_line_from<R: BufRead>` — reads one trimmed line; returns `io::Result<Option<String>>`, `None` at end of input (distinct from a blank line)
+- `prompt_n_with<R, W, E>` — interactive N prompt, loops until valid; returns `io::Result<Result<u64, i32>>` (inner `Err(code)` is the exit code)
+- End of input at the N prompt prints a newline to stdout, then `Error: no input; pass SIZE as an argument (e.g. perfect-numbers 6).` to stderr and exits 1 (it used to re-prompt forever on closed stdin)
 - `run<R, W, E>(cli, reader, out, err, dir)` — orchestration; returns `io::Result<i32>`
 - `main()` — thin stdio wrapper; excluded from tarpaulin with `#[cfg(not(tarpaulin_include))]`
 
@@ -42,6 +43,7 @@ Coverage floor: ≥90% (enforced via `cargo tarpaulin --fail-under 90` in CI).
 | `generate_perfect_numbers` | 5     | empty, N=1, N=4, N=6 boundary, N=54 (all 10)                                                 |
 | `run`                      | 6     | N=0 exit 1, N=55 exit 1, N=1 creates file, no-arg prompts, reject-0-then-accept, N=4 finds 4 |
 | injection                  | 2     | stdout failure, stderr failure                                                               |
+| prompt end of input        | 3     | EOF at prompt exits 1, EOF after a rejected answer exits 1, `read_line_from` EOF vs blank line |
 | `tests/cli.rs`             | 4     | arg=0 exit 1, arg=1 creates file, no-arg prompts, unwritable dir                             |
 
 ## Keeping This File Up To Date

@@ -16,14 +16,24 @@ struct Cli {
 // I/O helpers
 // ---------------------------------------------------------------------------
 
-fn prompt_n<R: BufRead, W: Write>(reader: &mut R, out: &mut W) -> io::Result<u64> {
+/// Prompts for N until valid. `Ok(Err(code))` means end the run with exit `code`
+/// (end of input, already reported on `err`).
+fn prompt_n<R: BufRead, W: Write, E: Write>(
+    reader: &mut R,
+    out: &mut W,
+    err: &mut E,
+) -> io::Result<Result<u64, i32>> {
     loop {
         write!(out, "Enter N (finds all Goldbach pairs up to 10^N, max 8): ")?;
         out.flush()?;
         let mut line = String::new();
-        reader.read_line(&mut line)?;
+        if reader.read_line(&mut line)? == 0 {
+            writeln!(out)?;
+            writeln!(err, "Error: no input; pass SIZE as an argument (e.g. goldbach 1).")?;
+            return Ok(Err(1));
+        }
         match line.trim().parse::<u64>() {
-            Ok(v) if (1..=8).contains(&v) => return Ok(v),
+            Ok(v) if (1..=8).contains(&v) => return Ok(Ok(v)),
             _ => writeln!(out, "N must be between 1 and 8.")?,
         }
     }
@@ -51,7 +61,10 @@ fn run<R: BufRead, W: Write, E: Write>(
             }
             v as u64
         }
-        None => prompt_n(reader, out)?,
+        None => match prompt_n(reader, out, err)? {
+            Ok(n) => n,
+            Err(code) => return Ok(code),
+        },
     };
 
     let limit = 10u64.pow(exp as u32);
@@ -365,5 +378,40 @@ mod tests {
         let result =
             run(Cli { exponent: Some(0) }, &mut reader, &mut out, &mut FailWriter, dir.path());
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn prompt_eof_at_prompt_exits_1_with_no_input_message() {
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut err_buf = Vec::new();
+        let mut reader = Cursor::new("");
+        let code =
+            run(Cli { exponent: None }, &mut reader, &mut out, &mut err_buf, dir.path()).unwrap();
+        assert_eq!(code, 1);
+        assert_eq!(
+            String::from_utf8_lossy(&out),
+            "Enter N (finds all Goldbach pairs up to 10^N, max 8): \n"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&err_buf),
+            "Error: no input; pass SIZE as an argument (e.g. goldbach 1).\n"
+        );
+    }
+
+    #[test]
+    fn prompt_eof_after_a_rejected_answer_exits_1() {
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut err_buf = Vec::new();
+        let mut reader = Cursor::new("abc\n");
+        let code =
+            run(Cli { exponent: None }, &mut reader, &mut out, &mut err_buf, dir.path()).unwrap();
+        assert_eq!(code, 1);
+        assert_eq!(String::from_utf8_lossy(&out).matches("N must be between 1 and 8.").count(), 1);
+        assert_eq!(
+            String::from_utf8_lossy(&err_buf),
+            "Error: no input; pass SIZE as an argument (e.g. goldbach 1).\n"
+        );
     }
 }

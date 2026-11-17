@@ -37,9 +37,9 @@ Or directly:
 - `struct Cli` — clap derive struct; `exponent: Option<u32>` optional positional arg.
 - `fn generate_fibonacci<W: Write>(max_digits, out)` — iterates `a, b = b, a+b` until `b >= 10^max_digits`. Precomputes limit with `Integer::pow_assign`. Returns total count.
 - `fn fmt_int(n)` — formats `u64` with thousands separators (same as prime-rs).
-- `fn read_line_from<R: BufRead>(reader)` — reads one trimmed line from any `BufRead`.
-- `fn prompt_exponent_with<R: BufRead, W: Write, E: Write>(reader, out, err)` — interactive prompt loop; validates 1–5. Prompts to `out`, errors to `err`.
-- `fn confirm_large_n_with<R, W, E>(reader, out, err, exponent, max_digits)` — emits the "this may take a long time" warning to `err`, the `Continue? (y/n)` prompt to `out`, returns `true` on `y`/`yes`.
+- `fn read_line_from<R: BufRead>(reader)` — reads one trimmed line from any `BufRead`; returns `io::Result<Option<String>>`, `None` at end of input (distinct from a blank line).
+- `fn prompt_exponent_with<R: BufRead, W: Write, E: Write>(reader, out, err) -> io::Result<Result<u32, i32>>` — interactive prompt loop; validates 1–5 (inner `Err(code)` is the exit code). Prompts to `out`, errors to `err`.
+- `fn confirm_large_n_with<R, W, E>(reader, out, err, exponent, max_digits)` — emits the "this may take a long time" warning to `err`, the `Continue? (y/n)` prompt to `out`, returns `true` on `y`/`yes`; end of input reads as no.
 - `fn write_fib_file(dir, exponent, buf)` — buffered (X ≤ 2) save path; writes `<dir>/fib_1eX.txt` and returns the path.
 - `fn stream_fib_to_file(dir, exponent, max_digits)` — streaming (X ≥ 3) path; opens `<dir>/fib_1eX.txt` with an 8 MB `BufWriter`, runs `generate_fibonacci`, returns `(path, count)`.
 - `fn run<R: BufRead, W: Write, E: Write>(cli, reader, out, err, dir)` — full lifecycle: validates exponent, optionally warns/confirms for X ≥ 4, dispatches buffered or streaming path. Returns the process exit code (`0` success/aborted, `1` invalid X). Uses captured-variable format syntax (`{c}`, `{m}`, `{exponent}`) in writeln!/write! calls to keep them single-line under `rustfmt.toml`'s `use_small_heuristics = "Max"` setting.
@@ -66,6 +66,8 @@ limit.pow_assign(max_digits as u32);
 
 ## Important Behavior
 
+- **End of input:** EOF at the number prompt prints a newline to stdout, then `Error: no input; pass SIZE as an argument (e.g. fib 3).` to stderr and exits 1 (it used to re-prompt forever on closed stdin). EOF at a post-computation display prompt reads as no.
+- **Confirmation:** end of input or a decline at `Continue? (y/n)` exits 0 without computing.
 - **Small output (X ≤ 2):** buffered in `Vec<u8>`, user prompted to display or save to `fib_1eX.txt`.
 - **Large output (X ≥ 3):** streamed to `fib_1eX.txt` via `BufWriter` (8 MB buffer).
 - **Large-N warning:** X ≥ 4 warns and requires `y/yes` confirmation before proceeding.
@@ -86,7 +88,7 @@ cd fib/fib-rs
 cargo test
 ```
 
-### Test coverage (97% line coverage, 47 tests)
+### Test coverage (97% line coverage, 59 tests)
 
 | Area                                | Tests                                                                                                                                                              |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

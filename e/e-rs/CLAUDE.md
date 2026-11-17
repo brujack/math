@@ -50,14 +50,16 @@ Integer::from(&l.q * &r.p) + &r.q
 - `fn fmt_int(n)`: formats with thousands separators
 - `fn format_series_progress(completed, n)`: pure formatter for the compute progress line (testable in isolation)
 - `fn format_write_progress(written, e_total, elapsed)`: pure formatter for the write progress line (testable in isolation)
-- `fn read_line_from<R: BufRead>(reader)`: reads one trimmed line from any `BufRead`
-- `fn prompt_digits_with<R, W, E>(reader, out, err)`: trait-injected interactive prompt (loops until valid; defers to `confirm_large_digits_with` for n > 1_000_000)
+- `fn read_line_from<R: BufRead>(reader)`: reads one trimmed line from any `BufRead`; returns `io::Result<Option<String>>`, `None` at end of input (distinct from a blank line)
+- `fn prompt_digits_with<R, W, E>(reader, out, err) -> io::Result<Result<usize, i32>>`: trait-injected interactive prompt (loops until valid; defers to `confirm_large_digits_with` for n > 1_000_000; inner `Err(code)` is the exit code)
+- `enum Confirm { Yes, No, Eof }`: result of `confirm_large_digits_with` (`Continue with N digits? (y/n)`); `No` returns to the number prompt, `Eof` exits 0 without computing (matches `e.py`)
 - `fn confirm_large_digits_with<R, W, E>(reader, out, err, n)`: y/n confirmation for large digit counts
 - `fn run<R, W, E>(cli, reader, out, err, dir)`: orchestration — returns process exit code; injects all I/O so tests can use pipes + temp dirs
 - `fn main()`: thin wrapper — locks stdin/stdout, passes unlocked `io::stderr()` (a held `StderrLock` deadlocks the progress thread's `eprint!`), calls `run`, exits with the returned code
 
 ## Important Behavior
 
+- **End of input:** EOF at the number prompt prints a newline to stdout, then `Error: no input; pass SIZE as an argument (e.g. e 10000).` to stderr and exits 1 (it used to re-prompt forever on closed stdin). EOF at a post-computation display prompt reads as no.
 - `write_e_file` is `#[cfg(unix)]` only -- it uses POSIX `pwrite(2)` via `std::os::unix::fs::FileExt::write_at`
 - The progress thread pattern (spawn thread that loops on `mpsc::Receiver::recv_timeout(200 ms)`, ticking on timeout and exiting when the worker sends or drops the `Sender`, join after computation) is used for both series computation and file writing
 - Term count estimation: `N = digits / log10(digits + 1) + 50` -- enough terms so that `N!` exceeds `10^digits`
@@ -76,6 +78,8 @@ Integer::from(&l.q * &r.p) + &r.q
 
 Tests live in a `#[cfg(test)] mod tests` block at the bottom of `src/main.rs`.
 
+Any unit test that reaches `compute_e` (directly or through `run`) must hold `BS_COUNTER_LOCK` (`let _guard = BS_COUNTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());`): each computation resets the global `BS_LEAF_COUNT`, and `cargo test`/tarpaulin run unit tests as threads in one process, so an unlocked computing test can zero the counter under `test_bs_leaf_increments_counter` (CI Coverage e-rs failure, math#229). Nothing enforces this; find the set by making the reset panic.
+
 Run the full suite:
 
 ```bash
@@ -90,7 +94,7 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-### Test coverage (92.59% line coverage, 80 tests: 74 unit + 6 integration)
+### Test coverage (92.59% line coverage, 87 tests: 81 unit + 6 integration)
 
 | Area                                    | Tests | Notes                                                                                                 |
 | --------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------- |
