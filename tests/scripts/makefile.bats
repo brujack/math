@@ -523,19 +523,20 @@ _tmpdir_run() {
 # fail under the coverage tracer in CI only (root cause)": runs 42126186260, 42327936247,
 # 42516108857, 42550879158, 43991758036), always with an empty process-state dump. A new
 # one must skip there too, or it brings the flake back.
-@test "every SIGTERM-twice test skips under the bash-coverage tracer" {
-    local missing
-    missing="$(awk '
-        /^@test / { name = $0; body = ""; inside = 1; next }
-        inside && /^}/ {
-            if (body ~ /_term_group_twice/ && body !~ /_skip_under_coverage_tracer/) print name
-            inside = 0; next
-        }
-        inside { body = body "\n" $0 }
+@test "every _term_group_twice test skips under the bash-coverage tracer, before the call" {
+    # Line-wise: a skip counts only if it is an uncommented line above the call in the same
+    # test, and the calls actually seen are counted, so a blind matcher cannot pass. Covers
+    # tests that use the helper; a test that sends TERM by hand is outside it. Bump the count
+    # when a SIGTERM test is added.
+    local out
+    out="$(awk '
+        /^@test / { name = $0; skipped = 0; next }
+        /^    _skip_under_coverage_tracer$/ { skipped = 1; next }
+        /^    [^#]*_term_group_twice / { seen++; if (!skipped) print "MISSING " name }
+        END { print "SEEN " seen + 0 }
     ' "${BATS_TEST_FILENAME}")"
-    [ -z "${missing}" ] || { printf 'SIGTERM-twice tests without the tracer skip:\n%s\n' "${missing}" >&2; return 1; }
-    # Floor on the call sites (stub env, then the helper), a shape this line cannot match.
-    [ "$(command grep -cE '^    STUB_[A-Z_]+=1 .*_term_group_twice' "${BATS_TEST_FILENAME}")" -ge 3 ]
+    case "${out}" in *MISSING*) printf '%s\n' "${out}" >&2; return 1 ;; esac
+    [ "${out##*SEEN }" -eq 3 ]
 }
 
 # A CI cancel signals the whole group more than once; the second TERM must not kill the cleanup rm.
