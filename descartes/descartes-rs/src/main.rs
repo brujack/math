@@ -5,12 +5,13 @@ use std::ffi::OsString;
 use std::fmt::Display;
 use std::fs::File;
 use std::io::{self, BufRead, BufWriter, IsTerminal, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{self, Command, Stdio};
 use std::time::Instant;
 
 use descartes::{
-    Circle, DescartesError, distinct, pack, render, root_centres, solve, validate_root, visible,
+    Circle, DescartesError, distinct, pack, render, root_centres, solve, svg_packing, svg_solve,
+    validate_root, visible,
 };
 
 /// Largest K: curvature limit 10^8 is the core's `N_MAX` (spec R14, R22).
@@ -81,6 +82,9 @@ struct Args {
     /// Do not draw the circles in braille
     #[arg(long)]
     no_draw: bool,
+    /// Also write the drawing as SVG to PATH
+    #[arg(long, value_name = "PATH")]
+    svg: Option<PathBuf>,
 }
 
 /// What the process knows about its terminals; injected so tests drive both branches.
@@ -252,6 +256,46 @@ fn table_lines(given: &[Circle], solutions: &[Circle], precision: Option<usize>)
         .collect()
 }
 
+/// Refuse an SVG path that cannot be written, before any prompt: a missing or non-directory
+/// parent (an empty parent means the current directory) or a path that is a directory.
+fn check_svg_path(path: &Path) -> Result<(), String> {
+    let parent = match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => Path::new("."),
+    };
+    if !parent.is_dir() {
+        return Err(format!(
+            "cannot write SVG '{}': directory '{}' does not exist",
+            path.display(),
+            parent.display()
+        ));
+    }
+    if path.is_dir() {
+        return Err(format!("cannot write SVG '{}': it is a directory", path.display()));
+    }
+    Ok(())
+}
+
+/// Open the SVG file before any computation, so a permission error costs nothing.
+fn open_svg<E: Write>(path: &Path, stderr: &mut E) -> Result<File, Stop> {
+    File::create(path)
+        .map_err(|e| fail(stderr, format!("cannot write SVG '{}': {e}", path.display()), 1))
+}
+
+/// Write the SVG text and report the path on stdout.
+fn write_svg<W: Write, E: Write>(
+    mut file: File,
+    path: &Path,
+    text: &str,
+    stdout: &mut W,
+    stderr: &mut E,
+) -> Result<(), Stop> {
+    file.write_all(text.as_bytes())
+        .map_err(|e| fail(stderr, format!("cannot write SVG '{}': {e}", path.display()), 1))?;
+    writeln!(stdout, "Saved SVG to {}", path.display())?;
+    Ok(())
+}
+
 /// Draw the circles on the canvas the terminal allows.
 fn draw<W: Write, E: Write>(
     circles: &[Circle],
@@ -272,10 +316,14 @@ fn run_solve<W: Write, E: Write>(
     stdout: &mut W,
     stderr: &mut E,
 ) -> Result<(), Stop> {
+    let svg_file = args.svg.as_deref().map(|p| open_svg(p, stderr)).transpose()?;
     let solutions = solve(given[0], given[1], given[2]).map_err(|e| fail_descartes(stderr, &e))?;
     let precision = args.precision.map(|p| p as usize);
     for line in table_lines(given, &solutions, precision) {
         writeln!(stdout, "{line}")?;
+    }
+    if let (Some(file), Some(path)) = (svg_file, args.svg.as_deref()) {
+        write_svg(file, path, &svg_solve(given, &solutions), stdout, stderr)?;
     }
     if !args.no_draw {
         let all: Vec<Circle> = given.iter().chain(&solutions).copied().collect();
@@ -355,7 +403,9 @@ fn run_packing<R: BufRead, W: Write, E: Write>(
     let root = validate_root(requested).map_err(|e| fail_descartes(stderr, &e))?;
     let n = 10_i64.pow(k);
     let filename = packing_filename(k, root);
-    // Open first: a path or permission error must not cost a computation.
+    // Open both files first (SVG before .txt, so a failed SVG leaves no .txt): a path or
+    // permission error must not cost a computation.
+    let svg_file = args.svg.as_deref().map(|p| open_svg(p, stderr)).transpose()?;
     let file = File::create(out_dir.join(&filename))
         .map_err(|e| fail(stderr, format!("cannot write {filename}: {e}"), 1))?;
     let start = Instant::now();
@@ -376,6 +426,10 @@ fn run_packing<R: BufRead, W: Write, E: Write>(
     writeln!(stdout, "circles {count}")?;
     writeln!(stdout, "distinct {}", curvatures.len())?;
     writeln!(stdout, "Saved to {filename}")?;
+    if let (Some(file), Some(path)) = (svg_file, args.svg.as_deref()) {
+        let text = svg_packing(root, k).map_err(|e| fail_descartes(stderr, &e))?;
+        write_svg(file, path, &text, stdout, stderr)?;
+    }
     writeln!(stderr, "Elapsed: {elapsed:.2}s")?;
     if count > 0 && !args.no_draw {
         let (width, _) = canvas_size(term);
@@ -403,6 +457,9 @@ fn dispatch<R: BufRead, W: Write, E: Write>(
     };
     if let Err(message) = check_modes(&mut args, term.stdin_is_tty) {
         return Err(say(stderr, usage_error(&message).trim_end(), 2));
+    }
+    if let Some(path) = args.svg.as_deref() {
+        check_svg_path(path).map_err(|m| fail(stderr, m, 1))?;
     }
     match args.solve.take() {
         Some(given) => run_solve(&args, &given, term, stdout, stderr),
@@ -476,7 +533,6 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     const PIPED: Terminal = Terminal { stdin_is_tty: false, stdout_size: None };
 
@@ -1329,5 +1385,152 @@ solution  2  6          0.16666666666666666  0.5   0.6666666666666666
         assert_eq!(stty_size(fake_stty("echo '30 100'; exit 1"), Stdio::null()), None);
         assert_eq!(stty_size(fake_stty("echo hello"), Stdio::null()), None);
         assert_eq!(stty_size(Command::new("/nonexistent/stty"), Stdio::null()), None);
+    }
+
+    // ---- --svg ----
+
+    fn svg_arg(dir: &tempfile::TempDir, name: &str) -> String {
+        dir.path().join(name).to_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn svg_cli_packing_writes_file_and_line_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let svg = svg_arg(&dir, "p.svg");
+        let o = run_in(&["2", "--no-draw", "--svg", &svg], "", &PIPED, dir.path());
+        assert_eq!(o.code, 0);
+        assert_eq!(
+            o.stdout,
+            format!(
+                "root -1 2 2 3\ncircles 168\ndistinct 33\nSaved to descartes_1e2.txt\nSaved SVG to {svg}\n"
+            )
+        );
+        assert!(read(&dir, "p.svg").contains("<svg "));
+    }
+
+    #[test]
+    fn svg_cli_solve_writes_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let svg = svg_arg(&dir, "s.svg");
+        let o = run_in(
+            &["--solve", "-1,0,0", "2,0.5,0", "3,0,0.6666666666666666", "--no-draw", "--svg", &svg],
+            "",
+            &PIPED,
+            dir.path(),
+        );
+        assert_eq!(o.code, 0);
+        let lines: Vec<&str> = o.stdout.lines().collect();
+        assert_eq!(lines.last().copied(), Some(format!("Saved SVG to {svg}").as_str()));
+        assert!(lines[lines.len() - 2].starts_with("solution  2"));
+        assert!(read(&dir, "s.svg").contains("<svg "));
+    }
+
+    #[test]
+    fn svg_cli_solve_line_precedes_braille() {
+        let dir = tempfile::tempdir().unwrap();
+        let svg = svg_arg(&dir, "s.svg");
+        let o = run_in(
+            &["--solve", "-1,0,0", "2,0.5,0", "3,0,0.6666666666666666", "--svg", &svg],
+            "",
+            &PIPED,
+            dir.path(),
+        );
+        assert_eq!(o.code, 0);
+        let saved = o.stdout.lines().position(|l| l.starts_with("Saved SVG to")).unwrap();
+        let first_braille = o.stdout.lines().position(|l| braille_lines(l).len() == 1).unwrap();
+        assert!(saved < first_braille);
+    }
+
+    #[test]
+    fn svg_cli_refuses_missing_dir_before_prompt() {
+        let dir = tempfile::tempdir().unwrap();
+        let svg = svg_arg(&dir, "nope/x.svg");
+        let term = Terminal { stdin_is_tty: true, stdout_size: None };
+        let o = run_in(&["--svg", &svg], "3\n", &term, dir.path());
+        assert_eq!(o.code, 1);
+        assert!(!o.stdout.contains("Enter exponent"));
+        assert!(o.stderr.starts_with(&format!("Error: cannot write SVG '{svg}': ")));
+        assert!(no_files(&dir));
+    }
+
+    #[test]
+    fn svg_cli_refuses_existing_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let svg = dir.path().to_str().unwrap().to_string();
+        let o = run_in(&["2", "--svg", &svg], "", &PIPED, dir.path());
+        assert_eq!(o.code, 1);
+        assert!(o.stderr.starts_with(&format!("Error: cannot write SVG '{svg}': ")));
+        assert!(no_files(&dir));
+        // The refusal comes before the K prompt, not from a later failed open.
+        let term = Terminal { stdin_is_tty: true, stdout_size: None };
+        let o = run_in(&["--svg", &svg], "3\n", &term, dir.path());
+        assert_eq!(o.code, 1);
+        assert!(!o.stdout.contains("Enter exponent"));
+    }
+
+    #[test]
+    fn svg_cli_refuses_file_as_dir_part() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f"), "x").unwrap();
+        let svg = svg_arg(&dir, "f/x.svg");
+        let o = run_in(&["2", "--svg", &svg], "", &PIPED, dir.path());
+        assert_eq!(o.code, 1);
+        assert!(o.stderr.starts_with(&format!("Error: cannot write SVG '{svg}': ")));
+    }
+
+    #[test]
+    fn svg_cli_bare_name_accepted() {
+        assert!(check_svg_path(Path::new("x.svg")).is_ok());
+    }
+
+    #[test]
+    fn svg_cli_unwritable_file_exits_1_before_computing() {
+        let dir = tempfile::tempdir().unwrap();
+        let svg = svg_arg(&dir, "ro.svg");
+        std::fs::write(&svg, "x").unwrap();
+        let mut perms = std::fs::metadata(&svg).unwrap().permissions();
+        perms.set_readonly(true);
+        std::fs::set_permissions(&svg, perms).unwrap();
+        let o = run_in(&["2", "--svg", &svg], "", &PIPED, dir.path());
+        assert_eq!(o.code, 1);
+        assert!(o.stderr.starts_with(&format!("Error: cannot write SVG '{svg}': ")));
+        assert!(o.stdout.is_empty());
+    }
+
+    #[test]
+    fn svg_cli_unwritable_svg_leaves_no_txt() {
+        let dir = tempfile::tempdir().unwrap();
+        let svg = svg_arg(&dir, "ro.svg");
+        std::fs::write(&svg, "x").unwrap();
+        let mut perms = std::fs::metadata(&svg).unwrap().permissions();
+        perms.set_readonly(true);
+        std::fs::set_permissions(&svg, perms).unwrap();
+        let o = run_in(&["2", "--svg", &svg], "", &PIPED, dir.path());
+        assert_eq!(o.code, 1);
+        assert!(!dir.path().join("descartes_1e2.txt").exists());
+    }
+
+    #[test]
+    fn svg_cli_no_draw_still_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let svg = svg_arg(&dir, "n.svg");
+        let o = run_in(&["2", "--no-draw", "--svg", &svg], "", &PIPED, dir.path());
+        assert_eq!(o.code, 0);
+        assert!(braille_lines(&o.stdout).is_empty());
+        assert!(read(&dir, "n.svg").contains("<svg "));
+    }
+
+    #[test]
+    fn svg_cli_precision_does_not_change_svg() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (svg_arg(&dir, "a.svg"), svg_arg(&dir, "b.svg"));
+        let base = ["--solve", "-1,0,0", "2,0.5,0", "3,0,0.6666666666666666", "--no-draw"];
+        let mut x = base.to_vec();
+        x.extend(["--svg", &a]);
+        let mut y = base.to_vec();
+        y.extend(["--precision", "2", "--svg", &b]);
+        assert_eq!(run_in(&x, "", &PIPED, dir.path()).code, 0);
+        assert_eq!(run_in(&y, "", &PIPED, dir.path()).code, 0);
+        assert_eq!(read(&dir, "a.svg"), read(&dir, "b.svg"));
     }
 }

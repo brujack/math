@@ -142,3 +142,16 @@ fn packing_writes_the_curvature_file_in_the_working_directory() {
     let file = std::fs::read_to_string(dir.path().join("descartes_1e3.txt")).unwrap();
     assert_eq!(file.lines().count(), 324);
 }
+
+#[test]
+fn svg_cli_binary_writes_svg_in_cwd() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = run_in(&dir, &["2", "--no-draw", "--svg", "out.svg"]);
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = text(&out.stdout);
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines.last(), Some(&"Saved SVG to out.svg"));
+    assert_eq!(lines[lines.len() - 2], "Saved to descartes_1e2.txt");
+    let svg = std::fs::read_to_string(dir.path().join("out.svg")).unwrap();
+    assert!(svg.contains("<svg "));
+}
