@@ -22,11 +22,13 @@ from triangle import (
     TriangleInputError,
     _check,
     _close_angles,
+    _fmt3,
     _label_cell,
     _project,
     main,
     render,
     solve,
+    svg,
 )
 
 
@@ -1137,6 +1139,52 @@ class TestSubprocess(unittest.TestCase):
         )
         self.assertEqual(done.returncode, 0)
         self.assertIn("6.0000", done.stdout)
+
+
+class TestSvg(unittest.TestCase):
+    def test_svg_3_4_5_exact(self) -> None:
+        t = solve({"a": 3, "b": 4, "c": 5}).solutions[0]
+        self.assertEqual(
+            svg(t),
+            """<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+<rect width="1000" height="1000" fill="white"/>
+<polygon points="50.000,716.000 950.000,716.000 626.000,284.000" fill="none" stroke="black" stroke-width="2"/>
+<text x="807.195" y="494.382" font-size="24" text-anchor="middle" dominant-baseline="central">a</text>
+<text x="319.140" y="493.344" font-size="24" text-anchor="middle" dominant-baseline="central">b</text>
+<text x="494.400" y="735.200" font-size="24" text-anchor="middle" dominant-baseline="central">c</text>
+<text x="26.007" y="723.022" font-size="24" text-anchor="middle" dominant-baseline="central">A</text>
+<text x="973.575" y="724.321" font-size="24" text-anchor="middle" dominant-baseline="central">B</text>
+<text x="633.000" y="260.000" font-size="24" text-anchor="middle" dominant-baseline="central">C</text>
+</svg>
+""",
+        )
+
+    def test_svg_has_one_polygon_six_labels(self) -> None:
+        t = solve({"a": 3, "b": 4, "c": 5}).solutions[0]
+        doc = svg(t)
+        self.assertEqual(doc.count("<polygon "), 1)
+        self.assertEqual(doc.count("<text "), 6)
+        self.assertTrue(doc.endswith("</svg>\n"))
+        labels = re.findall(r">([abcABC])</text>", doc)
+        self.assertEqual(labels, ["a", "b", "c", "A", "B", "C"])
+
+    def test_svg_obtuse_fits_view(self) -> None:
+        t = solve({"a": 1, "b": 1, "C": 179}).solutions[0]
+        doc = svg(t)
+        points = re.search(r'points="([^"]*)"', doc)
+        assert points is not None
+        nums = [float(n) for n in re.findall(r"-?\d+\.\d+", points.group(1))]
+        nums += [float(n) for n in re.findall(r'[xy]="(-?\d+\.\d+)"', doc)]
+        self.assertEqual(len(nums), 6 + 12)
+        for n in nums:
+            self.assertTrue(0.0 <= n <= 1000.0, n)
+
+    def test_svg_fmt3_negative_zero(self) -> None:
+        self.assertEqual(_fmt3(-0.0), "0.000")
+        self.assertEqual(_fmt3(-0.0004), "0.000")
+        self.assertEqual(_fmt3(-0.0006), "-0.001")
+        self.assertEqual(_fmt3(1.23456), "1.235")
 
 
 if __name__ == "__main__":

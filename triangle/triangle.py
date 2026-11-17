@@ -560,6 +560,65 @@ _PIPE_WIDTH = 60
 _MAX_HEIGHT = 20
 
 
+def _fmt3(v: float) -> str:
+    """Three decimals, with a negative zero printed as plain zero."""
+    text = f"{v:.3f}"
+    return "0.000" if text == "-0.000" else text
+
+
+def _away(
+    point: tuple[float, float], centroid: tuple[float, float], distance: float
+) -> tuple[float, float]:
+    """Move point `distance` units straight away from the centroid."""
+    dx = point[0] - centroid[0]
+    dy = point[1] - centroid[1]
+    length = math.hypot(dx, dy)
+    return (point[0] + dx / length * distance, point[1] + dy / length * distance)
+
+
+def svg(t: Triangle) -> str:
+    """The triangle as an SVG document on a 1000 x 1000 white canvas.
+
+    A is the origin, B is on the x-axis and C is above it.  The bounding box
+    is scaled to 900 units and centred; side labels sit 20 units and vertex
+    labels 25 units outside the triangle, away from its centroid.
+    """
+    model = [(0.0, 0.0), (t.c, 0.0), (t.b * math.cos(t.A), t.b * math.sin(t.A))]
+    xs = [x for x, _ in model]
+    ys = [y for _, y in model]
+    scale = 900 / max(max(xs) - min(xs), max(ys) - min(ys))
+    cx = (max(xs) + min(xs)) / 2
+    cy = (max(ys) + min(ys)) / 2
+    va, vb, vc = ((500 + (x - cx) * scale, 500 - (y - cy) * scale) for x, y in model)
+    centroid = ((va[0] + vb[0] + vc[0]) / 3, (va[1] + vb[1] + vc[1]) / 3)
+
+    def mid(p: tuple[float, float], q: tuple[float, float]) -> tuple[float, float]:
+        return ((p[0] + q[0]) / 2, (p[1] + q[1]) / 2)
+
+    labels = [
+        ("a", _away(mid(vb, vc), centroid, 20)),
+        ("b", _away(mid(vc, va), centroid, 20)),
+        ("c", _away(mid(va, vb), centroid, 20)),
+        ("A", _away(va, centroid, 25)),
+        ("B", _away(vb, centroid, 25)),
+        ("C", _away(vc, centroid, 25)),
+    ]
+    points = " ".join(f"{_fmt3(x)},{_fmt3(y)}" for x, y in (va, vb, vc))
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">',
+        '<rect width="1000" height="1000" fill="white"/>',
+        f'<polygon points="{points}" fill="none" stroke="black" stroke-width="2"/>',
+    ]
+    for name, (x, y) in labels:
+        lines.append(
+            f'<text x="{_fmt3(x)}" y="{_fmt3(y)}" font-size="24" '
+            f'text-anchor="middle" dominant-baseline="central">{name}</text>'
+        )
+    lines.append("</svg>")
+    return "\n".join(lines) + "\n"
+
+
 def _precision(text: str) -> int:
     try:
         value = int(text)
