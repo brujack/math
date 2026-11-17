@@ -64,10 +64,21 @@ returning 0 at the number prompt (the prompt whose answer is parsed as the size)
 `Error: no input; pass SIZE as an argument (e.g. <bin> <v>).` to stderr, and exits 1 —
 `descartes-rs`'s shape (`main.rs:296-300`). `<v>` is the Python twin's `SMOKE_SIZE`
 (collatz 5, e 10000, factorial 1000, fib 3, perfect-numbers 6, pi 10000, sq 1); goldbach and
-prime have no Python twin and use 1. The y/n confirmation prompts (`fib-rs`, `sq-rs`,
-`e-rs`, `pi-rs`, `prime-rs`) are unchanged: end of input there already reads as "no" and
-terminates (pi documents "EOF reading as no with exit 0"), and a declined confirmation
-returns to the number prompt, whose new check ends the loop.
+prime have no Python twin and use 1.
+
+The large-run confirmation asked before the computation (`Continue …? (y/n)` in pi-rs,
+e-rs, fib-rs and prime-rs) is a second spin path today: a declined or empty answer returns
+to the number prompt, which then spins. Measured: `printf '2000000\n' | timeout 2 pi`
+wrote 5 MB in 2 s. The Python twins end the run there: `pi.py:501` and `e.py` exit 0 on
+end of input, and `fib.py:106` reads it as "no" and `return`s from `main` (exit 0). So end
+of input at that confirmation exits 0 without computing and without a message, matching
+Python and pi's documented "EOF reading as no with exit 0". A typed "n" keeps today's
+behaviour (back to the number prompt). The prompts asked after the computation ("Display
+all digits?", "Also display all … perfect squares?") already end the run on end of input
+and are unchanged. Seven crates (e, factorial, fib, perfect-numbers, pi, prime, sq) read
+through a shared `read_line_from` that returns a trimmed `String` and so cannot tell end
+of input from a blank line; its return type changes to carry end of input (for example
+`io::Result<Option<String>>`), and every caller is updated.
 
 ### PR3 — `--svg PATH`
 
@@ -76,7 +87,10 @@ addition to whatever the terminal shows; braille stays the default terminal draw
 `--no-draw` still suppresses only braille, so `--no-draw --svg out.svg` writes the file
 and draws nothing. `--svg` combines with every other flag: packing (`K`, `--root`,
 `--smoke`, `--show`, `--yes`) and `--solve`; `--precision` changes only the table, never the
-SVG. Each file written prints `Saved to <path>` on stdout, after the existing output.
+SVG. Each file written prints `Saved SVG to <path>` on stdout, a prefix distinct from the
+existing `Saved to <file>.txt` line. descartes prints it directly after that `.txt` line
+(packing) or directly after the table (`--solve`), before `Elapsed` and before any braille
+drawing; triangle prints it directly after the table of the solution it draws.
 
 **Common format.** UTF-8, LF line endings on every platform (Python opens with
 `newline="\n"`), one element per line, numbers formatted with
@@ -104,21 +118,32 @@ zooms into the packing rather than re-running at a larger size. The count is are
 (radius ≥ R/1000), measured 3,116-3,339 circles for every root tried, so K up to 8 in Rust
 does not grow it. Each circle is
 `<circle cx cy r fill="none" stroke="black" stroke-width="w"/>` with
-`w = min(1, r / 4)`. A circle with `r >= 10` also gets
+`w = min(1, r / 4)`. Every circle except the outer one with `r >= 20` also gets
 `<text x y font-size="f" text-anchor="middle" dominant-baseline="central">k</text>` at its
-centre, `f = min(48, 0.6 * r)`, `k` its integer curvature.
+centre, `f = min(48, 0.6 * r)` (so at least 12), `k` its integer curvature. The outer
+circle is not labelled: its centre is a tangency point of two inner circles. Measured for
+the default root at K=3: 26 labels (68 at `r >= 10`, of which 30 had a font under 10 units,
+unreadable at 100% zoom).
 
 **descartes `--solve`.** Drawn: the three given circles and every solution circle (a
 curvature-0 solution is a line, which the table already omits; the SVG omits it too). The
-square bounding box of the three given circles, grown 5% on each side, maps to the
-1000 × 1000 view; a solution larger than that box (a near-line solution, curvature close to
-0) is clipped by the view rather than shrinking the givens to a dot. Given circles are `stroke="black"`; solutions are
+square bounding box of the three given circles and every negative-curvature (enclosing)
+solution, grown 5% on each side, maps to the 1000 × 1000 view. An enclosing solution is
+bounded by the givens, so including it costs little; fitting the givens alone clipped the
+enclosing circle in four of five measured cases (default root: bottom at 1069). A large
+positive-curvature solution (near-line, curvature close to 0) is not in the box and is
+clipped by the view rather than shrinking the givens to a dot. Given circles are `stroke="black"`; solutions are
 `stroke="#c00" stroke-dasharray="6 4"`; `stroke-width` as for the packing. No labels:
 the values are floats and the table already prints them.
 
 **Python–Rust parity.** For the same arguments `descartes.py` and `descartes-rs` write the
 same elements in the same order with the same non-numeric text, and every number agrees
-within 0.001 (one step in the last printed digit). Byte identity is not achievable cheaply:
+to within one unit of the last printed digit, compared as integers: each printed number is
+read as an integer count of thousandths (`436.563` → 436563) and the two counts differ by at
+most 1. Comparing parsed floats against `0.001` is wrong: one printed step parses to a
+difference just above 0.001 for 384,932 of the 1,000,000 adjacent pairs in 0..1000
+(measured), and `436.563 - 436.562` passes only because it happens to give
+`0.0009999999999763531`. Byte identity is not achievable cheaply:
 the two languages place the root circles with different arithmetic (`descartes.py:180-210`
 Fraction and `cmath.sqrt`; `lib.rs:274,488-509` i128 and `c_sqrt`), so a centre can differ
 by one ulp, and rational packings land on exact `.xxx5` ties. Measured: root
@@ -135,11 +160,14 @@ text-anchor="middle" dominant-baseline="central"`. These are the braille labels.
 An SSA input with two solutions writes two files: `-1` and `-2` inserted before the
 extension of the file name, never a directory component (`t.svg` → `t-1.svg`, `t-2.svg`;
 `out.d/t` → `out.d/t-1`, `out.d/t-2`). One solution writes `PATH` exactly. The
-`Saved to` lines name the files actually written.
+`Saved SVG to` lines name the files actually written.
 
-**When the path is checked, and its errors.** Every CLI checks that the `--svg` path's
-directory exists and is writable before any prompt, so a user never answers prompts and then
-loses the run to a bad path. descartes then opens the file before `pack` or `solve` runs, as
+**When the path is checked, and its errors.** Before any prompt, every CLI refuses a
+`--svg` path whose directory part does not exist or is not a directory (an empty directory
+part, as in a bare `t.svg`, means `.`), and refuses a `PATH` that is itself an existing
+directory (for triangle, each suffixed name is checked too once solved). A user never
+answers prompts and then loses the run to those mistakes. Permission is not pre-checked
+(`os.access` is unreliable on Windows directories); a permission error surfaces at open. descartes then opens the file before `pack` or `solve` runs, as
 it does the `.txt` output (R27). triangle solves first (it is instant and the file count
 depends on the solution count), then opens every file before printing anything. A file that cannot be opened or written
 prints `Error: cannot write SVG '<path>': <reason>` to stderr and exits 1.
@@ -160,17 +188,28 @@ prints `Error: cannot write SVG '<path>': <reason>` to stderr and exits 1.
   and CRLF, bad then end of input — each asserting stderr, stdout and the exit code.
 - PR2: one unit test per crate passing an empty reader to the number prompt, asserting
   exit 1, the trailing newline on stdout and the exact stderr line. On current code each
-  test hangs to nextest's 45 s cap, which is its RED. One test per crate with a y/n prompt
-  pins that end of input there still reads as "no".
-- PR3: tests parse each SVG with `defusedxml` (already pinned) and assert element counts
-  (3,329 circles for K=3 on the default root: outer plus 3,328) and one pinned element's
-  exact text. Parity lives in the existing `descartes-rs/tests/parity.rs`, which already runs
+  test hangs to nextest's 45 s cap, which is its RED. In pi-rs, e-rs, fib-rs and prime-rs,
+  a test feeding a size above the confirmation threshold and then end of input asserts
+  exit 0, no computation and no stderr; one feeding that size then `n` then end of input
+  asserts the number prompt is shown twice and the run exits 1 with the R6 message. Each
+  updated `read_line_from` test asserts end of input and a blank line now differ.
+- PR3, Python: tests parse each SVG with `defusedxml` (already pinned) and assert exact
+  element counts (default root K=3: 3,329 circles, outer plus 3,328, and 26 text elements;
+  each `--solve` case: 3 givens plus its exact solution count) and one pinned element's exact
+  text per kind. They also assert the `Saved SVG to` line's text and its position in stdout.
+- PR3, Rust: unit tests in `descartes-rs` pin the same counts and pinned elements, so Rust
+  geometry is covered under cargo-mutants, whose `.cargo/mutants.toml` runs only
+  `--lib --bins --test cli` and never `tests/parity.rs`.
+- PR3, parity: in the existing `descartes-rs/tests/parity.rs`, which already runs
   `../descartes.py` and which `descartes-rs.yml` and `scripts/pre-push` trigger on
-  `descartes/*.py` changes. It runs both CLIs with `--svg` for K = 1, 2, 3, root
-  (-12, 25, 25, 28) (the measured tie) and one `--solve` case; each case asserts exit 0 on
-  both sides and a minimum circle count before comparing, so two empty files cannot pass.
-  A bad path (a missing directory) exits 1 with the exact message, before any prompt, in
-  all three CLIs.
+  `descartes/*.py` changes. Its `stable_lines` helper (`parity.rs:37-46`) asserts exactly
+  one `Saved to ` line; it keys on that prefix only, so the distinct `Saved SVG to` prefix
+  leaves it valid, and a new helper reads the SVG path. Cases: K = 1, 2, 3 on the default
+  root, `--root -12 25 25 28` at K = 5 (the measured tie) and one `--solve` case. Each asserts
+  exit 0 on both sides and the exact circle count on each side before comparing.
+- PR3, paths: one test per refusal branch in each CLI — missing directory, directory part
+  that is a file, `PATH` that is an existing directory, and a bare `t.svg` accepted — each
+  refusal exiting 1 with the exact message before any prompt.
 
 ## Requirements
 
@@ -183,16 +222,17 @@ prints `Error: cannot write SVG '<path>': <reason>` to stderr and exits 1.
 - **R7.** `[PR3]` `descartes.py`, `descartes-rs` and `triangle.py` accept `--svg PATH` alongside every other flag (`K`, `--root`, `--smoke`, `--show`, `--yes`, `--solve`, `--precision`, triangle's value flags) and write an SVG file to `PATH`; braille drawing is unchanged, `--no-draw` suppresses only braille, and `--precision` does not change the SVG.
 - **R8.** `[PR3]` Every SVG file starts `<?xml version="1.0" encoding="UTF-8"?>`, then `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">` (no `width` or `height` attribute), then `<rect width="1000" height="1000" fill="white"/>`, ends `</svg>` and a newline, uses LF line endings on every platform, puts one element per line, and writes every number with exactly 3 decimals, with `-0.000` written `0.000`.
 - **R9.** `[PR3]` The descartes packing SVG maps the outer circle to centre (500, 500) radius 500 and draws it plus every circle with curvature at most `min(10^K, 1000 * |k_outer|)`, each as `<circle cx="…" cy="…" r="…" fill="none" stroke="black" stroke-width="…"/>` with stroke width `min(1, r / 4)`; the circle set does not depend on terminal size.
-- **R10.** `[PR3]` Every packing circle with SVG radius at least 10 is followed by `<text x="…" y="…" font-size="…" text-anchor="middle" dominant-baseline="central">k</text>` at its centre, with font size `min(48, 0.6 * r)` and `k` its integer curvature.
-- **R11.** `[PR3]` The descartes `--solve` SVG draws the three given circles with `stroke="black"` and every non-line solution with `stroke="#c00" stroke-dasharray="6 4"`, fitted so the square bounding box of the three given circles grown 5% per side fills the 1000 × 1000 view, with no text elements.
-- **R12.** `[PR3]` For the same arguments `descartes.py` and `descartes-rs` write SVG files with the same elements in the same order and the same non-numeric text, every number agreeing within 0.001; `descartes-rs/tests/parity.rs` checks this for K = 1, 2, 3 on the default root, for `--root -12 25 25 28` at K = 5, and for one `--solve` case, asserting exit 0 and at least one circle element on both sides before comparing.
+- **R10.** `[PR3]` Every packing circle other than the outer circle with SVG radius at least 20 is followed by `<text x="…" y="…" font-size="…" text-anchor="middle" dominant-baseline="central">k</text>` at its centre, with font size `min(48, 0.6 * r)` and `k` its integer curvature.
+- **R11.** `[PR3]` The descartes `--solve` SVG draws the three given circles with `stroke="black"` and every non-line solution with `stroke="#c00" stroke-dasharray="6 4"`, fitted so the square bounding box of the three given circles and every negative-curvature solution, grown 5% per side, fills the 1000 × 1000 view, with no text elements.
+- **R12.** `[PR3]` For the same arguments `descartes.py` and `descartes-rs` write SVG files with the same elements in the same order and the same non-numeric text, and every number, read as an integer count of thousandths (`436.563` is 436563), differs by at most 1 between the two files; `descartes-rs/tests/parity.rs` checks this for K = 1, 2, 3 on the default root, for `--root -12 25 25 28` at K = 5, and for one `--solve` case, asserting exit 0 and the exact circle count on both sides before comparing.
 - **R13.** `[PR3]` The triangle SVG draws the solved triangle as one `<polygon points="…" fill="none" stroke="black" stroke-width="2"/>` scaled to fit with a 5% margin, with labels `a` `b` `c` at side midpoints moved 20 units from the centroid and `A` `B` `C` at vertices moved 25 units from the centroid, all `font-size="24" text-anchor="middle" dominant-baseline="central"`.
 - **R14.** `[PR3]` When triangle has two solutions, it writes `PATH` with `-1` and `-2` inserted before the extension of the file name, never in a directory component (`t.svg` gives `t-1.svg` and `t-2.svg`; `out.d/t` gives `out.d/t-1` and `out.d/t-2`); with one solution it writes `PATH` exactly.
-- **R15.** `[PR3]` All three CLIs check that the `--svg` path's directory exists and is writable before any interactive prompt; descartes opens the SVG file before `pack` or `solve` runs; triangle opens every SVG file after solving and before printing anything; a path that fails the check, or a file that cannot be opened or written, prints `Error: cannot write SVG '<path>': <reason>` to stderr and exits 1.
-- **R16.** `[PR3]` Each SVG file written prints `Saved to <path>` on stdout, naming the file actually written (for a two-solution triangle, both suffixed paths and not `PATH`).
+- **R15.** `[PR3]` Before any interactive prompt, all three CLIs refuse a `--svg` path whose directory part does not exist or is not a directory (an empty directory part means `.`) and a `PATH` that is an existing directory, and triangle also refuses a suffixed name (R14) that is an existing directory before writing; descartes opens the SVG file before `pack` or `solve` runs; triangle opens every SVG file after solving and before printing anything; a path that fails the check, or a file that cannot be opened or written, prints `Error: cannot write SVG '<path>': <reason>` to stderr and exits 1.
+- **R16.** `[PR3]` Each SVG file written prints `Saved SVG to <path>` on stdout, naming the file actually written (for a two-solution triangle, both suffixed paths and not `PATH`); descartes prints it directly after the `Saved to <file>.txt` line (packing) or after the table (`--solve`), before `Elapsed` and any braille drawing, and triangle prints it directly after the table of the solution it draws.
 - **R17.** `[PR1]` `docs/superpowers/specs/2026-11-15-descartes-design.md` gains an `## Amendments` line restating R27 with its prompt clause changed from "a non-integer K at the prompt names the input (`Invalid input: 'abc' is not an integer K.`, exit 2)" to "a non-integer or out-of-range K at the prompt prints its message and prompts again", with a reason naming this spec.
+- **R18.** `[PR2]` In pi-rs, e-rs, fib-rs and prime-rs, end of input at the large-run confirmation asked before the computation (`Continue …? (y/n)`) exits 0 without computing and without writing to stderr; a typed answer other than `y` or `yes` still returns to the number prompt; the prompts asked after the computation are unchanged.
 - **V1.** Rebuild the nine PR2 crates and `descartes-rs` from the PR2 branch and run each two ways: `timeout 2 <bin> </dev/null | head -c 50000000 | wc -c` (closed stdin; before the fix nine print 50000000) and `timeout 4 script -qec <bin> /dev/null </dev/null` (pty; before the fix nine exit 124). After the fix all ten exit 1 under both, and the closed-stdin output is under 1 KB.
-- **V2.** Open one packing SVG (K=3, default root), one `--solve` SVG and one triangle SVG in a browser on Linux and on macOS; each fits the window without scrolling at 100% zoom, the 68 curvature labels and the triangle labels are readable at 100%, and at 800% zoom the smallest circles are visibly tangent.
+- **V2.** Open one packing SVG (K=3, default root), one `--solve` SVG and one triangle SVG in Chrome or Firefox on Linux and in Safari on macOS; each fits the window without scrolling at 100% zoom (a viewBox-only SVG must scale to the window in Safari too; if it does not, R8's no-width/height choice is revisited), the 26 curvature labels and the triangle labels are readable at 100%, the `--solve` enclosing circle is fully visible, and at 800% zoom the smallest circles are visibly tangent.
 - **V3.** Root and per-sub-project `make test` pass on each PR branch, and the per-PR mutation gates report 0 survivors on changed lines.
 - **N1.** No new runtime or test dependency in any Python sub-project or Rust crate.
 - **N2.** No change to braille output, to `--no-draw`'s effect on the terminal, or to any `.txt` output file's content or name.
@@ -225,3 +265,14 @@ Disposition: Addressed (operator 2026-11-17: "Tolerant parity", "Accept all") �
 ### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger. The parity test is a test, not a judge.
+
+### Round 2
+
+Reviewed at commit: `a2b68ff` (all three lenses; round-1 revision changed design substance)
+
+**Goal-Fit.** Finding: (1) R12's "within 0.001" on parsed floats fails on one printed step for 384,932 of 1,000,000 adjacent pairs in 0..1000; the pinned tie passes by luck (`0.0009999999999763531`). Compare integer thousandths. (2) R10 labels the outer circle too (69, not V2's 68), and its "-1" lands on a tangency point. (3) "At least one circle" can never fail; nothing catches zero solutions. (4) Seven crates share `read_line_from`, which cannot signal end of input. Premise held: fresh `fib` with closed stdin wrote 50,000,000 bytes, `descartes` 119. Assumption: R12 will be implemented as an integer-thousandth comparison, not as a float abs-diff. Disposition: Addressed (operator 2026-11-17, "Accept all") — integer-thousandth rule in R12; outer circle unlabelled and threshold r ≥ 20 (26 labels) in R10; exact counts; `read_line_from` return change named in PR2.
+
+**Ergonomics.** Finding: (1) Fitting `--solve` to the givens clips the enclosing solution in 4 of 5 measured cases (default root bottom at 1069). (2) 30 of 68 labels have font < 10 units, unreadable at 100%, so V2 cannot pass. (3) `Saved to` would print below a screen-tall braille drawing, and nothing tests it. (4) The pre-prompt check misses a `PATH` that is an existing directory and the bare-filename case, and `os.access` is unreliable on Windows. Assumption: a viewBox-only SVG scales to fit the window in Safari. Disposition: Addressed (operator 2026-11-17, "Accept all") — fit includes negative-curvature solutions (R11); label threshold r ≥ 20 (R10); `Saved SVG to` placed and tested (R16); path refusals defined per branch with tests and no permission pre-check (R15); Safari named in V2 as the check on the assumption.
+
+**Risk.** Finding: (1) The same 0.001 float flaw (54,990 of 142,858 sampled pairs fail). (2) `parity.rs:37-46` asserts exactly one `Saved to ` line, so a second `Saved to` line breaks every SVG case. (3) `parity.rs` never runs under cargo-mutants (`.cargo/mutants.toml`), so Rust SVG geometry mutants survive V3. (4) The PR2 text was false: a declined confirmation returns to the number prompt, which spins (`printf '2000000\n' | timeout 2 pi` wrote 5 MB), while the Python twin exits 0 on end of input there. (5) `read_line_from` hides end of input in 7 crates. Clean: N3 allows the `--svg` error; `cli_contract.py` never passes `--svg`; R17 maps onto the amendment form; no partial state on an R6 exit. Assumption: cross-language drift never exceeds one printed step for the parity cases. Disposition: Addressed (operator 2026-11-17, "Accept all") — integer-thousandth rule; distinct `Saved SVG to` prefix keeps `stable_lines` valid; Rust unit tests pin SVG geometry; R18 makes end of input at the pre-computation confirmation exit 0; `read_line_from` change named. The drift assumption is checked by the parity cases themselves (a drift above one step fails them).
+
