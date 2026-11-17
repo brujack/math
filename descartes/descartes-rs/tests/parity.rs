@@ -132,3 +132,157 @@ fn solve_tables_match_within_1e_12() {
         }
     }
 }
+
+/// One run of an SVG document: text, or a number written with 3 decimals as thousandths.
+#[derive(Debug, PartialEq, Eq)]
+enum Token {
+    Text(String),
+    Thousandths(i64),
+}
+
+/// Splits `svg` into text runs and numbers (`-?\d+\.\d{3}`), numbers parsed as integer
+/// thousandths so no float rounding enters the comparison.
+fn svg_tokens(svg: &str) -> Vec<Token> {
+    let b = svg.as_bytes();
+    let mut tokens = Vec::new();
+    let (mut text_start, mut i) = (0, 0);
+    while i < b.len() {
+        match number_at(b, i) {
+            Some((value, end)) => {
+                if text_start < i {
+                    tokens.push(Token::Text(svg[text_start..i].to_string()));
+                }
+                tokens.push(Token::Thousandths(value));
+                i = end;
+                text_start = end;
+            }
+            None => i += 1,
+        }
+    }
+    if text_start < b.len() {
+        tokens.push(Token::Text(svg[text_start..].to_string()));
+    }
+    tokens
+}
+
+/// The number starting at `start`, as `(thousandths, end index)`, if one does.
+fn number_at(b: &[u8], start: usize) -> Option<(i64, usize)> {
+    let negative = b[start] == b'-';
+    let int_start = start + usize::from(negative);
+    let int_end = int_start + b[int_start..].iter().take_while(|c| c.is_ascii_digit()).count();
+    let frac_end = int_end + 4;
+    let has_point = int_end > int_start && b.get(int_end) == Some(&b'.');
+    if !has_point || frac_end > b.len() || !b[int_end + 1..frac_end].iter().all(u8::is_ascii_digit)
+    {
+        return None;
+    }
+    let digits = b[int_start..int_end].iter().chain(&b[int_end + 1..frac_end]);
+    let magnitude = digits.fold(0i64, |acc, d| acc * 10 + i64::from(d - b'0'));
+    Some((if negative { -magnitude } else { magnitude }, frac_end))
+}
+
+/// Number of `<circle ` elements in `svg`.
+fn circle_count(svg: &str) -> usize {
+    svg.matches("<circle ").count()
+}
+
+/// The first line (1-based) where `a` and `b` differ, with both texts.
+fn first_differing_line(a: &str, b: &str) -> String {
+    let (mut la, mut lb) = (a.lines(), b.lines());
+    for n in 1.. {
+        match (la.next(), lb.next()) {
+            (Some(x), Some(y)) if x == y => {}
+            (None, None) => return "no differing line".to_string(),
+            (x, y) => return format!("line {n}: python `{x:?}` vs rust `{y:?}`"),
+        }
+    }
+    unreachable!()
+}
+
+/// Runs both CLIs with `--svg out.svg` and compares the documents: same structure, same
+/// text, every number within one thousandth.
+fn assert_svg_parity(args: &[&str], circles: usize) {
+    let py_dir = tempfile::tempdir().unwrap();
+    let rs_dir = tempfile::tempdir().unwrap();
+    let mut full: Vec<&str> = args.to_vec();
+    full.extend(["--svg", "out.svg"]);
+    let py = run_python(py_dir.path(), &full);
+    let rs = run_rust(rs_dir.path(), &full);
+    assert_eq!(py.status.code(), Some(0), "python {args:?}: {}", text(&py.stderr));
+    assert_eq!(rs.status.code(), Some(0), "rust {args:?}: {}", text(&rs.stderr));
+    let py_svg = std::fs::read_to_string(py_dir.path().join("out.svg")).unwrap();
+    let rs_svg = std::fs::read_to_string(rs_dir.path().join("out.svg")).unwrap();
+    assert_eq!(circle_count(&py_svg), circles, "python circle count for {args:?}");
+    assert_eq!(circle_count(&rs_svg), circles, "rust circle count for {args:?}");
+    let (py_tokens, rs_tokens) = (svg_tokens(&py_svg), svg_tokens(&rs_svg));
+    let where_ = first_differing_line(&py_svg, &rs_svg);
+    assert_eq!(py_tokens.len(), rs_tokens.len(), "token counts differ for {args:?}; {where_}");
+    for (p, r) in py_tokens.iter().zip(&rs_tokens) {
+        match (p, r) {
+            (Token::Thousandths(a), Token::Thousandths(b)) => {
+                assert!((a - b).abs() <= 1, "{a} vs {b} thousandths for {args:?}; {where_}");
+            }
+            _ => assert_eq!(p, r, "tokens differ for {args:?}; {where_}"),
+        }
+    }
+}
+
+#[test]
+fn svg_tokens_parses_a_negative_number() {
+    assert_eq!(svg_tokens("-0.500"), [Token::Thousandths(-500)]);
+}
+
+#[test]
+fn svg_tokens_splits_a_number_from_adjacent_text() {
+    assert_eq!(
+        svg_tokens(r#"r="12.345"/>"#),
+        [
+            Token::Text("r=\"".to_string()),
+            Token::Thousandths(12345),
+            Token::Text("\"/>".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn svg_tokens_keeps_a_non_three_decimal_number_as_text() {
+    assert_eq!(svg_tokens("12 3.5 7.50"), [Token::Text("12 3.5 7.50".to_string())]);
+    assert_eq!(svg_tokens("-"), [Token::Text("-".to_string())]);
+    assert_eq!(svg_tokens(""), []);
+}
+
+#[test]
+fn svg_tokens_reads_a_large_number_without_float() {
+    assert_eq!(svg_tokens("436.563"), [Token::Thousandths(436563)]);
+}
+
+#[test]
+fn first_differing_line_names_the_line() {
+    assert!(first_differing_line("a\nb\n", "a\nc\n").starts_with("line 2:"));
+    assert_eq!(first_differing_line("a\n", "a\n"), "no differing line");
+}
+
+#[test]
+fn svg_parity_default_root_k1() {
+    assert_svg_parity(&["1"], 9);
+}
+
+#[test]
+fn svg_parity_default_root_k2() {
+    assert_svg_parity(&["2"], 169);
+}
+
+#[test]
+fn svg_parity_default_root_k3() {
+    assert_svg_parity(&["3"], 3329);
+}
+
+#[test]
+fn svg_parity_tie_root_k5() {
+    assert_svg_parity(&["5", "--root", "-12", "25", "25", "28"], 3327);
+}
+
+#[test]
+fn svg_parity_solve() {
+    assert_svg_parity(&["--solve", "-1,0,0", "2,0.5,0", "3,0,0.6666666666666666"], 5);
+}
