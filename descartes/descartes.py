@@ -648,13 +648,18 @@ def get_exponent(args: argparse.Namespace) -> int:
     """
     Get and validate the exponent K from args.
 
-    If args.size is None, prompt interactively. Validate that 1 <= K <= K_MAX;
-    exit 2 if it is not or cannot be read as an integer, exit 1 on end of input.
+    If args.size is None, prompt interactively until the answer is an integer
+    in 1..K_MAX, reporting each bad answer on stderr; exit 1 on end of input.
+    A K given as an argument that is out of range exits 2.
 
     Returns the validated exponent.
     """
-    k = args.size
-    if k is None:
+    if args.size is not None:
+        if args.size < 1 or args.size > K_MAX:
+            print(f"K must be between 1 and {K_MAX}, got {args.size}.", file=sys.stderr)
+            sys.exit(2)
+        return args.size
+    while True:
         try:
             text = input(f"Enter exponent K (limit = 10^K, max {K_MAX}): ")
         except EOFError:
@@ -669,11 +674,10 @@ def get_exponent(args: argparse.Namespace) -> int:
             k = int(text)
         except ValueError:
             print(f"Invalid input: {text!r} is not an integer K.", file=sys.stderr)
-            sys.exit(2)
-    if k < 1 or k > K_MAX:
+            continue
+        if 1 <= k <= K_MAX:
+            return k
         print(f"K must be between 1 and {K_MAX}, got {k}.", file=sys.stderr)
-        sys.exit(2)
-    return k
 
 
 def _fail(error: Exception, code: int) -> NoReturn:
