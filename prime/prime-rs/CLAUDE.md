@@ -78,9 +78,9 @@ Driver:
 Helpers:
 
 - `fn fmt_int(n)`: formats `u64` with thousands separators.
-- `fn read_line_from<R: BufRead>(reader)`: reads one trimmed line from any `BufRead`.
-- `fn confirm_large_n_with<R, W, E>(reader, out, err, n)`: y/n confirmation for N ≥ 11; warning goes to `err`, prompt to `out`.
-- `fn prompt_n_with<R, W, E>(reader, out, err)`: interactive prompt for N; loops until valid (1–18).
+- `fn read_line_from<R: BufRead>(reader)`: reads one trimmed line from any `BufRead`; returns `io::Result<Option<String>>`, `None` at end of input (distinct from a blank line).
+- `fn confirm_large_n_with<R, W, E>(reader, out, err, n)`: y/n confirmation for N ≥ 11 (end of input reads as no); warning goes to `err`, prompt to `out`.
+- `fn prompt_n_with<R, W, E>(reader, out, err) -> io::Result<Result<u32, i32>>`: interactive prompt for N; loops until valid (1–18); inner `Err(code)` is the exit code.
 - `fn run<R, W, E>(cli, reader, out, err, dir)`: orchestration — handles both N≤6 (buffer/display-or-save) and N>7 (stream-to-file) paths with injectable I/O; returns process exit code.
 - `fn main()`: thin stdio wrapper; locks stdin/stdout but passes unlocked `io::stderr()` (a held `StderrLock` deadlocks the progress thread's `eprint!`), calls `run`, exits with returned code.
 
@@ -107,7 +107,8 @@ Uses `\r` to overwrite in place; a final line is printed after the thread is joi
 
 - **N ≤ 6** (≤ 78 498 primes): buffered in a `Vec<u8>`, user prompted to display or save.
 - **N > 6**: streamed directly to `primes_1eN.txt` via `BufWriter` (8 MB buffer).
-- **N ≥ 11**: user warned about long runtime and large output file before proceeding.
+- **N ≥ 11**: user warned about long runtime and large output file before proceeding; end of input or a decline at `Continue? (y/n)` exits 0 without computing.
+- **End of input:** EOF at the number prompt prints a newline to stdout, then `Error: no input; pass SIZE as an argument (e.g. prime 1).` to stderr and exits 1 (it used to re-prompt forever on closed stdin). EOF at a post-computation display prompt reads as no.
 
 ### Important Implementation Details
 
@@ -143,7 +144,7 @@ cargo install cargo-tarpaulin   # one-time install
 cargo tarpaulin --out Stdout
 ```
 
-### Test coverage (91.48% line coverage, 69 tests: 63 unit + 6 integration)
+### Test coverage (91.48% line coverage, 77 tests: 71 unit + 6 integration)
 
 | Area                                    | Tests | Notes                                                                                                                                  |
 | --------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------- |

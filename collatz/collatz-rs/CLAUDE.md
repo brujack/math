@@ -24,7 +24,7 @@ make test      # lint + cargo test
 - `collatz_next(n: u64) -> u64` — single Collatz step; uses `n.is_multiple_of(2)` per clippy
 - `chain_length(n: u64, cache: &mut [u32], limit: u64) -> u32` — walk, back-fill, return
 - `generate_records<W, E>(limit, out, err) -> io::Result<Vec<(u64, u32)>>` — scans 1..=limit, yields records
-- `prompt_n<R, W>(reader, out) -> io::Result<u64>` — interactive N prompt, loops until valid input
+- `prompt_n<R, W, E>(reader, out, err) -> io::Result<Result<u64, i32>>` — interactive N prompt, loops until valid input; inner `Err(code)` is the exit code (1 at end of input)
 - `run<R, W, E>(cli, reader, out, err, dir) -> io::Result<i32>` — orchestration
 - `main()` — thin wrapper; excluded from tarpaulin with `#[cfg(not(tarpaulin_include))]`
 
@@ -32,6 +32,7 @@ make test      # lint + cargo test
 
 - **Cache:** `Vec<u32>` of size limit+1. At N=9 (1B entries) = 4GB. Warns for N>9 but proceeds.
 - **Path values > limit:** counted toward chain length but not stored in cache.
+- **End of input:** EOF at the number prompt prints a newline to stdout, then `Error: no input; pass SIZE as an argument (e.g. collatz 5).` to stderr and exits 1 (it used to re-prompt forever on closed stdin).
 - **N range:** 1–12. N=10–12 may take hours.
 - **Output file:** `collatz_1e{N}.txt` — one record per line: `<n> <chain_length>`.
 

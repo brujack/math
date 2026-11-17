@@ -23,7 +23,7 @@ make test       # lint + cargo test
 - `build_sieve(limit: u64) -> Vec<u64>` — packed bitset of odd composites 3..=limit; bit i → number 2i+3; 1=composite, 0=prime
 - `is_prime(n: u64, sieve: &[u64]) -> bool` — O(1) lookup; special-cases 0,1,2, even n; requires n ≤ limit
 - `goldbach_pairs<W: Write>(limit, sieve, out) -> io::Result<u64>` — streams all pairs, returns total count
-- `prompt_n<R, W>(reader, out) -> io::Result<u64>` — interactive N prompt, validates 1..=8
+- `prompt_n<R, W, E>(reader, out, err) -> io::Result<Result<u64, i32>>` — interactive N prompt, validates 1..=8; inner `Err(code)` is the exit code (1 at end of input)
 - `run<R, W, E>(cli, reader, out, err, dir) -> io::Result<i32>` — orchestration
 - `main()` — thin wrapper; excluded from tarpaulin with `#[cfg(not(tarpaulin_include))]`
 
@@ -31,6 +31,7 @@ make test       # lint + cargo test
 
 - **Sieve:** bit index i represents odd number 2i+3. Never call `is_prime(n, sieve)` with n > sieve's limit — will panic.
 - **Pair scan:** for each even n, check p=2 first (is n-2 prime?), then odd p from 3 to n/2.
+- **End of input:** EOF at the number prompt prints a newline to stdout, then `Error: no input; pass SIZE as an argument (e.g. goldbach 1).` to stderr and exits 1 (it used to re-prompt forever on closed stdin).
 - **N range:** 1–8. Warns N>6 (output may exceed 20 GB). No hard cap.
 - **Output file:** `goldbach_1e{N}.txt` — one pair per line: `n p q` with p ≤ q.
 - **Output volume:** N=5 ≈ 285 MB, N=6 ≈ 20 GB, N=7 ≈ 1.4 TB, N=8 ≈ 110 TB.

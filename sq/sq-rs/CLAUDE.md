@@ -37,8 +37,8 @@ Or directly:
 - `struct Cli` — clap derive struct; `exponent: Option<u32>` optional positional arg.
 - `fn generate_squares<W: Write>(max_digits, out)` — iterates k=1,2,... writing `"k² | k"` per line until k²≥10^max_digits. Uses `k.checked_mul(k).filter(|&sq| sq < limit)` in the `while let` to avoid an explicit `break;` (Linux ptrace tarpaulin marks `break;` in `while let` loops as an uncoverable probe). Returns total count.
 - `fn fmt_int(n)` — formats `u64` with thousands separators.
-- `fn read_line_from<R: BufRead>(reader)` — reads one trimmed line from any `BufRead`.
-- `fn prompt_exponent_with<R: BufRead, W: Write, E: Write>(reader, out, err)` — interactive prompt loop; validates N=1 only. Writes prompts to `out` and errors to `err`.
+- `fn read_line_from<R: BufRead>(reader)` — reads one trimmed line from any `BufRead`; returns `io::Result<Option<String>>`, `None` at end of input (distinct from a blank line).
+- `fn prompt_exponent_with<R: BufRead, W: Write, E: Write>(reader, out, err) -> io::Result<Result<u32, i32>>` — interactive prompt loop (inner `Err(code)` is the exit code); validates N=1 only. Writes prompts to `out` and errors to `err`.
 - `fn write_squares_file(dir, exponent, buf)` — writes the buffered output to `<dir>/sq_1eN.txt` and returns the path.
 - `fn run<R: BufRead, W: Write, E: Write>(cli, reader, out, err, dir)` — full request lifecycle: validates exponent, generates squares, saves the file, optionally re-displays. Returns the process exit code (`0` success, `1` invalid N).
 - `fn main()` — thin wrapper: parses CLI, locks stdin/stdout/stderr, calls `run` against `current_dir()`, exits with the returned code.
@@ -46,6 +46,7 @@ Or directly:
 ## Important Behavior
 
 - **Valid N:** 1 only. Any other value exits with code 1.
+- **End of input:** EOF at the number prompt prints a newline to stdout, then `Error: no input; pass SIZE as an argument (e.g. sq 1).` to stderr and exits 1 (it used to re-prompt forever on closed stdin). EOF at a post-computation display prompt reads as no.
 - **Output:** always buffered in `Vec<u8>` and always saved to `sq_1eN.txt`. User is then prompted to also display on screen.
 - **Stopping criterion:** `k.checked_mul(k)` where `limit = 10u64.pow(max_digits)`.
 - **No GMP/rug:** all values fit in u64 for N=1 (max square = 99,999² = 9,999,800,001 << u64::MAX).
@@ -60,7 +61,7 @@ Every test must cover more than the happy path. Three categories are required fo
 - **Error path tests** — what happens on failure, dependency failure, partial failure
 - **State transition tests** — before/after assertions, no unintended side effects, idempotency
 
-### Test coverage (95.31% line coverage, 45 tests)
+### Test coverage (95.31% line coverage, 49 tests)
 
 | Area                                | Tests                                                                                                                                                                                    |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

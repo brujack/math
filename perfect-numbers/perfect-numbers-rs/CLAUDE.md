@@ -25,8 +25,9 @@ make test             # lint + cargo test
 - `lucas_lehmer(p: u64)` — Lucas-Lehmer test using `rug::Integer` modular squaring
 - `verify_perfect(p: u64)` — σ formula: σ(n) = (2^p−1)×2^p = 2n
 - `generate_perfect_numbers(limit: &Integer)` — collects all (p, n) with n ≤ limit (test-only)
-- `read_line_from<R: BufRead>` — reads one trimmed line
-- `prompt_n_with<R, W, E>` — interactive N prompt, loops until valid
+- `read_line_from<R: BufRead>` — reads one trimmed line; returns `io::Result<Option<String>>`, `None` at end of input (distinct from a blank line)
+- `prompt_n_with<R, W, E>` — interactive N prompt, loops until valid; returns `io::Result<Result<u64, i32>>` (inner `Err(code)` is the exit code)
+- End of input at the N prompt prints a newline to stdout, then `Error: no input; pass SIZE as an argument (e.g. perfect-numbers 6).` to stderr and exits 1 (it used to re-prompt forever on closed stdin)
 - `run<R, W, E>(cli, reader, out, err, dir)` — orchestration; returns `io::Result<i32>`
 - `main()` — thin stdio wrapper; excluded from tarpaulin with `#[cfg(not(tarpaulin_include))]`
 
