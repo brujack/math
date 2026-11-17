@@ -30,15 +30,15 @@ exclude_re = [
     "src/lib\\.rs:62:55: replace \\+ with \\*",
     "src/lib\\.rs:62:50: replace / with \\*",
 
-    # main.rs:92 — max_p formula in run() (mirrors lib.rs:62 logic)
+    # main.rs:104 — max_p formula in run() (mirrors lib.rs:62 logic)
     # /→*: equivalent for the same reason as lib.rs:62:50
     # +→*: equivalent for the same reason as lib.rs:62:55
-    "src/main\\.rs:92:50: replace / with \\*",
-    "src/main\\.rs:92:55: replace \\+ with \\*",
+    "src/main\\.rs:104:50: replace / with \\*",
+    "src/main\\.rs:104:55: replace \\+ with \\*",
 
-    # main.rs:112 — if pn > limit { ... break }
+    # main.rs:124 — if pn > limit { ... break }
     # >→>=: pn is a perfect number of the form 2^(p-1)*(2^p-1); its digit
     #       count is never exactly equal to 10^n, so pn == limit never occurs
     #       in practice — the mutation is observationally equivalent
-    "src/main\\.rs:112:15: replace > with >=",
+    "src/main\\.rs:124:15: replace > with >=",
 ]

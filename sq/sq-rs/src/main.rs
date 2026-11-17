@@ -29,22 +29,31 @@ fn fmt_int(n: u64) -> String {
     out.chars().rev().collect()
 }
 
-fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<String> {
+/// Reads one trimmed line; `None` means end of input (distinct from a blank line).
+fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<Option<String>> {
     let mut line = String::new();
-    reader.read_line(&mut line)?;
-    Ok(line.trim().to_string())
+    if reader.read_line(&mut line)? == 0 {
+        return Ok(None);
+    }
+    Ok(Some(line.trim().to_string()))
 }
 
+/// Outer `Err(code)` is the exit code to return when input ended before a valid answer.
 fn prompt_exponent_with<R: BufRead, W: Write, E: Write>(
     reader: &mut R,
     out: &mut W,
     err: &mut E,
-) -> io::Result<u32> {
+) -> io::Result<Result<u32, i32>> {
     loop {
         write!(out, "Enter N (finds all perfect squares with up to 10^N digits, max 1): ")?;
         out.flush()?;
-        match read_line_from(reader)?.parse::<u32>() {
-            Ok(1) => return Ok(1),
+        let Some(line) = read_line_from(reader)? else {
+            writeln!(out)?;
+            writeln!(err, "Error: no input; pass SIZE as an argument (e.g. sq 1).")?;
+            return Ok(Err(1));
+        };
+        match line.parse::<u32>() {
+            Ok(1) => return Ok(Ok(1)),
             Ok(_) => writeln!(err, "N must be 1.")?,
             _ => writeln!(err, "Please enter a positive integer.")?,
         }
@@ -72,7 +81,10 @@ fn run<R: BufRead, W: Write, E: Write>(
             }
             n
         }
-        None => prompt_exponent_with(reader, out, err)?,
+        None => match prompt_exponent_with(reader, out, err)? {
+            Ok(n) => n,
+            Err(code) => return Ok(code),
+        },
     };
 
     let max_digits: u32 = 10u32.pow(exponent);
@@ -95,7 +107,7 @@ fn run<R: BufRead, W: Write, E: Write>(
     writeln!(out, "Saved to {}", path.display())?;
     write!(out, "Also display all {} perfect squares? (y/n): ", fmt_int(count))?;
     out.flush()?;
-    if matches!(read_line_from(reader)?.as_str(), "y" | "yes") {
+    if matches!(read_line_from(reader)?.as_deref(), Some("y" | "yes")) {
         out.write_all(&buf)?;
     }
     Ok(0)
@@ -267,28 +279,28 @@ mod tests {
     fn test_read_line_from_trims_newline() {
         let mut input = Cursor::new(b"hello\n");
         let line = read_line_from(&mut input).unwrap();
-        assert_eq!(line, "hello");
+        assert_eq!(line, Some("hello".to_string()));
     }
 
     #[test]
     fn test_read_line_from_trims_whitespace() {
         let mut input = Cursor::new(b"  spaced  \n");
         let line = read_line_from(&mut input).unwrap();
-        assert_eq!(line, "spaced");
+        assert_eq!(line, Some("spaced".to_string()));
     }
 
     #[test]
     fn test_read_line_from_empty_eof() {
         let mut input = Cursor::new(b"");
         let line = read_line_from(&mut input).unwrap();
-        assert_eq!(line, "");
+        assert_eq!(line, None);
     }
 
     #[test]
     fn test_read_line_from_only_first_line() {
         let mut input = Cursor::new(b"first\nsecond\n");
         let line = read_line_from(&mut input).unwrap();
-        assert_eq!(line, "first");
+        assert_eq!(line, Some("first".to_string()));
     }
 
     // --- prompt_exponent_with ---
@@ -299,7 +311,7 @@ mod tests {
         let mut out: Vec<u8> = Vec::new();
         let mut err: Vec<u8> = Vec::new();
         let n = prompt_exponent_with(&mut input, &mut out, &mut err).unwrap();
-        assert_eq!(n, 1);
+        assert_eq!(n, Ok(1));
         assert!(err.is_empty());
         assert!(String::from_utf8(out).unwrap().contains("Enter N"));
     }
@@ -310,7 +322,7 @@ mod tests {
         let mut out: Vec<u8> = Vec::new();
         let mut err: Vec<u8> = Vec::new();
         let n = prompt_exponent_with(&mut input, &mut out, &mut err).unwrap();
-        assert_eq!(n, 1);
+        assert_eq!(n, Ok(1));
         assert!(String::from_utf8(err).unwrap().contains("N must be 1."));
     }
 
@@ -320,7 +332,7 @@ mod tests {
         let mut out: Vec<u8> = Vec::new();
         let mut err: Vec<u8> = Vec::new();
         let n = prompt_exponent_with(&mut input, &mut out, &mut err).unwrap();
-        assert_eq!(n, 1);
+        assert_eq!(n, Ok(1));
         assert!(String::from_utf8(err).unwrap().contains("N must be 1."));
     }
 
@@ -330,7 +342,7 @@ mod tests {
         let mut out: Vec<u8> = Vec::new();
         let mut err: Vec<u8> = Vec::new();
         let n = prompt_exponent_with(&mut input, &mut out, &mut err).unwrap();
-        assert_eq!(n, 1);
+        assert_eq!(n, Ok(1));
         assert!(String::from_utf8(err).unwrap().contains("Please enter a positive integer."));
     }
 
@@ -340,8 +352,59 @@ mod tests {
         let mut out: Vec<u8> = Vec::new();
         let mut err: Vec<u8> = Vec::new();
         let n = prompt_exponent_with(&mut input, &mut out, &mut err).unwrap();
-        assert_eq!(n, 1);
+        assert_eq!(n, Ok(1));
         assert!(String::from_utf8(err).unwrap().contains("Please enter a positive integer."));
+    }
+
+    // --- end of input at the prompts ---
+
+    const SQ_PROMPT: &str = "Enter N (finds all perfect squares with up to 10^N digits, max 1): ";
+    const NO_INPUT_LINE: &str = "Error: no input; pass SIZE as an argument (e.g. sq 1).\n";
+
+    #[test]
+    fn prompt_eof_at_prompt_exits_1_with_no_input_message() {
+        let dir = tempdir().unwrap();
+        let mut input = Cursor::new(b"");
+        let mut out: Vec<u8> = Vec::new();
+        let mut err: Vec<u8> = Vec::new();
+        let code = run(Cli { exponent: None }, &mut input, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 1);
+        assert_eq!(String::from_utf8(out).unwrap(), format!("{SQ_PROMPT}\n"));
+        assert_eq!(String::from_utf8(err).unwrap(), NO_INPUT_LINE);
+    }
+
+    #[test]
+    fn prompt_eof_after_a_rejected_answer_exits_1() {
+        let dir = tempdir().unwrap();
+        let mut input = Cursor::new(b"abc\n");
+        let mut out: Vec<u8> = Vec::new();
+        let mut err: Vec<u8> = Vec::new();
+        let code = run(Cli { exponent: None }, &mut input, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 1);
+        assert_eq!(
+            String::from_utf8(err).unwrap(),
+            format!("Please enter a positive integer.\n{NO_INPUT_LINE}")
+        );
+    }
+
+    #[test]
+    fn prompt_eof_read_line_from_eof_differs_from_blank_line() {
+        assert_eq!(read_line_from(&mut Cursor::new(b"")).unwrap(), None);
+        assert_eq!(read_line_from(&mut Cursor::new(b"\n")).unwrap(), Some(String::new()));
+    }
+
+    #[test]
+    fn prompt_eof_at_display_all_reads_as_no() {
+        let dir = tempdir().unwrap();
+        let mut input = Cursor::new(b"1\n");
+        let mut out: Vec<u8> = Vec::new();
+        let mut err: Vec<u8> = Vec::new();
+        let code = run(Cli { exponent: None }, &mut input, &mut out, &mut err, dir.path()).unwrap();
+        assert_eq!(code, 0);
+        let stdout = String::from_utf8(out).unwrap();
+        assert!(stdout.contains("Saved to"));
+        assert!(!stdout.contains("9999800001 | 99999"));
+        assert!(err.is_empty());
     }
 
     // --- write_squares_file ---

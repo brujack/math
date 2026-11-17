@@ -37,22 +37,31 @@ struct Cli {
 // I/O helpers
 // ---------------------------------------------------------------------------
 
-fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<String> {
+/// Reads one trimmed line; `None` means end of input (distinct from a blank line).
+fn read_line_from<R: BufRead>(reader: &mut R) -> io::Result<Option<String>> {
     let mut line = String::new();
-    reader.read_line(&mut line)?;
-    Ok(line.trim().to_string())
+    if reader.read_line(&mut line)? == 0 {
+        return Ok(None);
+    }
+    Ok(Some(line.trim().to_string()))
 }
 
+/// Outer `Err(code)` is the exit code to return when input ended before a valid answer.
 fn prompt_n_with<R: BufRead, W: Write, E: Write>(
     reader: &mut R,
     out: &mut W,
-    _err: &mut E,
-) -> io::Result<u64> {
+    err: &mut E,
+) -> io::Result<Result<u64, i32>> {
     loop {
         write!(out, "Enter N (finds perfect numbers up to 10^N, max 54): ")?;
         out.flush()?;
-        match read_line_from(reader)?.parse::<u64>() {
-            Ok(v) if (1..=54).contains(&v) => return Ok(v),
+        let Some(line) = read_line_from(reader)? else {
+            writeln!(out)?;
+            writeln!(err, "Error: no input; pass SIZE as an argument (e.g. perfect-numbers 6).")?;
+            return Ok(Err(1));
+        };
+        match line.parse::<u64>() {
+            Ok(v) if (1..=54).contains(&v) => return Ok(Ok(v)),
             _ => writeln!(out, "N must be between 1 and 54.")?,
         }
     }
@@ -80,7 +89,10 @@ fn run<R: BufRead, W: Write, E: Write>(
             }
             v as u64
         }
-        None => prompt_n_with(reader, out, err)?,
+        None => match prompt_n_with(reader, out, err)? {
+            Ok(n) => n,
+            Err(code) => return Ok(code),
+        },
     };
 
     let mut limit = Integer::from(10u32);
@@ -360,6 +372,46 @@ mod tests {
             run(Cli { exponent: None }, &mut reader, &mut out, &mut err_buf, dir.path()).unwrap();
         assert_eq!(code, 0);
         assert!(String::from_utf8_lossy(&out).contains("Enter N"));
+    }
+
+    // --- end of input at the prompt ---
+    const PROMPT: &str = "Enter N (finds perfect numbers up to 10^N, max 54): ";
+    const NO_INPUT_LINE: &str =
+        "Error: no input; pass SIZE as an argument (e.g. perfect-numbers 6).\n";
+
+    #[test]
+    fn prompt_eof_at_prompt_exits_1_with_no_input_message() {
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut err_buf = Vec::new();
+        let mut reader = Cursor::new("");
+        let code =
+            run(Cli { exponent: None }, &mut reader, &mut out, &mut err_buf, dir.path()).unwrap();
+        assert_eq!(code, 1);
+        let stdout = String::from_utf8(out).unwrap();
+        assert!(stdout.ends_with(&format!("{PROMPT}\n")), "stdout: {stdout:?}");
+        assert_eq!(String::from_utf8(err_buf).unwrap(), NO_INPUT_LINE);
+    }
+
+    #[test]
+    fn prompt_eof_after_a_rejected_answer_exits_1() {
+        let dir = tempdir().unwrap();
+        let mut out = Vec::new();
+        let mut err_buf = Vec::new();
+        let mut reader = Cursor::new("abc\n");
+        let code =
+            run(Cli { exponent: None }, &mut reader, &mut out, &mut err_buf, dir.path()).unwrap();
+        assert_eq!(code, 1);
+        let stdout = String::from_utf8(out).unwrap();
+        assert_eq!(stdout.matches("N must be between 1 and 54.").count(), 1, "stdout: {stdout:?}");
+        assert!(stdout.ends_with(&format!("{PROMPT}\n")), "stdout: {stdout:?}");
+        assert_eq!(String::from_utf8(err_buf).unwrap(), NO_INPUT_LINE);
+    }
+
+    #[test]
+    fn prompt_eof_read_line_from_eof_differs_from_blank_line() {
+        assert_eq!(read_line_from(&mut Cursor::new("")).unwrap(), None);
+        assert_eq!(read_line_from(&mut Cursor::new("\n")).unwrap(), Some(String::new()));
     }
 
     // --- injection tests ---
