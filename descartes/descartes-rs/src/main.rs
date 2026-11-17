@@ -284,24 +284,31 @@ fn run_solve<W: Write, E: Write>(
     Ok(())
 }
 
-/// Prompt for K on stdout and read it from stdin (a terminal run with no K argument).
+/// Prompt for K on stdout until stdin gives an integer in 1..=`K_MAX` (a terminal run with
+/// no K argument); each bad answer is reported on stderr and asked again.
 fn prompt_exponent<R: BufRead, W: Write, E: Write>(
     stdin: &mut R,
     stdout: &mut W,
     stderr: &mut E,
 ) -> Result<i64, Stop> {
-    write!(stdout, "Enter exponent K (limit = 10^K, max {K_MAX}): ")?;
-    stdout.flush()?;
-    let mut line = String::new();
-    if stdin.read_line(&mut line)? == 0 {
-        writeln!(stdout)?;
-        let hint = format!("no input; pass K as an argument (e.g. descartes {SMOKE_SIZE}).");
-        return Err(fail(stderr, hint, 1));
+    loop {
+        write!(stdout, "Enter exponent K (limit = 10^K, max {K_MAX}): ")?;
+        stdout.flush()?;
+        let mut line = String::new();
+        if stdin.read_line(&mut line)? == 0 {
+            writeln!(stdout)?;
+            let hint = format!("no input; pass K as an argument (e.g. descartes {SMOKE_SIZE}).");
+            return Err(fail(stderr, hint, 1));
+        }
+        let text = line.trim_end_matches(['\n', '\r']);
+        match text.trim().parse::<i64>() {
+            Err(_) => writeln!(stderr, "Invalid input: '{text}' is not an integer K.")?,
+            Ok(k) if !(1..=K_MAX).contains(&k) => {
+                writeln!(stderr, "K must be between 1 and {K_MAX}, got {k}.")?;
+            }
+            Ok(k) => return Ok(k),
+        }
     }
-    let text = line.trim_end_matches(['\n', '\r']);
-    text.trim()
-        .parse::<i64>()
-        .map_err(|_| say(stderr, format!("Invalid input: '{text}' is not an integer K."), 2))
 }
 
 /// K from the argument or the prompt, checked against 1..=`K_MAX`.
@@ -758,18 +765,55 @@ mod tests {
         assert!(no_files(&dir));
     }
 
+    const PROMPT: &str = "Enter exponent K (limit = 10^K, max 8): ";
+
     #[test]
-    fn prompt_non_integer_names_the_input() {
-        let (o, _dir) = at_terminal(&[], "abc\n");
-        assert_eq!(o.code, 2);
-        assert_eq!(o.stderr, "Invalid input: 'abc' is not an integer K.\n");
+    fn reprompt_after_non_integer() {
+        let (o, _dir) = at_terminal(&["--no-draw"], "abc\n3\n");
+        assert_eq!(o.code, 0);
+        assert_eq!(o.stderr.matches("Invalid input: 'abc' is not an integer K.\n").count(), 1);
+        assert!(
+            o.stderr.starts_with("Invalid input: 'abc' is not an integer K.\n"),
+            "{}",
+            o.stderr
+        );
+        assert_eq!(o.stdout.matches(PROMPT).count(), 2, "{}", o.stdout);
     }
 
     #[test]
-    fn prompt_out_of_range_is_checked_too() {
-        let (o, _dir) = at_terminal(&[], "9\n");
+    fn reprompt_after_out_of_range() {
+        let (o, _dir) = at_terminal(&["--no-draw"], "9\n3\n");
+        assert_eq!(o.code, 0);
+        assert_eq!(o.stderr.matches("K must be between 1 and 8, got 9.\n").count(), 1);
+        assert!(o.stderr.starts_with("K must be between 1 and 8, got 9.\n"), "{}", o.stderr);
+        assert_eq!(o.stdout.matches(PROMPT).count(), 2, "{}", o.stdout);
+    }
+
+    #[test]
+    fn reprompt_then_end_of_input_exits_1() {
+        let (o, dir) = at_terminal(&[], "abc\n");
+        assert_eq!(o.code, 1);
+        let want = "Invalid input: 'abc' is not an integer K.\n\
+                    Error: no input; pass K as an argument (e.g. descartes 2).\n";
+        assert_eq!(o.stderr, want);
+        assert_eq!(o.stdout.matches(PROMPT).count(), 2, "{}", o.stdout);
+        assert!(no_files(&dir));
+    }
+
+    #[test]
+    fn reprompt_tolerates_crlf_between_answers() {
+        let (o, _dir) = at_terminal(&["--no-draw"], "x\r\n3\r\n");
+        assert_eq!(o.code, 0);
+        assert_eq!(o.stderr.matches("Invalid input: 'x' is not an integer K.\n").count(), 1);
+        assert!(o.stdout.contains("Saved to descartes_1e3.txt"), "{}", o.stdout);
+    }
+
+    #[test]
+    fn k_argument_out_of_range_exits_2_without_prompting() {
+        let (o, _dir) = at_terminal(&["9"], "3\n");
         assert_eq!(o.code, 2);
         assert_eq!(o.stderr, "K must be between 1 and 8, got 9.\n");
+        assert!(!o.stdout.contains("Enter exponent"));
     }
 
     #[test]
