@@ -311,8 +311,9 @@ fn prompt_exponent<R: BufRead, W: Write, E: Write>(
     }
 }
 
-/// K from the argument or the prompt. Only the argument is checked against
-/// 1..=`K_MAX` here; `prompt_exponent` already returns in-range values.
+/// K from the argument or the prompt, checked against 1..=`K_MAX`. The check
+/// can only fail for the argument (exit 2): `prompt_exponent` re-asks until it
+/// has an in-range value.
 fn exponent<R: BufRead, W: Write, E: Write>(
     size: Option<i64>,
     stdin: &mut R,
