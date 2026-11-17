@@ -17,6 +17,8 @@ Cursor agent instructions for this repo.
   - `collatz/CLAUDE.md`, `collatz/collatz-rs/CLAUDE.md`
   - `goldbach/CLAUDE.md`, `goldbach/goldbach-rs/CLAUDE.md`
   - `amicable/CLAUDE.md`, `amicable/amicable-rs/CLAUDE.md`
+  - `triangle/CLAUDE.md`
+  - `descartes/CLAUDE.md`, `descartes/descartes-rs/CLAUDE.md`
 - If this file conflicts with any relevant `CLAUDE.md`, follow the relevant `CLAUDE.md`.
 
 ## Required compliance behavior

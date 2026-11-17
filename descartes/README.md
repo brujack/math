@@ -2,7 +2,7 @@
 
 Two tools on tangent circles. Enumerate an integral Apollonian packing (every circle's curvature is an integer) up to curvature 10^K and draw it in braille, or give three mutually tangent circles and list every circle tangent to all three.
 
-Python only for now (`descartes.py`, standard library, no external dependencies); the Rust crate is added by a separate change.
+Python (`descartes.py`, standard library, no external dependencies) and Rust (`descartes-rs/`, see [`descartes-rs/README.md`](descartes-rs/README.md)); the Rust version takes K 1 to 8 where Python takes 1 to 6.
 
 ## Quick Start
 
@@ -65,4 +65,4 @@ solution  2  6.0000     0.1667   0.5000   0.6667
 | ---- | ------------------------------------------------------------------------------------------- |
 | 0    | done                                                                                        |
 | 1    | well-formed input with no answer (not a Descartes root, circles not tangent, end of input)  |
-| 2    | input that cannot describe a problem (bad value, K or `--precision` out of range, a `--root` value above 10^8, usage) |
+| 2    | input that cannot describe a problem (bad value, K or `--precision` out of range, a `--root` value above 10^8 in absolute value, usage) |

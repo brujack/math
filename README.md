@@ -21,6 +21,7 @@
 [![amicable-rs](https://github.com/brujack/math/actions/workflows/amicable-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/amicable-rs.yml)
 [![triangle.py](https://github.com/brujack/math/actions/workflows/triangle-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/triangle-py.yml)
 [![descartes.py](https://github.com/brujack/math/actions/workflows/descartes-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/descartes-py.yml)
+[![descartes-rs](https://github.com/brujack/math/actions/workflows/descartes-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/descartes-rs.yml)
 [![scripts](https://github.com/brujack/math/actions/workflows/scripts.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/scripts.yml)
 
 High-performance mathematical computation tools.
@@ -39,7 +40,7 @@ High-performance mathematical computation tools.
 | [`goldbach/`](goldbach/README.md)               | Find all Goldbach pairs for even numbers up to 10^N                    | Rust           | [![goldbach-rs](https://github.com/brujack/math/actions/workflows/goldbach-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/goldbach-rs.yml)                                                                                                                                                                                                                               |
 | [`amicable/`](amicable/README.md)               | Find all amicable pairs (a,b) with b ≤ 10^N (proper-divisor sum sieve) | Python + Rust  | [![amicable.py](https://github.com/brujack/math/actions/workflows/amicable-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/amicable-py.yml) [![amicable-rs](https://github.com/brujack/math/actions/workflows/amicable-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/amicable-rs.yml)                                           |
 | [`triangle/`](triangle/README.md)               | Solve a triangle from any three sides/angles; area, perimeter, braille drawing | Python         | [![triangle.py](https://github.com/brujack/math/actions/workflows/triangle-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/triangle-py.yml)                                                                                                                                                                                                                               |
-| [`descartes/`](descartes/README.md)             | Solve tangent circles to three given circles; enumerate integral Apollonian packings; braille drawing| Python         | [![descartes.py](https://github.com/brujack/math/actions/workflows/descartes-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/descartes-py.yml)                                                                                                                                                                                                                               |
+| [`descartes/`](descartes/README.md)             | Solve tangent circles to three given circles; enumerate integral Apollonian packings; braille drawing| Python + Rust  | [![descartes.py](https://github.com/brujack/math/actions/workflows/descartes-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/descartes-py.yml) [![descartes-rs](https://github.com/brujack/math/actions/workflows/descartes-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/descartes-rs.yml)                                                                                                                                                                                                                               |
 
 ## Coverage
 
@@ -47,7 +48,7 @@ High-performance mathematical computation tools.
 | --------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | amicable        | ![python](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/amicable/python.json)        | ![rust](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/amicable/rust.json)        |
 | collatz         | ![python](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/collatz/python.json)         | ![rust](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/collatz/rust.json)         |
-| descartes       | ![python](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/descartes/python.json)        | —                                                                                                                                   |
+| descartes       | ![python](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/descartes/python.json)        | ![rust](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/descartes/rust.json)        |
 | e               | ![python](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/e/python.json)               | ![rust](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/e/rust.json)               |
 | factorial       | ![python](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/factorial/python.json)       | ![rust](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/factorial/rust.json)       |
 | fib             | ![python](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/fib/python.json)             | ![rust](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/fib/rust.json)             |
@@ -174,7 +175,7 @@ make coverage  # pytest --cov=pi --cov-report=term-missing
 ### All Rust crates
 
 ```bash
-make test-rust   # make test in all 11 crates concurrently (JOBS=N, default 8); prints ok/FAIL per crate
+make test-rust   # make test in all 12 crates concurrently (JOBS=N, default 8); prints ok/FAIL per crate
 ```
 
 ### Rust (`pi/pi-rs/`)
@@ -394,7 +395,8 @@ See [`triangle/README.md`](triangle/README.md) for full details.
 
 Solves for the circles tangent to three mutually tangent circles (`--solve`), and enumerates an integral Apollonian packing up to curvature 10^K, drawing it in braille.
 
-- Python implementation (`descartes/descartes.py`) — stdlib only, no external dependencies; K 1-6; the Rust crate follows in a separate change
+- Python implementation (`descartes/descartes.py`) — stdlib only, no external dependencies; K 1-6
+- Rust implementation (`descartes/descartes-rs/`) — `i64`/`f64` arithmetic, bitmap packing; K 1-8
 
 See [`descartes/README.md`](descartes/README.md) for full details.
 

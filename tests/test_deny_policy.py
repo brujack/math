@@ -1,4 +1,4 @@
-"""deny.toml policy guards for all 11 crates, matching etch-cli plus key pins.
+"""deny.toml policy guards for all 12 crates, matching etch-cli plus key pins.
 
 The licence policy is proven by behaviour, not by pinning the file's text: the
 tests/fixtures/cargo-deny controls (tests/scripts/cargo_deny_fixtures.bats) show GPL
@@ -12,7 +12,7 @@ accepted. Fixtures cannot see the settings below, so these tests pin them by key
 - [licenses] only allow and exceptions (a clarify entry could relabel a GPL crate);
 - the LGPL exceptions exactly rug and gmp-mpfr-sys, the crates the release notices
   cover.
-They also pin the 11-crate list, pin the one cargo-deny call (scripts/cargo-deny-all.sh)
+They also pin the 12-crate list, pin the one cargo-deny call (scripts/cargo-deny-all.sh)
 to an unnarrowed `check` so deny.toml stays the only place advisories are accepted,
 and make every bats job install cargo-deny.
 """
@@ -103,7 +103,7 @@ class TestDenyPolicy(unittest.TestCase):
             set(self._deny()), {"licenses", "advisories", "bans", "sources"}
         )
 
-    def test_tracked_crate_manifests_are_exactly_the_eleven_crates(self):
+    def test_tracked_crate_manifests_are_exactly_the_twelve_crates(self):
         env = {
             k: v
             for k, v in os.environ.items()
@@ -118,7 +118,7 @@ class TestDenyPolicy(unittest.TestCase):
             check=True,
         )
         expected = sorted(f"{c}/{c}-rs/Cargo.toml" for c in rcf.CRATES)
-        self.assertEqual(len(expected), 11)
+        self.assertEqual(len(expected), 12)
         self.assertEqual(sorted(result.stdout.split()), expected)
 
 

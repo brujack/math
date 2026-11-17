@@ -313,12 +313,12 @@ class TestHelperBoundaries(unittest.TestCase):
 
 
 class TestReleaseWorkflowDiscovery(unittest.TestCase):
-    def test_eleven_release_workflows_exist(self):
+    def test_twelve_release_workflows_exist(self):
         workflows = discover_release_workflows()
         self.assertEqual(
             len(workflows),
-            11,
-            f"expected 11 release-*-rs.yml workflows, found {len(workflows)}: {workflows}",
+            12,
+            f"expected 12 release-*-rs.yml workflows, found {len(workflows)}: {workflows}",
         )
 
 
@@ -493,7 +493,7 @@ class TestReleaseWorkflowContract(unittest.TestCase):
         # action's inputs or from scripts/sbom-sign.sh's output filenames would be circular --
         # the test would agree with whatever those produce.
         # INVALIDATING CONDITION: a fifth artifact (an attestation, a second signature format)
-        # added to the eleven workflows leaves this test green while asserting an incomplete set.
+        # added to the twelve workflows leaves this test green while asserting an incomplete set.
         for path in self.workflows:
             with self.subTest(workflow=path.name):
                 steps = release_steps(load_workflow(path))
@@ -520,7 +520,7 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                 )
 
     def test_sbom_sign_inputs_match_this_workflows_binary(self):
-        # A drift-detector for the copy-paste class eleven near-identical files
+        # A drift-detector for the copy-paste class twelve near-identical files
         # invite: binary_path/binary_name are the only per-file-varying values the
         # sbom-sign step introduces. Cross-checked against TWO independent sources
         # -- the filename (binary_name_from_filename) and the pre-existing SHA256
@@ -674,11 +674,11 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                 if "links no LGPL components" in text:
                     no_lgpl.add(crate)
         self.assertEqual(lgpl, gmp_crates)
-        self.assertEqual(len(no_lgpl), 6)
+        self.assertEqual(len(no_lgpl), 7)
         self.assertEqual(lgpl & no_lgpl, set())
 
     def test_no_step_continues_on_error(self):
-        # continue-on-error turned a GH006-rejected CHANGELOG push green on all 11
+        # continue-on-error turned a GH006-rejected CHANGELOG push green on all 12
         # first releases (2026-10-24); a release step either works or fails the job.
         for path in self.workflows:
             with self.subTest(workflow=path.name):

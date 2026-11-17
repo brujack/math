@@ -1,10 +1,10 @@
-"""All 11 math crates are treated identically (operator rule, 2026-10-24).
+"""All 12 math crates are treated identically (operator rule, 2026-10-24).
 
 Every per-crate file listed in scripts/render_crate_files.py is rendered from one
 template in scripts/crate_templates/ with only the crate's name substituted, and
 must match the rendered text exactly. Drift between crates is how the ~/Downloads
 copy hid in 7 of 11 Makefiles (math#166): no single file looked wrong, they only
-differed. To change one crate's file, change the template and re-render all 11:
+differed. To change one crate's file, change the template and re-render all 12:
 
     python3 scripts/render_crate_files.py --write
 """
@@ -165,7 +165,7 @@ class TestCheckAndWrite(unittest.TestCase):
             self.assertEqual(
                 (root / "pi" / "pi-rs" / "Makefile").read_text(), "build pi\n"
             )
-        self.assertEqual(len(first), 11)
+        self.assertEqual(len(first), 12)
         self.assertEqual(second, [])
 
     def test_write_creates_missing_parent_directories(self):
@@ -174,7 +174,7 @@ class TestCheckAndWrite(unittest.TestCase):
             kinds = {"Makefile": "{crate}/{crate}-rs/.config/Makefile"}
             written = rcf.write(root, kinds)
             self.assertEqual(rcf.check(root, kinds), [])
-        self.assertEqual(len(written), 11)
+        self.assertEqual(len(written), 12)
 
     def _sh_tree(self, tmp):
         root = pathlib.Path(tmp)
@@ -243,8 +243,8 @@ class TestCheckAndWrite(unittest.TestCase):
 
 
 class TestRepoCratesMatchTemplates(unittest.TestCase):
-    def test_every_kind_covers_all_11_crates(self):
-        self.assertEqual(len(rcf.CRATES), 11)
+    def test_every_kind_covers_all_12_crates(self):
+        self.assertEqual(len(rcf.CRATES), 12)
         self.assertEqual(
             set(rcf.KINDS),
             {
@@ -358,7 +358,7 @@ class TestRepoCratesMatchTemplates(unittest.TestCase):
 
 
 class TestCargoTomlShape(unittest.TestCase):
-    """R1: the 11 Cargo.toml files differ only in name, description and extra deps."""
+    """R1: the 12 Cargo.toml files differ only in name, description and extra deps."""
 
     # Sections every crate must carry identically (tomllib-parsed values).
     SHARED_TABLES = ("lints", "dev-dependencies")
@@ -451,6 +451,18 @@ class TestCargoTomlShape(unittest.TestCase):
             (REPO_ROOT / ".github/workflows/scripts.yml").read_text()
         )
         self.assertIn("*/*-rs/Cargo.toml", workflow[True]["pull_request"]["paths"])
+
+    def test_crate_workflow_triggers_on_the_python_twin(self):
+        # A crate's parity test runs the sibling Python program, so a PR that
+        # edits only <crate>/*.py must still run <crate>-rs.yml.
+        import yaml
+
+        for crate in rcf.CRATES:
+            with self.subTest(crate=crate):
+                workflow = yaml.safe_load(
+                    (REPO_ROOT / ".github/workflows" / f"{crate}-rs.yml").read_text()
+                )
+                self.assertIn(f"{crate}/*.py", workflow[True]["pull_request"]["paths"])
 
 
 class TestCrateClaudeMd(unittest.TestCase):

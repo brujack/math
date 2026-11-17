@@ -41,8 +41,8 @@ def step_text(job):
 
 
 class TestRustCiJobSplit(unittest.TestCase):
-    def test_eleven_ci_workflows_found(self):
-        self.assertEqual(len(CI_WORKFLOWS), 11)
+    def test_twelve_ci_workflows_found(self):
+        self.assertEqual(len(CI_WORKFLOWS), 12)
 
     def test_jobs_are_test_coverage_build(self):
         for path in CI_WORKFLOWS:
@@ -171,8 +171,8 @@ class TestGmpCacheRestore(unittest.TestCase):
             lambda s: "actions/cache/restore@" in uses_of(s),
         )
 
-    def test_eleven_workflows_times_three_jobs(self):
-        self.assertEqual(len(cache_jobs()), 33)
+    def test_twelve_workflows_times_three_jobs(self):
+        self.assertEqual(len(cache_jobs()), 36)
 
     def test_no_job_env_uses_runner_context(self):
         # The runner context is not available at jobs.<id>.env; GitHub rejects the file.

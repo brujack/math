@@ -193,7 +193,7 @@ class TestResolveLatestRelease(unittest.TestCase):
         self.assertNotEqual(result.outputs.get("found"), "false")
 
     def test_lists_more_than_fifty_releases(self):
-        # 11 crates outgrow a 50-release window after a few versions each, and the
+        # 12 crates outgrow a 50-release window after a few versions each, and the
         # oldest crate's latest release would then read as "no release".
         tags = [f"pi-v0.{n}.0" for n in range(60, 0, -1)] + ["sq-v0.1.0"]
         result = run_step(
@@ -294,6 +294,34 @@ class TestFilterFindings(unittest.TestCase):
         result = run_step(FILTER, {**self.ENV, "SCAN_JSON": str(path)})
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertEqual(result.gh_log, "")
+
+
+class TestScheduledMonitorCoversEveryCrate(unittest.TestCase):
+    """The scheduled monitor holds one job per released crate.
+
+    Nothing derived it from the crate list, so descartes-rs (crate 12) shipped
+    with release-descartes-rs.yml and no monitor job.
+    """
+
+    def test_one_job_per_tracked_crate(self) -> None:
+        schedule = (
+            REPO_ROOT / ".github" / "workflows" / "release-sbom-monitor-schedule.yml"
+        )
+        jobs = yaml.safe_load(schedule.read_text())["jobs"]
+        manifests = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "ls-files", "*/*-rs/Cargo.toml"],
+            capture_output=True,
+            text=True,
+            check=True,
+            env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
+        ).stdout.split()
+        crates = {path.split("/")[0] for path in manifests}
+        self.assertTrue(crates)
+        self.assertEqual(set(jobs), crates)
+        for name, job in jobs.items():
+            with self.subTest(job=name):
+                self.assertEqual(job["with"]["binary_name"], name)
+                self.assertEqual(job["with"]["release_tag_pattern"], f"{name}-v")
 
 
 if __name__ == "__main__":

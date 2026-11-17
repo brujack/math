@@ -6,6 +6,7 @@ on:
       - master
     paths:
       - "factorial/factorial-rs/**"
+      - "factorial/*.py"
       - ".github/workflows/factorial-rs.yml"
 
 env:

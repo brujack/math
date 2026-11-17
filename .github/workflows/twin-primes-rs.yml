@@ -6,6 +6,7 @@ on:
       - master
     paths:
       - "twin-primes/twin-primes-rs/**"
+      - "twin-primes/*.py"
       - ".github/workflows/twin-primes-rs.yml"
 
 env:

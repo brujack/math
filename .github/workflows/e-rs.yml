@@ -6,6 +6,7 @@ on:
       - master
     paths:
       - "e/e-rs/**"
+      - "e/*.py"
       - ".github/workflows/e-rs.yml"
 
 env:
