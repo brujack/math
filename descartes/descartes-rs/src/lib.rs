@@ -628,9 +628,12 @@ fn svg_document(body: Vec<String>) -> String {
 }
 
 /// The curvature cut-off of the SVG drawing: `min(10^k, 1000 x |outer curvature|)`,
-/// where `root[0]` is the reduced root's outer (negative) curvature.
+/// where `root[0]` is the reduced root's outer (negative) curvature. Past
+/// 1000 x |outer curvature| a circle's radius is under 0.5 units of the
+/// 1000-unit square, so it is not drawn. Saturating arithmetic keeps the
+/// function total for any `k` and any root.
 pub fn svg_limit(root: [i64; 4], k: u32) -> i64 {
-    10_i64.pow(k).min(1000 * root[0].abs())
+    10_i64.saturating_pow(k).min(root[0].saturating_abs().saturating_mul(1000))
 }
 
 /// The packing as SVG text and the number of circles drawn (the outer circle
@@ -2836,6 +2839,16 @@ mod tests {
         assert_eq!(svg_limit([-1, 2, 2, 3], 1), 10);
         assert_eq!(svg_limit([-1, 2, 2, 3], 3), 1000);
         assert_eq!(svg_limit([-1, 2, 2, 3], 4), 1000);
+    }
+
+    #[test]
+    fn svg_limit_saturates_instead_of_overflowing() {
+        // 10^19 overflows i64: the power saturates and the 1000 x |k0| cap wins.
+        assert_eq!(svg_limit([-1, 2, 2, 3], 19), 1000);
+        // |i64::MIN| and its product with 1000 saturate: 10^k wins.
+        assert_eq!(svg_limit([i64::MIN, 0, 0, 0], 1), 10);
+        assert_eq!(svg_limit([i64::MIN, 0, 0, 0], 18), 10_i64.pow(18));
+        assert_eq!(svg_limit([i64::MIN, 0, 0, 0], 19), i64::MAX);
     }
 
     #[test]
