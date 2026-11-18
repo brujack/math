@@ -286,3 +286,40 @@ fn svg_parity_tie_root_k5() {
 fn svg_parity_solve() {
     assert_svg_parity(&["--solve", "-1,0,0", "2,0.5,0", "3,0,0.6666666666666666"], 5);
 }
+
+/// The single stdout line starting with `prefix`; asserts there is exactly one.
+fn one_line_with_prefix(stdout: &str, prefix: &str) -> String {
+    let found: Vec<&str> = stdout.lines().filter(|l| l.starts_with(prefix)).collect();
+    assert_eq!(found.len(), 1, "expected one `{prefix}` line in:\n{stdout}");
+    found[0].to_string()
+}
+
+/// Runs `cmd` piped in `dir` with the drawing left on (the shared runners add `--no-draw`,
+/// which suppresses the braille count line) and returns its stdout after asserting exit 0.
+fn drawn_stdout(mut cmd: Command, dir: &Path, who: &str, args: &[&str]) -> String {
+    let out = cmd.args(args).current_dir(dir).stdin(Stdio::null()).output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{who} {args:?}: {}", text(&out.stderr));
+    text(&out.stdout)
+}
+
+/// Both drawn-count lines (spec R9) must match between the Python and Rust programs.
+#[test]
+fn count_lines_match_python() {
+    for k in ["3", "4"] {
+        let args = [k, "--svg", "p.svg"];
+        let py_dir = tempfile::tempdir().unwrap();
+        let rs_dir = tempfile::tempdir().unwrap();
+        let mut py_cmd = Command::new("python3");
+        py_cmd.arg(PYTHON_PROGRAM);
+        let py = drawn_stdout(py_cmd, py_dir.path(), "python", &args);
+        let rs_cmd = Command::new(env!("CARGO_BIN_EXE_descartes"));
+        let rs = drawn_stdout(rs_cmd, rs_dir.path(), "rust", &args);
+        for prefix in ["braille draws ", "SVG shows "] {
+            assert_eq!(
+                one_line_with_prefix(&py, prefix),
+                one_line_with_prefix(&rs, prefix),
+                "{prefix:?} line differs for {args:?}"
+            );
+        }
+    }
+}
