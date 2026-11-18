@@ -201,12 +201,16 @@ pub fn pack_with_workers(root: [i64; 4], n: i64) -> Result<(i64, Vec<u64>, usize
     check_n(n, N_MAX, "pack", "n")?;
     check_reduced_root(root, "pack")?;
     let (count, bitmap, seeds) = frontier(root, n, &mut || {});
-    let workers = rayon::current_num_threads();
-    // `!= 1`, not `> 1`: a one-thread pool gives the same answer either way, so
-    // `>= 1` would be an unkillable equivalent mutant; `current_num_threads` is >= 1.
-    if n >= PARALLEL_MIN_N && !seeds.is_empty() && workers != 1 {
-        let (count, bitmap) = parallel_subtrees(count, bitmap, &seeds, n);
-        return Ok((count, bitmap, workers));
+    // Test `n` and the seeds first: `current_num_threads` builds rayon's global
+    // pool when called outside `install`, so a serial run must never reach it.
+    if n >= PARALLEL_MIN_N && !seeds.is_empty() {
+        let workers = rayon::current_num_threads();
+        // `!= 1`, not `> 1`: a one-thread pool gives the same answer either way, so
+        // `>= 1` would be an unkillable equivalent mutant; `current_num_threads` is >= 1.
+        if workers != 1 {
+            let (count, bitmap) = parallel_subtrees(count, bitmap, &seeds, n);
+            return Ok((count, bitmap, workers));
+        }
     }
     let (count, bitmap) = serial_subtrees(count, bitmap, seeds, n, &mut || {});
     Ok((count, bitmap, 1))
