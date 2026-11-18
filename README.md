@@ -393,7 +393,7 @@ See [`triangle/README.md`](triangle/README.md) for full details.
 
 ## descartes
 
-Solves for the circles tangent to three mutually tangent circles (`--solve`), and enumerates an integral Apollonian packing up to curvature 10^K, drawing it in braille.
+Solves for the circles tangent to three mutually tangent circles (`--solve`), and enumerates an integral Apollonian packing up to curvature 10^K, drawing it in braille or, with `--svg PATH`, as an SVG capped at curvature `min(10^K, 1000 x |outer curvature|)`; each drawing reports how many of the computed circles it shows.
 
 - Python implementation (`descartes/descartes.py`) — stdlib only, no external dependencies; K 1-6
 - Rust implementation (`descartes/descartes-rs/`) — `i64`/`f64` arithmetic, bitmap packing; K 1-8
