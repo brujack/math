@@ -114,3 +114,29 @@ TDD in both languages, one behaviour at a time:
 - **N2.** The `.txt` output, the `root`/`circles`/`distinct`/`Saved to` lines and the `--solve` output do not change.
 - **N3.** The braille cut-off formula and canvas sizing do not change.
 - **N4.** No new command-line flag.
+
+## Multi-Lens Review
+
+Reviewed at commit: `e97c815` (Step 7 self-review commit, before Step 8 dispatch)
+
+### Goal-Fit
+
+Finding: (1) The `braille shows` line fixes nothing reported: the braille cut-off is already in `--help` and the drawing is on screen; it fails both reads-it questions and is the expensive half (terminal-canvas tests, four exact-stdout suites, parity). (2) `SVG shows` is the mechanism that changes a decision, but it is stdout-only while the symptom was seen in the files; a fixed comment such as `<!-- circles with curvature <= 1000 -->` (no K, no count, so K >= 3 files stay byte-identical) is excluded by N1 without being weighed. (3) R7's `315,079 bytes` in four docs is untested and goes stale on any SVG format change; keep it only in R8's correction. (4) V1's "`<count>` equals `circles`" compares a value with itself; use `grep -c '<circle'` minus 1 equals `n`. Premise verified: s3/s4/s5 all 315,079 bytes, `cmp` identical, `circles` 3328/67166/1359170; all R4/R5 values reproduce.
+Assumption: the operator reads stdout when comparing SVG sizes; if K=1..6 ran in a loop with stdout discarded, `SVG shows` never reaches them and only `--help`/README or an in-file comment works. Settled by asking the operator how the runs were invoked.
+Disposition:
+
+### Ergonomics
+
+Finding: (1) At an interactive terminal the drawing is `lines - 1` rows (`descartes.py:850`, `main.rs:184`), so any line printed before it, `braille shows` and `SVG shows` included, scrolls off when the prompt returns (measured: 30-row terminal, 34 output lines). N3 forbids sparing the extra row that would keep it on screen; one of the two must give. (2) On a terminal `Elapsed:` (stderr) interleaves between `SVG shows` and `braille shows`; R7's documented order and "Real output" blocks should say so. (3) The braille cut-off is worded `2 x canvas width in braille dots` in `--help` and `4 x canvas width in cells` in the spec; pick one. (4) At K=3, `3328 of 3328` reads as complete and gives no hint K=4 writes the same file; only `--help` covers that. V1 should require one `SVG shows` line per run.
+Assumption: the operator's runs were drawn at a terminal; if they were `--no-draw` or piped, finding 1 is moot. Settled by asking how the runs were invoked.
+Disposition:
+
+### Risk
+
+Finding: No load-bearing flaw; every R4/R5 number reproduces and no R contradicts an N. (1) Python `min(10**k, 1000*abs(k0))` is `int` at K <= 3 and `float` at K >= 4 (`k0` is `-1.0`), so an f-string prints `curvature <= 1000.0`; R5's `11000` passes on `11000.0`. Require an `int` return. (2) `descartes-rs/.cargo/mutants.toml` pins `src/lib.rs:656:60`; inserting `svg_limit` above it shifts the anchor (caught by `tests/test_mutants_exclusions.py`, but the spec should name the file). (3) The spec does not say how the SVG `n` is obtained; a second `visible` call doubles the walk; have `svg_packing` return the count. (4) On the 60 x 24 pipe canvas most of the 524 braille circles round to radius 0 dots, so "shows" overstates; "draws" is accurate. (5) Mutation exposure on the moved limit line is killed by the R4/R5 cases; parity.rs is outside cargo-mutants' test args, so `cli.rs`/`main.rs`/lib tests must carry the kills. Python tests that break: `test_descartes.py:2391` and `:2417`.
+Assumption: no uncertain assumption found (nearest: Rust prints the same `n`/`limit` at K >= 4, settled by V1).
+Disposition:
+
+### Adversarial Spec Review (comparison/judge designs only)
+
+N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
