@@ -1,6 +1,6 @@
 # descartes: disclose the drawing cut-offs and report drawn circle counts
 
-- **Status:** Draft (revised after Step 8 round 1)
+- **Status:** Draft (revised after Step 8 rounds 1 and 2)
 - **Date:** 2026-11-18
 - **Scope:** `descartes/descartes.py`, `descartes/descartes-rs/` (both halves, identical behaviour)
 
@@ -49,22 +49,20 @@ computed:
 
 `count` is the existing `circles <count>` value. `n` is the number of circles from `visible(root, limit)`,
 which excludes the bounding circle exactly as `count` does, so a drawing that holds every computed circle
-prints `n == count`. `limit` is an integer in both languages (Python's `1000 * abs(k0)` is a float because
-`root_centres` returns `-1.0`, so `svg_limit` returns `int(...)`; Rust already casts `as i64`).
+prints `n == count`. `limit` is an integer in both languages. In Python `k0` is `-1.0` (from
+`root_centres`) and `min` returns its first argument on a tie, so `min(10**k, 1000 * abs(k0))` is the int
+`1000` at K=3 but the float `1000.0` at K >= 4; `svg_limit` therefore returns `int(...)`, and only a K >= 4
+test catches a missing cast. Rust already casts `as i64`.
 
 The count lines come after the drawing, as the last stdout lines, so they stay on screen when the shell
-prompt returns. Stdout order in packing mode: (`--show` lines), `root`, `circles`, `distinct`,
-`Saved to <file>`, `Saved SVG to <path>` (with `--svg`), the braille drawing (when drawn), `SVG shows ...`
-(with `--svg`), `braille draws ...` (when drawn). On a terminal the stderr line `Elapsed: <s>s` appears
-between `Saved SVG to` (or `Saved to`) and the drawing, as it does today. `--solve` output is unchanged: it
+prompt returns: the prompt scrolls lines off the top, never the last ones. Stdout order in packing mode:
+(`--show` lines), `root`, `circles`, `distinct`, `Saved to <file>`, `Saved SVG to <path>` (with `--svg`),
+the braille drawing (when drawn), `braille draws ...` (when drawn), `SVG shows ...` (with `--svg`). The
+braille caption sits against its drawing, and the SVG line, the reported symptom, is last. On a terminal the
+stderr line `Elapsed: <s>s` appears between `Saved SVG to` (or `Saved to`) and the drawing, as it does
+today; a merged, redirected stream (`2>&1 | less`) can order it differently, because Python block-buffers a
+piped stdout. `--solve` output is unchanged: it
 has no packing total to report against.
-
-### Terminal canvas height
-
-At a terminal the canvas height today is `max(lines - 1, 1)`, one row spared for the prompt. It becomes
-`max(lines - 1 - m, 1)`, where `m` is the number of count lines printed after the drawing (1 without
-`--svg`, 2 with it). The piped canvas stays 60 x 24, the width and the braille cut-off do not change, and
-`--solve`'s drawing keeps `max(lines - 1, 1)` because it prints no count line.
 
 ### One source for each value
 
@@ -78,7 +76,7 @@ computes.
 
 The packing SVG gains one line after the fixed header, before the first `<circle>`:
 `<!-- circles with curvature <= <limit>; cut-off min(10^K, 1000 x |outer curvature|) -->`, with `<limit>`
-from `svg_limit`. It carries no K and no count, so every K >= 3 file on the default root stays
+from `svg_limit`. It becomes line index 3, where the outer `<circle>` sits today. It carries no K and no count, so every K >= 3 file on the default root stays
 byte-identical to the others; it records the cap in the file where the symptom was seen. The `--solve` SVG
 gets no comment. `tests/parity.rs` already compares every SVG token, so the comment is covered there.
 
@@ -89,8 +87,8 @@ gets no comment. `tests/parity.rs` already compares every SVG token, so the comm
   root every K from 3 up writes the same SVG.`
 - `descartes/README.md`, `descartes/descartes-rs/README.md`, `descartes/CLAUDE.md` and
   `descartes/descartes-rs/CLAUDE.md` state the SVG cut-off formula, that the default root writes the same
-  SVG (3,328 circles) for every K >= 3, the SVG comment, the two count lines, the stdout order with the
-  `Elapsed` placement, and the terminal canvas height rule; the braille cut-off is written
+  SVG (3,328 circles plus the outer circle) for every K >= 3, the SVG comment, the two count lines, and the
+  stdout order with the `Elapsed` placement on a terminal; the braille cut-off is written
   `min(10^K, 2 x canvas width in braille dots)` everywhere (the READMEs' `4 x canvas width` is reworded);
   their "Real output" blocks show the new lines. No doc states the SVG byte count.
 - The 2026-11-17 spec's "about 230 KB" is replaced with `315,079 bytes` and a dated correction note.
@@ -103,7 +101,9 @@ lines).
 
 ### Files touched
 
-`descartes.py`, `test_descartes.py`, `mutants-equivalent.toml` (only if an entry's anchor line changes),
+`descartes.py`, `test_descartes.py`, `mutants-equivalent.toml` (the `svg_packing` `px` entry anchors `above`
+on the `enumerate([outer, *visible(root, limit)])` line, so restructuring `svg_packing` to keep the visible
+list stales it; re-confirm it in the same PR),
 `descartes-rs/src/lib.rs`, `descartes-rs/src/main.rs`, `descartes-rs/tests/cli.rs`,
 `descartes-rs/tests/parity.rs`, `descartes-rs/.cargo/mutants.toml` (its `src/lib.rs:656:60` anchor shifts
 when `svg_limit` lands above `svg_solve`; `tests/test_mutants_exclusions.py` fails until updated),
@@ -116,25 +116,28 @@ TDD in both languages, one behaviour at a time:
 - Default root K=3, `--no-draw --svg`: the last stdout line is
   `SVG shows 3328 of 3328 circles (curvature <= 1000)`.
 - Default root K=4, piped (60 x 24 canvas), `--svg`: after the 24 braille rows,
-  `SVG shows 3328 of 67166 circles (curvature <= 1000)` then
-  `braille draws 524 of 67166 circles (curvature <= 240)` as the last two lines.
+  `braille draws 524 of 67166 circles (curvature <= 240)` then
+  `SVG shows 3328 of 67166 circles (curvature <= 1000)` as the last two lines.
 - Default root K=1, piped, `--svg`: `SVG shows 8 of 8 circles (curvature <= 10)` and
   `braille draws 8 of 8 circles (curvature <= 10)`.
 - Root `-11 21 24 28`, K=1, `--svg`: `SVG shows 0 of 0 circles (curvature <= 10)` and no braille line.
 - `--no-draw`: no `braille draws` line; no `--svg`: no `SVG shows` line; `--solve --svg`: stdout unchanged.
 - `svg_limit` returns an `int` (Python `isinstance(..., int)`): 1000 for the default root at K=3 and K=4,
-  10 at K=1, 11000 for root `-11 21 24 28` at K=5.
+  10 at K=1, 11000 for root `-11 21 24 28` at K=5. The K=5 case lives in `test_descartes.py` and the Rust
+  lib tests, not only in parity: it alone kills `1000 * abs(k0)` mutated to `/` or `**`, which give 1000 at
+  the default root.
 - `svg_packing` returns `n` equal to the number of `<circle` elements minus 1.
 - The SVG comment line is the line before the first `<circle>`:
   `<!-- circles with curvature <= 1000; cut-off min(10^K, 1000 x |outer curvature|) -->` at K=3 and K=4,
   `<= 10` at K=1; the `--solve` SVG contains no `<!--`.
-- Terminal canvas (Python patched `isatty`/terminal size, Rust `on_terminal`): an 80 x 30 terminal draws 28
-  braille rows without `--svg` and 27 with it; a 2-row terminal with `--svg` draws 1 row; `--solve` on an
-  80 x 30 terminal still draws 29 rows.
 - `--help` contains the new epilog sentence in both languages.
-- Existing exact-stdout tests are updated to the new order, including Python `test_descartes.py:2391`
-  (`len(lines) == 4 + PIPE_HEIGHT`) and `:2417` (`rows = out.splitlines()[4:]`), Rust `src/main.rs` and
-  `tests/cli.rs`, and `tests/scripts/descartes.bats`.
+- Existing tests that the change breaks are updated: Python `test_descartes.py:2391`
+  (`len(lines) == 4 + PIPE_HEIGHT`), `:2417` (`rows = out.splitlines()[4:]`), `:2615`
+  (`run_capturing_render` asserts `out.endswith("drawn\n")`, used by about 7 tests), `:2881` (SVG first
+  lines; the comment is now index 3) and `:3079` (compares the file with `svg_packing(...)`, now a tuple);
+  Rust `lib.rs:2789` (SVG first lines), the 9 `svg_packing(...).unwrap()` call sites in `lib.rs`, and
+  `tests/cli.rs:153` (`lines.last() == Some("Saved SVG to out.svg")`); `tests/scripts/descartes.bats`
+  asserts only `lines[0..4]` and keeps passing. Line numbers are as of `c1ad8d4`.
 - `tests/parity.rs` compares the `SVG shows` and `braille draws` lines between Python and Rust.
 
 The Rust kills for changed-line mutants must come from `--lib --bins --test cli` (the args in
@@ -144,20 +147,19 @@ The Rust kills for changed-line mutants must come from `--lib --bins --test cli`
 
 - **R1.** With `--svg` in packing mode, stdout contains `SVG shows <n> of <count> circles (curvature <= <limit>)`, with `limit = min(10^K, 1000 x |k_outer|)` printed as an integer, `n` the number of non-bounding circles in the SVG and `count` the `circles` value, in both Python and Rust.
 - **R2.** When the braille drawing is printed in packing mode, stdout contains `braille draws <n> of <count> circles (curvature <= <limit>)`, with `limit = min(10^K, 2 x canvas width in braille dots)` and `n` the number of non-bounding circles passed to the renderer, in both Python and Rust.
-- **R3.** The count lines are the last stdout lines of a packing run, after the braille drawing, in the order `SVG shows` then `braille draws`; no `braille draws` line is printed with `--no-draw` or when `count` is 0; no `SVG shows` line is printed without `--svg`; `--solve` stdout is unchanged.
-- **R4.** The default root prints `SVG shows 3328 of 3328 circles (curvature <= 1000)` at K=3; `SVG shows 3328 of 67166 circles (curvature <= 1000)` and, piped, `braille draws 524 of 67166 circles (curvature <= 240)` at K=4; `SVG shows 8 of 8 circles (curvature <= 10)` and, piped, `braille draws 8 of 8 circles (curvature <= 10)` at K=1; root `-11 21 24 28` at K=1 with `--svg` prints `SVG shows 0 of 0 circles (curvature <= 10)` and no braille line; tests in both languages assert each of these.
+- **R3.** The count lines are the last stdout lines of a packing run, after the braille drawing, in the order `braille draws` then `SVG shows`; no `braille draws` line is printed with `--no-draw` or when `count` is 0; no `SVG shows` line is printed without `--svg`; `--solve` stdout is unchanged.
+- **R4.** The default root prints `SVG shows 3328 of 3328 circles (curvature <= 1000)` at K=3; piped, `braille draws 524 of 67166 circles (curvature <= 240)` then `SVG shows 3328 of 67166 circles (curvature <= 1000)` at K=4; piped, `braille draws 8 of 8 circles (curvature <= 10)` then `SVG shows 8 of 8 circles (curvature <= 10)` at K=1; root `-11 21 24 28` at K=1 with `--svg` prints `SVG shows 0 of 0 circles (curvature <= 10)` and no braille line; tests in both languages assert each of these.
 - **R5.** The SVG cut-off is computed only by `svg_limit` (Python `svg_limit(root, k)`, Rust `svg_limit`), which returns an integer: 1000 for the default root at K=3 and K=4, 10 at K=1, and 11000 for root `-11 21 24 28` at K=5; `svg_packing` returns the SVG text together with `n`, and that `n` is what `SVG shows` prints.
 - **R6.** The `--help` epilog in both languages contains the sentence `The SVG shows circles with curvature at most min(10^K, 1000 x |outer curvature|), radius at least 0.5 of its 1000 units, so with the default root every K from 3 up writes the same SVG.` (whitespace-normalised).
-- **R7.** `descartes/README.md`, `descartes/descartes-rs/README.md`, `descartes/CLAUDE.md` and `descartes/descartes-rs/CLAUDE.md` each state the SVG cut-off `min(10^K, 1000 x |outer curvature|)`, that the default root writes the same SVG of 3,328 circles for every K >= 3, the SVG comment, the stdout order `Saved to`, `Saved SVG to`, braille, `SVG shows`, `braille draws` with `Elapsed` (stderr) before the braille, and the terminal canvas height `max(lines - 1 - m, 1)`; they write the braille cut-off as `min(10^K, 2 x canvas width in braille dots)` and state no SVG byte count.
+- **R7.** `descartes/README.md`, `descartes/descartes-rs/README.md`, `descartes/CLAUDE.md` and `descartes/descartes-rs/CLAUDE.md` each state the SVG cut-off `min(10^K, 1000 x |outer curvature|)`, that the default root writes the same SVG of 3,328 circles plus the outer circle for every K >= 3, the SVG comment, and the stdout order `Saved to`, `Saved SVG to`, braille, `braille draws`, `SVG shows` with `Elapsed` (stderr) before the braille on a terminal; they write the braille cut-off as `min(10^K, 2 x canvas width in braille dots)` and state no SVG byte count.
 - **R8.** `docs/superpowers/specs/2026-11-17-svg-output-and-prompt-reprompt-design.md` no longer says `about 230 KB`; it says `315,079 bytes` with a correction note dated 2026-11-18.
 - **R9.** `descartes/descartes-rs/tests/parity.rs` compares the `SVG shows` and `braille draws` lines between Python and Rust.
 - **R10.** The packing SVG's line immediately before its first `<circle>` element is `<!-- circles with curvature <= <limit>; cut-off min(10^K, 1000 x |outer curvature|) -->` with `<limit>` from `svg_limit`, in both languages; the `--solve` SVG contains no `<!--`.
-- **R11.** At a terminal the packing canvas height is `max(lines - 1 - m, 1)` with `m` the number of count lines printed (1 without `--svg`, 2 with it): an 80 x 30 terminal draws 28 braille rows without `--svg` and 27 with it, a 2-row terminal with `--svg` draws 1 row; the `--solve` canvas stays `max(lines - 1, 1)` (29 rows on 80 x 30); tests in both languages assert these.
 - **V1.** Run both CLIs at the default root with `--svg` for K=1 to 6 (Rust also 7 and 8): every run prints exactly one `SVG shows` line; every K >= 3 SVG is byte-identical to K=3; each `SVG shows` line's `n` equals that SVG's `grep -c '<circle'` minus 1 (3328 for K >= 3); and the Rust K=3 SVG is byte-identical to the Python K=3 SVG or differs only within parity's tolerance.
 - **V2.** CI is green on the PR, including `mutation-pr` with 0 survivors on changed lines in both languages.
 - **N1.** The SVG circles and labels do not change: same cut-off formula, same `<circle>` and `<text>` elements for every input; the only SVG change is the R10 comment line.
 - **N2.** The `.txt` output, the `root`/`circles`/`distinct`/`Saved to`/`Saved SVG to` lines and the `--solve` output do not change.
-- **N3.** The braille cut-off formula, the canvas width and the piped 60 x 24 canvas do not change; the terminal canvas height changes only as R11 states.
+- **N3.** The braille cut-off formula and canvas sizing do not change: the terminal canvas stays `max(lines - 1, 1)` rows and the piped canvas 60 x 24.
 - **N4.** No new command-line flag.
 
 ## Multi-Lens Review
@@ -185,3 +187,29 @@ Disposition: Addressed (operator, 2026-11-18) — (1) `svg_limit` returns an int
 ### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+### Round 2
+
+Reviewed at commit: `c1ad8d4` (round-1 revision). All three lenses re-ran, because the revision changed design substance.
+
+#### Goal-Fit (round 2)
+
+Finding: (1) The braille line and the canvas shrink fix nothing reported; cut both, or keep the shrink only for `--svg` plus drawing. (2) Premise re-verified (`circles` 3328/67166, K=3 and K=4 SVGs identical, 3329 `<circle>`). (3) The float rationale was wrong: `min(10**3, 1000.0)` is the int `1000` (tie returns the first argument); only K >= 4 gives `1000.0`. (4) The SVG comment is proportionate. (5) V1's `grep -c '<circle'` check is what gives it teeth.
+Assumption: the operator would have read a stdout line instead of only comparing file sizes; settled by asking.
+Disposition: Addressed (operator, 2026-11-18) — braille line kept (operator decision, round 1); canvas shrink dropped (R11 removed, N3 restored); float rationale corrected.
+
+#### Ergonomics (round 2)
+
+Finding: (1) The canvas shrink does nothing for the count lines: as the last output they scroll off the top never, so the shrink only keeps the drawing's top row, and misses even that on the operator's 2-line starship prompt (measured `starship prompt | cat -A`: 2 lines); it costs about 7% of the drawing. (2) The order `SVG shows` then `braille draws` splits the braille caption from its drawing; use drawing, `braille draws`, `SVG shows`. (3) `Elapsed` placement holds on a terminal only; `2>&1 | less` block-buffers stdout.
+Assumption: the shrink's purpose (drawing completeness vs count-line visibility); the measured 2-line prompt settles it either way.
+Disposition: Addressed (operator, 2026-11-18) — R11 removed; order is now `braille draws` then `SVG shows` (R3, R4, R7); `Elapsed` documented as terminal-only.
+
+#### Risk (round 2)
+
+Finding: (1) R11 does not serve the disclosure, rests on a 1-row prompt (false on `claude`), breaks unlisted tests (`test_descartes.py:2694`, `main.rs:723/732/737`), and its 2-row case cannot fail on unchanged code. (2) The list of breaking tests was incomplete (`test_descartes.py:2615/2881/3079`, `lib.rs:2789`, 9 `svg_packing(...).unwrap()` sites, `cli.rs:153`). (3) Only R5's `-11 21 24 28` K=5 case kills `1000 * abs(k0)` mutants; keep it in unittest and lib tests. `mutants-equivalent.toml:227` will stale. (4) "same SVG of 3,328 circles" misleads against `grep -c '<circle'` = 3329; say "plus the outer circle". No R contradicts an N; every number reproduces; the comment is valid XML and one parity text token.
+Assumption: the 1-row prompt behind R11 (measured false); moot once R11 is dropped.
+Disposition: Addressed (operator, 2026-11-18) — R11 removed; breaking-test list, mutation note, equivalents note and "plus the outer circle" wording added.
+
+#### Stop decision
+
+Round 2's corrections removed surface (R11, its tests, the N3 carve-out) and added none; the remaining findings are test-apparatus lists that Phase 2's first red run surfaces. Both stop signals agree, so no round 3.
