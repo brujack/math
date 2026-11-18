@@ -778,8 +778,8 @@ class TestPackParallel(unittest.TestCase):
         "support is available to re-enable parallel mode.\n"
     )
 
-    def _pack(self, root: Root, n: int, cpus: int | None) -> tuple[int, bytes, int]:
-        with mock.patch.object(descartes, "_cpu_count", return_value=cpus or 1):
+    def _pack(self, root: Root, n: int, cpus: int) -> tuple[int, bytes, int]:
+        with mock.patch.object(descartes, "_cpu_count", return_value=cpus):
             count, bitmap, workers = pack_with_workers(root, n)
         return count, bytes(bitmap), workers
 
@@ -790,17 +790,29 @@ class TestPackParallel(unittest.TestCase):
                 self.assertEqual((count, bitmap), _cached_reference(root, self.N))
                 self.assertEqual(workers, 2)
 
+    def _pack_with_tripwire(self, root: Root, cpus: int) -> tuple[int, bytes, int]:
+        """Pack with a pool that fails the test if built; stderr must stay empty.
+
+        A fallback except wide enough to swallow the tripwire's AssertionError
+        would print the fallback message, which the empty-stderr check catches.
+        """
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(
+                descartes,
+                "ProcessPoolExecutor",
+                side_effect=AssertionError("pool constructed"),
+            ),
+            contextlib.redirect_stderr(stderr),
+        ):
+            result = self._pack(root, self.N, cpus)
+        self.assertEqual(stderr.getvalue(), "")
+        return result
+
     def test_no_pool_without_two_cpus(self) -> None:
-        for cpus in (None, 1):
-            with self.subTest(cpus=cpus):
-                with mock.patch.object(
-                    descartes,
-                    "ProcessPoolExecutor",
-                    side_effect=AssertionError("pool constructed"),
-                ):
-                    count, bitmap, workers = self._pack(self.ROOT, self.N, cpus)
-                self.assertEqual((count, bitmap), _cached_reference(self.ROOT, self.N))
-                self.assertEqual(workers, 1)
+        count, bitmap, workers = self._pack_with_tripwire(self.ROOT, 1)
+        self.assertEqual((count, bitmap), _cached_reference(self.ROOT, self.N))
+        self.assertEqual(workers, 1)
 
     def test_threshold_is_inclusive(self) -> None:
         self.assertEqual(self._pack(self.ROOT, PARALLEL_MIN_N - 1, 2)[2], 1)
@@ -809,10 +821,7 @@ class TestPackParallel(unittest.TestCase):
 
     def test_small_frontier_stays_serial(self) -> None:
         root = (-300, 301, 90300, 90301)
-        with mock.patch.object(
-            descartes, "ProcessPoolExecutor", side_effect=AssertionError("pool")
-        ):
-            count, bitmap, workers = self._pack(root, self.N, 2)
+        count, bitmap, workers = self._pack_with_tripwire(root, 2)
         self.assertEqual((count, bitmap), _cached_reference(root, self.N))
         self.assertEqual(workers, 1)
 
@@ -843,10 +852,10 @@ class TestPackParallel(unittest.TestCase):
 
     def test_cpu_count_falls_back_to_cpu_count_before_3_13(self) -> None:
         with (
-            mock.patch.object(descartes.os, "process_cpu_count", None, create=True),
+            mock.patch.dict(descartes.os.__dict__),
             mock.patch.object(descartes.os, "cpu_count", return_value=3),
         ):
-            delattr(descartes.os, "process_cpu_count")
+            descartes.os.__dict__.pop("process_cpu_count", None)
             self.assertEqual(descartes._cpu_count(), 3)
 
     def test_walk_task_bitmap_holds_bit_n(self) -> None:
@@ -898,6 +907,34 @@ class TestPackParallel(unittest.TestCase):
     def test_constructor_oserror_falls_back(self) -> None:
         err = OSError("no sem")
         self._assert_fell_back(err, mock.Mock(side_effect=err))
+
+    def test_constructor_runtime_error_propagates(self) -> None:
+        pool = mock.Mock(side_effect=RuntimeError("bug"))
+        with (
+            mock.patch.object(descartes, "ProcessPoolExecutor", pool),
+            self.assertRaisesRegex(RuntimeError, "bug"),
+        ):
+            self._pack(self.ROOT, self.N, 2)
+
+    def test_map_runtime_error_propagates(self) -> None:
+        class Fake:
+            def __init__(self, **_kw: typing.Any) -> None:
+                pass
+
+            def __enter__(self) -> typing.Self:
+                return self
+
+            def __exit__(self, *_a: object) -> None:
+                return None
+
+            def map(self, fn: typing.Any, tasks: list, ns: list) -> Iterator:
+                raise RuntimeError("bug")
+
+        with (
+            mock.patch.object(descartes, "ProcessPoolExecutor", Fake),
+            self.assertRaisesRegex(RuntimeError, "bug"),
+        ):
+            self._pack(self.ROOT, self.N, 2)
 
     def test_constructor_not_implemented_falls_back(self) -> None:
         err = NotImplementedError("no mp")
@@ -2845,7 +2882,7 @@ class TestPackingCli(CliTestCase):
         for k in (1, 6):
             with self.subTest(k=k):
                 with mock.patch.object(
-                    descartes, "pack", return_value=(0, bytearray(1))
+                    descartes, "pack_with_workers", return_value=(0, bytearray(1), 1)
                 ) as fake:
                     code, out, _ = self.run_main(str(k))
                 self.assertEqual(code, 0)
@@ -2895,7 +2932,7 @@ class TestPackingCli(CliTestCase):
 class TestOutputOpenedFirst(CliTestCase):
     def test_unwritable_target_exits_1_before_pack_runs(self) -> None:
         (self.cwd / "descartes_1e1.txt").mkdir()
-        with mock.patch.object(descartes, "pack") as fake:
+        with mock.patch.object(descartes, "pack_with_workers") as fake:
             code, out, err = self.run_main("1")
         self.assertEqual((code, out), (1, ""))
         self.assertTrue(err.startswith("Error: "))
@@ -2910,16 +2947,60 @@ class TestOutputOpenedFirst(CliTestCase):
             order.append("open")
             return real_open(*args, **kwargs)
 
-        def fake_pack(root: Root, n: int) -> tuple[int, bytearray]:
+        def fake_pack(root: Root, n: int) -> tuple[int, bytearray, int]:
             order.append("pack")
-            return 0, bytearray(1)
+            return 0, bytearray(1), 1
 
         with (
             mock.patch("builtins.open", spy_open),
-            mock.patch.object(descartes, "pack", fake_pack),
+            mock.patch.object(descartes, "pack_with_workers", fake_pack),
         ):
             self.run_main("1", "--no-draw")
         self.assertEqual(order, ["open", "pack"])
+
+
+class TestWorkersLine(CliTestCase):
+    """The Workers stderr line: printed only when the pool actually ran."""
+
+    _serial_k5: typing.ClassVar[tuple[int, str, str] | None] = None
+
+    def _run(self, k: str, cpus: int) -> tuple[int, str, str]:
+        with mock.patch.object(descartes, "_cpu_count", return_value=cpus):
+            return self.run_main(k, "--no-draw")
+
+    def _serial_run_k5(self) -> tuple[int, str, str]:
+        """The one-CPU K=5 run, computed once: a 10**5 walk is the suite's cost."""
+        if TestWorkersLine._serial_k5 is None:
+            TestWorkersLine._serial_k5 = self._run("5", 1)
+        return TestWorkersLine._serial_k5
+
+    def test_pool_run_prints_workers_before_elapsed(self) -> None:
+        code, out, err = self._run("5", 2)
+        serial_code, serial_out, _ = self._serial_run_k5()
+        self.assertEqual((code, serial_code), (0, 0))
+        self.assertRegex(err, r"\AWorkers: 2\nElapsed: \d+\.\d\ds\n\Z")
+        self.assertEqual(out, serial_out)
+
+    def test_serial_run_prints_no_workers_line(self) -> None:
+        _, _, err = self._serial_run_k5()
+        self.assertRegex(err, r"\AElapsed: \d+\.\d\ds\n\Z")
+
+    def test_below_threshold_prints_no_workers_line(self) -> None:
+        _, _, err = self._run("4", 2)
+        self.assertRegex(err, r"\AElapsed: \d+\.\d\ds\n\Z")
+
+    def test_fallback_prints_no_workers_line(self) -> None:
+        with mock.patch.object(
+            descartes, "ProcessPoolExecutor", mock.Mock(side_effect=OSError("no sem"))
+        ):
+            code, _, err = self._run("5", 2)
+        self.assertEqual(code, 0)
+        self.assertNotIn("Workers:", err)
+        self.assertIn(
+            "Parallel mode unavailable (no sem); falling back to serial.", err
+        )
+        self.assertIn("re-enable parallel mode.", err)
+        self.assertRegex(err, r"Elapsed: \d+\.\d\ds\n\Z")
 
 
 class TestCountLines(CliTestCase):
@@ -3089,7 +3170,9 @@ class TestPackingDrawing(CliTestCase):
             ),
             mock.patch.object(descartes, "render", return_value=["drawn"]),
             mock.patch.object(descartes, "visible", return_value=[]) as fake_visible,
-            mock.patch.object(descartes, "pack", return_value=(1, bytearray(1))),
+            mock.patch.object(
+                descartes, "pack_with_workers", return_value=(1, bytearray(1), 1)
+            ),
         ):
             code, _, _ = self.run_main("6", stdout=TtyStringIO())
         self.assertEqual(code, 0)

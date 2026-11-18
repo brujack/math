@@ -211,7 +211,7 @@ def _walk_subtrees(
 
 
 def _cpu_count() -> int:
-    """CPUs this process may use; process_cpu_count needs 3.13, the pin is 3.11."""
+    """CPUs this process may use; process_cpu_count needs 3.13, pyright targets 3.11."""
     counter = getattr(os, "process_cpu_count", os.cpu_count)
     return counter() or 1
 
@@ -1037,7 +1037,7 @@ def _run_packing(args: argparse.Namespace) -> None:
             # Open first: a path or permission error must not cost a computation.
             with open(filename, "w") as f:
                 start = time.perf_counter()
-                count, bitmap = pack(root, n)
+                count, bitmap, workers = pack_with_workers(root, n)
                 curvatures = distinct(bitmap)
                 f.writelines(f"{curvature}\n" for curvature in curvatures)
         except OSError as error:
@@ -1054,6 +1054,8 @@ def _run_packing(args: argparse.Namespace) -> None:
     print(f"Saved to {filename}")
     if args.svg is not None:
         print(f"Saved SVG to {args.svg}")
+    if workers > 1:
+        print(f"Workers: {workers}", file=sys.stderr)
     print(f"Elapsed: {elapsed:.2f}s", file=sys.stderr)
     if count and not args.no_draw:
         _draw_packing(root, n, count)
