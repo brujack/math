@@ -1,6 +1,7 @@
 # descartes: disclose the drawing cut-offs and report drawn circle counts
 
-- **Status:** Draft (revised after Step 8 rounds 1 and 2)
+- **Status:** Approved
+- **Approved:** 2026-11-18
 - **Date:** 2026-11-18
 - **Scope:** `descartes/descartes.py`, `descartes/descartes-rs/` (both halves, identical behaviour)
 
