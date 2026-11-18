@@ -120,9 +120,9 @@ reason = "Inside the startswith('-') branch float(text) is never positive (text 
 
 [[equivalent]]
 operator = "core/ReplaceComparisonOperator_Eq_Is"
-function = "pack"
+function = "_children"
 line = "if i == j:"
-col = 17
+col = 13
 above = "for i in range(4):"
 reason = "i and j are ints from range(4) / the quad index, within CPython's small-int cache, so `is` agrees with `==`; an implementation detail of CPython, so declared as such."
 

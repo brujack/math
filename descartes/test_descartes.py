@@ -29,8 +29,10 @@ import annotationlib
 import descartes
 from descartes import (
     LARGE_RUN_THRESHOLD,
+    PARALLEL_MIN_N,
     PIPE_HEIGHT,
     PIPE_WIDTH,
+    SEED_TARGET,
     SMOKE_SIZE,
     BadInput,
     Circle,
@@ -38,12 +40,14 @@ from descartes import (
     _canvas_size,
     _circle_arg,
     _format_value,
+    _frontier,
     _plot,
     check_tangent,
     descartes_fourth,
     distinct,
     get_exponent,
     pack,
+    pack_with_workers,
     parse_args,
     refuse_large_run,
     render,
@@ -588,6 +592,95 @@ class TestPackLimits(unittest.TestCase):
                     count, bitmap = pack(root, 30)
                 self.assertEqual(count, calls)
                 self.assertTrue(all(0 <= k <= 30 for k in distinct(bitmap)))
+
+
+def _reference_walk(root: Root, n: int) -> tuple[int, bytearray]:
+    """The serial depth-first walk exactly as pack ran it before the split."""
+    bitmap = bytearray(n // 8 + 1)
+    count = 0
+    for k in root[1:]:
+        if k <= n:
+            count += 1
+            descartes._mark(bitmap, k)
+    total = sum(root)
+    stack: list[tuple[list[int], int]] = []
+    for i in range(4):
+        k = 2 * (total - root[i]) - root[i]
+        if k <= n:
+            quad = list(root)
+            quad[i] = k
+            stack.append((quad, i))
+    while stack:
+        quad, j = stack.pop()
+        count += 1
+        descartes._mark(bitmap, quad[j])
+        total = sum(quad)
+        for i in range(4):
+            if i == j:
+                continue
+            k = 2 * (total - quad[i]) - quad[i]
+            if quad[i] < k <= n:
+                child = list(quad)
+                child[i] = k
+                stack.append((child, i))
+    return count, bitmap
+
+
+class TestPackSplit(unittest.TestCase):
+    """pack = frontier + subtree walks must equal the old single walk exactly."""
+
+    N = 10**5
+    ROOTS: tuple[Root, ...] = ((-1, 2, 2, 3), (-11, 21, 24, 28), (-2, 3, 6, 7))
+    SMALL_FRONTIER: Root = (-300, 301, 90300, 90301)
+    reference: dict[Root, tuple[int, bytearray]]
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.reference = {
+            root: _reference_walk(root, cls.N)
+            for root in (*cls.ROOTS, cls.SMALL_FRONTIER)
+        }
+
+    def test_pack_with_workers_equals_reference_walk(self) -> None:
+        for root in self.ROOTS:
+            with self.subTest(root=root):
+                count, bitmap, workers = pack_with_workers(root, self.N)
+                self.assertEqual((count, bitmap), self.reference[root])
+                self.assertEqual(workers, 1)
+
+    def test_pack_equals_reference_walk(self) -> None:
+        for root in self.ROOTS:
+            with self.subTest(root=root):
+                self.assertEqual(pack(root, self.N), self.reference[root])
+
+    def test_constants_are_pinned(self) -> None:
+        self.assertEqual(SEED_TARGET, 4096)
+        self.assertEqual(PARALLEL_MIN_N, 100_000)
+
+    def test_default_root_frontier_has_exactly_seed_target_seeds(self) -> None:
+        count, _, seeds = _frontier((-1, 2, 2, 3), self.N)
+        self.assertEqual(len(seeds), 4096)
+        self.assertEqual(count, 2049)
+
+    def test_frontier_stops_above_target_when_a_pop_overshoots(self) -> None:
+        count, _, seeds = _frontier((-5, 10, 10, 15), self.N)
+        self.assertEqual(len(seeds), 4097)
+        self.assertEqual(count, 2063)
+
+    def test_small_packing_exhausts_in_the_frontier(self) -> None:
+        count, bitmap, seeds = _frontier(self.SMALL_FRONTIER, self.N)
+        self.assertEqual(seeds, [])
+        self.assertEqual((count, bitmap), self.reference[self.SMALL_FRONTIER])
+        self.assertEqual(
+            pack_with_workers(self.SMALL_FRONTIER, self.N)[:2],
+            self.reference[self.SMALL_FRONTIER],
+        )
+
+    def test_pack_with_workers_validates_before_walking(self) -> None:
+        with self.assertRaisesRegex(BadInput, r"pack\(n=-1\)"):
+            pack_with_workers(ROOT_A, -1)
+        with self.assertRaisesRegex(BadInput, "pack.*not sorted"):
+            pack_with_workers((2, -1, 2, 3), 100)
 
 
 class TestPackState(unittest.TestCase):
