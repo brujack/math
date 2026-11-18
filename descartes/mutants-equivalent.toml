@@ -261,3 +261,11 @@ line = "return \"0.000\" if text == \"-0.000\" else text"
 col = 27
 above = "text = f\"{value:.3f}\""
 reason = "text is `f\"{value:.3f}\"`: it starts with a digit, `-` followed by a digit, `inf`, `nan` or `-inf`. A string sorts below \"-0.000\" only if it has `-` then a character below \"0\" (only \".\", which a `.3f` result never places there) or is a proper prefix of it, so `<=` is true exactly when `==` is."
+
+[[equivalent]]
+operator = "core/ReplaceComparisonOperator_Gt_NotEq"
+function = "pack_with_workers"
+line = "if n >= PARALLEL_MIN_N and seeds and cpus > 1:"
+col = 46
+above = "cpus = _cpu_count()"
+reason = "cpus comes from _cpu_count, which returns `counter() or 1`, so it is at least 1: `cpus > 1` and `cpus != 1` select the same values."

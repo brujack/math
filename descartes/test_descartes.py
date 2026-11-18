@@ -780,6 +780,7 @@ class TestPackParallel(unittest.TestCase):
     def test_threshold_is_inclusive(self) -> None:
         self.assertEqual(self._pack(self.ROOT, PARALLEL_MIN_N - 1, 2)[2], 1)
         self.assertEqual(self._pack(self.ROOT, PARALLEL_MIN_N, 2)[2], 2)
+        self.assertEqual(self._pack(self.ROOT, PARALLEL_MIN_N + 1, 2)[2], 2)
 
     def test_small_frontier_stays_serial(self) -> None:
         root = (-300, 301, 90300, 90301)
@@ -823,8 +824,17 @@ class TestPackParallel(unittest.TestCase):
             delattr(descartes.os, "process_cpu_count")
             self.assertEqual(descartes._cpu_count(), 3)
 
+    def test_walk_task_bitmap_holds_bit_n(self) -> None:
+        # n // 8 odd: a size of n // 8 | 1 or n // 8 ^ 1 would be one byte short.
+        n = 8 * 12501
+        self.assertEqual(len(descartes._walk_task([], n)[1]), n // 8 + 1)
+
     def test_mp_context_by_platform(self) -> None:
-        for platform, method in (("linux", "fork"), ("darwin", "spawn")):
+        for platform, method in (
+            ("linux", "fork"),
+            ("darwin", "spawn"),
+            ("win32", "spawn"),
+        ):
             with self.subTest(platform=platform):
                 with mock.patch.object(descartes.sys, "platform", platform):
                     context = descartes._mp_context()
