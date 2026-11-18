@@ -6,7 +6,7 @@ spec: docs/superpowers/specs/2026-11-17-svg-output-and-prompt-reprompt-design.md
 
 **Goal:** Re-prompt on bad input at the descartes and amicable prompts (PR1), stop nine Rust prompts spinning on end of input (PR2), and add `--svg PATH` to descartes (Python and Rust) and triangle (PR3).
 
-> **Status:** PR2 merged (math#229), PR1 merged (math#230), 2026-11-17. PR3 (Tasks 10-17) pending. The plan has no `scope:` line, so `spec-alignment-review` on each PR reports the other PRs' requirements as NOT-BUILT; answer each `reviewed:` naming the PR that builds it.
+> **Status: DONE** — PR2 math#229, PR1 math#230, PR3 math#231 (2026-11-17). The plan has no `scope:` line, so `spec-alignment-review` on each PR reports the other PRs' requirements as NOT-BUILT; answer each `reviewed:` naming the PR that builds it.
 
 **Architecture:** Three independent PRs, one branch and worktree each, executed in order PR2, PR1, PR3 (PR2 is the disk-filling bug). Each PR's tasks touch disjoint files so its code tasks can run as a wave; a docs task closes each PR. SVG text is built by pure functions (`svg_packing`, `svg_solve`, triangle `svg`) that return a `str`/`String`, so tests pin exact elements without touching the filesystem; the CLI layer only checks the path, opens, writes and prints `Saved SVG to`.
 

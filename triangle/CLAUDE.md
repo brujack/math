@@ -11,6 +11,7 @@ Current structure:
 - `triangle.py` — solver, braille renderer and CLI (standard library only)
 - `test_triangle.py` — unit tests
 - `install_deps.sh`, `Makefile`, `pyrightconfig.json`, `cosmic-ray.toml` — rendered from `scripts/crate_templates/python/`; edit the template, never this copy
+- `mutants-equivalent.toml` — the 8 true-equivalent mutants in the SVG code, each with the mechanism that guarantees it (matched by `tests/test_mutants_equivalent.py`); an edit that shifts or rewrites one of their lines makes the entry stale, so re-confirm it in the same PR
 
 ## Running the Script
 

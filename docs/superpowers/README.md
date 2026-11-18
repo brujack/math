@@ -63,7 +63,7 @@ Master status index for all specs and implementation plans in this directory.
 | 2026-11-06 | [worldclass-slice7-mutant-core-dumps](plans/2026-11-06-worldclass-slice7-mutant-core-dumps.md) | [spec](specs/2026-11-06-worldclass-slice7-mutant-core-dumps-design.md) | Done (math#218; V1 run 42328612206) |
 | 2026-11-07 | [worldclass-slice8-python-pr-mutation-gate](plans/2026-11-07-worldclass-slice8-python-pr-mutation-gate.md) | [spec](specs/2026-11-07-worldclass-slice8-python-pr-mutation-gate-design.md) | Done (math#219) |
 | 2026-11-15 | [descartes](plans/2026-11-15-descartes.md) | [spec](specs/2026-11-15-descartes-design.md) | Done (PR1 Python #224; PR2 Rust #225) |
-| 2026-11-17 | [svg-output-and-prompt-reprompt](plans/2026-11-17-svg-output-and-prompt-reprompt.md) | [spec](specs/2026-11-17-svg-output-and-prompt-reprompt-design.md) | PR2 Done (math#229); PR1 Done (math#230); PR3 pending |
+| 2026-11-17 | [svg-output-and-prompt-reprompt](plans/2026-11-17-svg-output-and-prompt-reprompt.md) | [spec](specs/2026-11-17-svg-output-and-prompt-reprompt-design.md) | Done (PR2 math#229, PR1 math#230, PR3 math#231) |
 | 2026-10-31 | [shared-push-content-gate](plans/2026-10-31-shared-push-content-gate.md) | ai-config `2026-10-30-shared-push-content-gate-design.md` (cross-repo) | Done |
 
 ---
