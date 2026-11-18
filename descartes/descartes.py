@@ -561,9 +561,10 @@ def _svg_document(elements: list[str]) -> str:
 def svg_limit(root: tuple[int, int, int, int], k: int) -> int:
     """Return the largest curvature the SVG draws: min(10^k, 1000 x |outer|).
 
-    Past 1000 x |outer curvature| a circle's radius drops below 0.5 of the
-    1000-unit square, so it is not drawn. root[0] is the outer curvature of a
-    reduced root, so the result is always an int.
+    Past 1000 x |outer curvature| a circle's radius is under 0.5 units in the
+    1000-unit square, so it is not drawn. root[0] is the reduced root's outer
+    curvature (equal to root_centres(root)[0][0]); using the int, not the float
+    centre, keeps the result an int.
     """
     return min(10**k, 1000 * abs(root[0]))
 
