@@ -435,13 +435,17 @@ def _cached_pack(root: Root, n: int) -> tuple[int, bytes, int]:
 
 
 class TestPackPinned(unittest.TestCase):
+    # Smallest n first and no subTest: a corrupted curvature formula fails the
+    # first row at once, instead of running the n=10**5 walks it would otherwise
+    # reach (those can run for minutes under a mutant and time out the run).
     def test_pinned_values(self) -> None:
-        for root, n, count, n_distinct in PINNED:
-            with self.subTest(root=root, n=n):
-                got_count, bitmap, _ = _cached_pack(root, n)
-                self.assertEqual(
-                    (got_count, len(distinct(bytearray(bitmap)))), (count, n_distinct)
-                )
+        for root, n, count, n_distinct in sorted(PINNED, key=lambda row: row[1]):
+            got_count, bitmap, _ = _cached_pack(root, n)
+            self.assertEqual(
+                (got_count, len(distinct(bytearray(bitmap)))),
+                (count, n_distinct),
+                f"root={root} n={n}",
+            )
 
     def test_distinct_list_root_a_30(self) -> None:
         _, bitmap = pack(ROOT_A, 30)
@@ -641,6 +645,40 @@ def _cached_reference(root: Root, n: int) -> tuple[int, bytes]:
     return count, bytes(bitmap)
 
 
+def _guard_pack(root: Root, n: int) -> None:
+    """Raise AssertionError unless pack_with_workers matches the reference at n.
+
+    _mark is budgeted: under a mutant of the curvature formula the walk can be
+    astronomically large even at small n, and must fail here, not run.
+    """
+    budget = 20 * _cached_reference(root, n)[0] + 1000
+    calls = 0
+    real_mark = descartes._mark
+
+    def budgeted_mark(bitmap: bytearray, k: int) -> None:
+        nonlocal calls
+        calls += 1
+        if calls > budget:
+            raise AssertionError(f"pack_with_workers walk exceeds budget: {root}")
+        real_mark(bitmap, k)
+
+    with mock.patch.object(descartes, "_mark", budgeted_mark):
+        count, bitmap, _ = pack_with_workers(root, n)
+    if (count, bytes(bitmap)) != _cached_reference(root, n):
+        raise AssertionError(f"pack_with_workers differs from reference: {root}")
+
+
+def setUpModule() -> None:
+    """Abort the whole module at once when the packing enumerator is corrupted.
+
+    A mutant of the curvature formula makes the n >= 10**3 walks in the CLI and
+    oracle tests run for minutes, which cosmic-ray scores as a timeout. Checking
+    two small packings first fails the module in milliseconds instead.
+    """
+    for root in (ROOT_A, ROOT_B):
+        _guard_pack(root, 100)
+
+
 class _PackCase(unittest.TestCase):
     """Base for classes that walk packings at large n.
 
@@ -657,11 +695,7 @@ class _PackCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         for root in cls.GUARD_ROOTS:
-            count, bitmap, _ = pack_with_workers(root, cls.GUARD_N)
-            if (count, bytes(bitmap)) != _cached_reference(root, cls.GUARD_N):
-                raise AssertionError(
-                    f"pack_with_workers differs from reference: {root}"
-                )
+            _guard_pack(root, cls.GUARD_N)
 
 
 class TestPackSplit(_PackCase):
