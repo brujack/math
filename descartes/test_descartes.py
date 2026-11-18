@@ -2985,6 +2985,17 @@ class TestWorkersLine(CliTestCase):
         _, _, err = self._serial_run_k5()
         self.assertRegex(err, r"\AElapsed: \d+\.\d\ds\n\Z")
 
+    def test_line_appears_only_above_one_worker(self) -> None:
+        for workers, expected in ((0, False), (1, False), (2, True), (7, True)):
+            with self.subTest(workers=workers):
+                with mock.patch.object(
+                    descartes,
+                    "pack_with_workers",
+                    return_value=(0, bytearray(1), workers),
+                ):
+                    _, _, err = self.run_main("1", "--no-draw")
+                self.assertEqual(f"Workers: {workers}\n" in err, expected)
+
     def test_below_threshold_prints_no_workers_line(self) -> None:
         _, _, err = self._run("4", 2)
         self.assertRegex(err, r"\AElapsed: \d+\.\d\ds\n\Z")
