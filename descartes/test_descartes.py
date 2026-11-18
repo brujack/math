@@ -8,6 +8,7 @@ Descartes theorem, so it checks the integer recurrence against geometry.
 import argparse
 import cmath
 import contextlib
+import functools
 import inspect
 import io
 import math
@@ -426,13 +427,20 @@ class TestValidateRoot(unittest.TestCase):
 # --- pack ---------------------------------------------------------------------
 
 
+@functools.cache
+def _cached_pack(root: Root, n: int) -> tuple[int, bytes, int]:
+    """pack_with_workers memoised per process: the n=10**5 walks are shared."""
+    count, bitmap, workers = pack_with_workers(root, n)
+    return count, bytes(bitmap), workers
+
+
 class TestPackPinned(unittest.TestCase):
     def test_pinned_values(self) -> None:
         for root, n, count, n_distinct in PINNED:
             with self.subTest(root=root, n=n):
-                got_count, bitmap = pack(root, n)
+                got_count, bitmap, _ = _cached_pack(root, n)
                 self.assertEqual(
-                    (got_count, len(distinct(bitmap))), (count, n_distinct)
+                    (got_count, len(distinct(bytearray(bitmap)))), (count, n_distinct)
                 )
 
     def test_distinct_list_root_a_30(self) -> None:
@@ -626,32 +634,66 @@ def _reference_walk(root: Root, n: int) -> tuple[int, bytearray]:
     return count, bitmap
 
 
-class TestPackSplit(unittest.TestCase):
+@functools.cache
+def _cached_reference(root: Root, n: int) -> tuple[int, bytes]:
+    """_reference_walk memoised per process, so each (root, n) is walked once."""
+    count, bitmap = _reference_walk(root, n)
+    return count, bytes(bitmap)
+
+
+class _PackCase(unittest.TestCase):
+    """Base for classes that walk packings at large n.
+
+    setUpClass first checks pack_with_workers against the reference at a small n,
+    so a corrupted curvature formula errors the class in milliseconds instead of
+    running the heavy walks (a mutant that corrupts the formula would otherwise
+    time out the whole mutation run). The guard's n is small and the growth test
+    bounds every walk by n, so it stays fast under any mutation of the formula.
+    """
+
+    GUARD_N = 10**3
+    GUARD_ROOTS: tuple[Root, ...] = (ROOT_A,)
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        for root in cls.GUARD_ROOTS:
+            count, bitmap, _ = pack_with_workers(root, cls.GUARD_N)
+            if (count, bytes(bitmap)) != _cached_reference(root, cls.GUARD_N):
+                raise AssertionError(
+                    f"pack_with_workers differs from reference: {root}"
+                )
+
+
+class TestPackSplit(_PackCase):
     """pack = frontier + subtree walks must equal the old single walk exactly."""
 
     N = 10**5
     ROOTS: tuple[Root, ...] = ((-1, 2, 2, 3), (-11, 21, 24, 28), (-2, 3, 6, 7))
     SMALL_FRONTIER: Root = (-300, 301, 90300, 90301)
-    reference: dict[Root, tuple[int, bytearray]]
+    GUARD_ROOTS = ROOTS
+    packed: dict[Root, tuple[int, bytes, int]]
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.reference = {
-            root: _reference_walk(root, cls.N)
-            for root in (*cls.ROOTS, cls.SMALL_FRONTIER)
-        }
+        super().setUpClass()
+        cls.packed = {}
+        for root in cls.ROOTS:
+            cls.packed[root] = _cached_pack(root, cls.N)
 
     def test_pack_with_workers_equals_reference_walk(self) -> None:
         for root in self.ROOTS:
             with self.subTest(root=root):
-                count, bitmap, workers = pack_with_workers(root, self.N)
-                self.assertEqual((count, bitmap), self.reference[root])
+                count, bitmap, workers = self.packed[root]
+                self.assertEqual((count, bitmap), _cached_reference(root, self.N))
                 self.assertEqual(workers, 1)
 
     def test_pack_equals_reference_walk(self) -> None:
         for root in self.ROOTS:
             with self.subTest(root=root):
-                self.assertEqual(pack(root, self.N), self.reference[root])
+                count, bitmap = pack(root, self.GUARD_N)
+                self.assertEqual(
+                    (count, bytes(bitmap)), _cached_reference(root, self.GUARD_N)
+                )
 
     def test_constants_are_pinned(self) -> None:
         self.assertEqual(SEED_TARGET, 4096)
@@ -670,11 +712,10 @@ class TestPackSplit(unittest.TestCase):
     def test_small_packing_exhausts_in_the_frontier(self) -> None:
         count, bitmap, seeds = _frontier(self.SMALL_FRONTIER, self.N)
         self.assertEqual(seeds, [])
-        self.assertEqual((count, bitmap), self.reference[self.SMALL_FRONTIER])
-        self.assertEqual(
-            pack_with_workers(self.SMALL_FRONTIER, self.N)[:2],
-            self.reference[self.SMALL_FRONTIER],
-        )
+        reference = _cached_reference(self.SMALL_FRONTIER, self.N)
+        self.assertEqual((count, bytes(bitmap)), reference)
+        count, bitmap, _ = pack_with_workers(self.SMALL_FRONTIER, self.N)
+        self.assertEqual((count, bytes(bitmap)), reference)
 
     def test_pack_with_workers_validates_before_walking(self) -> None:
         with self.assertRaisesRegex(BadInput, r"pack\(n=-1\)"):
