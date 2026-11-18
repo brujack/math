@@ -10,8 +10,8 @@ use std::process::{self, Command, Stdio};
 use std::time::Instant;
 
 use descartes::{
-    Circle, DescartesError, distinct, pack, render, root_centres, solve, svg_packing, svg_solve,
-    validate_root, visible,
+    Circle, DescartesError, distinct, pack, render, root_centres, solve, svg_limit, svg_packing,
+    svg_solve, validate_root, visible,
 };
 
 /// Largest K: curvature limit 10^8 is the core's `N_MAX` (spec R14, R22).
@@ -37,6 +37,8 @@ const FALLBACK_LINES: usize = 24;
 
 const EPILOG: &str = "The packing drawing shows circles with curvature at most \
 min(10^K, 2 x canvas width in braille dots), so its circle set depends on terminal width. \
+The SVG shows circles with curvature at most min(10^K, 1000 x |outer curvature|), radius at \
+least 0.5 of its 1000 units, so with the default root every K from 3 up writes the same SVG. \
 --solve prints full-precision values that paste back into --solve; that stops passing the \
 1e-9 tangency tolerance near curvature 2.6e7, and nearly collinear inputs are \
 ill-conditioned. Run with no arguments at a terminal for interactive prompts.";
@@ -427,9 +429,11 @@ fn run_packing<R: BufRead, W: Write, E: Write>(
     }
     writer.flush()?;
     // The SVG is written before any result line, as in Python, so a failed write prints none of them.
+    let mut svg_shown = None;
     if let (Some(file), Some(path)) = (svg_file, args.svg.as_deref()) {
-        let text = svg_packing(root, k).map_err(|e| fail_descartes(stderr, &e))?;
+        let (text, shown) = svg_packing(root, k).map_err(|e| fail_descartes(stderr, &e))?;
         write_svg(file, path, &text, stderr)?;
+        svg_shown = Some(shown);
     }
     let elapsed = start.elapsed().as_secs_f64();
     if args.show {
@@ -452,6 +456,15 @@ fn run_packing<R: BufRead, W: Write, E: Write>(
         let mut circles = vec![bounding];
         circles.extend(visible(root, limit).map_err(|e| fail_descartes(stderr, &e))?);
         draw(&circles, term, stdout, stderr)?;
+        writeln!(
+            stdout,
+            "braille draws {} of {count} circles (curvature <= {limit})",
+            circles.len() - 1
+        )?;
+    }
+    if let Some(shown) = svg_shown {
+        let svg_cap = svg_limit(root, k);
+        writeln!(stdout, "SVG shows {shown} of {count} circles (curvature <= {svg_cap})")?;
     }
     Ok(())
 }
@@ -1416,7 +1429,7 @@ solution  2  6          0.16666666666666666  0.5   0.6666666666666666
         assert_eq!(
             o.stdout,
             format!(
-                "root -1 2 2 3\ncircles 168\ndistinct 33\nSaved to descartes_1e2.txt\nSaved SVG to {svg}\n"
+                "root -1 2 2 3\ncircles 168\ndistinct 33\nSaved to descartes_1e2.txt\nSaved SVG to {svg}\nSVG shows 168 of 168 circles (curvature <= 100)\n"
             )
         );
         assert!(read(&dir, "p.svg").contains("<svg "));
@@ -1453,6 +1466,126 @@ solution  2  6          0.16666666666666666  0.5   0.6666666666666666
         let saved = o.stdout.lines().position(|l| l.starts_with("Saved SVG to")).unwrap();
         let first_braille = o.stdout.lines().position(|l| braille_lines(l).len() == 1).unwrap();
         assert!(saved < first_braille);
+    }
+
+    // ---- drawn-count lines ----
+
+    fn last_lines(text: &str, n: usize) -> Vec<&str> {
+        let lines: Vec<&str> = text.lines().collect();
+        lines[lines.len() - n..].to_vec()
+    }
+
+    #[test]
+    fn count_lines_svg_only_when_nothing_is_drawn() {
+        let dir = tempfile::tempdir().unwrap();
+        let svg = svg_arg(&dir, "p.svg");
+        let o = run_in(&["3", "--no-draw", "--svg", &svg], "", &PIPED, dir.path());
+        assert_eq!(o.code, 0);
+        assert_eq!(
+            last_lines(&o.stdout, 2),
+            [
+                format!("Saved SVG to {svg}").as_str(),
+                "SVG shows 3328 of 3328 circles (curvature <= 1000)"
+            ]
+        );
+        assert!(!o.stdout.contains("braille draws"));
+    }
+
+    #[test]
+    fn count_lines_k4_braille_then_svg_last() {
+        let dir = tempfile::tempdir().unwrap();
+        let svg = svg_arg(&dir, "p.svg");
+        let o = run_in(&["4", "--svg", &svg], "", &PIPED, dir.path());
+        assert_eq!(o.code, 0);
+        assert_eq!(
+            last_lines(&o.stdout, 2),
+            [
+                "braille draws 524 of 67166 circles (curvature <= 240)",
+                "SVG shows 3328 of 67166 circles (curvature <= 1000)"
+            ]
+        );
+    }
+
+    #[test]
+    fn count_lines_k1_both_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let svg = svg_arg(&dir, "p.svg");
+        let o = run_in(&["1", "--svg", &svg], "", &PIPED, dir.path());
+        assert_eq!(
+            last_lines(&o.stdout, 2),
+            [
+                "braille draws 8 of 8 circles (curvature <= 10)",
+                "SVG shows 8 of 8 circles (curvature <= 10)"
+            ]
+        );
+    }
+
+    #[test]
+    fn count_lines_empty_packing_has_svg_line_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let svg = svg_arg(&dir, "p.svg");
+        let o = run_in(
+            &["1", "--root", "-11", "21", "24", "28", "--svg", &svg],
+            "",
+            &PIPED,
+            dir.path(),
+        );
+        assert_eq!(o.code, 0);
+        assert_eq!(o.stdout.lines().last(), Some("SVG shows 0 of 0 circles (curvature <= 10)"));
+        assert!(!o.stdout.contains("braille draws"));
+    }
+
+    #[test]
+    fn count_lines_no_draw_without_svg_prints_neither() {
+        let (o, _dir) = piped(&["2", "--no-draw"]);
+        assert_eq!(o.code, 0);
+        assert_eq!(o.stdout.lines().last(), Some("Saved to descartes_1e2.txt"));
+        assert!(!o.stdout.contains("braille draws"));
+        assert!(!o.stdout.contains("SVG shows"));
+    }
+
+    #[test]
+    fn count_lines_braille_without_svg_is_last() {
+        let (o, _dir) = piped(&["2"]);
+        assert!(o.stdout.lines().last().unwrap().starts_with("braille draws "));
+        assert!(!o.stdout.contains("SVG shows"));
+    }
+
+    #[test]
+    fn count_lines_solve_prints_neither() {
+        let dir = tempfile::tempdir().unwrap();
+        let svg = svg_arg(&dir, "s.svg");
+        let o = run_in(
+            &["--solve", "-1,0,0", "2,0.5,0", "3,0,0.6666666666666666", "--svg", &svg],
+            "",
+            &PIPED,
+            dir.path(),
+        );
+        assert_eq!(o.code, 0);
+        assert!(o.stdout.lines().any(|l| l.starts_with("solution  2")), "{}", o.stdout);
+        assert!(o.stdout.lines().any(|l| l.starts_with("Saved SVG to ")), "{}", o.stdout);
+        assert!(!o.stdout.contains("braille draws"));
+        assert!(!o.stdout.contains("SVG shows"));
+    }
+
+    #[test]
+    fn count_lines_narrow_terminal_limit() {
+        let o = on_terminal(&["3"], 30, 24);
+        assert_eq!(
+            o.stdout.lines().last(),
+            Some("braille draws 216 of 3328 circles (curvature <= 120)")
+        );
+    }
+
+    #[test]
+    fn count_lines_help_states_svg_cap() {
+        let o = on_terminal(&["--help"], 80, 24);
+        let flat = o.stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(flat.contains(
+            "The SVG shows circles with curvature at most min(10^K, 1000 x |outer curvature|), \
+             radius at least 0.5 of its 1000 units, so with the default root every K from 3 up \
+             writes the same SVG."
+        ));
     }
 
     #[test]

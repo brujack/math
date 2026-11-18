@@ -150,8 +150,9 @@ fn svg_cli_binary_writes_svg_in_cwd() {
     assert_eq!(out.status.code(), Some(0));
     let stdout = text(&out.stdout);
     let lines: Vec<&str> = stdout.lines().collect();
-    assert_eq!(lines.last(), Some(&"Saved SVG to out.svg"));
-    assert_eq!(lines[lines.len() - 2], "Saved to descartes_1e2.txt");
+    assert_eq!(lines.last(), Some(&"SVG shows 168 of 168 circles (curvature <= 100)"));
+    assert_eq!(lines[lines.len() - 2], "Saved SVG to out.svg");
+    assert_eq!(lines[lines.len() - 3], "Saved to descartes_1e2.txt");
     let svg = std::fs::read_to_string(dir.path().join("out.svg")).unwrap();
     assert!(svg.contains("<svg "));
 }

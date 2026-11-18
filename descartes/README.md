@@ -32,7 +32,7 @@ make test
 | `--no-draw`                | skip the braille drawing                                             |
 | `--svg PATH`               | also write an SVG drawing to PATH (every mode)                       |
 
-With no arguments at a terminal the program prompts for K. With no arguments and stdin not a terminal it prints usage and exits 2. The drawing shows circles up to curvature `min(10^K, 4 x canvas width)`, so its circle set depends on terminal width; piped output uses a 60 x 24 canvas.
+With no arguments at a terminal the program prompts for K. With no arguments and stdin not a terminal it prints usage and exits 2. The drawing shows circles up to curvature `min(10^K, 2 x canvas width in braille dots)`, so its circle set depends on terminal width; piped output uses a 60 x 24 canvas.
 
 ## Examples
 
@@ -66,9 +66,10 @@ circles 168
 distinct 33
 Saved to descartes_1e2.txt
 Saved SVG to p.svg
+SVG shows 168 of 168 circles (curvature <= 100)
 ```
 
-`--svg PATH` works with every mode and is checked before any prompt. It exits 1 with `Error: cannot write SVG '<path>': directory '<dir>' does not exist` (missing parent, or a parent that is a file; an empty directory part means `.`), `Error: cannot write SVG '<path>': it is a directory`, or `Error: cannot write SVG '<path>': <reason>` when the open or write fails. The SVG opens before the `.txt` and before computing, so a refusal leaves no files. The drawing is 1000 x 1000 with a white background and black circles; circles with SVG radius of at least 20 carry their integer curvature, the outer circle is unlabelled (26 labels at K=3 on the default root). `--solve` draws the givens black and the solutions red dashed, fitted to the givens plus any enclosing (negative-curvature) solution. `--precision` does not change the SVG. Order of stdout: `Saved to ...`, then `Saved SVG to <path>`, then the braille; for `--solve` the table, `Saved SVG to <path>`, then the braille.
+`--svg PATH` works with every mode and is checked before any prompt. It exits 1 with `Error: cannot write SVG '<path>': directory '<dir>' does not exist` (missing parent, or a parent that is a file; an empty directory part means `.`), `Error: cannot write SVG '<path>': it is a directory`, or `Error: cannot write SVG '<path>': <reason>` when the open or write fails. The SVG opens before the `.txt` and before computing, so a refusal leaves no files. The drawing is 1000 x 1000 with a white background and black circles, showing circles with curvature at most `min(10^K, 1000 x |outer curvature|)` (SVG radius at least 0.5 of the 1000 units), so with the default root every K >= 3 writes the same SVG (3,328 circles plus the outer circle); circles with SVG radius of at least 20 carry their integer curvature, the outer circle is unlabelled (26 labels at K=3 on the default root). `--solve` draws the givens black and the solutions red dashed, fitted to the givens plus any enclosing (negative-curvature) solution. `--precision` does not change the SVG. A packing SVG carries the comment `<!-- circles with curvature <= <limit>; cut-off min(10^K, 1000 x |outer curvature|) -->` before the first `<circle>` (`--solve` has none). Packing prints two count lines after the braille: `braille draws <n> of <count> circles (curvature <= <limit>)` (when the braille drawing is printed) and `SVG shows <n> of <count> circles (curvature <= <limit>)` (with `--svg`); `n` excludes the bounding circle. Order of stdout for packing: `Saved to ...`, `Saved SVG to <path>`, the braille, `braille draws ...`, `SVG shows ...` (on a terminal `Elapsed` on stderr appears before the braille); for `--solve` the table, `Saved SVG to <path>`, then the braille.
 
 ## Known limits
 

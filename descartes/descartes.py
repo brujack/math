@@ -558,25 +558,42 @@ def _svg_document(elements: list[str]) -> str:
     return "\n".join([*_SVG_HEAD, *elements, "</svg>"]) + "\n"
 
 
-def svg_packing(root: tuple[int, int, int, int], k: int) -> str:
-    """Return the packing up to curvature 10^k as SVG text (spec R8-R9).
+def svg_limit(root: tuple[int, int, int, int], k: int) -> int:
+    """Return the largest curvature the SVG draws: min(10^k, 1000 x |outer|).
+
+    Past 1000 x |outer curvature| a circle's radius is under 0.5 units in the
+    1000-unit square, so it is not drawn. root[0] is the reduced root's outer
+    curvature (equal to root_centres(root)[0][0]); using the int, not the float
+    centre, keeps the result an int.
+    """
+    return min(10**k, 1000 * abs(root[0]))
+
+
+def svg_packing(root: tuple[int, int, int, int], k: int) -> tuple[str, int]:
+    """Return the packing up to svg_limit as SVG text and its drawn-circle count.
 
     The outer circle fills the square; every other circle of radius at least
-    20 units is labelled with its curvature.
+    20 units is labelled with its curvature. The count excludes the outer
+    circle. A comment before the first circle states the cut-off.
     """
     outer = root_centres(root)[0]
     k0, x0, y0 = outer
     scale = 500 * abs(k0)
-    limit = min(10**k, 1000 * abs(k0))
-    elements: list[str] = []
-    for index, (kc, x, y) in enumerate([outer, *visible(root, limit)]):
+    limit = svg_limit(root, k)
+    inner = visible(root, limit)
+    comment = (
+        f"<!-- circles with curvature <= {limit}; "
+        "cut-off min(10^K, 1000 x |outer curvature|) -->"
+    )
+    elements: list[str] = [comment]
+    for index, (kc, x, y) in enumerate([outer, *inner]):
         px = 500 + (x - x0) * scale
         py = 500 - (y - y0) * scale
         r = scale / abs(kc)
         elements.append(_svg_circle(px, py, r, 'stroke="black"'))
         if index > 0 and r >= _SVG_LABEL_MIN_RADIUS:
             elements.append(_svg_label(px, py, r, kc))
-    return _svg_document(elements)
+    return _svg_document(elements), len(inner)
 
 
 def svg_solve(given: list[Circle], solutions: list[Circle]) -> str:
@@ -659,7 +676,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         epilog=(
             "The packing drawing shows circles with curvature at most "
             "min(10^K, 2 x canvas width in braille dots), so its circle set "
-            "depends on terminal width. --solve prints full-precision values "
+            "depends on terminal width. The SVG shows circles with curvature "
+            "at most min(10^K, 1000 x |outer curvature|), radius at least 0.5 "
+            "of its 1000 units, so with the default root every K from 3 up "
+            "writes the same SVG. --solve prints full-precision values "
             "that paste back into --solve; that stops passing the 1e-9 "
             "tangency tolerance near curvature 2.6e7, and nearly collinear "
             "inputs are ill-conditioned. Run with no arguments at a terminal "
@@ -858,13 +878,21 @@ def _packing_filename(k: int, root: tuple[int, int, int, int]) -> str:
     return f"descartes_1e{k}_root_{root[0]}_{root[1]}_{root[2]}_{root[3]}.txt"
 
 
-def _draw_packing(root: tuple[int, int, int, int], n: int) -> None:
-    """Print the bounding circle and the circles that fit the canvas."""
+def _draw_packing(root: tuple[int, int, int, int], n: int, count: int) -> None:
+    """Print the bounding circle, the circles that fit the canvas, then their count."""
     width, height = _canvas_size()
     # Circles above twice the canvas width in dots are under half a dot across.
     limit = min(n, 2 * DOTS_PER_CELL_X * width)
-    circles = [root_centres(root)[0], *visible(root, limit)]
+    drawn = visible(root, limit)
+    circles = [root_centres(root)[0], *drawn]
     print("\n".join(render(circles, width, height)))
+    print(f"braille draws {len(drawn)} of {count} circles (curvature <= {limit})")
+
+
+def _print_svg_count(svg_count: int | None, count: int, limit: int) -> None:
+    """Print the SVG's drawn-circle count; None means no SVG was written."""
+    if svg_count is not None:
+        print(f"SVG shows {svg_count} of {count} circles (curvature <= {limit})")
 
 
 def _run_packing(args: argparse.Namespace) -> None:
@@ -888,7 +916,8 @@ def _run_packing(args: argparse.Namespace) -> None:
                 f.writelines(f"{curvature}\n" for curvature in curvatures)
         except OSError as error:
             _fail(error, 1)
-        _write_svg(svg_file, args.svg, svg_packing(root, k) if svg_file else "")
+        svg_text, svg_count = svg_packing(root, k) if svg_file else ("", None)
+        _write_svg(svg_file, args.svg, svg_text)
     elapsed = time.perf_counter() - start
     if args.show:
         for curvature in curvatures:
@@ -901,7 +930,8 @@ def _run_packing(args: argparse.Namespace) -> None:
         print(f"Saved SVG to {args.svg}")
     print(f"Elapsed: {elapsed:.2f}s", file=sys.stderr)
     if count and not args.no_draw:
-        _draw_packing(root, n)
+        _draw_packing(root, n, count)
+    _print_svg_count(svg_count, count, svg_limit(root, k))
 
 
 def _format_value(value: float, precision: int | None) -> str:
