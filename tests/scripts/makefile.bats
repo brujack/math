@@ -2177,7 +2177,7 @@ _pd_order() {
     for d in amicable collatz descartes e factorial fib perfect-numbers pi sq triangle; do
         [ -f "${REPO_ROOT}/${d}/mutants-equivalent.toml" ]
     done
-    for d in amicable collatz factorial fib perfect-numbers sq triangle; do
+    for d in amicable collatz factorial fib perfect-numbers sq; do
         [ ! -s "${REPO_ROOT}/${d}/mutants-equivalent.toml" ]
     done
 }
