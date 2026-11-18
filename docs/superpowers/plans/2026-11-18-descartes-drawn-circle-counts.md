@@ -1,5 +1,7 @@
 # descartes drawn circle counts Implementation Plan
 
+> **Status: DONE** (math#232, merged 2026-11-18 as 57271ec)
+
 spec: docs/superpowers/specs/2026-11-18-descartes-drawn-circle-counts-design.md
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
