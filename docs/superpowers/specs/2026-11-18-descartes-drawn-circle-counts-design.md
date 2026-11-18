@@ -214,3 +214,8 @@ Disposition: Addressed (operator, 2026-11-18) — R11 removed; breaking-test lis
 #### Stop decision
 
 Round 2's corrections removed surface (R11, its tests, the N3 carve-out) and added none; the remaining findings are test-apparatus lists that Phase 2's first red run surfaces. Both stop signals agree, so no round 3.
+
+## Amendments
+
+- finding R8 (2026-11-18, reviewer both): DIFFERS — The spec now gives `315,079 bytes` with a note dated 2026-11-18, but the note quotes `the earlier "about 230 KB"`, so the file still contains the string `about 230 KB`, which the requirement says it must no longer say.
+- R8 reviewed: fixed in e031bff
