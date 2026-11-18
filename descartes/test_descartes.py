@@ -2321,6 +2321,12 @@ class TestAnnotations(unittest.TestCase):
                 "text": str,
                 "return": self.NONE,
             },
+            descartes._print_svg_count: {
+                "svg_count": int | None,
+                "count": int,
+                "limit": int,
+                "return": self.NONE,
+            },
         }
 
     def test_resolved_hints_are_exact(self) -> None:

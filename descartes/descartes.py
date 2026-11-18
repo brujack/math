@@ -889,6 +889,12 @@ def _draw_packing(root: tuple[int, int, int, int], n: int, count: int) -> None:
     print(f"braille draws {len(drawn)} of {count} circles (curvature <= {limit})")
 
 
+def _print_svg_count(svg_count: int | None, count: int, limit: int) -> None:
+    """Print the SVG's drawn-circle count; None means no SVG was written."""
+    if svg_count is not None:
+        print(f"SVG shows {svg_count} of {count} circles (curvature <= {limit})")
+
+
 def _run_packing(args: argparse.Namespace) -> None:
     k = get_exponent(args)
     refuse_large_run(k, args.yes)
@@ -910,7 +916,7 @@ def _run_packing(args: argparse.Namespace) -> None:
                 f.writelines(f"{curvature}\n" for curvature in curvatures)
         except OSError as error:
             _fail(error, 1)
-        svg_text, svg_count = svg_packing(root, k) if svg_file else ("", 0)
+        svg_text, svg_count = svg_packing(root, k) if svg_file else ("", None)
         _write_svg(svg_file, args.svg, svg_text)
     elapsed = time.perf_counter() - start
     if args.show:
@@ -925,11 +931,7 @@ def _run_packing(args: argparse.Namespace) -> None:
     print(f"Elapsed: {elapsed:.2f}s", file=sys.stderr)
     if count and not args.no_draw:
         _draw_packing(root, n, count)
-    if args.svg is not None:
-        print(
-            f"SVG shows {svg_count} of {count} circles "
-            f"(curvature <= {svg_limit(root, k)})"
-        )
+    _print_svg_count(svg_count, count, svg_limit(root, k))
 
 
 def _format_value(value: float, precision: int | None) -> str:
