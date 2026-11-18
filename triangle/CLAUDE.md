@@ -27,9 +27,10 @@ python3 triangle.py -a 3 -b 4 -c 5         # solve from flags
 python3 triangle.py -a 6 -b 8 -A 30 --no-draw   # SSA, two solutions
 python3 triangle.py --radians --precision 6 ...
 python3 triangle.py --smoke                # solve and draw 3-4-5
+python3 triangle.py -a 6 -b 8 -A 30 --no-draw --svg out.svg   # writes out-1.svg, out-2.svg
 ```
 
-Flags: `-a -b -c` sides, `-A -B -C` angles (degrees; radians with `--radians`), `--precision N` (default 4), `--no-draw`, `--smoke`.
+Flags: `-a -b -c` sides, `-A -B -C` angles (degrees; radians with `--radians`), `--precision N` (default 4), `--no-draw`, `--smoke`, `--svg PATH`.
 
 Real output for `-a 3 -b 4 -c 5` (the table; the braille drawing follows it):
 
@@ -67,6 +68,17 @@ area                4.9121
 perimeter          16.4561
 ```
 
+Real output tail for `-a 6 -b 8 -A 30 --no-draw --svg out.svg` (each `Saved SVG` line follows its solution's table):
+
+```text
+Solution 1
+...
+Saved SVG to out-1.svg
+Solution 2
+...
+Saved SVG to out-2.svg
+```
+
 ## Code Layout
 
 - `solve(values, radians=False)` — returns `Solved(solutions, extras)`. Covers SSS, SAS, ASA, AAS and SSA; SSA yields 0, 1 or 2 solutions. Raises `TriangleInputError` (exit 2) for unusable input and `NoTriangle` (exit 1) when no triangle fits.
@@ -78,6 +90,7 @@ perimeter          16.4561
 
 - **Extras are reported, not judged:** a value given beyond the determining set is never replaced or rejected; it prints `extra <name> given <x> solved <y> diff <d>`.
 - **Exit codes:** 0 solved, 1 no triangle fits, 2 unusable input or bare non-TTY run.
+- **`--svg PATH`:** `--svg PATH` draws the polygon with side labels a, b, c and vertex labels A, B, C. The path is checked before any prompt and refused with exit 1: `Error: cannot write SVG '<path>': directory '<dir>' does not exist` (missing parent, or a parent that is a file; an empty directory part means `.`), `Error: cannot write SVG '<path>': it is a directory`, or `Error: cannot write SVG '<path>': <reason>` naming the file whose open, write or close failed. Files are opened before anything prints, so a refusal leaves none; a failed open, write or close can leave the files already opened. One solution writes PATH. Two solutions (SSA) write `<stem>-1<ext>` and `<stem>-2<ext>`, the suffix going before the basename's extension only (`out.d/t` becomes `out.d/t-1`); each `Saved SVG to <name>` follows its solution's table.
 - **Closed-form CLI contract:** `CONTRACT_ARGS = ["-a", "3", "-b", "4", "-c", "5"]` and `CONTRACT_EXPECT = "6.0000"` (the area); `make test` runs `python3 ../scripts/cli_contract.py triangle.py` after pytest. A closed-form program declares these instead of `SMOKE_SIZE`.
 - **Numerics:** SSS uses Kahan's stable angle and Heron formulas. SAS, SSA, ASA and AAS never re-derive an angle from computed sides, which can round onto a + b for a near-flat triangle. SAS and SSA take their derived angles from `atan2` forms that do not cancel; ASA and AAS use the given angles and pi - (A + B), with the third sine taken from whichever of A + B and pi - (A + B) is smaller. Every non-SSS area is half the product of two sides and the sine of the angle between them. In SSA, when the larger derived angle is at least pi/4, `_close_angles` takes it as pi minus the other two, so an ill-conditioned triangle still sums to pi. Only the determining set sets the scale, so an extreme extra cannot push the real sides out of range. `solve` first scales the sides by a power of two so the longest lies in [0.5, 1); the scale is exact, so ordinary results are bit-identical and only the final sides, area and perimeter can leave the double range. A result a double cannot hold, or holds only as a subnormal, exits 2 (`values out of floating-point range ...`), and so do sides too far apart to share one scale (`the sides differ by more than a double can carry ...`). An angle below the smallest normal double in radians is refused (`angle X is too small for a double`).
 

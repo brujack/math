@@ -1,17 +1,25 @@
 """Unit tests for triangle.py (solver, renderer and CLI sections)."""
 
+import argparse
 import contextlib
+import inspect
 import io
 import math
+import os
 import pathlib
 import random
 import re
 import subprocess
 import sys
+import tempfile
+import typing
 import unittest
 from dataclasses import replace
 from unittest import mock
 
+import annotationlib
+
+import triangle
 from triangle import (
     _RANGE_ERROR,
     CONTRACT_ARGS,
@@ -22,11 +30,13 @@ from triangle import (
     TriangleInputError,
     _check,
     _close_angles,
+    _fmt3,
     _label_cell,
     _project,
     main,
     render,
     solve,
+    svg,
 )
 
 
@@ -1137,6 +1147,293 @@ class TestSubprocess(unittest.TestCase):
         )
         self.assertEqual(done.returncode, 0)
         self.assertIn("6.0000", done.stdout)
+
+
+class TestSvg(unittest.TestCase):
+    def test_svg_3_4_5_exact(self) -> None:
+        t = solve({"a": 3, "b": 4, "c": 5}).solutions[0]
+        self.assertEqual(
+            svg(t),
+            """<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+<rect width="1000" height="1000" fill="white"/>
+<polygon points="50.000,716.000 950.000,716.000 626.000,284.000" fill="none" stroke="black" stroke-width="2"/>
+<text x="807.195" y="494.382" font-size="24" text-anchor="middle" dominant-baseline="central">a</text>
+<text x="319.140" y="493.344" font-size="24" text-anchor="middle" dominant-baseline="central">b</text>
+<text x="494.400" y="735.200" font-size="24" text-anchor="middle" dominant-baseline="central">c</text>
+<text x="26.007" y="723.022" font-size="24" text-anchor="middle" dominant-baseline="central">A</text>
+<text x="973.575" y="724.321" font-size="24" text-anchor="middle" dominant-baseline="central">B</text>
+<text x="633.000" y="260.000" font-size="24" text-anchor="middle" dominant-baseline="central">C</text>
+</svg>
+""",
+        )
+
+    def test_svg_has_one_polygon_six_labels(self) -> None:
+        t = solve({"a": 3, "b": 4, "c": 5}).solutions[0]
+        doc = svg(t)
+        self.assertEqual(doc.count("<polygon "), 1)
+        self.assertEqual(doc.count("<text "), 6)
+        self.assertTrue(doc.endswith("</svg>\n"))
+        labels = re.findall(r">([abcABC])</text>", doc)
+        self.assertEqual(labels, ["a", "b", "c", "A", "B", "C"])
+
+    def test_svg_obtuse_fits_view(self) -> None:
+        t = solve({"a": 1, "b": 1, "C": 179}).solutions[0]
+        doc = svg(t)
+        points = re.search(r'points="([^"]*)"', doc)
+        assert points is not None
+        nums = [float(n) for n in re.findall(r"-?\d+\.\d+", points.group(1))]
+        nums += [float(n) for n in re.findall(r'[xy]="(-?\d+\.\d+)"', doc)]
+        self.assertEqual(len(nums), 6 + 12)
+        for n in nums:
+            self.assertTrue(0.0 <= n <= 1000.0, n)
+
+    def test_svg_obtuse_a_exact(self) -> None:
+        t = solve({"a": 5, "b": 3, "c": 3}).solutions[0]
+        self.assertEqual(
+            svg(t),
+            """<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+<rect width="1000" height="1000" fill="white"/>
+<polygon points="302.000,798.496 950.000,798.496 50.000,201.504" fill="none" stroke="black" stroke-width="2"/>
+<text x="511.055" y="483.333" font-size="24" text-anchor="middle" dominant-baseline="central">a</text>
+<text x="157.340" y="492.804" font-size="24" text-anchor="middle" dominant-baseline="central">b</text>
+<text x="639.887" y="812.889" font-size="24" text-anchor="middle" dominant-baseline="central">c</text>
+<text x="288.181" y="819.330" font-size="24" text-anchor="middle" dominant-baseline="central">A</text>
+<text x="973.326" y="807.492" font-size="24" text-anchor="middle" dominant-baseline="central">B</text>
+<text x="32.641" y="183.513" font-size="24" text-anchor="middle" dominant-baseline="central">C</text>
+</svg>
+""",
+        )
+
+    def test_svg_tall_exact(self) -> None:
+        t = solve({"a": 5, "b": 5, "c": 2}).solutions[0]
+        self.assertEqual(
+            svg(t),
+            """<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+<rect width="1000" height="1000" fill="white"/>
+<polygon points="316.288,950.000 683.712,950.000 500.000,50.000" fill="none" stroke="black" stroke-width="2"/>
+<text x="602.301" y="482.944" font-size="24" text-anchor="middle" dominant-baseline="central">a</text>
+<text x="397.699" y="482.944" font-size="24" text-anchor="middle" dominant-baseline="central">b</text>
+<text x="500.000" y="970.000" font-size="24" text-anchor="middle" dominant-baseline="central">c</text>
+<text x="303.232" y="971.320" font-size="24" text-anchor="middle" dominant-baseline="central">A</text>
+<text x="696.768" y="971.320" font-size="24" text-anchor="middle" dominant-baseline="central">B</text>
+<text x="500.000" y="25.000" font-size="24" text-anchor="middle" dominant-baseline="central">C</text>
+</svg>
+""",
+        )
+
+    def test_svg_scalene_exact(self) -> None:
+        t = solve({"a": 5, "b": 6, "c": 7}).solutions[0]
+        self.assertEqual(
+            svg(t),
+            """<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+<rect width="1000" height="1000" fill="white"/>
+<polygon points="50.000,769.944 950.000,769.944 601.020,230.056" fill="none" stroke="black" stroke-width="2"/>
+<text x="794.255" y="493.026" font-size="24" text-anchor="middle" dominant-baseline="central">a</text>
+<text x="307.152" y="492.064" font-size="24" text-anchor="middle" dominant-baseline="central">b</text>
+<text x="496.322" y="789.603" font-size="24" text-anchor="middle" dominant-baseline="central">c</text>
+<text x="26.569" y="778.662" font-size="24" text-anchor="middle" dominant-baseline="central">A</text>
+<text x="972.948" y="779.863" font-size="24" text-anchor="middle" dominant-baseline="central">B</text>
+<text x="605.618" y="205.483" font-size="24" text-anchor="middle" dominant-baseline="central">C</text>
+</svg>
+""",
+        )
+
+    def test_svg_fmt3_negative_zero(self) -> None:
+        self.assertEqual(_fmt3(-0.0), "0.000")
+        self.assertEqual(_fmt3(-0.0004), "0.000")
+        self.assertEqual(_fmt3(-0.0006), "-0.001")
+        self.assertEqual(_fmt3(1.23456), "1.235")
+
+
+class TestSvgCli(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
+
+    def test_svg_cli_one_solution_exact_path(self):
+        path = os.path.join(self.tmp, "tri.svg")
+        rc, out, _, _ = _run(
+            ["-a", "3", "-b", "4", "-c", "5", "--no-draw", "--svg", path]
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(os.listdir(self.tmp), ["tri.svg"])
+        with open(path, encoding="utf-8", newline="") as f:
+            text = f.read()
+        self.assertTrue(text.startswith('<?xml version="1.0" encoding="UTF-8"?>\n'))
+        self.assertIn("<polygon ", text)
+        self.assertEqual(out.count(f"Saved SVG to {path}\n"), 1)
+
+    def test_svg_cli_ssa_two_files_suffixed(self):
+        path = os.path.join(self.tmp, "tri.svg")
+        rc, _, _, _ = _run(
+            ["-a", "6", "-b", "8", "-A", "30", "--no-draw", "--svg", path]
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(sorted(os.listdir(self.tmp)), ["tri-1.svg", "tri-2.svg"])
+        texts = []
+        for name in ("tri-1.svg", "tri-2.svg"):
+            with open(os.path.join(self.tmp, name), encoding="utf-8") as f:
+                texts.append(f.read())
+        self.assertNotEqual(texts[0], texts[1])
+
+    def test_svg_cli_suffix_skips_directory_dots(self):
+        sub = os.path.join(self.tmp, "out.d")
+        os.mkdir(sub)
+        path = os.path.join(sub, "t")
+        rc, _, _, _ = _run(
+            ["-a", "6", "-b", "8", "-A", "30", "--no-draw", "--svg", path]
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(sorted(os.listdir(sub)), ["t-1", "t-2"])
+
+    def test_svg_cli_refuses_missing_dir_before_prompt(self):
+        path = os.path.join(self.tmp, "nope", "t.svg")
+        rc, out, err, fake_input = _run(["--svg", path], stdin_tty=True)
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        parent = os.path.dirname(path)
+        self.assertEqual(
+            err,
+            f"Error: cannot write SVG '{path}': directory '{parent}' does not exist\n",
+        )
+        fake_input.assert_not_called()
+
+    def test_svg_cli_refuses_existing_directory(self):
+        rc, out, err, _ = _run(["-a", "3", "-b", "4", "-c", "5", "--svg", self.tmp])
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertEqual(
+            err, f"Error: cannot write SVG '{self.tmp}': it is a directory\n"
+        )
+        # A computed suffixed name that is a directory is refused before any output.
+        os.mkdir(os.path.join(self.tmp, "t-2"))
+        path = os.path.join(self.tmp, "t")
+        rc, out, err, _ = _run(["-a", "6", "-b", "8", "-A", "30", "--svg", path])
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertIn("Error: cannot write SVG", err)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "t-1")))
+
+    def test_svg_cli_refuses_file_as_dir_part(self):
+        blocker = os.path.join(self.tmp, "f")
+        with open(blocker, "w", encoding="utf-8") as f:
+            f.write("x")
+        path = os.path.join(blocker, "x.svg")
+        rc, out, err, fake_input = _run(["--svg", path], stdin_tty=True)
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertEqual(
+            err,
+            f"Error: cannot write SVG '{path}': directory '{blocker}' does not exist\n",
+        )
+        fake_input.assert_not_called()
+
+    @unittest.skipUnless(os.path.exists("/dev/full"), "needs /dev/full")
+    def test_svg_cli_write_failure_reports_one_line(self):
+        rc, out, err, _ = _run(
+            ["-a", "3", "-b", "4", "-c", "5", "--no-draw", "--svg", "/dev/full"]
+        )
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertEqual(
+            err, "Error: cannot write SVG '/dev/full': No space left on device\n"
+        )
+
+    def _run_with_failing_handle(self, bad_index, method):
+        path = os.path.join(self.tmp, "t.svg")
+        handles = [mock.MagicMock(), mock.MagicMock()]
+        getattr(handles[bad_index], method).side_effect = OSError(28, "No space left")
+        with mock.patch("builtins.open", side_effect=handles):
+            rc, out, err, _ = _run(["-a", "6", "-b", "8", "-A", "30", "--svg", path])
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        return err
+
+    def test_svg_cli_write_failure_names_failing_file(self):
+        first = os.path.join(self.tmp, "t-1.svg")
+        second = os.path.join(self.tmp, "t-2.svg")
+        err = self._run_with_failing_handle(0, "write")
+        self.assertEqual(err, f"Error: cannot write SVG '{first}': No space left\n")
+        err = self._run_with_failing_handle(1, "write")
+        self.assertEqual(err, f"Error: cannot write SVG '{second}': No space left\n")
+
+    def test_svg_cli_close_failure_is_reported_not_raised(self):
+        first = os.path.join(self.tmp, "t-1.svg")
+        second = os.path.join(self.tmp, "t-2.svg")
+        # Handle 0: after the write loop the tracked name is the last one, so only
+        # a failure on the first close shows the close loop tracks its own name.
+        err = self._run_with_failing_handle(0, "close")
+        self.assertEqual(err, f"Error: cannot write SVG '{first}': No space left\n")
+        err = self._run_with_failing_handle(1, "close")
+        self.assertEqual(err, f"Error: cannot write SVG '{second}': No space left\n")
+
+    def test_svg_cli_open_failure_exits_1_without_output(self):
+        path = os.path.join(self.tmp, "t.svg")
+        with mock.patch(
+            "builtins.open", side_effect=PermissionError(13, "Permission denied")
+        ):
+            rc, out, err, _ = _run(["-a", "3", "-b", "4", "-c", "5", "--svg", path])
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertEqual(err, f"Error: cannot write SVG '{path}': Permission denied\n")
+
+    def test_svg_cli_saved_line_after_each_table(self):
+        path = os.path.join(self.tmp, "t.svg")
+        _, out, _, _ = _run(["-a", "6", "-b", "8", "-A", "30", "--svg", path])
+        p1 = os.path.join(self.tmp, "t-1.svg")
+        p2 = os.path.join(self.tmp, "t-2.svg")
+        i1 = out.index(f"Saved SVG to {p1}\n")
+        i2 = out.index(f"Saved SVG to {p2}\n")
+        self.assertLess(out.index("Solution 1"), out.index("perimeter"))
+        self.assertLess(out.index("perimeter"), i1)
+        self.assertLess(i1, out.index("Solution 2"))
+        self.assertLess(out.index("Solution 2"), i2)
+        # braille drawing follows the Saved line
+        self.assertIsNotNone(_BRAILLE.search(out[i1 : out.index("Solution 2")]))
+        self.assertIsNone(_BRAILLE.search(out[:i1]))
+
+
+class TestAnnotations(unittest.TestCase):
+    """Python 3.14 never evaluates annotations, so resolve the unions here."""
+
+    NONE = type(None)
+
+    def expected(self) -> dict[typing.Callable[..., object], dict[str, object]]:
+        return {
+            triangle._svg_refusal: {"path": str, "return": str | self.NONE},
+            triangle._svg_arg_ok: {"path": str | self.NONE, "return": bool},
+            triangle._reject_reason: {"text": str, "return": str | self.NONE},
+            triangle._report: {
+                "solved": Solved,
+                "values": dict[str, float],
+                "args": argparse.Namespace,
+                "svg_names": list[str] | self.NONE,
+                "return": self.NONE,
+            },
+            triangle.main: {"argv": list[str] | self.NONE, "return": int},
+        }
+
+    def test_resolved_hints_are_exact(self) -> None:
+        for function, hints in self.expected().items():
+            with self.subTest(function=function.__name__):
+                self.assertEqual(typing.get_type_hints(function), hints)
+
+    def test_every_function_with_a_union_is_listed(self) -> None:
+        listed = set(self.expected())
+        for name, function in inspect.getmembers(triangle, inspect.isfunction):
+            if function.__module__ != "triangle":
+                continue
+            strings = annotationlib.get_annotations(
+                function, format=annotationlib.Format.STRING
+            )
+            if any("|" in text for text in strings.values()):
+                with self.subTest(function=name):
+                    self.assertIn(function, listed)
 
 
 if __name__ == "__main__":

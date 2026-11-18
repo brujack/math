@@ -577,6 +577,104 @@ fn walk_centres(
     }
 }
 
+// SVG output (spec R8-R11): one 1000 x 1000 viewBox, y flipped so up is up.
+
+const SVG_HEAD: [&str; 3] = [
+    r#"<?xml version="1.0" encoding="UTF-8"?>"#,
+    r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">"#,
+    r#"<rect width="1000" height="1000" fill="white"/>"#,
+];
+
+const SVG_BLACK: &str = r#"stroke="black""#;
+const SVG_SOLUTION: &str = r##"stroke="#c00" stroke-dasharray="6 4""##;
+
+/// Three decimals, with `-0.000` written as `0.000`.
+fn fmt3(v: f64) -> String {
+    let text = format!("{v:.3}");
+    if text == "-0.000" { "0.000".to_string() } else { text }
+}
+
+/// Map a circle `(k, x, y)` to SVG `(cx, cy, r)` for centre `(x0, y0)` and scale `s`.
+fn svg_geometry(c: Circle, x0: f64, y0: f64, s: f64) -> (f64, f64, f64) {
+    (500.0 + (c.1 - x0) * s, 500.0 - (c.2 - y0) * s, s / c.0.abs())
+}
+
+fn svg_circle(cx: f64, cy: f64, r: f64, stroke: &str) -> String {
+    // `stroke` is the attribute text, so a solution can add its dash pattern.
+    let width = fmt3((r / 4.0).min(1.0));
+    format!(
+        r#"<circle cx="{}" cy="{}" r="{}" fill="none" {stroke} stroke-width="{width}"/>"#,
+        fmt3(cx),
+        fmt3(cy),
+        fmt3(r)
+    )
+}
+
+fn svg_label(cx: f64, cy: f64, r: f64, k: f64) -> String {
+    format!(
+        r#"<text x="{}" y="{}" font-size="{}" text-anchor="middle" dominant-baseline="central">{}</text>"#,
+        fmt3(cx),
+        fmt3(cy),
+        fmt3((0.6 * r).min(48.0)),
+        k.round() as i64
+    )
+}
+
+fn svg_document(body: Vec<String>) -> String {
+    let mut lines: Vec<String> = SVG_HEAD.iter().map(|l| l.to_string()).collect();
+    lines.extend(body);
+    lines.push("</svg>".to_string());
+    lines.join("\n") + "\n"
+}
+
+/// The packing as SVG text: the outer circle, then every visible circle up to
+/// curvature `min(10^k, 1000 |k0|)`; circles with radius 20 or more are labelled
+/// with their curvature (the outer one is not).
+///
+/// Errors as `root_centres` and `visible`.
+pub fn svg_packing(root: [i64; 4], k: u32) -> Result<String, DescartesError> {
+    let (k0, x0, y0) = root_centres(root)?[0];
+    let s = 500.0 * k0.abs();
+    let limit = 10_f64.powi(k as i32).min(1000.0 * k0.abs()) as i64;
+    let mut body = Vec::new();
+    let (cx, cy, r) = svg_geometry((k0, x0, y0), x0, y0, s);
+    body.push(svg_circle(cx, cy, r, SVG_BLACK));
+    for c in visible(root, limit)? {
+        let (cx, cy, r) = svg_geometry(c, x0, y0, s);
+        body.push(svg_circle(cx, cy, r, SVG_BLACK));
+        if r >= 20.0 {
+            body.push(svg_label(cx, cy, r, c.0));
+        }
+    }
+    Ok(svg_document(body))
+}
+
+/// The `--solve` result as SVG text: the givens in black, then the solutions
+/// dashed red, framed so every given and every enclosing solution fits.
+pub fn svg_solve(given: &[Circle], solutions: &[Circle]) -> String {
+    let framed: Vec<Circle> =
+        given.iter().chain(solutions.iter().filter(|c| c.0 < 0.0)).copied().collect();
+    let extent = |pick: fn(&Circle) -> f64| {
+        let lo = framed.iter().map(|c| pick(c) - 1.0 / c.0.abs()).fold(f64::INFINITY, f64::min);
+        let hi = framed.iter().map(|c| pick(c) + 1.0 / c.0.abs()).fold(f64::NEG_INFINITY, f64::max);
+        (lo, hi)
+    };
+    let (x_lo, x_hi) = extent(|c| c.1);
+    let (y_lo, y_hi) = extent(|c| c.2);
+    let side = 1.1 * (x_hi - x_lo).max(y_hi - y_lo);
+    let (x0, y0, s) = ((x_lo + x_hi) / 2.0, (y_lo + y_hi) / 2.0, 1000.0 / side);
+    let mut body = Vec::new();
+    for c in given {
+        let (cx, cy, r) = svg_geometry(*c, x0, y0, s);
+        body.push(svg_circle(cx, cy, r, SVG_BLACK));
+    }
+    for c in solutions {
+        let (cx, cy, r) = svg_geometry(*c, x0, y0, s);
+        body.push(svg_circle(cx, cy, r, SVG_SOLUTION));
+    }
+    svg_document(body)
+}
+
 // Braille as in triangle.py: a cell is 2 dots wide and 4 tall, and is drawn
 // twice as tall as wide, so a unit of length is the same number of dots in x
 // and in y.
@@ -2672,5 +2770,190 @@ mod tests {
     #[test]
     fn plot_twice_and_with_others_accumulates() {
         assert_eq!(lit_after(2, 1, &[(0, 0), (1, 0), (0, 0)]), [(0, 0), (1, 0)].into());
+    }
+
+    // svg
+
+    fn lines_of(svg: &str) -> Vec<&str> {
+        svg.lines().collect()
+    }
+
+    #[test]
+    fn svg_packing_default_root_k3_counts() {
+        let svg = svg_packing([-1, 2, 2, 3], 3).unwrap();
+        assert_eq!(svg.matches("<circle ").count(), 3329);
+        assert_eq!(svg.matches("<text ").count(), 26);
+    }
+
+    #[test]
+    fn svg_packing_first_lines_exact() {
+        let svg = svg_packing([-1, 2, 2, 3], 3).unwrap();
+        let lines = lines_of(&svg);
+        assert_eq!(lines[0], r#"<?xml version="1.0" encoding="UTF-8"?>"#);
+        assert_eq!(lines[1], r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">"#);
+        assert_eq!(lines[2], r#"<rect width="1000" height="1000" fill="white"/>"#);
+        assert_eq!(
+            lines[3],
+            r#"<circle cx="500.000" cy="500.000" r="500.000" fill="none" stroke="black" stroke-width="1.000"/>"#
+        );
+        assert!(svg.ends_with("</svg>\n"));
+        assert_eq!(lines[lines.len() - 1], "</svg>");
+    }
+
+    #[test]
+    fn svg_packing_first_labelled_circle_exact() {
+        let svg = svg_packing([-1, 2, 2, 3], 3).unwrap();
+        let lines = lines_of(&svg);
+        assert_eq!(
+            lines[4],
+            r#"<circle cx="750.000" cy="500.000" r="250.000" fill="none" stroke="black" stroke-width="1.000"/>"#
+        );
+        assert_eq!(
+            lines[5],
+            r#"<text x="750.000" y="500.000" font-size="48.000" text-anchor="middle" dominant-baseline="central">2</text>"#
+        );
+    }
+
+    #[test]
+    fn svg_packing_k1_limit_is_10_pow_k() {
+        let svg = svg_packing([-1, 2, 2, 3], 1).unwrap();
+        assert_eq!(svg.matches("<circle ").count(), 9);
+    }
+
+    #[test]
+    fn svg_packing_rejects_invalid_root() {
+        assert_eq!(svg_packing([1, 2, 3, 4], 3).unwrap_err().exit_code(), 2);
+    }
+
+    #[test]
+    fn svg_fmt3_negative_zero() {
+        assert_eq!(fmt3(-0.0001), "0.000");
+        assert_eq!(fmt3(-0.0), "0.000");
+        assert_eq!(fmt3(1.5), "1.500");
+        assert_eq!(fmt3(-1.0005e-3), "-0.001");
+    }
+
+    #[test]
+    fn svg_solve_counts_and_styles() {
+        let givens = [(-1.0, 0.0, 0.0), (2.0, 0.5, 0.0), (3.0, 0.0, 2.0 / 3.0)];
+        let sols = solve(givens[0], givens[1], givens[2]).unwrap();
+        assert_eq!(sols.len(), 2);
+        let svg = svg_solve(&givens, &sols);
+        assert_eq!(svg.matches("<circle ").count(), 5);
+        assert_eq!(svg.matches(r##"stroke="black""##).count(), 3);
+        assert_eq!(svg.matches(r##"stroke="#c00" stroke-dasharray="6 4""##).count(), 2);
+        assert_eq!(svg.matches("<text ").count(), 0);
+        assert!(svg.ends_with("</svg>\n"));
+    }
+
+    #[test]
+    fn svg_solve_enclosing_solution_inside_view() {
+        let placed = root_centres([-1, 2, 2, 3]).unwrap();
+        let givens = &placed[1..];
+        let sols = solve(givens[0], givens[1], givens[2]).unwrap();
+        assert!(sols.iter().any(|c| c.0 < 0.0));
+        let svg = svg_solve(givens, &sols);
+        let mut n = 0;
+        for line in svg.lines().filter(|l| l.starts_with("<circle ")) {
+            let attr = |name: &str| -> f64 {
+                let key = format!(" {name}=\"");
+                let at = line.find(&key).unwrap() + key.len();
+                line[at..].split('"').next().unwrap().parse().unwrap()
+            };
+            let (x, y, r) = (attr("cx"), attr("cy"), attr("r"));
+            assert!(x - r >= -0.01 && x + r <= 1000.01, "{line}");
+            assert!(y - r >= -0.01 && y + r <= 1000.01, "{line}");
+            n += 1;
+        }
+        assert_eq!(n, 3 + sols.len());
+    }
+
+    const TIE_ROOT: [i64; 4] = [-12, 25, 25, 28];
+
+    #[test]
+    fn svg_packing_tie_root_counts_pin_cap_and_label_rule() {
+        // 1000 |k0| = 12000 is below 10^5, so the cap decides the circle count.
+        let svg = svg_packing(TIE_ROOT, 5).unwrap();
+        assert_eq!(svg.matches("<circle ").count(), 3327);
+        assert_eq!(svg.matches("<text ").count(), 30);
+    }
+
+    #[test]
+    fn svg_packing_tie_root_small_circle_stroke_is_quarter_radius() {
+        let svg = svg_packing(TIE_ROOT, 5).unwrap();
+        assert!(svg.lines().any(|l| l
+            == r#"<circle cx="990.002" cy="420.014" r="3.513" fill="none" stroke="black" stroke-width="0.878"/>"#));
+    }
+
+    #[test]
+    fn svg_packing_tie_root_label_font_is_six_tenths_of_radius() {
+        let svg = svg_packing(TIE_ROOT, 5).unwrap();
+        let lines = lines_of(&svg);
+        let at = lines
+            .iter()
+            .position(|l| l.starts_with(r#"<circle cx="823.949" cy="204.996" r="61.856""#))
+            .unwrap();
+        assert_eq!(
+            lines[at + 1],
+            r#"<text x="823.949" y="204.996" font-size="37.113" text-anchor="middle" dominant-baseline="central">97</text>"#
+        );
+    }
+
+    #[test]
+    fn svg_packing_radius_exactly_20_is_labelled() {
+        let svg = svg_packing(TIE_ROOT, 5).unwrap();
+        let lines = lines_of(&svg);
+        let circle = r#"<circle cx="943.077" cy="684.615" r="20.000" fill="none" stroke="black" stroke-width="1.000"/>"#;
+        let at = lines.iter().position(|l| *l == circle).unwrap();
+        assert_eq!(
+            lines[at + 1],
+            r#"<text x="943.077" y="684.615" font-size="12.000" text-anchor="middle" dominant-baseline="central">300</text>"#
+        );
+    }
+
+    #[test]
+    fn svg_solve_positive_solutions_do_not_move_the_frame() {
+        // Two unit circles at (0, +-1) and a k = 10 circle between them; the k = 2.83
+        // solution reaches x = 1.26, outside the givens' box, and must not be framed.
+        let givens = [(1.0, 0.0, 1.0), (1.0, 0.0, -1.0), (10.0, 0.458257569495584, 0.0)];
+        let sols = solve(givens[0], givens[1], givens[2]).unwrap();
+        assert!(sols.iter().all(|c| c.0 > 0.0));
+        assert!(sols.iter().any(|c| c.1 + 1.0 / c.0 > 1.0));
+        let svg = svg_solve(&givens, &sols);
+        let first = svg.lines().find(|l| l.starts_with("<circle ")).unwrap();
+        assert_eq!(
+            first,
+            r#"<circle cx="500.000" cy="272.727" r="227.273" fill="none" stroke="black" stroke-width="1.000"/>"#
+        );
+    }
+
+    #[test]
+    fn svg_solve_single_solution_gives_three_black_and_one_dashed() {
+        // Curvatures 1, 1, 4: the other solution is a line, which `solve` omits.
+        let givens = [(1.0, -1.0, 0.0), (1.0, 1.0, 0.0), (4.0, 0.0, 0.75)];
+        let sols = solve(givens[0], givens[1], givens[2]).unwrap();
+        assert_eq!(sols.len(), 1);
+        let svg = svg_solve(&givens, &sols);
+        assert_eq!(svg.matches("<circle ").count(), 4);
+        assert_eq!(svg.matches(r#"stroke="black""#).count(), 3);
+        assert_eq!(svg.matches(r##"stroke="#c00" stroke-dasharray="6 4""##).count(), 1);
+        // The x extent (4) beats the y extent (2), so the side is 1.1 * 4 and s = 227.273.
+        let first = svg.lines().find(|l| l.starts_with("<circle ")).unwrap();
+        assert_eq!(
+            first,
+            r#"<circle cx="272.727" cy="500.000" r="227.273" fill="none" stroke="black" stroke-width="1.000"/>"#
+        );
+    }
+
+    #[test]
+    fn svg_solve_frame_is_translation_invariant() {
+        // Moving every circle by (10, -20) must not move the drawing: this pins the
+        // centring `(lo + hi) / 2`, the extent `hi - lo` and the offset in `svg_geometry`.
+        let givens = [(1.0, -1.0, 0.0), (1.0, 1.0, 0.0), (4.0, 0.0, 0.75)];
+        let sols = solve(givens[0], givens[1], givens[2]).unwrap();
+        let shift = |cs: &[Circle]| -> Vec<Circle> {
+            cs.iter().map(|c| (c.0, c.1 + 10.0, c.2 - 20.0)).collect()
+        };
+        assert_eq!(svg_solve(&shift(&givens), &shift(&sols)), svg_solve(&givens, &sols));
     }
 }

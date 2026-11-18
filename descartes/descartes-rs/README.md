@@ -12,6 +12,7 @@ descartes 3 --no-draw                      # after make install; else target/rel
 descartes 3 --root -11 21 24 28 --no-draw  # another reduced root
 descartes --solve -1,0,0 2,0.5,0 3,0,0.6666666666666666 --no-draw
 descartes --smoke                          # packing at SMOKE_SIZE = 2
+descartes 3 --no-draw --svg p.svg          # also write p.svg
 make test
 ```
 
@@ -29,6 +30,7 @@ make test
 | `--solve K,X,Y K,X,Y K,X,Y` | three mutually tangent circles (curvature, centre x, centre y); prints the circles tangent to all three |
 | `--precision P`             | `--solve` only: round the displayed table to P decimals (0-17)                                   |
 | `--no-draw`                 | skip the braille drawing                                                                         |
+| `--svg PATH`                | also write an SVG drawing to PATH (every mode)                                                   |
 
 With no arguments at a terminal the program prompts for K; with stdin not a terminal it prints usage and exits 2. The drawing shows circles up to curvature `min(10^K, 4 x canvas width)`; piped output uses a 60 x 24 canvas and a terminal's size is clamped to 1000 x 500.
 
@@ -56,6 +58,21 @@ solution  2  6.0000     0.1667   0.5000   0.6667
 ```
 
 Without `--precision` numbers print in Rust `Display` form (`-1`, `0.5`); Python prints `repr` (`-1.0`, `0.5`). The packing output is identical in both.
+
+### SVG output
+
+```text
+$ descartes 2 --no-draw --svg p.svg
+root -1 2 2 3
+circles 168
+distinct 33
+Saved to descartes_1e2.txt
+Saved SVG to p.svg
+```
+
+`--svg PATH` works with every mode and is checked before any prompt. It exits 1 with `Error: cannot write SVG '<path>': directory '<dir>' does not exist` (missing parent, or a parent that is a file; an empty directory part means `.`), `Error: cannot write SVG '<path>': it is a directory`, or `Error: cannot write SVG '<path>': <reason>` when the open or write fails. The SVG opens before the `.txt` and before computing, so a refusal leaves no files. The drawing is 1000 x 1000 with a white background and black circles; circles with SVG radius of at least 20 carry their integer curvature, the outer circle is unlabelled (26 labels at K=3 on the default root). `--solve` draws the givens black and the solutions red dashed, fitted to the givens plus any enclosing (negative-curvature) solution. `--precision` does not change the SVG. Order of stdout: `Saved to ...`, then `Saved SVG to <path>`, then the braille; for `--solve` the table, `Saved SVG to <path>`, then the braille.
+
+The SVG matches the Python program's.
 
 ## Known limits
 

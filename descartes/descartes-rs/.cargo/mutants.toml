@@ -1,3 +1,11 @@
 # parity.rs (Task 10) runs the Python program, and cargo-mutants copies only this
 # crate, so the mutation run tests the library, the binary and the CLI tests alone.
 additional_cargo_test_args = ["--lib", "--bins", "--test", "cli"]
+
+# NOTE: patterns embed line:col numbers. Update if surrounding code shifts lines.
+exclude_re = [
+    # lib.rs:656 — solutions.iter().filter(|c| c.0 < 0.0)
+    # <→<=: differs only for k == 0, and a solution of curvature 0 (a line) is never
+    # in `solutions`: `solve` omits it, so no input reaches that value.
+    "src/lib\\.rs:656:60: replace < with <= in svg_solve",
+]

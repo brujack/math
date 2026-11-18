@@ -16,13 +16,16 @@ Run with no arguments at a terminal for an interactive prompt, or supply K:
 
 import argparse
 import cmath
+import contextlib
 import math
+import os
 import shutil
 import sys
 import time
+from collections.abc import Iterator
 from decimal import Decimal
 from fractions import Fraction
-from typing import NoReturn
+from typing import NoReturn, TextIO
 
 # Largest n pack accepts: Python's N = 10^K ceiling (K <= 6, spec R7), about
 # 2.7e7 circles. The core enforces it so no caller can request an unbounded run.
@@ -511,6 +514,107 @@ def render(circles: list[Circle], width: int, height: int) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# SVG output
+# ---------------------------------------------------------------------------
+
+# The picture is a 1000 x 1000 user-unit square; the Rust crate emits the
+# same text, so the format below is fixed (numbers may differ in the last digit).
+_SVG_SIZE = 1000
+_SVG_HEAD = (
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {_SVG_SIZE} {_SVG_SIZE}">',
+    f'<rect width="{_SVG_SIZE}" height="{_SVG_SIZE}" fill="white"/>',
+)
+# A circle needs at least this radius (user units) to get a curvature label.
+_SVG_LABEL_MIN_RADIUS = 20
+
+
+def _fmt3(value: float) -> str:
+    """Format with three decimals; a negative zero prints as 0.000."""
+    text = f"{value:.3f}"
+    return "0.000" if text == "-0.000" else text
+
+
+def _svg_circle(x: float, y: float, r: float, style: str) -> str:
+    """One <circle> element; style is the stroke attributes before stroke-width."""
+    width = _fmt3(min(1, r / 4))
+    return (
+        f'<circle cx="{_fmt3(x)}" cy="{_fmt3(y)}" r="{_fmt3(r)}" fill="none" '
+        f'{style} stroke-width="{width}"/>'
+    )
+
+
+def _svg_label(x: float, y: float, r: float, k: float) -> str:
+    """One <text> element centred on a circle, showing its integer curvature."""
+    size = _fmt3(min(48, 0.6 * r))
+    return (
+        f'<text x="{_fmt3(x)}" y="{_fmt3(y)}" font-size="{size}" '
+        f'text-anchor="middle" dominant-baseline="central">{round(k)}</text>'
+    )
+
+
+def _svg_document(elements: list[str]) -> str:
+    """Join the fixed header, the elements and the closing tag, newline-ended."""
+    return "\n".join([*_SVG_HEAD, *elements, "</svg>"]) + "\n"
+
+
+def svg_packing(root: tuple[int, int, int, int], k: int) -> str:
+    """Return the packing up to curvature 10^k as SVG text (spec R8-R9).
+
+    The outer circle fills the square; every other circle of radius at least
+    20 units is labelled with its curvature.
+    """
+    outer = root_centres(root)[0]
+    k0, x0, y0 = outer
+    scale = 500 * abs(k0)
+    limit = min(10**k, 1000 * abs(k0))
+    elements: list[str] = []
+    for index, (kc, x, y) in enumerate([outer, *visible(root, limit)]):
+        px = 500 + (x - x0) * scale
+        py = 500 - (y - y0) * scale
+        r = scale / abs(kc)
+        elements.append(_svg_circle(px, py, r, 'stroke="black"'))
+        if index > 0 and r >= _SVG_LABEL_MIN_RADIUS:
+            elements.append(_svg_label(px, py, r, kc))
+    return _svg_document(elements)
+
+
+def svg_solve(given: list[Circle], solutions: list[Circle]) -> str:
+    """Return the three given circles (black) and the solutions (red dashed) as SVG.
+
+    The view is the bounding box of the givens and every enclosing solution
+    (k < 0), centred and padded by 10%; no labels (spec R10-R11).
+    """
+    boxed = [*given, *(c for c in solutions if c[0] < 0)]
+    x_lo = min(x - 1 / abs(k) for k, x, _ in boxed)
+    x_hi = max(x + 1 / abs(k) for k, x, _ in boxed)
+    y_lo = min(y - 1 / abs(k) for k, _, y in boxed)
+    y_hi = max(y + 1 / abs(k) for k, _, y in boxed)
+    cx, cy = (x_lo + x_hi) / 2, (y_lo + y_hi) / 2
+    scale = _SVG_SIZE / (1.1 * max(x_hi - x_lo, y_hi - y_lo))
+    elements = []
+    for kc, x, y in given:
+        elements.append(
+            _svg_circle(
+                500 + (x - cx) * scale,
+                500 - (y - cy) * scale,
+                scale / abs(kc),
+                'stroke="black"',
+            )
+        )
+    for kc, x, y in solutions:
+        elements.append(
+            _svg_circle(
+                500 + (x - cx) * scale,
+                500 - (y - cy) * scale,
+                scale / abs(kc),
+                'stroke="#c00" stroke-dasharray="6 4"',
+            )
+        )
+    return _svg_document(elements)
+
+
+# ---------------------------------------------------------------------------
 # Command line
 # ---------------------------------------------------------------------------
 
@@ -609,6 +713,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--no-draw", action="store_true", help="do not draw the circles in braille"
     )
+    parser.add_argument(
+        "--svg", metavar="PATH", help="also write the drawing as SVG to PATH"
+    )
     args = parser.parse_args(argv)
     if args.precision is not None and not 0 <= args.precision <= PRECISION_MAX:
         parser.error(f"--precision must be between 0 and {PRECISION_MAX}")
@@ -687,6 +794,53 @@ def _fail(error: Exception, code: int) -> NoReturn:
     sys.exit(code)
 
 
+def _check_svg_path(path: str) -> None:
+    """Refuse an SVG path whose directory is missing or that names a directory."""
+    parent = os.path.dirname(path) or "."
+    if not os.path.isdir(parent):
+        _fail(
+            OSError(f"cannot write SVG '{path}': directory '{parent}' does not exist"),
+            1,
+        )
+    if os.path.isdir(path):
+        _fail(OSError(f"cannot write SVG '{path}': it is a directory"), 1)
+
+
+def _svg_error(path: str, error: OSError) -> NoReturn:
+    """Exit 1 with the SVG write-failure message."""
+    _fail(OSError(f"cannot write SVG '{path}': {error.strerror or error}"), 1)
+
+
+@contextlib.contextmanager
+def _open_svg(path: str | None) -> Iterator[TextIO | None]:
+    """Open the SVG file before any computation; yield None when not asked."""
+    if path is None:
+        yield None
+        return
+    with contextlib.ExitStack() as stack:
+        try:
+            handle = stack.enter_context(
+                open(path, "w", newline="\n", encoding="utf-8")
+            )
+        except OSError as error:
+            _svg_error(path, error)
+        yield handle
+
+
+def _write_svg(handle: TextIO | None, path: str | None, text: str) -> None:
+    """Write the SVG text, flushed so a full disk fails here, not at close."""
+    if handle is None or path is None:
+        return
+    try:
+        handle.write(text)
+        handle.flush()
+    except OSError as error:
+        # close() would flush the unwritten buffer again and raise over the exit.
+        with contextlib.suppress(OSError):
+            handle.close()
+        _svg_error(path, error)
+
+
 def _canvas_size() -> tuple[int, int]:
     """Terminal size in cells, one row spared and clamped, else 60 x 24."""
     if not sys.stdout.isatty():
@@ -724,15 +878,17 @@ def _run_packing(args: argparse.Namespace) -> None:
         _fail(error, 1)
     n = 10**k
     filename = _packing_filename(k, root)
-    try:
-        # Open first: a path or permission error must not cost a computation.
-        with open(filename, "w") as f:
-            start = time.perf_counter()
-            count, bitmap = pack(root, n)
-            curvatures = distinct(bitmap)
-            f.writelines(f"{curvature}\n" for curvature in curvatures)
-    except OSError as error:
-        _fail(error, 1)
+    with _open_svg(args.svg) as svg_file:
+        try:
+            # Open first: a path or permission error must not cost a computation.
+            with open(filename, "w") as f:
+                start = time.perf_counter()
+                count, bitmap = pack(root, n)
+                curvatures = distinct(bitmap)
+                f.writelines(f"{curvature}\n" for curvature in curvatures)
+        except OSError as error:
+            _fail(error, 1)
+        _write_svg(svg_file, args.svg, svg_packing(root, k) if svg_file else "")
     elapsed = time.perf_counter() - start
     if args.show:
         for curvature in curvatures:
@@ -741,6 +897,8 @@ def _run_packing(args: argparse.Namespace) -> None:
     print(f"circles {count}")
     print(f"distinct {len(curvatures)}")
     print(f"Saved to {filename}")
+    if args.svg is not None:
+        print(f"Saved SVG to {args.svg}")
     print(f"Elapsed: {elapsed:.2f}s", file=sys.stderr)
     if count and not args.no_draw:
         _draw_packing(root, n)
@@ -778,13 +936,17 @@ def _print_table(
 
 def _run_solve(args: argparse.Namespace) -> None:
     given: list[Circle] = args.solve
-    try:
-        solutions = solve(given[0], given[1], given[2])
-    except BadInput as error:
-        _fail(error, 2)
-    except NoSolution as error:
-        _fail(error, 1)
-    _print_table(given, solutions, args.precision)
+    with _open_svg(args.svg) as svg_file:
+        try:
+            solutions = solve(given[0], given[1], given[2])
+        except BadInput as error:
+            _fail(error, 2)
+        except NoSolution as error:
+            _fail(error, 1)
+        _print_table(given, solutions, args.precision)
+        _write_svg(svg_file, args.svg, svg_solve(given, solutions) if svg_file else "")
+    if args.svg is not None:
+        print(f"Saved SVG to {args.svg}")
     if not args.no_draw:
         width, height = _canvas_size()
         print("\n".join(render(given + solutions, width, height)))
@@ -793,6 +955,8 @@ def _run_solve(args: argparse.Namespace) -> None:
 def main(argv: list[str] | None = None) -> None:
     """Main entry point."""
     args = parse_args(argv)
+    if args.svg is not None:
+        _check_svg_path(args.svg)
     if args.solve is not None:
         _run_solve(args)
     else:

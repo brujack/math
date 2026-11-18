@@ -5,10 +5,13 @@ Standard library only.
 """
 
 import argparse
+import contextlib
 import math
+import os
 import shutil
 import sys
 from dataclasses import dataclass, replace
+from typing import TextIO
 
 
 class TriangleInputError(ValueError):
@@ -560,6 +563,65 @@ _PIPE_WIDTH = 60
 _MAX_HEIGHT = 20
 
 
+def _fmt3(v: float) -> str:
+    """Three decimals, with a negative zero printed as plain zero."""
+    text = f"{v:.3f}"
+    return "0.000" if text == "-0.000" else text
+
+
+def _away(
+    point: tuple[float, float], centroid: tuple[float, float], distance: float
+) -> tuple[float, float]:
+    """Move point `distance` units straight away from the centroid."""
+    dx = point[0] - centroid[0]
+    dy = point[1] - centroid[1]
+    length = math.hypot(dx, dy)
+    return (point[0] + dx / length * distance, point[1] + dy / length * distance)
+
+
+def svg(t: Triangle) -> str:
+    """The triangle as an SVG document on a 1000 x 1000 white canvas.
+
+    A is the origin, B is on the x-axis and C is above it.  The bounding box
+    is scaled to 900 units and centred; side labels sit 20 units and vertex
+    labels 25 units outside the triangle, away from its centroid.
+    """
+    model = [(0.0, 0.0), (t.c, 0.0), (t.b * math.cos(t.A), t.b * math.sin(t.A))]
+    xs = [x for x, _ in model]
+    ys = [y for _, y in model]
+    scale = 900 / max(max(xs) - min(xs), max(ys) - min(ys))
+    cx = (max(xs) + min(xs)) / 2
+    cy = (max(ys) + min(ys)) / 2
+    va, vb, vc = ((500 + (x - cx) * scale, 500 - (y - cy) * scale) for x, y in model)
+    centroid = ((va[0] + vb[0] + vc[0]) / 3, (va[1] + vb[1] + vc[1]) / 3)
+
+    def mid(p: tuple[float, float], q: tuple[float, float]) -> tuple[float, float]:
+        return ((p[0] + q[0]) / 2, (p[1] + q[1]) / 2)
+
+    labels = [
+        ("a", _away(mid(vb, vc), centroid, 20)),
+        ("b", _away(mid(vc, va), centroid, 20)),
+        ("c", _away(mid(va, vb), centroid, 20)),
+        ("A", _away(va, centroid, 25)),
+        ("B", _away(vb, centroid, 25)),
+        ("C", _away(vc, centroid, 25)),
+    ]
+    points = " ".join(f"{_fmt3(x)},{_fmt3(y)}" for x, y in (va, vb, vc))
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">',
+        '<rect width="1000" height="1000" fill="white"/>',
+        f'<polygon points="{points}" fill="none" stroke="black" stroke-width="2"/>',
+    ]
+    for name, (x, y) in labels:
+        lines.append(
+            f'<text x="{_fmt3(x)}" y="{_fmt3(y)}" font-size="24" '
+            f'text-anchor="middle" dominant-baseline="central">{name}</text>'
+        )
+    lines.append("</svg>")
+    return "\n".join(lines) + "\n"
+
+
 def _precision(text: str) -> int:
     try:
         value = int(text)
@@ -588,7 +650,40 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--no-draw", action="store_true", help="table only")
     parser.add_argument("--smoke", action="store_true", help="solve and draw 3-4-5")
+    parser.add_argument(
+        "--svg",
+        default=None,
+        metavar="PATH",
+        help="also write an SVG (two SSA solutions: PATH-1 and PATH-2)",
+    )
     return parser
+
+
+def _svg_refusal(path: str) -> str | None:
+    """Why PATH cannot be written (a directory, or no directory to hold it), else None."""
+    if os.path.isdir(path):
+        return "it is a directory"
+    parent = os.path.dirname(path) or "."
+    if not os.path.isdir(parent):
+        return f"directory '{parent}' does not exist"
+    return None
+
+
+def _svg_arg_ok(path: str | None) -> bool:
+    """Check --svg before any prompt; print the refusal and return False if unusable."""
+    reason = None if path is None else _svg_refusal(path)
+    if reason is not None:
+        print(f"Error: cannot write SVG '{path}': {reason}", file=sys.stderr)
+    return reason is None
+
+
+def _svg_names(path: str, count: int) -> list[str]:
+    """PATH for one solution; -1, -2 before the basename's extension for two."""
+    if count == 1:
+        return [path]
+    head, base = os.path.split(path)
+    stem, ext = os.path.splitext(base)
+    return [os.path.join(head, f"{stem}-{i}{ext}") for i in range(1, count + 1)]
 
 
 def _reject_reason(text: str) -> str | None:
@@ -649,7 +744,12 @@ def _print_extras(solved: Solved, precision: int) -> None:
         )
 
 
-def _report(solved: Solved, values: dict[str, float], args: argparse.Namespace) -> None:
+def _report(
+    solved: Solved,
+    values: dict[str, float],
+    args: argparse.Namespace,
+    svg_names: list[str] | None = None,
+) -> None:
     given = set(values)
     width, height = _canvas_size()
     many = len(solved.solutions) > 1
@@ -657,6 +757,8 @@ def _report(solved: Solved, values: dict[str, float], args: argparse.Namespace) 
         if many:
             print(f"Solution {i}")
         _print_table(t, given, args.precision, args.radians)
+        if svg_names:
+            print(f"Saved SVG to {svg_names[i - 1]}")
         if not args.no_draw:
             print("\n".join(render(t, width, height)))
     _print_extras(solved, args.precision)
@@ -665,6 +767,8 @@ def _report(solved: Solved, values: dict[str, float], args: argparse.Namespace) 
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if not _svg_arg_ok(args.svg):
+        return 1
     if args.smoke:
         values: dict[str, float] = {"a": 3.0, "b": 4.0, "c": 5.0}
     else:
@@ -688,8 +792,47 @@ def main(argv: list[str] | None = None) -> int:
     except NoTriangle as error:
         print(error, file=sys.stderr)
         return 1
-    _report(solved, values, args)
+    svg_names = None
+    if args.svg is not None:
+        svg_names = _svg_names(args.svg, len(solved.solutions))
+        if not _write_svgs(svg_names, solved.solutions):
+            return 1
+    _report(solved, values, args, svg_names)
     return 0
+
+
+def _write_svgs(names: list[str], solutions: list[Triangle]) -> bool:
+    """Refuse bad names, open every file, then write, flush and close each in turn.
+
+    Returns False after printing one error naming the file that failed.
+    """
+    for name in names:
+        reason = _svg_refusal(name)
+        if reason is not None:
+            print(f"Error: cannot write SVG '{name}': {reason}", file=sys.stderr)
+            return False
+    handles: list[tuple[str, TextIO]] = []
+    current = ""
+    try:
+        for name in names:
+            current = name
+            handles.append((name, open(name, "w", encoding="utf-8", newline="\n")))  # noqa: SIM115
+        for (name, handle), t in zip(handles, solutions, strict=True):
+            current = name
+            handle.write(svg(t))
+            handle.flush()
+        for name, handle in handles:
+            current = name
+            handle.close()
+    except OSError as error:
+        print(f"Error: cannot write SVG '{current}': {error.strerror}", file=sys.stderr)
+        return False
+    finally:
+        # Releases handles on any exit; a second close of a closed file is a no-op.
+        for _, handle in handles:
+            with contextlib.suppress(OSError):
+                handle.close()
+    return True
 
 
 if __name__ == "__main__":
