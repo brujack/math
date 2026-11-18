@@ -37,11 +37,7 @@ fn text(bytes: &[u8]) -> String {
 fn stable_lines(stdout: &str) -> Vec<String> {
     ["root ", "circles ", "distinct ", "Saved to "]
         .iter()
-        .map(|prefix| {
-            let found: Vec<&str> = stdout.lines().filter(|l| l.starts_with(prefix)).collect();
-            assert_eq!(found.len(), 1, "expected one `{prefix}` line in:\n{stdout}");
-            found[0].to_string()
-        })
+        .map(|prefix| one_line_with_prefix(stdout, prefix))
         .collect()
 }
 
