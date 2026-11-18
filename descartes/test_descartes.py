@@ -25,7 +25,6 @@ from fractions import Fraction
 from unittest import mock
 
 import annotationlib
-import pytest
 
 import descartes
 from descartes import (
@@ -2870,331 +2869,339 @@ class TestEntryPointGuard(unittest.TestCase):
         self.assertEqual(proc.stdout.splitlines()[:3], ["2", "3", "6"])
 
 
-def test_svg_packing_default_root_k3_counts() -> None:
-    text = descartes.svg_packing((-1, 2, 2, 3), 3)
-    assert text.count("<circle ") == 3329
-    assert text.count("<text ") == 26
+class TestSvgPacking(unittest.TestCase):
+    def test_default_root_k3_counts(self) -> None:
+        text = descartes.svg_packing((-1, 2, 2, 3), 3)
+        self.assertEqual(text.count("<circle "), 3329)
+        self.assertEqual(text.count("<text "), 26)
 
+    def test_first_lines_exact(self) -> None:
+        text = descartes.svg_packing((-1, 2, 2, 3), 3)
+        lines = text.split("\n")
+        self.assertEqual(
+            lines[:4],
+            [
+                '<?xml version="1.0" encoding="UTF-8"?>',
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">',
+                '<rect width="1000" height="1000" fill="white"/>',
+                (
+                    '<circle cx="500.000" cy="500.000" r="500.000" fill="none"'
+                    ' stroke="black" stroke-width="1.000"/>'
+                ),
+            ],
+        )
+        self.assertTrue(text.endswith("</svg>\n"))
+        self.assertEqual(lines[-2], "</svg>")
+        self.assertEqual(lines[-1], "")
 
-def test_svg_packing_first_lines_exact() -> None:
-    text = descartes.svg_packing((-1, 2, 2, 3), 3)
-    lines = text.split("\n")
-    assert lines[:4] == [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">',
-        '<rect width="1000" height="1000" fill="white"/>',
-        (
-            '<circle cx="500.000" cy="500.000" r="500.000" fill="none"'
+    def test_k1_limit_is_10_pow_k(self) -> None:
+        text = descartes.svg_packing((-1, 2, 2, 3), 1)
+        self.assertEqual(text.count("<circle "), 9)
+
+    def test_fmt3_negative_zero(self) -> None:
+        self.assertEqual(descartes._fmt3(-0.0001), "0.000")
+        self.assertEqual(descartes._fmt3(-0.0), "0.000")
+        self.assertEqual(descartes._fmt3(1.23456), "1.235")
+
+    def test_label_font_size_capped_at_48(self) -> None:
+        lines = descartes.svg_packing((-1, 2, 2, 3), 3).split("\n")
+        circle = (
+            '<circle cx="750.000" cy="500.000" r="250.000" fill="none"'
             ' stroke="black" stroke-width="1.000"/>'
-        ),
-    ]
-    assert text.endswith("</svg>\n")
-    assert lines[-2] == "</svg>"
-    assert lines[-1] == ""
+        )
+        self.assertEqual(
+            lines[lines.index(circle) + 1],
+            '<text x="750.000" y="500.000" font-size="48.000"'
+            ' text-anchor="middle" dominant-baseline="central">2</text>',
+        )
+
+    def test_tie_root_counts_pin_cap_and_label_rule(self) -> None:
+        # 1000*|k0| = 12000 is below 10**5, so the cap, not 10**k, bounds the circles.
+        text = descartes.svg_packing(_TIE_ROOT, 5)
+        self.assertEqual(text.count("<circle "), 3327)
+        self.assertEqual(text.count("<text "), 30)
+
+    def test_tie_root_exact_stroke_font_and_radius_20_label(self) -> None:
+        lines = descartes.svg_packing(_TIE_ROOT, 5).split("\n")
+        small = (
+            '<circle cx="990.002" cy="420.014" r="3.513" fill="none"'
+            ' stroke="black" stroke-width="0.878"/>'
+        )
+        self.assertIn(small, lines)
+        big = (
+            '<circle cx="823.949" cy="204.996" r="61.856" fill="none"'
+            ' stroke="black" stroke-width="1.000"/>'
+        )
+        self.assertEqual(
+            lines[lines.index(big) + 1],
+            '<text x="823.949" y="204.996" font-size="37.113"'
+            ' text-anchor="middle" dominant-baseline="central">97</text>',
+        )
+        # r == 20 exactly: the threshold is inclusive, so it is labelled.
+        edge = (
+            '<circle cx="943.077" cy="684.615" r="20.000" fill="none"'
+            ' stroke="black" stroke-width="1.000"/>'
+        )
+        self.assertEqual(
+            lines[lines.index(edge) + 1],
+            '<text x="943.077" y="684.615" font-size="12.000"'
+            ' text-anchor="middle" dominant-baseline="central">300</text>',
+        )
 
 
-def test_svg_packing_k1_limit_is_10_pow_k() -> None:
-    text = descartes.svg_packing((-1, 2, 2, 3), 1)
-    assert text.count("<circle ") == 9
+class TestSvgSolve(unittest.TestCase):
+    def test_counts_and_styles(self) -> None:
+        givens = [(-1.0, 0.0, 0.0), (2.0, 0.5, 0.0), (3.0, 0.0, 0.6666666666666666)]
+        sols = descartes.solve(*givens)
+        text = descartes.svg_solve(givens, sols)
+        self.assertEqual(text.count("<circle "), 5)
+        self.assertEqual(text.count('stroke="black"'), 3)
+        self.assertEqual(text.count('stroke="#c00" stroke-dasharray="6 4"'), 2)
+        self.assertEqual(text.count("<text "), 0)
+        self.assertTrue(text.endswith("</svg>\n"))
 
+    def test_enclosing_solution_inside_view(self) -> None:
+        givens = descartes.root_centres((-1, 2, 2, 3))[1:]
+        sols = descartes.solve(*givens)
+        self.assertTrue(any(k < 0 for k, _, _ in sols))
+        text = descartes.svg_solve(givens, sols)
+        found = re.findall(
+            r'<circle cx="(-?[\d.]+)" cy="(-?[\d.]+)" r="([\d.]+)"', text
+        )
+        self.assertEqual(len(found), 5)
+        for cx, cy, r in found:
+            x, y, rad = float(cx), float(cy), float(r)
+            self.assertGreaterEqual(x - rad, -0.01)
+            self.assertLessEqual(x + rad, 1000.01)
+            self.assertGreaterEqual(y - rad, -0.01)
+            self.assertLessEqual(y + rad, 1000.01)
 
-def test_svg_fmt3_negative_zero() -> None:
-    assert descartes._fmt3(-0.0001) == "0.000"
-    assert descartes._fmt3(-0.0) == "0.000"
-    assert descartes._fmt3(1.23456) == "1.235"
+    def test_positive_solutions_do_not_widen_frame(self) -> None:
+        givens = [(1.0, -1.0, 0.0), (1.0, 1.0, 0.0), (10.0, 0.0, math.sqrt(0.21))]
+        sols = descartes.solve(*givens)
+        self.assertTrue(all(k > 0 for k, _, _ in sols))
+        # A positive solution pokes out of the givens' box (y up to 1.264 > 1).
+        self.assertTrue(any(y + 1 / k > 1 for k, _, y in sols))
+        lines = descartes.svg_solve(givens, sols).split("\n")
+        self.assertEqual(
+            lines[3],
+            '<circle cx="272.727" cy="500.000" r="227.273" fill="none"'
+            ' stroke="black" stroke-width="1.000"/>',
+        )
 
+    def test_single_solution_when_other_is_a_line(self) -> None:
+        givens = [(1.0, -1.0, 0.0), (1.0, 1.0, 0.0), (4.0, 0.0, 0.75)]
+        sols = descartes.solve(*givens)
+        self.assertEqual(len(sols), 1)
+        text = descartes.svg_solve(givens, sols)
+        self.assertEqual(text.count('stroke="black"'), 3)
+        self.assertEqual(text.count('stroke="#c00" stroke-dasharray="6 4"'), 1)
+        self.assertEqual(text.count("<circle "), 4)
 
-def test_svg_solve_counts_and_styles() -> None:
-    givens = [(-1.0, 0.0, 0.0), (2.0, 0.5, 0.0), (3.0, 0.0, 0.6666666666666666)]
-    sols = descartes.solve(*givens)
-    text = descartes.svg_solve(givens, sols)
-    assert text.count("<circle ") == 5
-    assert text.count('stroke="black"') == 3
-    assert text.count('stroke="#c00" stroke-dasharray="6 4"') == 2
-    assert text.count("<text ") == 0
-    assert text.endswith("</svg>\n")
+    def test_asymmetric_frame_tall_exact_circles(self) -> None:
+        # Every bounding side is set by a circle with |k| != 1, the solution with
+        # 0 < k < 1 is outside the frame, and the y range dominates the scale.
+        givens = [(2.0, 0.0, 0.0), (4.0, 3.0, 2.0), (5.0, 1.0, -3.0)]
+        text = descartes.svg_solve(givens, [(0.5, -2.0, 1.0)])
+        lines = text.split("\n")
+        self.assertEqual(
+            lines[3:7],
+            [
+                '<circle cx="270.642" cy="420.767" r="83.403" fill="none" stroke="black" stroke-width="1.000"/>',
+                '<circle cx="771.059" cy="87.156" r="41.701" fill="none" stroke="black" stroke-width="1.000"/>',
+                '<circle cx="437.448" cy="921.184" r="33.361" fill="none" stroke="black" stroke-width="1.000"/>',
+                '<circle cx="-62.969" cy="253.962" r="333.611" fill="none" stroke="#c00" stroke-dasharray="6 4" stroke-width="1.000"/>',
+            ],
+        )
 
+    def test_asymmetric_frame_wide_exact_circles(self) -> None:
+        # The transposed picture: the x range dominates the scale.
+        givens = [(2.0, 0.0, 0.0), (4.0, 2.0, 3.0), (5.0, -3.0, 1.0)]
+        text = descartes.svg_solve(givens, [(0.5, 1.0, -2.0)])
+        lines = text.split("\n")
+        self.assertEqual(
+            lines[3:7],
+            [
+                '<circle cx="579.233" cy="729.358" r="83.403" fill="none" stroke="black" stroke-width="1.000"/>',
+                '<circle cx="912.844" cy="228.941" r="41.701" fill="none" stroke="black" stroke-width="1.000"/>',
+                '<circle cx="78.816" cy="562.552" r="33.361" fill="none" stroke="black" stroke-width="1.000"/>',
+                '<circle cx="746.038" cy="1062.969" r="333.611" fill="none" stroke="#c00" stroke-dasharray="6 4" stroke-width="1.000"/>',
+            ],
+        )
 
-def test_svg_solve_enclosing_solution_inside_view() -> None:
-    givens = descartes.root_centres((-1, 2, 2, 3))[1:]
-    sols = descartes.solve(*givens)
-    assert any(k < 0 for k, _, _ in sols)
-    text = descartes.svg_solve(givens, sols)
-    found = re.findall(r'<circle cx="(-?[\d.]+)" cy="(-?[\d.]+)" r="([\d.]+)"', text)
-    assert len(found) == 5
-    for cx, cy, r in found:
-        x, y, rad = float(cx), float(cy), float(r)
-        assert x - rad >= -0.01
-        assert x + rad <= 1000.01
-        assert y - rad >= -0.01
-        assert y + rad <= 1000.01
-
-
-def _svg_main(capsys: pytest.CaptureFixture[str], *argv: str) -> tuple[int, str, str]:
-    """Return (exit code, stdout, stderr) of main(argv)."""
-    code = 0
-    try:
-        descartes.main(list(argv))
-    except SystemExit as exit_:
-        code = exit_.code if isinstance(exit_.code, int) else 1
-    captured = capsys.readouterr()
-    return code, captured.out, captured.err
-
-
-def test_svg_cli_packing_writes_file_and_line_order(
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    code, out, _ = _svg_main(capsys, "1", "--no-draw", "--svg", "p.svg")
-    assert code == 0
-    assert out.splitlines() == [
-        "root -1 2 2 3",
-        "circles 8",
-        "distinct 3",
-        "Saved to descartes_1e1.txt",
-        "Saved SVG to p.svg",
-    ]
-    assert (tmp_path / "p.svg").read_text() == descartes.svg_packing((-1, 2, 2, 3), 1)
-
-
-def test_svg_cli_solve_writes_file(
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    given = [(-1.0, 0.0, 0.0), (2.0, 0.5, 0.0), (3.0, 0.0, 0.6666666666666666)]
-    code, out, _ = _svg_main(
-        capsys,
-        "--solve",
-        "-1,0,0",
-        "2,0.5,0",
-        "3,0,0.6666666666666666",
-        "--no-draw",
-        "--svg",
-        "s.svg",
-    )
-    assert code == 0
-    lines = out.splitlines()
-    assert lines[-1] == "Saved SVG to s.svg"
-    assert lines[0].startswith("kind")
-    sols = descartes.solve(*given)
-    assert (tmp_path / "s.svg").read_text() == descartes.svg_solve(given, sols)
-
-
-def test_svg_cli_refuses_missing_dir_before_prompt(
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(sys, "stdin", TtyStringIO())
-    prompt = mock.Mock(return_value="1")
-    monkeypatch.setattr("builtins.input", prompt)
-    path = str(tmp_path / "nodir" / "x.svg")
-    code, out, err = _svg_main(capsys, "--svg", path)
-    assert code == 1
-    assert out == ""
-    assert err == (
-        f"Error: cannot write SVG '{path}': directory '{tmp_path / 'nodir'}' "
-        "does not exist\n"
-    )
-    prompt.assert_not_called()
-    assert list(tmp_path.iterdir()) == []
-
-
-def test_svg_cli_refuses_existing_directory(
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "d").mkdir()
-    code, _, err = _svg_main(capsys, "1", "--svg", "d")
-    assert code == 1
-    assert err == "Error: cannot write SVG 'd': it is a directory\n"
-    assert not (tmp_path / "descartes_1e1.txt").exists()
-
-
-def test_svg_cli_refuses_file_as_dir_part(
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "f").write_text("x")
-    code, _, err = _svg_main(capsys, "1", "--svg", "f/x.svg")
-    assert code == 1
-    assert err == "Error: cannot write SVG 'f/x.svg': directory 'f' does not exist\n"
-
-
-def test_svg_cli_bare_name_accepted(
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    code, out, _ = _svg_main(capsys, "1", "--no-draw", "--svg", "bare.svg")
-    assert code == 0
-    assert "Saved SVG to bare.svg" in out
-    assert (tmp_path / "bare.svg").is_file()
-
-
-def test_svg_cli_no_draw_still_writes(
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    code, out, _ = _svg_main(capsys, "1", "--no-draw", "--svg", "n.svg")
-    assert code == 0
-    assert not any(0x2800 <= ord(ch) <= 0x28FF for ch in out)
-    assert (tmp_path / "n.svg").read_text().startswith("<?xml")
-
-
-def test_svg_cli_precision_does_not_change_svg(
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    base = ["--solve", "-1,0,0", "2,0.5,0", "3,0,0.6666666666666666", "--no-draw"]
-    _svg_main(capsys, *base, "--svg", "a.svg")
-    _svg_main(capsys, *base, "--precision", "2", "--svg", "b.svg")
-    assert (tmp_path / "a.svg").read_text() == (tmp_path / "b.svg").read_text()
-
-
-def test_svg_cli_open_failure_exits_1(
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    real_open = open
-
-    def refuse(file: typing.Any, *a: typing.Any, **k: typing.Any) -> typing.Any:
-        if str(file) == "o.svg":
-            raise PermissionError(13, "Permission denied")
-        return real_open(file, *a, **k)
-
-    monkeypatch.setattr("builtins.open", refuse)
-    code, _, err = _svg_main(capsys, "1", "--svg", "o.svg")
-    assert code == 1
-    assert err.startswith("Error: cannot write SVG 'o.svg': ")
-    assert not (tmp_path / "descartes_1e1.txt").exists()
+    def test_exact_circles_with_shifted_solutions(self) -> None:
+        givens = [(1.0, 2.0, 5.0), (1.0, 4.0, 5.0), (4.0, 3.0, 5.75)]
+        text = descartes.svg_solve(givens, [(2.0, 3.5, 4.0), (0.5, 3.0, 9.0)])
+        self.assertEqual(
+            text.split("\n")[3:8],
+            [
+                '<circle cx="272.727" cy="500.000" r="227.273" fill="none" stroke="black" stroke-width="1.000"/>',
+                '<circle cx="727.273" cy="500.000" r="227.273" fill="none" stroke="black" stroke-width="1.000"/>',
+                '<circle cx="500.000" cy="329.545" r="56.818" fill="none" stroke="black" stroke-width="1.000"/>',
+                '<circle cx="613.636" cy="727.273" r="113.636" fill="none" stroke="#c00" stroke-dasharray="6 4" stroke-width="1.000"/>',
+                '<circle cx="500.000" cy="-409.091" r="454.545" fill="none" stroke="#c00" stroke-dasharray="6 4" stroke-width="1.000"/>',
+            ],
+        )
 
 
 _TIE_ROOT = (-12, 25, 25, 28)
 
 
-def test_svg_packing_tie_root_counts_pin_cap_and_label_rule() -> None:
-    # 1000*|k0| = 12000 is below 10**5, so the cap, not 10**k, bounds the circles.
-    text = descartes.svg_packing(_TIE_ROOT, 5)
-    assert text.count("<circle ") == 3327
-    assert text.count("<text ") == 30
+class TestWriteSvg(unittest.TestCase):
+    def test_nothing_requested_writes_nothing(self) -> None:
+        handle = io.StringIO()
+        descartes._write_svg(handle, None, "text")
+        self.assertEqual(handle.getvalue(), "")
+
+    def test_no_handle_is_a_no_op(self) -> None:
+        self.assertIsNone(descartes._write_svg(None, "p.svg", "text"))
+
+    def test_writes_text_when_both_given(self) -> None:
+        handle = io.StringIO()
+        descartes._write_svg(handle, "p.svg", "text")
+        self.assertEqual(handle.getvalue(), "text")
 
 
-def test_svg_packing_tie_root_exact_stroke_font_and_radius_20_label() -> None:
-    lines = descartes.svg_packing(_TIE_ROOT, 5).split("\n")
-    small = (
-        '<circle cx="990.002" cy="420.014" r="3.513" fill="none"'
-        ' stroke="black" stroke-width="0.878"/>'
-    )
-    assert small in lines
-    big = (
-        '<circle cx="823.949" cy="204.996" r="61.856" fill="none"'
-        ' stroke="black" stroke-width="1.000"/>'
-    )
-    assert lines[lines.index(big) + 1] == (
-        '<text x="823.949" y="204.996" font-size="37.113"'
-        ' text-anchor="middle" dominant-baseline="central">97</text>'
-    )
-    # r == 20 exactly: the threshold is inclusive, so it is labelled.
-    edge = (
-        '<circle cx="943.077" cy="684.615" r="20.000" fill="none"'
-        ' stroke="black" stroke-width="1.000"/>'
-    )
-    assert lines[lines.index(edge) + 1] == (
-        '<text x="943.077" y="684.615" font-size="12.000"'
-        ' text-anchor="middle" dominant-baseline="central">300</text>'
-    )
+class TestSvgCli(CliTestCase):
+    def test_packing_writes_file_and_line_order(self) -> None:
+        code, out, _ = self.run_main("1", "--no-draw", "--svg", "p.svg")
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            out.splitlines(),
+            [
+                "root -1 2 2 3",
+                "circles 8",
+                "distinct 3",
+                "Saved to descartes_1e1.txt",
+                "Saved SVG to p.svg",
+            ],
+        )
+        self.assertEqual(self.read("p.svg"), descartes.svg_packing((-1, 2, 2, 3), 1))
 
-
-def test_svg_solve_positive_solutions_do_not_widen_frame() -> None:
-    givens = [(1.0, -1.0, 0.0), (1.0, 1.0, 0.0), (10.0, 0.0, math.sqrt(0.21))]
-    sols = descartes.solve(*givens)
-    assert all(k > 0 for k, _, _ in sols)
-    # A positive solution pokes out of the givens' box (y up to 1.264 > 1).
-    assert any(y + 1 / k > 1 for k, _, y in sols)
-    lines = descartes.svg_solve(givens, sols).split("\n")
-    assert lines[3] == (
-        '<circle cx="272.727" cy="500.000" r="227.273" fill="none"'
-        ' stroke="black" stroke-width="1.000"/>'
-    )
-
-
-def test_svg_solve_single_solution_when_other_is_a_line() -> None:
-    givens = [(1.0, -1.0, 0.0), (1.0, 1.0, 0.0), (4.0, 0.0, 0.75)]
-    sols = descartes.solve(*givens)
-    assert len(sols) == 1
-    text = descartes.svg_solve(givens, sols)
-    assert text.count('stroke="black"') == 3
-    assert text.count('stroke="#c00" stroke-dasharray="6 4"') == 1
-    assert text.count("<circle ") == 4
-
-
-def test_svg_cli_solve_saved_line_precedes_drawing(
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    code, out, _ = _svg_main(
-        capsys, "--solve", "1,-1,0", "1,1,0", "4,0,0.75", "--svg", "o.svg"
-    )
-    assert code == 0
-    lines = out.splitlines()
-    saved = lines.index("Saved SVG to o.svg")
-    first_braille = next(
-        i
-        for i, line in enumerate(lines)
-        if any(0x2800 <= ord(c) <= 0x28FF for c in line)
-    )
-    assert saved < first_braille
-
-
-@pytest.mark.skipif(not os.path.exists("/dev/full"), reason="needs /dev/full")
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["1", "--no-draw"],
-        ["--solve", "1,-1,0", "1,1,0", "4,0,0.75", "--no-draw"],
-    ],
-    ids=["packing", "solve"],
-)
-def test_svg_cli_write_failure_exits_1_one_line(
-    tmp_path: pathlib.Path, argv: list[str]
-) -> None:
-    proc = subprocess.run(
-        [
-            sys.executable,
-            str(pathlib.Path(descartes.__file__)),
-            *argv,
+    def test_solve_writes_file(self) -> None:
+        given = [(-1.0, 0.0, 0.0), (2.0, 0.5, 0.0), (3.0, 0.0, 0.6666666666666666)]
+        code, out, _ = self.run_main(
+            "--solve",
+            "-1,0,0",
+            "2,0.5,0",
+            "3,0,0.6666666666666666",
+            "--no-draw",
             "--svg",
-            "/dev/full",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60,
-        cwd=tmp_path,
-    )
-    assert proc.returncode == 1
-    assert proc.stderr == (
-        "Error: cannot write SVG '/dev/full': No space left on device\n"
-    )
+            "s.svg",
+        )
+        self.assertEqual(code, 0)
+        lines = out.splitlines()
+        self.assertEqual(lines[-1], "Saved SVG to s.svg")
+        self.assertTrue(lines[0].startswith("kind"))
+        sols = descartes.solve(*given)
+        self.assertEqual(self.read("s.svg"), descartes.svg_solve(given, sols))
+
+    def test_refuses_missing_dir_before_prompt(self) -> None:
+        prompt = mock.Mock(return_value="1")
+        path = str(self.cwd / "nodir" / "x.svg")
+        with (
+            mock.patch.object(sys, "stdin", TtyStringIO()),
+            mock.patch("builtins.input", prompt),
+        ):
+            code, out, err = self.run_main("--svg", path)
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertEqual(
+            err,
+            f"Error: cannot write SVG '{path}': directory '{self.cwd / 'nodir'}' "
+            "does not exist\n",
+        )
+        prompt.assert_not_called()
+        self.assertEqual(list(self.cwd.iterdir()), [])
+
+    def test_refuses_existing_directory(self) -> None:
+        (self.cwd / "d").mkdir()
+        code, _, err = self.run_main("1", "--svg", "d")
+        self.assertEqual(code, 1)
+        self.assertEqual(err, "Error: cannot write SVG 'd': it is a directory\n")
+        self.assertFalse((self.cwd / "descartes_1e1.txt").exists())
+
+    def test_refuses_file_as_dir_part(self) -> None:
+        (self.cwd / "f").write_text("x")
+        code, _, err = self.run_main("1", "--svg", "f/x.svg")
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            err, "Error: cannot write SVG 'f/x.svg': directory 'f' does not exist\n"
+        )
+
+    def test_bare_name_accepted(self) -> None:
+        code, out, _ = self.run_main("1", "--no-draw", "--svg", "bare.svg")
+        self.assertEqual(code, 0)
+        self.assertIn("Saved SVG to bare.svg", out)
+        self.assertTrue((self.cwd / "bare.svg").is_file())
+
+    def test_no_draw_still_writes(self) -> None:
+        code, out, _ = self.run_main("1", "--no-draw", "--svg", "n.svg")
+        self.assertEqual(code, 0)
+        self.assertFalse(any(0x2800 <= ord(ch) <= 0x28FF for ch in out))
+        self.assertTrue(self.read("n.svg").startswith("<?xml"))
+
+    def test_precision_does_not_change_svg(self) -> None:
+        base = ["--solve", "-1,0,0", "2,0.5,0", "3,0,0.6666666666666666", "--no-draw"]
+        self.run_main(*base, "--svg", "a.svg")
+        self.run_main(*base, "--precision", "2", "--svg", "b.svg")
+        self.assertEqual(self.read("a.svg"), self.read("b.svg"))
+
+    def test_open_failure_exits_1(self) -> None:
+        real_open = open
+
+        def refuse(file: typing.Any, *a: typing.Any, **k: typing.Any) -> typing.Any:
+            if str(file) == "o.svg":
+                raise PermissionError(13, "Permission denied")
+            return real_open(file, *a, **k)
+
+        with mock.patch("builtins.open", refuse):
+            code, _, err = self.run_main("1", "--svg", "o.svg")
+        self.assertEqual(code, 1)
+        self.assertTrue(err.startswith("Error: cannot write SVG 'o.svg': "))
+        self.assertFalse((self.cwd / "descartes_1e1.txt").exists())
+
+    def test_solve_saved_line_precedes_drawing(self) -> None:
+        code, out, _ = self.run_main(
+            "--solve", "1,-1,0", "1,1,0", "4,0,0.75", "--svg", "o.svg"
+        )
+        self.assertEqual(code, 0)
+        lines = out.splitlines()
+        saved = lines.index("Saved SVG to o.svg")
+        first_braille = next(
+            i
+            for i, line in enumerate(lines)
+            if any(0x2800 <= ord(c) <= 0x28FF for c in line)
+        )
+        self.assertLess(saved, first_braille)
+
+    @unittest.skipUnless(os.path.exists("/dev/full"), "needs /dev/full")
+    def test_write_failure_exits_1_one_line(self) -> None:
+        cases = {
+            "packing": ["1", "--no-draw"],
+            "solve": ["--solve", "1,-1,0", "1,1,0", "4,0,0.75", "--no-draw"],
+        }
+        for name, argv in cases.items():
+            with self.subTest(name):
+                proc = subprocess.run(
+                    [
+                        sys.executable,
+                        str(pathlib.Path(descartes.__file__)),
+                        *argv,
+                        "--svg",
+                        "/dev/full",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=60,
+                    cwd=self.cwd,
+                )
+                self.assertEqual(proc.returncode, 1)
+                self.assertEqual(
+                    proc.stderr,
+                    "Error: cannot write SVG '/dev/full': No space left on device\n",
+                )
 
 
 if __name__ == "__main__":

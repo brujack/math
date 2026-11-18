@@ -221,3 +221,43 @@ line = "cell.ljust(w) for cell, w in zip(row, widths, strict=True)"
 col = 69
 above = "\"  \".join("
 reason = "Each row has six cells and widths has one entry per column (six), so the two iterables are the same length and strict=True never raises."
+
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Sub_Add"
+function = "svg_packing"
+line = "px = 500 + (x - x0) * scale"
+col = 22
+above = "for index, (kc, x, y) in enumerate([outer, *visible(root, limit)]):"
+reason = "x0 is the outer circle's x from root_centres, which places the first circle at the origin as the literal 0.0 (`c1 = (float(a), 0.0, 0.0)`), so `x - x0` and `x + x0` are the same float for every x."
+
+[[equivalent]]
+operator = "core/ReplaceBinaryOperator_Sub_Add"
+function = "svg_packing"
+line = "py = 500 - (y - y0) * scale"
+col = 22
+above = "px = 500 + (x - x0) * scale"
+reason = "y0 is the outer circle's y from root_centres, which places the first circle at the origin as the literal 0.0 (`c1 = (float(a), 0.0, 0.0)`), so `y - y0` and `y + y0` are the same float for every y."
+
+[[equivalent]]
+operator = "core/ReplaceComparisonOperator_Gt_NotEq"
+function = "svg_packing"
+line = "if index > 0 and r >= _SVG_LABEL_MIN_RADIUS:"
+col = 17
+above = "elements.append(_svg_circle(px, py, r, 'stroke=\"black\"'))"
+reason = "index comes from enumerate, so it is never negative: `index > 0` and `index != 0` select the same indices (everything but the outer circle at 0)."
+
+[[equivalent]]
+operator = "core/ReplaceComparisonOperator_Lt_LtE"
+function = "svg_solve"
+line = "boxed = [*given, *(c for c in solutions if c[0] < 0)]"
+col = 52
+above = "\"\"\""
+reason = "Only a solution with curvature exactly 0 tells `<` from `<=`; a zero curvature has no radius, so `1 / abs(k)` on the next lines (or `scale / abs(kc)` when drawing) raises ZeroDivisionError whichever comparison admitted it, and no other input differs."
+
+[[equivalent]]
+operator = "core/ReplaceComparisonOperator_Eq_LtE"
+function = "_fmt3"
+line = "return \"0.000\" if text == \"-0.000\" else text"
+col = 27
+above = "text = f\"{value:.3f}\""
+reason = "text is `f\"{value:.3f}\"`: it starts with a digit, `-` followed by a digit, `inf`, `nan` or `-inf`. A string sorts below \"-0.000\" only if it has `-` then a character below \"0\" (only \".\", which a `.3f` result never places there) or is a proper prefix of it, so `<=` is true exactly when `==` is."

@@ -12,7 +12,7 @@ Current structure:
 - `descartes.py` — packing core, geometry, braille renderer and CLI (standard library only)
 - `test_descartes.py` — unit tests
 - `install_deps.sh`, `Makefile`, `pyrightconfig.json`, `cosmic-ray.toml` — rendered from `scripts/crate_templates/python/`; edit the template, never this copy
-- `mutants-equivalent.toml` — the 28 true-equivalent mutants, each with the mechanism that guarantees it (matched by `tests/test_mutants_equivalent.py`)
+- `mutants-equivalent.toml` — the 33 true-equivalent mutants, each with the mechanism that guarantees it (matched by `tests/test_mutants_equivalent.py`)
 
 ## Running the Script
 
