@@ -676,7 +676,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         epilog=(
             "The packing drawing shows circles with curvature at most "
             "min(10^K, 2 x canvas width in braille dots), so its circle set "
-            "depends on terminal width. --solve prints full-precision values "
+            "depends on terminal width. The SVG shows circles with curvature "
+            "at most min(10^K, 1000 x |outer curvature|), radius at least 0.5 "
+            "of its 1000 units, so with the default root every K from 3 up "
+            "writes the same SVG. --solve prints full-precision values "
             "that paste back into --solve; that stops passing the 1e-9 "
             "tangency tolerance near curvature 2.6e7, and nearly collinear "
             "inputs are ill-conditioned. Run with no arguments at a terminal "
@@ -875,13 +878,15 @@ def _packing_filename(k: int, root: tuple[int, int, int, int]) -> str:
     return f"descartes_1e{k}_root_{root[0]}_{root[1]}_{root[2]}_{root[3]}.txt"
 
 
-def _draw_packing(root: tuple[int, int, int, int], n: int) -> None:
-    """Print the bounding circle and the circles that fit the canvas."""
+def _draw_packing(root: tuple[int, int, int, int], n: int, count: int) -> None:
+    """Print the bounding circle, the circles that fit the canvas, then their count."""
     width, height = _canvas_size()
     # Circles above twice the canvas width in dots are under half a dot across.
     limit = min(n, 2 * DOTS_PER_CELL_X * width)
-    circles = [root_centres(root)[0], *visible(root, limit)]
+    drawn = visible(root, limit)
+    circles = [root_centres(root)[0], *drawn]
     print("\n".join(render(circles, width, height)))
+    print(f"braille draws {len(drawn)} of {count} circles (curvature <= {limit})")
 
 
 def _run_packing(args: argparse.Namespace) -> None:
@@ -905,7 +910,8 @@ def _run_packing(args: argparse.Namespace) -> None:
                 f.writelines(f"{curvature}\n" for curvature in curvatures)
         except OSError as error:
             _fail(error, 1)
-        _write_svg(svg_file, args.svg, svg_packing(root, k)[0] if svg_file else "")
+        svg_text, svg_count = svg_packing(root, k) if svg_file else ("", 0)
+        _write_svg(svg_file, args.svg, svg_text)
     elapsed = time.perf_counter() - start
     if args.show:
         for curvature in curvatures:
@@ -918,7 +924,12 @@ def _run_packing(args: argparse.Namespace) -> None:
         print(f"Saved SVG to {args.svg}")
     print(f"Elapsed: {elapsed:.2f}s", file=sys.stderr)
     if count and not args.no_draw:
-        _draw_packing(root, n)
+        _draw_packing(root, n, count)
+    if args.svg is not None:
+        print(
+            f"SVG shows {svg_count} of {count} circles "
+            f"(curvature <= {svg_limit(root, k)})"
+        )
 
 
 def _format_value(value: float, precision: int | None) -> str:

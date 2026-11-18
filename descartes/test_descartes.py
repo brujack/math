@@ -2388,7 +2388,7 @@ class TestPackingCli(CliTestCase):
                 "Saved to descartes_1e2.txt",
             ],
         )
-        self.assertEqual(len(lines), 4 + PIPE_HEIGHT)
+        self.assertEqual(len(lines), 4 + PIPE_HEIGHT + 1)
         self.assertEqual(len(self.read("descartes_1e2.txt").splitlines()), 33)
 
     def test_elapsed_is_the_time_spent_to_two_places(self) -> None:
@@ -2414,7 +2414,7 @@ class TestPackingCli(CliTestCase):
 
     def test_piped_drawing_is_24_lines_of_60_braille_cells(self) -> None:
         _, out, _ = self.run_main("2")
-        rows = out.splitlines()[4:]
+        rows = out.splitlines()[4:-1]
         self.assertEqual(len(rows), 24)
         for row in rows:
             self.assertEqual(len(row), 60)
@@ -2602,6 +2602,94 @@ class TestOutputOpenedFirst(CliTestCase):
         self.assertEqual(order, ["open", "pack"])
 
 
+class TestCountLines(CliTestCase):
+    def last_lines(self, out: str, count: int) -> list[str]:
+        return out.splitlines()[-count:]
+
+    def test_k3_no_draw_ends_with_the_svg_line(self) -> None:
+        code, out, _ = self.run_main("3", "--no-draw", "--svg", "p.svg")
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            self.last_lines(out, 2),
+            [
+                "Saved SVG to p.svg",
+                "SVG shows 3328 of 3328 circles (curvature <= 1000)",
+            ],
+        )
+        self.assertNotIn("braille draws", out)
+
+    def test_k4_reports_both_lines_braille_first(self) -> None:
+        code, out, _ = self.run_main("4", "--svg", "p.svg")
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            self.last_lines(out, 2),
+            [
+                "braille draws 524 of 67166 circles (curvature <= 240)",
+                "SVG shows 3328 of 67166 circles (curvature <= 1000)",
+            ],
+        )
+
+    def test_k1_small_packing_draws_everything(self) -> None:
+        code, out, _ = self.run_main("1", "--svg", "p.svg")
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            self.last_lines(out, 2),
+            [
+                "braille draws 8 of 8 circles (curvature <= 10)",
+                "SVG shows 8 of 8 circles (curvature <= 10)",
+            ],
+        )
+
+    def test_empty_packing_has_only_the_svg_line(self) -> None:
+        code, out, _ = self.run_main(
+            "1", "--root", "-11", "21", "24", "28", "--svg", "p.svg"
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            self.last_lines(out, 1), ["SVG shows 0 of 0 circles (curvature <= 10)"]
+        )
+        self.assertFalse(any(x.startswith("braille draws") for x in out.splitlines()))
+
+    def test_no_draw_prints_no_braille_count(self) -> None:
+        _, out, _ = self.run_main("2", "--no-draw")
+        self.assertNotIn("braille draws", out)
+
+    def test_without_svg_there_is_no_svg_count(self) -> None:
+        _, out, _ = self.run_main("2")
+        self.assertNotIn("SVG shows", out)
+        self.assertTrue(out.splitlines()[-1].startswith("braille draws "))
+
+    def test_solve_prints_neither_line(self) -> None:
+        _, out, _ = self.run_main(
+            "--solve", "-1,0,0", "2,0.5,0", "3,0,0.6666666666666666", "--svg", "s.svg"
+        )
+        self.assertNotIn("braille draws", out)
+        self.assertNotIn("SVG shows", out)
+
+    def test_braille_limit_follows_the_terminal_width(self) -> None:
+        with mock.patch.object(descartes, "_canvas_size", return_value=(30, 24)):
+            _, out, _ = self.run_main("4")
+        drawn = len(visible(descartes.DEFAULT_ROOT, 120))
+        self.assertEqual(
+            out.splitlines()[-1],
+            f"braille draws {drawn} of 67166 circles (curvature <= 120)",
+        )
+
+    def test_failed_svg_write_prints_no_result_line(self) -> None:
+        with mock.patch.object(descartes, "_write_svg", side_effect=SystemExit(1)):
+            _, out, _ = self.run_main("2", "--svg", "p.svg")
+        self.assertNotIn("circles", out)
+
+    def test_help_states_the_svg_cap(self) -> None:
+        _, out, _ = self.run_main("--help")
+        self.assertIn(
+            "The SVG shows circles with curvature at most min(10^K, 1000 x |outer "
+            "curvature|), radius at least 0.5 of its 1000 units, so with the "
+            "default root every K from 3 up writes the same SVG.",
+            " ".join(out.split()),
+        )
+
+
 class TestPackingDrawing(CliTestCase):
     def run_capturing_render(
         self, *argv: str, canvas: tuple[int, int] = (60, 24)
@@ -2612,7 +2700,9 @@ class TestPackingDrawing(CliTestCase):
         ):
             code, out, _ = self.run_main(*argv)
         self.assertEqual(code, 0)
-        self.assertTrue(out.endswith("drawn\n"))
+        lines = out.splitlines()
+        self.assertEqual(lines[-2], "drawn")
+        self.assertTrue(lines[-1].startswith("braille draws "))
         fake.assert_called_once()
         circles, width, height = fake.call_args.args
         return circles, width, height
@@ -3126,6 +3216,7 @@ class TestSvgCli(CliTestCase):
                 "distinct 3",
                 "Saved to descartes_1e1.txt",
                 "Saved SVG to p.svg",
+                "SVG shows 8 of 8 circles (curvature <= 10)",
             ],
         )
         self.assertEqual(self.read("p.svg"), descartes.svg_packing((-1, 2, 2, 3), 1)[0])
