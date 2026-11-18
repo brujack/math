@@ -26,7 +26,7 @@ import shutil
 import sys
 import time
 from collections import deque
-from collections.abc import Iterator
+from collections.abc import Iterator, MutableSequence
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from decimal import Decimal
@@ -145,22 +145,29 @@ def _check_n(n: int, op: str = "pack", arg: str = "n") -> None:
         raise BadInput(f"{op}({arg}={n}): {arg} must be at most {N_MAX}")
 
 
-def _children(quad: list[int], j: int, n: int) -> Iterator[tuple[list[int], int]]:
-    """Yield the reflections of quad (which replaced index j) worth walking.
+def _children(
+    quad: list[int],
+    j: int,
+    n: int,
+    out: MutableSequence[tuple[list[int], int]],
+) -> None:
+    """Append the reflections of quad (which replaced index j) worth walking to out.
 
-    The only copy of the growth guard: a reflection is yielded only when it
+    The only copy of the growth guard: a reflection is kept only when it
     strictly increases the curvature it replaces and stays at most n. The
     reflection back through index j is skipped (it would undo the step).
+    Appending in place, not yielding, keeps the serial walk's hot loop fast.
     """
     total = sum(quad)
     for i in range(4):
         if i == j:
             continue
-        k = 2 * (total - quad[i]) - quad[i]
-        if quad[i] < k <= n:
-            child = list(quad)
+        old = quad[i]
+        k = 2 * (total - old) - old
+        if old < k <= n:
+            child = quad.copy()
             child[i] = k
-            yield child, i
+            out.append((child, i))
 
 
 def _frontier(
@@ -192,7 +199,7 @@ def _frontier(
         quad, j = pending.popleft()
         count += 1
         _mark(bitmap, quad[j])
-        pending.extend(_children(quad, j, n))
+        _children(quad, j, n, pending)
     return count, bitmap, list(pending)
 
 
@@ -206,7 +213,7 @@ def _walk_subtrees(
         quad, j = stack.pop()
         count += 1
         _mark(bitmap, quad[j])
-        stack.extend(_children(quad, j, n))
+        _children(quad, j, n, stack)
     return count
 
 
