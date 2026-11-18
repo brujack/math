@@ -20,14 +20,18 @@ import argparse
 import cmath
 import contextlib
 import math
+import multiprocessing
 import os
 import shutil
 import sys
 import time
 from collections import deque
 from collections.abc import Iterator
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from decimal import Decimal
 from fractions import Fraction
+from multiprocessing.context import BaseContext
 from typing import NoReturn, TextIO
 
 # Largest n pack accepts: Python's N = 10^K ceiling (K <= 6, spec R7), about
@@ -206,6 +210,52 @@ def _walk_subtrees(
     return count
 
 
+def _cpu_count() -> int:
+    """CPUs this process may use; process_cpu_count needs 3.13, the pin is 3.11."""
+    counter = getattr(os, "process_cpu_count", os.cpu_count)
+    return counter() or 1
+
+
+def _mp_context() -> BaseContext:
+    """Fork on Linux (cheap workers); spawn elsewhere (fork is unsafe on macOS)."""
+    return multiprocessing.get_context("fork" if sys.platform == "linux" else "spawn")
+
+
+def _tasks(
+    seeds: list[tuple[list[int], int]], workers: int
+) -> list[list[tuple[list[int], int]]]:
+    """Deal seeds round robin into 4 * workers tasks so uneven subtrees balance."""
+    count = 4 * workers
+    tasks: list[list[tuple[list[int], int]]] = [[] for _ in range(count)]
+    for i, seed in enumerate(seeds):
+        tasks[i % count].append(seed)
+    return tasks
+
+
+def _walk_task(task: list[tuple[list[int], int]], n: int) -> tuple[int, bytes]:
+    """Walk one task's subtrees in a worker; return its count and bitmap bytes."""
+    bitmap = bytearray(n // 8 + 1)
+    count = _walk_subtrees(task, n, bitmap)
+    return count, bytes(bitmap)
+
+
+def _walk_parallel(
+    seeds: list[tuple[list[int], int]], n: int, workers: int
+) -> tuple[int, int]:
+    """Walk seeds in a pool; return the count and the OR of the workers' bitmaps.
+
+    Every result is collected before the caller commits any of it, so a pool
+    that dies half way leaves the coordinator's bitmap untouched.
+    """
+    tasks = _tasks(seeds, workers)
+    with ProcessPoolExecutor(max_workers=workers, mp_context=_mp_context()) as pool:
+        results = list(pool.map(_walk_task, tasks, [n] * len(tasks)))
+    merged = 0
+    for _, raw in results:
+        merged |= int.from_bytes(raw, "little")
+    return sum(count for count, _ in results), merged
+
+
 def pack_with_workers(
     root: tuple[int, int, int, int], n: int
 ) -> tuple[int, bytearray, int]:
@@ -216,11 +266,32 @@ def pack_with_workers(
     reflection is pushed only when _children's growth guard passes, so every
     path climbs a finite integer range. For a reduced root the increase always
     holds, so the guard never prunes a valid circle; it exists to bound the
-    walk if the invariant breaks. The walk is serial, so workers is 1.
+    walk if the invariant breaks. At n >= PARALLEL_MIN_N with seeds pending and
+    more than one CPU the subtrees run in a process pool and workers is the CPU
+    count; otherwise, or when the pool is unavailable, the walk is serial and
+    workers is 1.
     """
     _check_n(n)
     _check_reduced_root(root)
     count, bitmap, seeds = _frontier(root, n)
+    cpus = _cpu_count()
+    if n >= PARALLEL_MIN_N and seeds and cpus > 1:
+        try:
+            walked, merged = _walk_parallel(seeds, n, cpus)
+        except (OSError, NotImplementedError, BrokenProcessPool) as err:
+            print(
+                f"Parallel mode unavailable ({err}); falling back to serial.",
+                file=sys.stderr,
+            )
+            print(
+                "Install project requirements and ensure OS multiprocessing "
+                "semaphore support is available to re-enable parallel mode.",
+                file=sys.stderr,
+            )
+        else:
+            merged |= int.from_bytes(bitmap, "little")
+            bitmap[:] = merged.to_bytes(len(bitmap), "little")
+            return count + walked, bitmap, cpus
     count += _walk_subtrees(seeds, n, bitmap)
     return count, bitmap, 1
 

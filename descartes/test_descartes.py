@@ -22,6 +22,7 @@ import typing
 import unittest
 from collections import deque
 from collections.abc import Iterator
+from concurrent.futures.process import BrokenProcessPool
 from fractions import Fraction
 from unittest import mock
 
@@ -651,6 +652,8 @@ def _guard_pack(root: Root, n: int) -> None:
     _mark is budgeted: under a mutant of the curvature formula the walk can be
     astronomically large even at small n, and must fail here, not run.
     """
+    # 20x the true count is far above a correct walk's marks (one per circle),
+    # and the 1000 floor keeps tiny packings from tripping on rounding.
     budget = 20 * _cached_reference(root, n)[0] + 1000
     calls = 0
     real_mark = descartes._mark
@@ -679,37 +682,17 @@ def setUpModule() -> None:
         _guard_pack(root, 100)
 
 
-class _PackCase(unittest.TestCase):
-    """Base for classes that walk packings at large n.
-
-    setUpClass first checks pack_with_workers against the reference at a small n,
-    so a corrupted curvature formula errors the class in milliseconds instead of
-    running the heavy walks (a mutant that corrupts the formula would otherwise
-    time out the whole mutation run). The guard's n is small and the growth test
-    bounds every walk by n, so it stays fast under any mutation of the formula.
-    """
-
-    GUARD_N = 10**3
-    GUARD_ROOTS: tuple[Root, ...] = (ROOT_A,)
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        for root in cls.GUARD_ROOTS:
-            _guard_pack(root, cls.GUARD_N)
-
-
-class TestPackSplit(_PackCase):
+class TestPackSplit(unittest.TestCase):
     """pack = frontier + subtree walks must equal the old single walk exactly."""
 
     N = 10**5
+    SMALL_N = 10**3
     ROOTS: tuple[Root, ...] = ((-1, 2, 2, 3), (-11, 21, 24, 28), (-2, 3, 6, 7))
     SMALL_FRONTIER: Root = (-300, 301, 90300, 90301)
-    GUARD_ROOTS = ROOTS
     packed: dict[Root, tuple[int, bytes, int]]
 
     @classmethod
     def setUpClass(cls) -> None:
-        super().setUpClass()
         cls.packed = {}
         for root in cls.ROOTS:
             cls.packed[root] = _cached_pack(root, cls.N)
@@ -719,14 +702,14 @@ class TestPackSplit(_PackCase):
             with self.subTest(root=root):
                 count, bitmap, workers = self.packed[root]
                 self.assertEqual((count, bitmap), _cached_reference(root, self.N))
-                self.assertEqual(workers, 1)
+                self.assertEqual(workers, descartes._cpu_count())
 
     def test_pack_equals_reference_walk(self) -> None:
         for root in self.ROOTS:
             with self.subTest(root=root):
-                count, bitmap = pack(root, self.GUARD_N)
+                count, bitmap = pack(root, self.SMALL_N)
                 self.assertEqual(
-                    (count, bytes(bitmap)), _cached_reference(root, self.GUARD_N)
+                    (count, bytes(bitmap)), _cached_reference(root, self.SMALL_N)
                 )
 
     def test_constants_are_pinned(self) -> None:
@@ -756,6 +739,134 @@ class TestPackSplit(_PackCase):
             pack_with_workers(ROOT_A, -1)
         with self.assertRaisesRegex(BadInput, "pack.*not sorted"):
             pack_with_workers((2, -1, 2, 3), 100)
+
+
+class TestPackParallel(unittest.TestCase):
+    """The pool path: same answer as the serial walk, and the rules for using it."""
+
+    N = 10**5
+    ROOTS: tuple[Root, ...] = ((-1, 2, 2, 3), (-11, 21, 24, 28), (-2, 3, 6, 7))
+    ROOT = (-11, 21, 24, 28)
+    FALLBACK_STDERR = (
+        "Parallel mode unavailable ({err}); falling back to serial.\n"
+        "Install project requirements and ensure OS multiprocessing semaphore "
+        "support is available to re-enable parallel mode.\n"
+    )
+
+    def _pack(self, root: Root, n: int, cpus: int | None) -> tuple[int, bytes, int]:
+        with mock.patch.object(descartes, "_cpu_count", return_value=cpus or 1):
+            count, bitmap, workers = pack_with_workers(root, n)
+        return count, bytes(bitmap), workers
+
+    def test_two_workers_match_the_reference(self) -> None:
+        for root in self.ROOTS:
+            with self.subTest(root=root):
+                count, bitmap, workers = self._pack(root, self.N, 2)
+                self.assertEqual((count, bitmap), _cached_reference(root, self.N))
+                self.assertEqual(workers, 2)
+
+    def test_no_pool_without_two_cpus(self) -> None:
+        for cpus in (None, 1):
+            with self.subTest(cpus=cpus):
+                with mock.patch.object(
+                    descartes,
+                    "ProcessPoolExecutor",
+                    side_effect=AssertionError("pool constructed"),
+                ):
+                    count, bitmap, workers = self._pack(self.ROOT, self.N, cpus)
+                self.assertEqual((count, bitmap), _cached_reference(self.ROOT, self.N))
+                self.assertEqual(workers, 1)
+
+    def test_threshold_is_inclusive(self) -> None:
+        self.assertEqual(self._pack(self.ROOT, PARALLEL_MIN_N - 1, 2)[2], 1)
+        self.assertEqual(self._pack(self.ROOT, PARALLEL_MIN_N, 2)[2], 2)
+
+    def test_small_frontier_stays_serial(self) -> None:
+        root = (-300, 301, 90300, 90301)
+        with mock.patch.object(
+            descartes, "ProcessPoolExecutor", side_effect=AssertionError("pool")
+        ):
+            count, bitmap, workers = self._pack(root, self.N, 2)
+        self.assertEqual((count, bitmap), _cached_reference(root, self.N))
+        self.assertEqual(workers, 1)
+
+    def test_tasks_deal_seeds_round_robin(self) -> None:
+        seeds = [([i, 0, 0, 0], 0) for i in range(10)]
+        tasks = descartes._tasks(seeds, 2)
+        self.assertEqual(len(tasks), 8)
+        for i, seed in enumerate(seeds):
+            self.assertIn(seed, tasks[i % 8])
+        self.assertEqual(sum(len(t) for t in tasks), 10)
+
+    def test_walk_task_bitmap_round_trips_bit_order(self) -> None:
+        _, _, seeds = _frontier(self.ROOT, self.N)
+        count, raw = descartes._walk_task(seeds[:5], self.N)
+        expected = bytearray(self.N // 8 + 1)
+        self.assertEqual(descartes._walk_subtrees(seeds[:5], self.N, expected), count)
+        self.assertEqual(raw, bytes(expected))
+        merged = int.from_bytes(raw, "little")
+        for k in descartes.distinct(expected):
+            self.assertTrue(merged >> k & 1)
+
+    def test_cpu_count_uses_process_cpu_count_when_present(self) -> None:
+        with mock.patch.object(descartes.os, "process_cpu_count", create=True) as fake:
+            fake.return_value = 5
+            self.assertEqual(descartes._cpu_count(), 5)
+            fake.return_value = None
+            self.assertEqual(descartes._cpu_count(), 1)
+
+    def test_cpu_count_falls_back_to_cpu_count_before_3_13(self) -> None:
+        with (
+            mock.patch.object(descartes.os, "process_cpu_count", None, create=True),
+            mock.patch.object(descartes.os, "cpu_count", return_value=3),
+        ):
+            delattr(descartes.os, "process_cpu_count")
+            self.assertEqual(descartes._cpu_count(), 3)
+
+    def test_mp_context_by_platform(self) -> None:
+        for platform, method in (("linux", "fork"), ("darwin", "spawn")):
+            with self.subTest(platform=platform):
+                with mock.patch.object(descartes.sys, "platform", platform):
+                    context = descartes._mp_context()
+                self.assertEqual(context.get_start_method(), method)
+
+    def _assert_fell_back(self, err: Exception, executor: typing.Any) -> None:
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(descartes, "ProcessPoolExecutor", executor),
+            contextlib.redirect_stderr(stderr),
+        ):
+            count, bitmap, workers = self._pack(self.ROOT, self.N, 2)
+        self.assertEqual((count, bitmap), _cached_reference(self.ROOT, self.N))
+        self.assertEqual(workers, 1)
+        self.assertEqual(stderr.getvalue(), self.FALLBACK_STDERR.format(err=err))
+
+    def test_broken_pool_after_a_partial_result_falls_back(self) -> None:
+        err = BrokenProcessPool("worker died")
+
+        class Fake:
+            def __init__(self, **_kw: typing.Any) -> None:
+                pass
+
+            def __enter__(self) -> typing.Self:
+                return self
+
+            def __exit__(self, *_a: object) -> None:
+                return None
+
+            def map(self, fn: typing.Any, tasks: list, ns: list) -> Iterator:
+                yield fn(tasks[0], ns[0])
+                raise err
+
+        self._assert_fell_back(err, Fake)
+
+    def test_constructor_oserror_falls_back(self) -> None:
+        err = OSError("no sem")
+        self._assert_fell_back(err, mock.Mock(side_effect=err))
+
+    def test_constructor_not_implemented_falls_back(self) -> None:
+        err = NotImplementedError("no mp")
+        self._assert_fell_back(err, mock.Mock(side_effect=err))
 
 
 class TestPackState(unittest.TestCase):
