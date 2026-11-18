@@ -2963,10 +2963,12 @@ class TestWorkersLine(CliTestCase):
     """The Workers stderr line: printed only when the pool actually ran."""
 
     _serial_k5: typing.ClassVar[tuple[int, str, str] | None] = None
+    # A small root: ~59k circles at K=5, still above PARALLEL_MIN_N so the pool runs.
+    ROOT = ("-11", "21", "24", "28")
 
     def _run(self, k: str, cpus: int) -> tuple[int, str, str]:
         with mock.patch.object(descartes, "_cpu_count", return_value=cpus):
-            return self.run_main(k, "--no-draw")
+            return self.run_main(k, "--root", *self.ROOT, "--no-draw")
 
     def _serial_run_k5(self) -> tuple[int, str, str]:
         """The one-CPU K=5 run, computed once: a 10**5 walk is the suite's cost."""
