@@ -10,8 +10,8 @@ use std::process::{self, Command, Stdio};
 use std::time::Instant;
 
 use descartes::{
-    Circle, DescartesError, distinct, pack, render, root_centres, solve, svg_limit, svg_packing,
-    svg_solve, validate_root, visible,
+    Circle, DescartesError, distinct, pack_with_workers, render, root_centres, solve, svg_limit,
+    svg_packing, svg_solve, validate_root, visible,
 };
 
 /// Largest K: curvature limit 10^8 is the core's `N_MAX` (spec R14, R22).
@@ -398,6 +398,14 @@ fn packing_filename(k: u32, root: [i64; 4]) -> String {
     format!("descartes_1e{k}_root_{}_{}_{}_{}.txt", root[0], root[1], root[2], root[3])
 }
 
+/// The `Workers: <w>` stderr line, printed only when the pool ran (more than one worker).
+fn write_workers_line<E: Write>(stderr: &mut E, workers: usize) -> io::Result<()> {
+    if workers > 1 {
+        writeln!(stderr, "Workers: {workers}")?;
+    }
+    Ok(())
+}
+
 fn run_packing<R: BufRead, W: Write, E: Write>(
     args: &Args,
     stdin: &mut R,
@@ -421,7 +429,8 @@ fn run_packing<R: BufRead, W: Write, E: Write>(
     let file = File::create(out_dir.join(&filename))
         .map_err(|e| fail(stderr, format!("cannot write {filename}: {e}"), 1))?;
     let start = Instant::now();
-    let (count, bitmap) = pack(root, n).map_err(|e| fail_descartes(stderr, &e))?;
+    let (count, bitmap, workers) =
+        pack_with_workers(root, n).map_err(|e| fail_descartes(stderr, &e))?;
     let curvatures = distinct(&bitmap);
     let mut writer = BufWriter::new(file);
     for curvature in &curvatures {
@@ -448,6 +457,7 @@ fn run_packing<R: BufRead, W: Write, E: Write>(
     if let Some(path) = args.svg.as_deref() {
         writeln!(stdout, "Saved SVG to {}", path.display())?;
     }
+    write_workers_line(stderr, workers)?;
     writeln!(stderr, "Elapsed: {elapsed:.2}s")?;
     if count > 0 && !args.no_draw {
         let (width, _) = canvas_size(term);
@@ -634,6 +644,62 @@ mod tests {
         let (whole, fraction) = line.split_once('.').unwrap();
         assert!(whole.parse::<u32>().is_ok(), "{line}");
         assert_eq!(fraction.len(), 2, "{line}");
+    }
+
+    fn in_pool<T: Send>(threads: usize, f: impl FnOnce() -> T + Send) -> T {
+        rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap().install(f)
+    }
+
+    /// K=5 on a small root: n = 10^5 is the parallel threshold and the walk is quick.
+    fn run_k_in_pool(k: &str, threads: usize) -> Outcome {
+        let dir = tempfile::tempdir().unwrap();
+        in_pool(threads, || {
+            run_in(&[k, "--root", "-11", "21", "24", "28", "--no-draw"], "", &PIPED, dir.path())
+        })
+    }
+
+    fn assert_elapsed_line(line: &str) {
+        let digits = line.strip_prefix("Elapsed: ").and_then(|s| s.strip_suffix('s')).unwrap();
+        let (whole, fraction) = digits.split_once('.').unwrap();
+        assert!(whole.parse::<u32>().is_ok(), "{line}");
+        assert_eq!(fraction.len(), 2, "{line}");
+    }
+
+    #[test]
+    fn workers_line_precedes_elapsed_when_the_pool_runs() {
+        let parallel = run_k_in_pool("5", 2);
+        let serial = run_k_in_pool("5", 1);
+        assert_eq!((parallel.code, serial.code), (0, 0));
+        let (first, rest) = parallel.stderr.split_once('\n').unwrap();
+        assert_eq!(first, "Workers: 2");
+        assert!(rest.ends_with('\n'), "{rest:?}");
+        assert_eq!(rest.lines().count(), 1, "{rest:?}");
+        assert_elapsed_line(rest.trim_end());
+        assert_eq!(parallel.stdout, serial.stdout);
+    }
+
+    #[test]
+    fn workers_line_absent_for_a_one_thread_pool() {
+        let o = run_k_in_pool("5", 1);
+        assert!(!o.stderr.contains("Workers:"), "{}", o.stderr);
+        assert_eq!(o.stderr.lines().count(), 1, "{}", o.stderr);
+        assert_elapsed_line(o.stderr.trim_end());
+    }
+
+    #[test]
+    fn workers_line_absent_below_the_parallel_threshold() {
+        let o = run_k_in_pool("4", 2);
+        assert!(!o.stderr.contains("Workers:"), "{}", o.stderr);
+        assert_elapsed_line(o.stderr.trim_end());
+    }
+
+    #[test]
+    fn workers_line_printed_only_above_one_worker() {
+        for (workers, expected) in [(1, ""), (2, "Workers: 2\n"), (7, "Workers: 7\n")] {
+            let mut err = Vec::<u8>::new();
+            write_workers_line(&mut err, workers).unwrap();
+            assert_eq!(String::from_utf8(err).unwrap(), expected, "workers={workers}");
+        }
     }
 
     #[test]
