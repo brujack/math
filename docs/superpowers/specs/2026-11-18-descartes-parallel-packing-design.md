@@ -1,6 +1,7 @@
 # descartes: parallel packing in Rust and Python
 
-- **Status:** Draft (revised after Step 8 rounds 1 and 2)
+- **Status:** Approved
+- **Approved:** 2026-11-18
 - **Date:** 2026-11-18
 - **Scope:** `descartes/descartes.py`, `descartes/descartes-rs/` (both halves; identical results)
 
@@ -205,19 +206,19 @@ Reviewed at commit: `f1ffe85` (round 1), `d8a77f5` (round 2)
 
 Finding: Worth building; premise confirmed by prototype (Rust K=8 201.5 s -> 10.62 s, Python K=6 30.8 s -> 2.08 s, both exact). (1) The Rust 10^7 exactness test cannot pass: debug serial walk 73.8 s vs nextest's 45 s cap. (2) The Python 10^6 test costs ~10x the 3.65 s suite and covers nothing 10^5 does not. (3) Split constants and BFS order are equivalent mutants under V3. (4) The fallback can double-count when `BrokenProcessPool` surfaces mid-`map`. (5) Most tests pass if the parallel path is never taken (`w >= 1`). (6) `Workers:` is decoration and breaks exact-stderr assertions; Python's task split and OR method are unspecified (strided 25x vs contiguous 18x; use `int.from_bytes`). (7) Rust-only captures the headline value; Python scope is the operator's call.
 Assumption: the Python suite plus new tests stays well under cosmic-ray's 60 s timeout on a 4-vCPU runner; settled by timing under `taskset -c 0-3` and the `mutation-pr` log.
-Disposition: Addressed — operator chose `Workers:` only when parallel ran and both languages (2026-11-18); the remaining fixes were applied by the author and await the operator's approval of this revision: both languages kept; `Workers:` only when workers > 1; unit tests at n <= 10^5, scale in V1; split pins, strided tasks, `int.from_bytes`, fallback discards partial results, `workers > 1` assertions; V3 adds a suite-time bound.
+Disposition: Addressed — operator chose `Workers:` only when parallel ran and both languages (2026-11-18); the remaining fixes were applied by the author and approved by the operator with the round-2 revision: both languages kept; `Workers:` only when workers > 1; unit tests at n <= 10^5, scale in V1; split pins, strided tasks, `int.from_bytes`, fallback discards partial results, `workers > 1` assertions; V3 adds a suite-time bound.
 
 ### Ergonomics
 
 Finding: (1) Rust 10^7 test exceeds the 45 s cap (debug 68.65 s). (2) Python 10^6 test makes `make test`/pre-push ~45 s and the mutation gate vacuous or over the 30-minute job. (3) Most tests pass if parallel never runs; a crashing worker would fall back silently. (4) R1 vs R7: `main` cannot learn `workers` from a frozen `pack`; name the channel (`pack_with_workers`). (5) `Workers:` breaks four existing stderr assertions and adds `Workers: 1` noise to every small run. Ctrl-C, spawn cost, memory and existing knobs checked clean.
 Assumption: per-mutant wall time with forking tests stays well under 60 s on a 4-vCPU runner; settled by a dispatched shard's timeout count.
-Disposition: Addressed — operator chose `Workers:` only when parallel ran and both languages (2026-11-18); the remaining fixes were applied by the author and await the operator's approval of this revision: `pack_with_workers` added (R1); `Workers:` only when workers > 1, so the four K <= 3 stderr assertions are unaffected; spy and `workers > 1` tests; 10^5 ceiling; V3 timing and 0-timeout bound.
+Disposition: Addressed — operator chose `Workers:` only when parallel ran and both languages (2026-11-18); the remaining fixes were applied by the author and approved by the operator with the round-2 revision: `pack_with_workers` added (R1); `Workers:` only when workers > 1, so the four K <= 3 stderr assertions are unaffected; spy and `workers > 1` tests; 10^5 ceiling; V3 timing and 0-timeout bound.
 
 ### Risk
 
 Finding: (1) Rust 10^7 (debug 93.85 s) and Python 10^6 (30.98 s) tests break their gates; timeouts score as killed. (2) Split logic is mutation-equivalent by construction (SEED_TARGET +-1, `>=`/`>`, BFS->DFS, `4 x W`, `or 1`, the threshold literal); needs pins, a seam, or declared equivalents. (3) Tests pass if parallel never runs. (4) `on_mark` hook unaddressed. (5) Unlisted stderr assertions. (6) Context premise "other roots have comparable counts" false at fixed n (root `-11 21 24 28`: 59,337 circles at 10^5). (7) Byte-loop OR costs 4.92 s; contiguous chunks balance worse than strided. Exactness, atomics ordering, cargo-deny, uniformity, amendment form and memory checked clean.
 Assumption: the shared atomic bitmap does not stall on cache-coherence traffic at K=8; refuted by goal-fit's prototype (10.62 s, 19x).
-Disposition: Addressed — operator chose `Workers:` only when parallel ran and both languages (2026-11-18); the remaining fixes were applied by the author and await the operator's approval of this revision: literal and frontier pins, recorded coordinator count, stride test, declared Rust pre-check equivalent; `on_mark` stays serial-only (R4); Context premise corrected; strided tasks and `int.from_bytes` (R5).
+Disposition: Addressed — operator chose `Workers:` only when parallel ran and both languages (2026-11-18); the remaining fixes were applied by the author and approved by the operator with the round-2 revision: literal and frontier pins, recorded coordinator count, stride test, declared Rust pre-check equivalent; `on_mark` stays serial-only (R4); Context premise corrected; strided tasks and `int.from_bytes` (R5).
 
 ### Round 2
 
@@ -227,19 +228,19 @@ Reviewed at commit: `d8a77f5`. All three lenses re-ran; the round-1 section abov
 
 Finding: Worth building (premise re-measured under `taskset -c 0-3`: exact, 0.52 s vs 1.53 s at 10^5). (1) The split would leave the subtree walk's copy of the growth guard with no killing test: every guard/budget test tree finishes inside the frontier, so its mutants survive; share one children helper. (2) `PermissionError` is an `OSError` subclass, so its tuple member is an unkillable ExceptionReplacer mutant. (3) The mandated Rust pre-check equivalent is a mutant cargo-mutants never generates (the declaration would be stale). (4) V3's 15 s depends on roots the spec never named (~17 s default root vs ~8 s with `-11 21 24 28`). (5) The Python spy duplicates exactness and `workers == 1`. (6) The entry guard is dead under `fork` and redundant under `spawn` (`__mp_main__`). (7) A Rust `par_iter` written as `iter` passes every test.
 Assumption: Rust walk-guard mutants on changed lines may time out rather than be caught; V3's "0 timeouts" should follow the repo's green-timeout rule for Rust.
-Disposition: (awaiting operator)
+Disposition: Addressed (operator approved the round-2 revision, 2026-11-18) — see the revised Design, Testing and Requirements at 3cde75b.
 
 #### Ergonomics (round 2)
 
 Finding: (1) Four existing Python tests patch `descartes.pack` (lines ~2530, 2584, 2605, 2778); once `main` calls `pack_with_workers` two fail, one goes vacuous and one silently runs a real 10^6 packing. (2) V3's bound needs the pool-reaching tests on `-11 21 24 28`. (3) Rust `workers` is the runtime constant, so a serial `iter` passes. (4) The status-line test asserts `w > 1` with no core-count condition. (5) Pin the spy and fallback to `map`. (6) Root `CLAUDE.md` is at 29,975 / 30,000 bytes; R10's root edit barely fits and "high-precision calculators" does not describe descartes. Stderr assertions, cosmic-ray's sequential distributor, 4-vCPU public runners and `process_cpu_count` under `taskset` checked clean.
 Assumption: the new Python tests fit V3's 15 s once the four tests migrate; settled by timing the implementation.
-Disposition: (awaiting operator)
+Disposition: Addressed (operator approved the round-2 revision, 2026-11-18) — see the revised Design, Testing and Requirements at 3cde75b.
 
 #### Risk (round 2)
 
 Finding: (1) The Rust pre-check equivalent cannot be declared (no such mutant in `cargo mutants --list`). (2) `PermissionError` member is an unkillable survivor. (3) Frontier pins miss `<` -> `!=` because all named roots land on exactly 4096; root `-5 10 10 15` lands on 4097. (4) The one-worker and `or 1` branches are never exercised (`or 0`/`or 2`, `W == 1` -> `W < 1`, Rust `||` -> `&&` survive); patch the CPU count and use a 1-thread rayon pool. (5) The small-frontier test must run at n >= `PARALLEL_MIN_N`; root `-300 301 90300 90301` at 10^5 has 198 circles. (6) `4 x W` and fork-on-Linux mutants survive unless the task helper and the context choice are testable units. (7) Force the parallel path (2 workers) instead of skipping on 1 CPU. (8) "Discard partial results already merged" cannot be literal for an OR: hold pool results apart and commit after all tasks return. (9) V3 root choice as above. (10) No Rust "pool used" test.
 Assumption: the Python suite fits 15 s under `taskset -c 0-3` (~15.6 s default root, ~8 s on `-11 21 24 28`); settled by naming the root, done.
-Disposition: (awaiting operator)
+Disposition: Addressed (operator approved the round-2 revision, 2026-11-18) — see the revised Design, Testing and Requirements at 3cde75b.
 
 #### Stop decision
 
