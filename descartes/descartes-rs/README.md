@@ -75,6 +75,10 @@ SVG shows 168 of 168 circles (curvature <= 100)
 
 The SVG matches the Python program's.
 
+## Parallel packing
+
+The packing search splits once: a breadth-first pass stops at `SEED_TARGET = 4096` seeds, then each seed's subtree is walked on its own rayon thread. Runs go parallel only when `n >= PARALLEL_MIN_N = 100_000` (K 5 or more), seeds remain and more than one worker is available; the output is byte-identical to the serial run, which never starts rayon's pool. When more than one worker ran, `Workers: <N>` is written to stderr immediately before `Elapsed:`. Set `RAYON_NUM_THREADS=<N>` to bound the worker count (`1` forces a serial run); the Python program uses `PYTHON_CPU_COUNT` for the same purpose.
+
 ## Known limits
 
 `--solve` prints full-precision values that paste back into `--solve`, but pasting them back stops passing the `1e-9` tangency tolerance near curvature 2.6e7, and nearly collinear inputs are ill-conditioned: a triple that passes the input check can yield solutions that do not pass when pasted back.

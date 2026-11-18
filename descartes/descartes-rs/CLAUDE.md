@@ -4,7 +4,7 @@ This file provides guidance to Claude when working with code in this repository.
 
 ## Repository Overview
 
-Rust half of the `descartes` sub-project: tangent circles by Descartes' theorem. It enumerates an integral Apollonian packing up to curvature 10^K (K 1-8) and draws it in braille, or `--solve` lists the circles tangent to three given mutually tangent circles. It matches the Python program (`../descartes.py`) in exit codes, file name, caps and table layout; the differences are listed under Important Behavior. Plain `i64`/`f64`, no `rug`, `rayon` or arbitrary precision (spec N2, N4).
+Rust half of the `descartes` sub-project: tangent circles by Descartes' theorem. It enumerates an integral Apollonian packing up to curvature 10^K (K 1-8) and draws it in braille, or `--solve` lists the circles tangent to three given mutually tangent circles. It matches the Python program (`../descartes.py`) in exit codes, file name, caps and table layout; the differences are listed under Important Behavior. Plain `i64`/`f64`, no `rug` or arbitrary precision (spec N4); `rayon = "1"` is the one parallel dependency (the 2026-11-15 spec's N2 is withdrawn, see the parallel-packing spec).
 
 Injectable I/O pattern (ADR-0018): `run<R,W,E>(stdin, stdout, stderr, ...)` in `src/main.rs`; `fn main()` is a thin clap wrapper excluded from tarpaulin.
 
@@ -63,6 +63,7 @@ SVG shows 168 of 168 circles (curvature <= 100)
 - `DescartesError { BadInput, NoSolution }` — exit 2 and exit 1, as in Python
 - `descartes_fourth(k1, k2, k3)` — both fourth curvatures; radicand below `-1e-12 × (|k1k2|+|k2k3|+|k3k1|)` is `NoSolution`, otherwise clamped at 0 (R23, identical to Python)
 - `validate_root`, `pack(root, n)`, `distinct(bitmap)` — root check and reduction, the reflection walk with an explicit stack and bitmap, the distinct curvatures
+- `SEED_TARGET = 4096`, `PARALLEL_MIN_N = 100_000`, `children`, `frontier`, `subtree_count`, `serial_subtrees`, `parallel_subtrees`, `mark_atomic`, `pack_with_workers(root, n)` — one split: `frontier` expands breadth-first to `SEED_TARGET` seeds, then each seed's subtree is walked (`subtree_count`) serially or, via `parallel_subtrees` over an atomic bitmap (`mark_atomic`), on rayon threads. Parallel only when `n >= PARALLEL_MIN_N` (K >= 5), seeds remain and more than one worker; output is byte-identical to the serial run, and the serial path never starts rayon's pool. `pack_with_workers` returns `(count, bitmap, workers)`; `RAYON_NUM_THREADS` bounds the count (the Python twin reads `PYTHON_CPU_COUNT`). `write_workers_line` in `src/main.rs` writes `Workers: <N>` to stderr immediately before `Elapsed:`, only when more than one worker ran.
 - `check_tangent`, `solve`, `root_centres`, `visible` — geometry (`1e-9` relative tangency tolerance per pair)
 - `svg_limit(root, k)` — the SVG cut-off (saturating, total); `svg_packing -> (String, usize)`, `usize` the circles drawn excluding the outer circle
 - `render` — braille drawing, 2x4 dots per cell
