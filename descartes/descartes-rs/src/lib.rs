@@ -1,6 +1,9 @@
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+
+use rayon::prelude::*;
 
 /// Why a computation produced no answer; mirrors Python's `BadInput` (exit 2)
 /// and `NoSolution` (exit 1).
@@ -158,6 +161,16 @@ fn mark(bitmap: &mut [u64], k: i64) {
     bitmap[(k >> 6) as usize] |= 1u64 << (k & 63);
 }
 
+/// Set bit `k` of a shared bitmap. The relaxed load skips the write when the
+/// bit is already set; `fetch_or` makes concurrent sets of one word a union.
+fn mark_atomic(bitmap: &[AtomicU64], k: i64) {
+    let word = &bitmap[(k >> 6) as usize];
+    let bit = 1u64 << (k & 63);
+    if word.load(AtomicOrdering::Relaxed) & bit == 0 {
+        word.fetch_or(bit, AtomicOrdering::Relaxed);
+    }
+}
+
 /// How many seed subtrees the breadth-first frontier grows before the
 /// subtree walks take over; enough to keep many workers busy.
 pub const SEED_TARGET: usize = 4096;
@@ -180,13 +193,34 @@ pub fn pack(root: [i64; 4], n: i64) -> Result<(i64, Vec<u64>), DescartesError> {
     Ok((count, bitmap))
 }
 
-/// `pack`, also returning the number of workers used (always 1 until the
-/// parallel executor lands); same checks and errors as `pack`.
+/// `pack`, also returning the number of workers used: 1 for the serial walk,
+/// `rayon::current_num_threads()` when `n >= PARALLEL_MIN_N`, the frontier left
+/// seeds and the pool has more than one thread. The result is identical either
+/// way. Same checks and errors as `pack`.
 pub fn pack_with_workers(root: [i64; 4], n: i64) -> Result<(i64, Vec<u64>, usize), DescartesError> {
     check_n(n, N_MAX, "pack", "n")?;
     check_reduced_root(root, "pack")?;
-    let (count, bitmap) = walk(root, n, &mut || {});
+    let (count, bitmap, seeds) = frontier(root, n, &mut || {});
+    let workers = rayon::current_num_threads();
+    // `!= 1`, not `> 1`: a one-thread pool gives the same answer either way, so
+    // `>= 1` would be an unkillable equivalent mutant; `current_num_threads` is >= 1.
+    if n >= PARALLEL_MIN_N && !seeds.is_empty() && workers != 1 {
+        let (count, bitmap) = parallel_subtrees(count, bitmap, &seeds, n);
+        return Ok((count, bitmap, workers));
+    }
+    let (count, bitmap) = serial_subtrees(count, bitmap, seeds, n, &mut || {});
     Ok((count, bitmap, 1))
+}
+
+/// Walk every seed's subtree on the rayon pool into one shared atomic bitmap
+/// that starts from the frontier's, and add the counts to `count`.
+fn parallel_subtrees(count: i64, bitmap: Vec<u64>, seeds: &[Seed], n: i64) -> (i64, Vec<u64>) {
+    let shared: Vec<AtomicU64> = bitmap.into_iter().map(AtomicU64::new).collect();
+    let walked: i64 = seeds
+        .par_iter()
+        .map(|&seed| subtree_count(seed, n, &mut |k| mark_atomic(&shared, k)))
+        .sum();
+    (count + walked, shared.into_iter().map(AtomicU64::into_inner).collect())
 }
 
 /// Hand `push` each reflection of `quad` worth visiting: it replaces one
@@ -252,29 +286,44 @@ fn frontier(root: [i64; 4], n: i64, on_mark: &mut impl FnMut()) -> (i64, Vec<u64
     (count, bitmap, queue.into())
 }
 
-/// Depth-first walk of the subtree under `seed`, counting and marking every
-/// circle in it (the seed included) into `bitmap`.
-fn subtree_walk(seed: Seed, n: i64, bitmap: &mut [u64], on_mark: &mut impl FnMut()) -> i64 {
+/// Depth-first walk of the subtree under `seed`, counting every circle in it
+/// (the seed included) and handing each curvature to `mark`.
+fn subtree_count(seed: Seed, n: i64, mark: &mut impl FnMut(i64)) -> i64 {
     let mut count: i64 = 0;
     let mut stack = vec![seed];
     while let Some((quad, j)) = stack.pop() {
         count += 1;
-        mark(bitmap, quad[j]);
-        on_mark();
+        mark(quad[j]);
         children(quad, n, |c| stack.push(c));
     }
     count
 }
 
-/// The packing walk behind `pack`, with no precondition checks: the frontier,
-/// then each seed's subtree in turn. `on_mark` runs once per counted circle so
-/// a test can budget the work.
-fn walk(root: [i64; 4], n: i64, on_mark: &mut impl FnMut()) -> (i64, Vec<u64>) {
-    let (mut count, mut bitmap, seeds) = frontier(root, n, on_mark);
+/// Walk each seed's subtree in turn into `bitmap`; `on_mark` runs once per
+/// counted circle so a test can budget the work.
+fn serial_subtrees(
+    mut count: i64,
+    mut bitmap: Vec<u64>,
+    seeds: Vec<Seed>,
+    n: i64,
+    on_mark: &mut impl FnMut(),
+) -> (i64, Vec<u64>) {
     for seed in seeds {
-        count += subtree_walk(seed, n, &mut bitmap, on_mark);
+        count += subtree_count(seed, n, &mut |k| {
+            mark(&mut bitmap, k);
+            on_mark();
+        });
     }
     (count, bitmap)
+}
+
+/// The serial packing walk with an `on_mark` hook, kept for the tests' work
+/// budgets (`pack_with_workers` splits the same steps itself): the frontier, then
+/// each seed's subtree in turn.
+#[cfg(test)]
+fn walk(root: [i64; 4], n: i64, on_mark: &mut impl FnMut()) -> (i64, Vec<u64>) {
+    let (count, bitmap, seeds) = frontier(root, n, on_mark);
+    serial_subtrees(count, bitmap, seeds, n, on_mark)
 }
 
 /// The curvatures marked in the bitmap, ascending.
@@ -1430,12 +1479,12 @@ mod tests {
     #[test]
     fn split_serial_equals_the_independent_walk_at_1e5() {
         for root in [[-1, 2, 2, 3], [-11, 21, 24, 28], [-2, 3, 6, 7]] {
-            let (count, bitmap, workers) = pack_with_workers(root, 100_000).unwrap();
+            let (count, bitmap, workers) = in_pool(1, || pack_with_workers(root, 100_000).unwrap());
             let (want_count, want) = oracle(root, 100_000);
             assert_eq!(workers, 1, "{root:?}");
             assert_eq!(count, want_count, "{root:?}");
             assert_eq!(distinct(&bitmap), want.into_iter().collect::<Vec<_>>(), "{root:?}");
-            assert_eq!(pack(root, 100_000).unwrap(), (count, bitmap), "{root:?}");
+            assert_eq!(in_pool(1, || pack(root, 100_000).unwrap()), (count, bitmap), "{root:?}");
         }
     }
 
@@ -1497,6 +1546,63 @@ mod tests {
         if count != 168 {
             std::process::abort();
         }
+    }
+
+    fn in_pool<T: Send>(threads: usize, f: impl FnOnce() -> T + Send) -> T {
+        rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap().install(f)
+    }
+
+    #[test]
+    fn parallel_two_threads_equal_the_independent_walk() {
+        for root in [[-1, 2, 2, 3], [-11, 21, 24, 28], [-2, 3, 6, 7]] {
+            let (count, bitmap, workers) = in_pool(2, || pack_with_workers(root, 100_000).unwrap());
+            let (want_count, want) = oracle(root, 100_000);
+            assert_eq!(workers, 2, "{root:?}");
+            assert_eq!(count, want_count, "{root:?}");
+            assert_eq!(distinct(&bitmap), want.into_iter().collect::<Vec<_>>(), "{root:?}");
+        }
+    }
+
+    #[test]
+    fn parallel_one_thread_stays_serial() {
+        let (count, _, workers) = in_pool(1, || pack_with_workers(ROOT_A, 100_000).unwrap());
+        assert_eq!((count, workers), (oracle(ROOT_A, 100_000).0, 1));
+    }
+
+    #[test]
+    fn parallel_threshold_is_inclusive() {
+        let root = [-11, 21, 24, 28];
+        let below = in_pool(2, || pack_with_workers(root, PARALLEL_MIN_N - 1).unwrap());
+        let at = in_pool(2, || pack_with_workers(root, PARALLEL_MIN_N).unwrap());
+        assert_eq!(below.2, 1);
+        assert_eq!(at.2, 2);
+    }
+
+    #[test]
+    fn parallel_small_frontier_stays_serial() {
+        let root = [-300, 301, 90300, 90301];
+        let (count, bitmap, workers) = in_pool(2, || pack_with_workers(root, 100_000).unwrap());
+        let (want_count, want) = oracle(root, 100_000);
+        assert_eq!((count, workers), (want_count, 1));
+        assert_eq!(distinct(&bitmap), want.into_iter().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn parallel_atomic_marks_union_exactly() {
+        use rayon::prelude::*;
+        let bits = [0i64, 1, 62, 63, 64, 65, 127, 128, 191];
+        let atomics: Vec<AtomicU64> = (0..3).map(|_| AtomicU64::new(0)).collect();
+        in_pool(4, || {
+            (0..4000usize)
+                .into_par_iter()
+                .for_each(|i| mark_atomic(&atomics, bits[i % bits.len()]));
+        });
+        let plain: Vec<u64> = atomics.into_iter().map(AtomicU64::into_inner).collect();
+        let mut want = vec![0u64; 3];
+        for &k in &bits {
+            mark(&mut want, k);
+        }
+        assert_eq!(plain, want);
     }
 
     #[test]
