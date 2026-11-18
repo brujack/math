@@ -627,26 +627,37 @@ fn svg_document(body: Vec<String>) -> String {
     lines.join("\n") + "\n"
 }
 
-/// The packing as SVG text: the outer circle, then every visible circle up to
-/// curvature `min(10^k, 1000 |k0|)`; circles with radius 20 or more are labelled
+/// The curvature cut-off of the SVG drawing: `min(10^k, 1000 x |outer curvature|)`,
+/// where `root[0]` is the reduced root's outer (negative) curvature.
+pub fn svg_limit(root: [i64; 4], k: u32) -> i64 {
+    10_i64.pow(k).min(1000 * root[0].abs())
+}
+
+/// The packing as SVG text and the number of circles drawn (the outer circle
+/// excluded): a comment stating the cut-off, the outer circle, then every
+/// visible circle up to `svg_limit`; circles with radius 20 or more are labelled
 /// with their curvature (the outer one is not).
 ///
 /// Errors as `root_centres` and `visible`.
-pub fn svg_packing(root: [i64; 4], k: u32) -> Result<String, DescartesError> {
+pub fn svg_packing(root: [i64; 4], k: u32) -> Result<(String, usize), DescartesError> {
     let (k0, x0, y0) = root_centres(root)?[0];
     let s = 500.0 * k0.abs();
-    let limit = 10_f64.powi(k as i32).min(1000.0 * k0.abs()) as i64;
-    let mut body = Vec::new();
+    let limit = svg_limit(root, k);
+    let circles = visible(root, limit)?;
+    let mut body = vec![format!(
+        "<!-- circles with curvature <= {limit}; cut-off min(10^K, 1000 x |outer curvature|) -->"
+    )];
     let (cx, cy, r) = svg_geometry((k0, x0, y0), x0, y0, s);
     body.push(svg_circle(cx, cy, r, SVG_BLACK));
-    for c in visible(root, limit)? {
+    let n = circles.len();
+    for c in circles {
         let (cx, cy, r) = svg_geometry(c, x0, y0, s);
         body.push(svg_circle(cx, cy, r, SVG_BLACK));
         if r >= 20.0 {
             body.push(svg_label(cx, cy, r, c.0));
         }
     }
-    Ok(svg_document(body))
+    Ok((svg_document(body), n))
 }
 
 /// The `--solve` result as SVG text: the givens in black, then the solutions
@@ -2780,20 +2791,20 @@ mod tests {
 
     #[test]
     fn svg_packing_default_root_k3_counts() {
-        let svg = svg_packing([-1, 2, 2, 3], 3).unwrap();
+        let (svg, _n) = svg_packing([-1, 2, 2, 3], 3).unwrap();
         assert_eq!(svg.matches("<circle ").count(), 3329);
         assert_eq!(svg.matches("<text ").count(), 26);
     }
 
     #[test]
     fn svg_packing_first_lines_exact() {
-        let svg = svg_packing([-1, 2, 2, 3], 3).unwrap();
+        let (svg, _n) = svg_packing([-1, 2, 2, 3], 3).unwrap();
         let lines = lines_of(&svg);
         assert_eq!(lines[0], r#"<?xml version="1.0" encoding="UTF-8"?>"#);
         assert_eq!(lines[1], r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">"#);
         assert_eq!(lines[2], r#"<rect width="1000" height="1000" fill="white"/>"#);
         assert_eq!(
-            lines[3],
+            lines[4],
             r#"<circle cx="500.000" cy="500.000" r="500.000" fill="none" stroke="black" stroke-width="1.000"/>"#
         );
         assert!(svg.ends_with("</svg>\n"));
@@ -2802,22 +2813,56 @@ mod tests {
 
     #[test]
     fn svg_packing_first_labelled_circle_exact() {
-        let svg = svg_packing([-1, 2, 2, 3], 3).unwrap();
+        let (svg, _n) = svg_packing([-1, 2, 2, 3], 3).unwrap();
         let lines = lines_of(&svg);
         assert_eq!(
-            lines[4],
+            lines[5],
             r#"<circle cx="750.000" cy="500.000" r="250.000" fill="none" stroke="black" stroke-width="1.000"/>"#
         );
         assert_eq!(
-            lines[5],
+            lines[6],
             r#"<text x="750.000" y="500.000" font-size="48.000" text-anchor="middle" dominant-baseline="central">2</text>"#
         );
     }
 
     #[test]
     fn svg_packing_k1_limit_is_10_pow_k() {
-        let svg = svg_packing([-1, 2, 2, 3], 1).unwrap();
+        let (svg, _n) = svg_packing([-1, 2, 2, 3], 1).unwrap();
         assert_eq!(svg.matches("<circle ").count(), 9);
+    }
+
+    #[test]
+    fn svg_limit_default_root() {
+        assert_eq!(svg_limit([-1, 2, 2, 3], 1), 10);
+        assert_eq!(svg_limit([-1, 2, 2, 3], 3), 1000);
+        assert_eq!(svg_limit([-1, 2, 2, 3], 4), 1000);
+    }
+
+    #[test]
+    fn svg_limit_other_root_is_capped_by_outer_curvature() {
+        assert_eq!(svg_limit([-11, 21, 24, 28], 5), 11000);
+    }
+
+    #[test]
+    fn svg_packing_count_and_cutoff_comment() {
+        let (text, n) = svg_packing([-1, 2, 2, 3], 3).unwrap();
+        assert_eq!(n, 3328);
+        assert_eq!(n, text.matches("<circle").count() - 1);
+        assert_eq!(
+            text.lines().nth(3).unwrap(),
+            "<!-- circles with curvature <= 1000; cut-off min(10^K, 1000 x |outer curvature|) -->"
+        );
+        let (k1, _) = svg_packing([-1, 2, 2, 3], 1).unwrap();
+        assert!(k1.lines().nth(3).unwrap().contains("<= 10;"));
+        let (k4, _) = svg_packing([-1, 2, 2, 3], 4).unwrap();
+        assert_eq!(text, k4);
+        assert_eq!(svg_packing([-11, 21, 24, 28], 1).unwrap().1, 0);
+    }
+
+    #[test]
+    fn svg_solve_has_no_comment() {
+        let given = [(-1.0, 0.0, 0.0), (2.0, 0.5, 0.0), (3.0, 0.0, 2.0 / 3.0)];
+        assert!(!svg_solve(&given, &[]).contains("<!--"));
     }
 
     #[test]
@@ -2873,21 +2918,21 @@ mod tests {
     #[test]
     fn svg_packing_tie_root_counts_pin_cap_and_label_rule() {
         // 1000 |k0| = 12000 is below 10^5, so the cap decides the circle count.
-        let svg = svg_packing(TIE_ROOT, 5).unwrap();
+        let (svg, _n) = svg_packing(TIE_ROOT, 5).unwrap();
         assert_eq!(svg.matches("<circle ").count(), 3327);
         assert_eq!(svg.matches("<text ").count(), 30);
     }
 
     #[test]
     fn svg_packing_tie_root_small_circle_stroke_is_quarter_radius() {
-        let svg = svg_packing(TIE_ROOT, 5).unwrap();
+        let (svg, _n) = svg_packing(TIE_ROOT, 5).unwrap();
         assert!(svg.lines().any(|l| l
             == r#"<circle cx="990.002" cy="420.014" r="3.513" fill="none" stroke="black" stroke-width="0.878"/>"#));
     }
 
     #[test]
     fn svg_packing_tie_root_label_font_is_six_tenths_of_radius() {
-        let svg = svg_packing(TIE_ROOT, 5).unwrap();
+        let (svg, _n) = svg_packing(TIE_ROOT, 5).unwrap();
         let lines = lines_of(&svg);
         let at = lines
             .iter()
@@ -2901,7 +2946,7 @@ mod tests {
 
     #[test]
     fn svg_packing_radius_exactly_20_is_labelled() {
-        let svg = svg_packing(TIE_ROOT, 5).unwrap();
+        let (svg, _n) = svg_packing(TIE_ROOT, 5).unwrap();
         let lines = lines_of(&svg);
         let circle = r#"<circle cx="943.077" cy="684.615" r="20.000" fill="none" stroke="black" stroke-width="1.000"/>"#;
         let at = lines.iter().position(|l| *l == circle).unwrap();

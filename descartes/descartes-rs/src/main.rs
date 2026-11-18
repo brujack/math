@@ -428,7 +428,7 @@ fn run_packing<R: BufRead, W: Write, E: Write>(
     writer.flush()?;
     // The SVG is written before any result line, as in Python, so a failed write prints none of them.
     if let (Some(file), Some(path)) = (svg_file, args.svg.as_deref()) {
-        let text = svg_packing(root, k).map_err(|e| fail_descartes(stderr, &e))?;
+        let (text, _n) = svg_packing(root, k).map_err(|e| fail_descartes(stderr, &e))?;
         write_svg(file, path, &text, stderr)?;
     }
     let elapsed = start.elapsed().as_secs_f64();

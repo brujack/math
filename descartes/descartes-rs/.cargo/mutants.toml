@@ -4,8 +4,8 @@ additional_cargo_test_args = ["--lib", "--bins", "--test", "cli"]
 
 # NOTE: patterns embed line:col numbers. Update if surrounding code shifts lines.
 exclude_re = [
-    # lib.rs:656 — solutions.iter().filter(|c| c.0 < 0.0)
+    # lib.rs:667 — solutions.iter().filter(|c| c.0 < 0.0)
     # <→<=: differs only for k == 0, and a solution of curvature 0 (a line) is never
     # in `solutions`: `solve` omits it, so no input reaches that value.
-    "src/lib\\.rs:656:60: replace < with <= in svg_solve",
+    "src/lib\\.rs:667:60: replace < with <= in svg_solve",
 ]
