@@ -227,7 +227,7 @@ operator = "core/ReplaceBinaryOperator_Sub_Add"
 function = "svg_packing"
 line = "px = 500 + (x - x0) * scale"
 col = 22
-above = "for index, (kc, x, y) in enumerate([outer, *visible(root, limit)]):"
+above = "for index, (kc, x, y) in enumerate([outer, *inner]):"
 reason = "x0 is the outer circle's x from root_centres, which places the first circle at the origin as the literal 0.0 (`c1 = (float(a), 0.0, 0.0)`), so `x - x0` and `x + x0` are the same float for every x."
 
 [[equivalent]]

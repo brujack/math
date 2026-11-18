@@ -558,25 +558,41 @@ def _svg_document(elements: list[str]) -> str:
     return "\n".join([*_SVG_HEAD, *elements, "</svg>"]) + "\n"
 
 
-def svg_packing(root: tuple[int, int, int, int], k: int) -> str:
-    """Return the packing up to curvature 10^k as SVG text (spec R8-R9).
+def svg_limit(root: tuple[int, int, int, int], k: int) -> int:
+    """Return the largest curvature the SVG draws: min(10^k, 1000 x |outer|).
+
+    Past 1000 x |outer curvature| a circle's radius drops below 0.5 of the
+    1000-unit square, so it is not drawn. root[0] is the outer curvature of a
+    reduced root, so the result is always an int.
+    """
+    return min(10**k, 1000 * abs(root[0]))
+
+
+def svg_packing(root: tuple[int, int, int, int], k: int) -> tuple[str, int]:
+    """Return the packing up to svg_limit as SVG text and its drawn-circle count.
 
     The outer circle fills the square; every other circle of radius at least
-    20 units is labelled with its curvature.
+    20 units is labelled with its curvature. The count excludes the outer
+    circle. A comment before the first circle states the cut-off.
     """
     outer = root_centres(root)[0]
     k0, x0, y0 = outer
     scale = 500 * abs(k0)
-    limit = min(10**k, 1000 * abs(k0))
-    elements: list[str] = []
-    for index, (kc, x, y) in enumerate([outer, *visible(root, limit)]):
+    limit = svg_limit(root, k)
+    inner = visible(root, limit)
+    comment = (
+        f"<!-- circles with curvature <= {limit}; "
+        "cut-off min(10^K, 1000 x |outer curvature|) -->"
+    )
+    elements: list[str] = [comment]
+    for index, (kc, x, y) in enumerate([outer, *inner]):
         px = 500 + (x - x0) * scale
         py = 500 - (y - y0) * scale
         r = scale / abs(kc)
         elements.append(_svg_circle(px, py, r, 'stroke="black"'))
         if index > 0 and r >= _SVG_LABEL_MIN_RADIUS:
             elements.append(_svg_label(px, py, r, kc))
-    return _svg_document(elements)
+    return _svg_document(elements), len(inner)
 
 
 def svg_solve(given: list[Circle], solutions: list[Circle]) -> str:
@@ -888,7 +904,7 @@ def _run_packing(args: argparse.Namespace) -> None:
                 f.writelines(f"{curvature}\n" for curvature in curvatures)
         except OSError as error:
             _fail(error, 1)
-        _write_svg(svg_file, args.svg, svg_packing(root, k) if svg_file else "")
+        _write_svg(svg_file, args.svg, svg_packing(root, k)[0] if svg_file else "")
     elapsed = time.perf_counter() - start
     if args.show:
         for curvature in curvatures:

@@ -2869,21 +2869,73 @@ class TestEntryPointGuard(unittest.TestCase):
         self.assertEqual(proc.stdout.splitlines()[:3], ["2", "3", "6"])
 
 
+_SVG_COMMENT_K3 = (
+    "<!-- circles with curvature <= 1000;"
+    " cut-off min(10^K, 1000 x |outer curvature|) -->"
+)
+
+
+class TestSvgLimit(unittest.TestCase):
+    def check(self, root: tuple[int, int, int, int], k: int, want: int) -> None:
+        value = descartes.svg_limit(root, k)
+        self.assertEqual(value, want)
+        self.assertIs(type(value), int)
+
+    def test_k1_is_power_of_ten(self) -> None:
+        self.check((-1, 2, 2, 3), 1, 10)
+
+    def test_k3_and_k4_capped_at_1000(self) -> None:
+        self.check((-1, 2, 2, 3), 3, 1000)
+        self.check((-1, 2, 2, 3), 4, 1000)
+
+    def test_other_root_cap(self) -> None:
+        self.check((-11, 21, 24, 28), 5, 11000)
+
+
 class TestSvgPacking(unittest.TestCase):
+    def test_count_matches_drawn_circles(self) -> None:
+        text, n = descartes.svg_packing((-1, 2, 2, 3), 3)
+        self.assertEqual(n, 3328)
+        self.assertEqual(n, text.count("<circle") - 1)
+
+    def test_comment_line_exact(self) -> None:
+        text, _ = descartes.svg_packing((-1, 2, 2, 3), 3)
+        self.assertEqual(text.splitlines()[3], _SVG_COMMENT_K3)
+
+    def test_comment_k1_limit(self) -> None:
+        text, _ = descartes.svg_packing((-1, 2, 2, 3), 1)
+        self.assertIn("<= 10;", text.splitlines()[3])
+
+    def test_k3_equals_k4(self) -> None:
+        self.assertEqual(
+            descartes.svg_packing((-1, 2, 2, 3), 3),
+            descartes.svg_packing((-1, 2, 2, 3), 4),
+        )
+
+    def test_empty_packing_count_zero(self) -> None:
+        _, n = descartes.svg_packing((-11, 21, 24, 28), 1)
+        self.assertEqual(n, 0)
+
+    def test_solve_svg_has_no_comment(self) -> None:
+        given = [(-1.0, 0.0, 0.0), (2.0, 0.5, 0.0), (3.0, 0.0, 0.6666666666666666)]
+        solutions = descartes.solve(*given)
+        self.assertNotIn("<!--", descartes.svg_solve(given, solutions))
+
     def test_default_root_k3_counts(self) -> None:
-        text = descartes.svg_packing((-1, 2, 2, 3), 3)
+        text = descartes.svg_packing((-1, 2, 2, 3), 3)[0]
         self.assertEqual(text.count("<circle "), 3329)
         self.assertEqual(text.count("<text "), 26)
 
     def test_first_lines_exact(self) -> None:
-        text = descartes.svg_packing((-1, 2, 2, 3), 3)
+        text = descartes.svg_packing((-1, 2, 2, 3), 3)[0]
         lines = text.split("\n")
         self.assertEqual(
-            lines[:4],
+            lines[:5],
             [
                 '<?xml version="1.0" encoding="UTF-8"?>',
                 '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">',
                 '<rect width="1000" height="1000" fill="white"/>',
+                _SVG_COMMENT_K3,
                 (
                     '<circle cx="500.000" cy="500.000" r="500.000" fill="none"'
                     ' stroke="black" stroke-width="1.000"/>'
@@ -2895,7 +2947,7 @@ class TestSvgPacking(unittest.TestCase):
         self.assertEqual(lines[-1], "")
 
     def test_k1_limit_is_10_pow_k(self) -> None:
-        text = descartes.svg_packing((-1, 2, 2, 3), 1)
+        text = descartes.svg_packing((-1, 2, 2, 3), 1)[0]
         self.assertEqual(text.count("<circle "), 9)
 
     def test_fmt3_negative_zero(self) -> None:
@@ -2904,7 +2956,7 @@ class TestSvgPacking(unittest.TestCase):
         self.assertEqual(descartes._fmt3(1.23456), "1.235")
 
     def test_label_font_size_capped_at_48(self) -> None:
-        lines = descartes.svg_packing((-1, 2, 2, 3), 3).split("\n")
+        lines = descartes.svg_packing((-1, 2, 2, 3), 3)[0].split("\n")
         circle = (
             '<circle cx="750.000" cy="500.000" r="250.000" fill="none"'
             ' stroke="black" stroke-width="1.000"/>'
@@ -2917,12 +2969,12 @@ class TestSvgPacking(unittest.TestCase):
 
     def test_tie_root_counts_pin_cap_and_label_rule(self) -> None:
         # 1000*|k0| = 12000 is below 10**5, so the cap, not 10**k, bounds the circles.
-        text = descartes.svg_packing(_TIE_ROOT, 5)
+        text = descartes.svg_packing(_TIE_ROOT, 5)[0]
         self.assertEqual(text.count("<circle "), 3327)
         self.assertEqual(text.count("<text "), 30)
 
     def test_tie_root_exact_stroke_font_and_radius_20_label(self) -> None:
-        lines = descartes.svg_packing(_TIE_ROOT, 5).split("\n")
+        lines = descartes.svg_packing(_TIE_ROOT, 5)[0].split("\n")
         small = (
             '<circle cx="990.002" cy="420.014" r="3.513" fill="none"'
             ' stroke="black" stroke-width="0.878"/>'
@@ -3076,7 +3128,7 @@ class TestSvgCli(CliTestCase):
                 "Saved SVG to p.svg",
             ],
         )
-        self.assertEqual(self.read("p.svg"), descartes.svg_packing((-1, 2, 2, 3), 1))
+        self.assertEqual(self.read("p.svg"), descartes.svg_packing((-1, 2, 2, 3), 1)[0])
 
     def test_solve_writes_file(self) -> None:
         given = [(-1.0, 0.0, 0.0), (2.0, 0.5, 0.0), (3.0, 0.0, 0.6666666666666666)]
