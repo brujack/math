@@ -189,36 +189,39 @@ pub fn pack_with_workers(root: [i64; 4], n: i64) -> Result<(i64, Vec<u64>, usize
     Ok((count, bitmap, 1))
 }
 
-/// The reflections of `quad` worth visiting: each replaces one curvature `old`
-/// by `k` with `old < k <= n`.
+/// Hand `push` each reflection of `quad` worth visiting: it replaces one
+/// curvature `old` by `k` with `old < k <= n`.
 ///
-/// Termination does not rest on the root being valid: every later reflection
-/// is kept only when it strictly increases the curvature it replaces and stays
-/// at most `n`, so every path climbs a finite integer range. For a reduced
-/// root the increase always holds, so the guard never prunes a valid circle.
+/// Termination does not rest on the root being valid: a reflection is kept
+/// only when it strictly increases the curvature it replaces and stays at most
+/// `n`, so every path climbs a finite integer range. For a reduced root the
+/// increase always holds, so the guard never prunes a valid circle.
 /// **Do not remove this growth guard as dead code**: without it the walk is
 /// unbounded and exhausts memory (spec R21). Reflecting the circle just
 /// reflected gives back the smaller parent curvature, which the same guard
-/// rejects, so no separate "skip the parent" test is needed.
-fn children(quad: [i64; 4], n: i64) -> impl Iterator<Item = Seed> {
+/// rejects, so no separate "skip the parent" test is needed. A callback, not
+/// an iterator: the iterator form measured 33% slower in the hot loop.
+fn children(quad: [i64; 4], n: i64, mut push: impl FnMut(Seed)) {
     let total: i64 = quad.iter().sum();
-    (0..4).filter_map(move |i| {
+    for i in 0..4 {
         let old = quad[i];
         let k = 2 * (total - old) - old;
         if old < k && k <= n {
             let mut child = quad;
             child[i] = k;
-            Some((child, i))
-        } else {
-            None
+            push((child, i));
         }
-    })
+    }
 }
 
 /// Count and mark the root's positive circles and its reflections that fit,
 /// then expand breadth-first until `SEED_TARGET` seeds wait or none are left.
 /// Returns the count so far, the bitmap and the unvisited seeds; `on_mark`
 /// runs once per counted circle.
+///
+/// The root's reflections are seeded with `k <= n` alone, no growth test: the
+/// default root's 3 reflects to 3, which `old < k` would drop although that
+/// circle is a real one to count.
 fn frontier(root: [i64; 4], n: i64, on_mark: &mut impl FnMut()) -> (i64, Vec<u64>, Vec<Seed>) {
     let mut bitmap = vec![0u64; (n / 64 + 1) as usize];
     let mut count: i64 = 0;
@@ -244,7 +247,7 @@ fn frontier(root: [i64; 4], n: i64, on_mark: &mut impl FnMut()) -> (i64, Vec<u64
         count += 1;
         mark(&mut bitmap, quad[j]);
         on_mark();
-        queue.extend(children(quad, n));
+        children(quad, n, |c| queue.push_back(c));
     }
     (count, bitmap, queue.into())
 }
@@ -258,7 +261,7 @@ fn subtree_walk(seed: Seed, n: i64, bitmap: &mut [u64], on_mark: &mut impl FnMut
         count += 1;
         mark(bitmap, quad[j]);
         on_mark();
-        stack.extend(children(quad, n));
+        children(quad, n, |c| stack.push(c));
     }
     count
 }
@@ -1465,12 +1468,35 @@ mod tests {
     }
 
     #[test]
-    fn split_pack_with_workers_rejects_like_pack() {
-        assert_eq!(pack_with_workers(ROOT_A, -1), pack(ROOT_A, -1).map(|(c, b)| (c, b, 1)));
-        assert_eq!(
-            pack_with_workers([-1, 2, 3, 3], 10),
-            pack([-1, 2, 3, 3], 10).map(|(c, b)| (c, b, 1))
-        );
+    fn split_pack_with_workers_rejects_bad_input() {
+        assert!(matches!(pack_with_workers(ROOT_A, -1), Err(DescartesError::BadInput(_))));
+        assert!(matches!(pack_with_workers(ROOT_A, N_MAX + 1), Err(DescartesError::BadInput(_))));
+        assert!(matches!(pack_with_workers([-1, 2, 3, 3], 10), Err(DescartesError::BadInput(_))));
+    }
+
+    #[test]
+    fn split_on_mark_fires_once_per_circle_through_the_subtrees() {
+        let mut marks: i64 = 0;
+        let (count, _) = walk(ROOT_A, 100_000, &mut || marks += 1);
+        assert_eq!(count, marks);
+        assert!(count > 2049, "subtree walks must have run");
+    }
+
+    // abort() kills the whole test binary, so under cargo-mutants a mutant that
+    // breaks the growth guard is caught at once instead of timing out on the
+    // slow 10^5 tests.
+    #[test]
+    fn split_canary_aborts_on_runaway() {
+        let mut marks: i64 = 0;
+        let (count, _) = walk(ROOT_A, 100, &mut || {
+            marks += 1;
+            if marks > 10_000 {
+                std::process::abort();
+            }
+        });
+        if count != 168 {
+            std::process::abort();
+        }
     }
 
     #[test]
