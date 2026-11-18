@@ -115,7 +115,7 @@ detail. SVG y grows downwards, so every mapping flips y: `y_svg = 500 - (y - y0)
 (500, 500), radius 500, so `s = 500 * |k_outer|`. Circles drawn: the outer circle and every
 circle from `visible(root, limit)` with `limit = min(10^K, 1000 * |k_outer|)`, so the
 smallest radius drawn is 0.5 units. The cut-off depends only on the root and K, never on
-the terminal. Measured for the default root: `limit = 1000` gives 3,328 circles (315,079 bytes; corrected 2026-11-18, the earlier "about 230 KB" was not a measurement of this format); for comparison 500 gives 1,324 and 2000 gives 8,258. 2,004 of the 3,328 have
+the terminal. Measured for the default root: `limit = 1000` gives 3,328 circles (315,079 bytes; corrected 2026-11-18; the earlier figure here was not a measurement of this format); for comparison 500 gives 1,324 and 2000 gives 8,258. 2,004 of the 3,328 have
 r < 1 unit and appear only under zoom; that is intended: the file is vector so the reader
 zooms into the packing rather than re-running at a larger size. The count is area-bounded
 (radius ≥ R/1000), measured 3,116-3,339 circles for every root tried, so K up to 8 in Rust
