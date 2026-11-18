@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::collections::VecDeque;
 use std::fmt;
 
 /// Why a computation produced no answer; mirrors Python's `BadInput` (exit 2)
@@ -157,6 +158,16 @@ fn mark(bitmap: &mut [u64], k: i64) {
     bitmap[(k >> 6) as usize] |= 1u64 << (k & 63);
 }
 
+/// How many seed subtrees the breadth-first frontier grows before the
+/// subtree walks take over; enough to keep many workers busy.
+pub const SEED_TARGET: usize = 4096;
+
+/// Smallest `n` at which the parallel path is worth its start-up cost.
+pub const PARALLEL_MIN_N: i64 = 100_000;
+
+/// A quadruple and the index of the circle just reflected into it.
+type Seed = ([i64; 4], usize);
+
 /// Count circles of curvature at most `n` in the packing of a reduced `root`
 /// and mark their curvatures in a bitmap of `n / 64 + 1` words.
 ///
@@ -165,24 +176,50 @@ fn mark(bitmap: &mut [u64], k: i64) {
 /// negative or above `N_MAX`, or when `root` is not a sorted, reduced Descartes
 /// root within the 10^8 cap.
 pub fn pack(root: [i64; 4], n: i64) -> Result<(i64, Vec<u64>), DescartesError> {
-    check_n(n, N_MAX, "pack", "n")?;
-    check_reduced_root(root, "pack")?;
-    Ok(walk(root, n, &mut || {}))
+    let (count, bitmap, _) = pack_with_workers(root, n)?;
+    Ok((count, bitmap))
 }
 
-/// The DFS behind `pack`, with no precondition checks; `on_mark` runs once per
-/// counted circle so a test can budget the work.
+/// `pack`, also returning the number of workers used (always 1 until the
+/// parallel executor lands); same checks and errors as `pack`.
+pub fn pack_with_workers(root: [i64; 4], n: i64) -> Result<(i64, Vec<u64>, usize), DescartesError> {
+    check_n(n, N_MAX, "pack", "n")?;
+    check_reduced_root(root, "pack")?;
+    let (count, bitmap) = walk(root, n, &mut || {});
+    Ok((count, bitmap, 1))
+}
+
+/// The reflections of `quad` worth visiting: each replaces one curvature `old`
+/// by `k` with `old < k <= n`.
 ///
-/// Termination does not rest on the root being valid: the root's four
-/// reflections are seeded when at most `n`, and every later reflection is
-/// pushed only when it strictly increases the curvature it replaces and stays
-/// at most `n`, so every DFS path climbs a finite integer range. For a reduced
+/// Termination does not rest on the root being valid: every later reflection
+/// is kept only when it strictly increases the curvature it replaces and stays
+/// at most `n`, so every path climbs a finite integer range. For a reduced
 /// root the increase always holds, so the guard never prunes a valid circle.
 /// **Do not remove this growth guard as dead code**: without it the walk is
 /// unbounded and exhausts memory (spec R21). Reflecting the circle just
 /// reflected gives back the smaller parent curvature, which the same guard
 /// rejects, so no separate "skip the parent" test is needed.
-fn walk(root: [i64; 4], n: i64, on_mark: &mut impl FnMut()) -> (i64, Vec<u64>) {
+fn children(quad: [i64; 4], n: i64) -> impl Iterator<Item = Seed> {
+    let total: i64 = quad.iter().sum();
+    (0..4).filter_map(move |i| {
+        let old = quad[i];
+        let k = 2 * (total - old) - old;
+        if old < k && k <= n {
+            let mut child = quad;
+            child[i] = k;
+            Some((child, i))
+        } else {
+            None
+        }
+    })
+}
+
+/// Count and mark the root's positive circles and its reflections that fit,
+/// then expand breadth-first until `SEED_TARGET` seeds wait or none are left.
+/// Returns the count so far, the bitmap and the unvisited seeds; `on_mark`
+/// runs once per counted circle.
+fn frontier(root: [i64; 4], n: i64, on_mark: &mut impl FnMut()) -> (i64, Vec<u64>, Vec<Seed>) {
     let mut bitmap = vec![0u64; (n / 64 + 1) as usize];
     let mut count: i64 = 0;
     for &k in &root[1..] {
@@ -192,29 +229,47 @@ fn walk(root: [i64; 4], n: i64, on_mark: &mut impl FnMut()) -> (i64, Vec<u64>) {
             on_mark();
         }
     }
-    let mut stack: Vec<([i64; 4], usize)> = Vec::new();
     let total: i64 = root.iter().sum();
+    let mut queue: VecDeque<Seed> = VecDeque::new();
     for (i, &old) in root.iter().enumerate() {
         let k = 2 * (total - old) - old;
         if k <= n {
             let mut quad = root;
             quad[i] = k;
-            stack.push((quad, i));
+            queue.push_back((quad, i));
         }
     }
-    while let Some((quad, j)) = stack.pop() {
+    while queue.len() < SEED_TARGET {
+        let Some((quad, j)) = queue.pop_front() else { break };
         count += 1;
         mark(&mut bitmap, quad[j]);
         on_mark();
-        let total: i64 = quad.iter().sum();
-        for (i, &old) in quad.iter().enumerate() {
-            let k = 2 * (total - old) - old;
-            if old < k && k <= n {
-                let mut child = quad;
-                child[i] = k;
-                stack.push((child, i));
-            }
-        }
+        queue.extend(children(quad, n));
+    }
+    (count, bitmap, queue.into())
+}
+
+/// Depth-first walk of the subtree under `seed`, counting and marking every
+/// circle in it (the seed included) into `bitmap`.
+fn subtree_walk(seed: Seed, n: i64, bitmap: &mut [u64], on_mark: &mut impl FnMut()) -> i64 {
+    let mut count: i64 = 0;
+    let mut stack = vec![seed];
+    while let Some((quad, j)) = stack.pop() {
+        count += 1;
+        mark(bitmap, quad[j]);
+        on_mark();
+        stack.extend(children(quad, n));
+    }
+    count
+}
+
+/// The packing walk behind `pack`, with no precondition checks: the frontier,
+/// then each seed's subtree in turn. `on_mark` runs once per counted circle so
+/// a test can budget the work.
+fn walk(root: [i64; 4], n: i64, on_mark: &mut impl FnMut()) -> (i64, Vec<u64>) {
+    let (mut count, mut bitmap, seeds) = frontier(root, n, on_mark);
+    for seed in seeds {
+        count += subtree_walk(seed, n, &mut bitmap, on_mark);
     }
     (count, bitmap)
 }
@@ -1361,6 +1416,61 @@ mod tests {
             assert_eq!(count, marks, "{root:?}");
             assert!(distinct(&bitmap).iter().all(|&k| (0..=30).contains(&k)), "{root:?}");
         }
+    }
+
+    #[test]
+    fn split_const_pins() {
+        assert_eq!(SEED_TARGET, 4096);
+        assert_eq!(PARALLEL_MIN_N, 100_000);
+    }
+
+    #[test]
+    fn split_serial_equals_the_independent_walk_at_1e5() {
+        for root in [[-1, 2, 2, 3], [-11, 21, 24, 28], [-2, 3, 6, 7]] {
+            let (count, bitmap, workers) = pack_with_workers(root, 100_000).unwrap();
+            let (want_count, want) = oracle(root, 100_000);
+            assert_eq!(workers, 1, "{root:?}");
+            assert_eq!(count, want_count, "{root:?}");
+            assert_eq!(distinct(&bitmap), want.into_iter().collect::<Vec<_>>(), "{root:?}");
+            assert_eq!(pack(root, 100_000).unwrap(), (count, bitmap), "{root:?}");
+        }
+    }
+
+    #[test]
+    fn split_frontier_counts_are_pinned() {
+        for (root, want_seeds, want_count) in [
+            ([-1, 2, 2, 3], 4096, 2049),
+            ([-5, 10, 10, 15], 4097, 2063),
+            ([-300, 301, 90300, 90301], 0, -1),
+        ] {
+            let mut marks: i64 = 0;
+            let (count, _, seeds) = frontier(root, 100_000, &mut || marks += 1);
+            assert_eq!(seeds.len(), want_seeds, "{root:?}");
+            assert_eq!(count, marks, "{root:?}");
+            if want_count >= 0 {
+                assert_eq!(count, want_count, "{root:?}");
+            } else {
+                assert_eq!(count, oracle(root, 100_000).0, "{root:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn split_exhausted_frontier_equals_the_independent_walk() {
+        let root = [-300, 301, 90300, 90301];
+        let (count, bitmap, workers) = pack_with_workers(root, 100_000).unwrap();
+        let (want_count, want) = oracle(root, 100_000);
+        assert_eq!((count, workers), (want_count, 1));
+        assert_eq!(distinct(&bitmap), want.into_iter().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn split_pack_with_workers_rejects_like_pack() {
+        assert_eq!(pack_with_workers(ROOT_A, -1), pack(ROOT_A, -1).map(|(c, b)| (c, b, 1)));
+        assert_eq!(
+            pack_with_workers([-1, 2, 3, 3], 10),
+            pack([-1, 2, 3, 3], 10).map(|(c, b)| (c, b, 1))
+        );
     }
 
     #[test]
