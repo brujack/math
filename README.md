@@ -393,7 +393,12 @@ See [`triangle/README.md`](triangle/README.md) for full details.
 
 ## descartes
 
-Solves for the circles tangent to three mutually tangent circles (`--solve`), and enumerates an integral Apollonian packing up to curvature 10^K, drawing it in braille or, with `--svg PATH`, as an SVG capped at curvature `min(10^K, 1000 x |outer curvature|)`; each drawing reports how many of the computed circles it shows.
+Tangent circles by Descartes' circle theorem. A circle's curvature is `k = 1/r`, negative for a circle that encloses the others. The theorem says four mutually tangent circles satisfy `(k1 + k2 + k3 + k4)^2 = 2(k1^2 + k2^2 + k3^2 + k4^2)`, so three tangent circles have exactly two circles tangent to all three, `k4 = k1 + k2 + k3 ± 2√(k1k2 + k2k3 + k3k1)`.
+
+- **`--solve`** takes three mutually tangent circles (curvature and centre) and lists both circles tangent to all three, with their centres.
+- **Packing mode** starts from a root quadruple (default `-1 2 2 3`: a unit circle holding two circles of radius 1/2 and one of radius 1/3) and keeps filling every gap with the circle tangent to the three around it, `k' = 2(ka + kb + kc) - kd`. Integer roots give integer curvatures everywhere: an integral Apollonian packing. It never ends, so **K sets the cut-off**: the program counts every circle with curvature at most 10^K, which for the default root means radius at least 10^-K of the outer circle's. Each step of K multiplies the count by about 20 (10^1.3057; 1.3057 is the packing's fractal dimension): 8 circles at K=1, 168 at K=2, 3,328 at K=3, 1,359,170 at K=5, about 1.1e10 at K=8.
+
+It writes the distinct curvatures to `descartes_1e<K>.txt` and draws the packing in braille or, with `--svg PATH`, as an SVG capped at curvature `min(10^K, 1000 x |outer curvature|)`; each drawing reports how many of the computed circles it shows.
 
 - Python implementation (`descartes/descartes.py`) — stdlib only, no external dependencies; K 1-6
 - Rust implementation (`descartes/descartes-rs/`) — `i64`/`f64` arithmetic, bitmap packing; K 1-8

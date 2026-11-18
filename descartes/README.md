@@ -1,6 +1,31 @@
 # descartes
 
-Two tools on tangent circles. Enumerate an integral Apollonian packing (every circle's curvature is an integer) up to curvature 10^K and draw it in braille, or give three mutually tangent circles and list every circle tangent to all three.
+Two tools on tangent circles, built on Descartes' circle theorem. Enumerate an integral Apollonian packing (every circle's curvature is an integer) up to curvature 10^K and draw it in braille, or give three mutually tangent circles and list every circle tangent to all three.
+
+## Background
+
+A circle's **curvature** is `k = 1/r`; a circle that encloses the others gets a negative curvature. **Descartes' circle theorem**: four mutually tangent circles satisfy
+
+```text
+(k1 + k2 + k3 + k4)^2 = 2 (k1^2 + k2^2 + k3^2 + k4^2)
+```
+
+so three mutually tangent circles have exactly two circles tangent to all three: `k4 = k1 + k2 + k3 ± 2√(k1k2 + k2k3 + k3k1)`. The complex form of the theorem gives their centres the same way, which is what `--solve` computes.
+
+The two solutions add up to `2(k1 + k2 + k3)`, so replacing one circle of a quadruple by the other solution (a **reflection**, `k' = 2(ka + kb + kc) - kd`) gives a new tangent quadruple. Starting from a **root quadruple** and reflecting into every gap without end fills the outer circle with an **Apollonian packing**. If the root's curvatures are integers, every circle's is. The default root `-1 2 2 3` is a unit circle holding two circles of radius 1/2 and one of radius 1/3.
+
+**K** is the cut-off for that infinite process: packing mode counts every circle with curvature at most 10^K, which for the default root means radius at least 10^-K of the outer circle's. Measured on the default root:
+
+| K | circles | distinct curvatures |
+|---|---|---|
+| 1 | 8 | 3 |
+| 2 | 168 | 33 |
+| 3 | 3,328 | 324 |
+| 4 | 67,166 | 3,299 |
+| 5 | 1,359,170 | 33,273 |
+| 6 | 27,463,394 | 333,273 |
+
+Each step of K multiplies the circle count by about 20, which is 10^1.3057; 1.3057 is the fractal (Hausdorff) dimension of the Apollonian packing. Distinct curvatures grow only about tenfold per step, because many circles share a curvature. `circles` excludes the outer circle; `distinct` is the number of different curvature values, written one per line to `descartes_1e<K>.txt`. Python takes K 1-6 and Rust 1-8 (about 1.1e10 circles at K=8).
 
 Python (`descartes.py`, standard library, no external dependencies) and Rust (`descartes-rs/`, see [`descartes-rs/README.md`](descartes-rs/README.md)); the Rust version takes K 1 to 8 where Python takes 1 to 6.
 
