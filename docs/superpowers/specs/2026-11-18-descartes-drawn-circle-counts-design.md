@@ -219,3 +219,24 @@ Round 2's corrections removed surface (R11, its tests, the N3 carve-out) and add
 
 - finding R8 (2026-11-18, reviewer both): DIFFERS — The spec now gives `315,079 bytes` with a note dated 2026-11-18, but the note quotes `the earlier "about 230 KB"`, so the file still contains the string `about 230 KB`, which the requirement says it must no longer say.
 - R8 reviewed: fixed in e031bff
+
+## Spec alignment (2026-11-18)
+
+- spec: docs/superpowers/specs/2026-11-18-descartes-drawn-circle-counts-design.md
+- anchor: 2c2a983936a6aee976a631f2d8776c26398977e1
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8, R9, R10
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+
+### Reviewed
+
+- R8 reviewed: fixed in e031bff
+
+### Verifications
+
+- V1: Measured 2026-11-18 on claude: Python K=1..6 and Rust K=1..8 at the default root with --svg each printed exactly one SVG shows line; n equalled grep -c '<circle' minus 1 in every run (8, 168, then 3328 for K>=3); every K>=3 SVG cmp-identical to K=3 in both languages; Python K=3 SVG byte-identical to Rust K=3 SVG.
+- V2: Pending: CI on the PR (to be filled from gh pr checks after push).
