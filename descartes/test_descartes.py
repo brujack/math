@@ -2657,7 +2657,9 @@ class TestCountLines(CliTestCase):
         self.assertFalse(any(x.startswith("braille draws") for x in out.splitlines()))
 
     def test_no_draw_prints_no_braille_count(self) -> None:
-        _, out, _ = self.run_main("2", "--no-draw")
+        code, out, _ = self.run_main("2", "--no-draw")
+        self.assertEqual(code, 0)
+        self.assertEqual(out.splitlines()[-1], "Saved to descartes_1e2.txt")
         self.assertNotIn("braille draws", out)
 
     def test_without_svg_there_is_no_svg_count(self) -> None:
@@ -2666,9 +2668,12 @@ class TestCountLines(CliTestCase):
         self.assertTrue(out.splitlines()[-1].startswith("braille draws "))
 
     def test_solve_prints_neither_line(self) -> None:
-        _, out, _ = self.run_main(
+        code, out, _ = self.run_main(
             "--solve", "-1,0,0", "2,0.5,0", "3,0,0.6666666666666666", "--svg", "s.svg"
         )
+        self.assertEqual(code, 0)
+        self.assertIn("Saved SVG to s.svg", out.splitlines())
+        self.assertTrue(any(x.startswith("solution  2") for x in out.splitlines()))
         self.assertNotIn("braille draws", out)
         self.assertNotIn("SVG shows", out)
 
@@ -3001,6 +3006,15 @@ class TestSvgPacking(unittest.TestCase):
     def test_comment_k1_limit(self) -> None:
         text, _ = descartes.svg_packing((-1, 2, 2, 3), 1)
         self.assertIn("<= 10;", text.splitlines()[3])
+
+    def test_comment_limit_is_the_root_cap_not_ten_to_k(self) -> None:
+        # Root (-2, 3, 6, 7) at K=4: the cap 1000 x 2 = 2000 is below 10^4.
+        text, _ = descartes.svg_packing((-2, 3, 6, 7), 4)
+        self.assertIn("<= 2000;", text.splitlines()[3])
+
+    def test_invalid_root_raises(self) -> None:
+        with self.assertRaises(BadInput):
+            descartes.svg_packing((1, 2, 3, 4), 3)
 
     def test_k3_equals_k4(self) -> None:
         self.assertEqual(

@@ -2867,6 +2867,9 @@ mod tests {
         );
         let (k1, _) = svg_packing([-1, 2, 2, 3], 1).unwrap();
         assert!(k1.lines().nth(3).unwrap().contains("<= 10;"));
+        // Root [-2, 3, 6, 7] at K=4: the cap 1000 x 2 = 2000 is below 10^4.
+        let (tie, _) = svg_packing([-2, 3, 6, 7], 4).unwrap();
+        assert!(tie.lines().nth(3).unwrap().contains("<= 2000;"));
         let (k4, _) = svg_packing([-1, 2, 2, 3], 4).unwrap();
         assert_eq!(text, k4);
         assert_eq!(svg_packing([-11, 21, 24, 28], 1).unwrap().1, 0);

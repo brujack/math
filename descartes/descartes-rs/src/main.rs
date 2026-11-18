@@ -1538,6 +1538,8 @@ solution  2  6          0.16666666666666666  0.5   0.6666666666666666
     #[test]
     fn count_lines_no_draw_without_svg_prints_neither() {
         let (o, _dir) = piped(&["2", "--no-draw"]);
+        assert_eq!(o.code, 0);
+        assert_eq!(o.stdout.lines().last(), Some("Saved to descartes_1e2.txt"));
         assert!(!o.stdout.contains("braille draws"));
         assert!(!o.stdout.contains("SVG shows"));
     }
@@ -1560,6 +1562,8 @@ solution  2  6          0.16666666666666666  0.5   0.6666666666666666
             dir.path(),
         );
         assert_eq!(o.code, 0);
+        assert!(o.stdout.lines().any(|l| l.starts_with("solution  2")), "{}", o.stdout);
+        assert!(o.stdout.lines().any(|l| l.starts_with("Saved SVG to ")), "{}", o.stdout);
         assert!(!o.stdout.contains("braille draws"));
         assert!(!o.stdout.contains("SVG shows"));
     }
