@@ -431,7 +431,10 @@ class TestValidateRoot(unittest.TestCase):
 @functools.cache
 def _cached_pack(root: Root, n: int) -> tuple[int, bytes, int]:
     """pack_with_workers memoised per process: the n=10**5 walks are shared."""
-    count, bitmap, workers = pack_with_workers(root, n)
+    # One CPU pins the serial path: heavy tests must not fork a pool sized by the
+    # machine (the pool path is covered by TestPackParallel with explicit counts).
+    with mock.patch.object(descartes, "_cpu_count", return_value=1):
+        count, bitmap, workers = pack_with_workers(root, n)
     return count, bytes(bitmap), workers
 
 
@@ -680,6 +683,28 @@ def setUpModule() -> None:
     """
     for root in (ROOT_A, ROOT_B):
         _guard_pack(root, 100)
+    _guard_parallel_rules()
+
+
+def _guard_parallel_rules() -> None:
+    """Raise AssertionError unless the task split and the parallel gate hold.
+
+    A mutant of `4 * workers` builds 4**48 tasks at the real CPU count, and a
+    mutant of the gate forks pools below the threshold in many tests; either
+    runs until cosmic-ray times out. Both rules are checked cheaply up front.
+    """
+    tasks = descartes._tasks([([i], 0) for i in range(10)], 2)
+    if len(tasks) != 8 or any(([i], 0) not in tasks[i % 8] for i in range(10)):
+        raise AssertionError("_tasks does not deal 10 seeds into 8 tasks")
+    with (
+        mock.patch.object(descartes, "_cpu_count", return_value=2),
+        mock.patch.object(
+            descartes, "ProcessPoolExecutor", side_effect=AssertionError("pool")
+        ),
+    ):
+        workers = pack_with_workers((-11, 21, 24, 28), PARALLEL_MIN_N - 1)[2]
+    if workers != 1:
+        raise AssertionError("a pool ran below PARALLEL_MIN_N")
 
 
 class TestPackSplit(unittest.TestCase):
@@ -702,7 +727,7 @@ class TestPackSplit(unittest.TestCase):
             with self.subTest(root=root):
                 count, bitmap, workers = self.packed[root]
                 self.assertEqual((count, bitmap), _cached_reference(root, self.N))
-                self.assertEqual(workers, descartes._cpu_count())
+                self.assertEqual(workers, 1)
 
     def test_pack_equals_reference_walk(self) -> None:
         for root in self.ROOTS:
