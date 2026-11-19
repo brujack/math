@@ -77,7 +77,7 @@ The SVG matches the Python program's.
 
 ## Parallel packing
 
-The packing search splits once: a breadth-first pass stops at `SEED_TARGET = 4096` seeds, then the seeds' subtrees are walked across rayon's thread pool. Runs go parallel only when `n >= PARALLEL_MIN_N = 100_000` (K 5 or more), seeds remain and more than one worker is available; the output is byte-identical to the serial run, which never starts rayon's pool. When more than one worker ran, `Workers: <N>` is written to stderr immediately before `Elapsed:`. Set `RAYON_NUM_THREADS=<N>` to bound the worker count (`1` forces a serial run); the Python program uses `PYTHON_CPU_COUNT` for the same purpose.
+The packing search splits once: a breadth-first pass stops at `SEED_TARGET = 4096` seeds, then the seeds' subtrees are walked across rayon's thread pool. Runs go parallel only when `n >= PARALLEL_MIN_N = 100_000` (K 5 or more), seeds remain and more than one worker is available; the output is byte-identical to the serial run. Below the threshold, or when the frontier runs out of seeds, the walk never starts rayon's pool; at K 5 or more with one worker, a one-thread pool is built and the walk runs serially. When more than one worker ran, `Workers: <N>` is written to stderr immediately before `Elapsed:`. Set `RAYON_NUM_THREADS=<N>` to bound the worker count (`1` forces a serial run); the Python program uses `PYTHON_CPU_COUNT` for the same purpose.
 
 ## Known limits
 
