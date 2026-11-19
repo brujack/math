@@ -22,6 +22,7 @@ import typing
 import unittest
 from collections import deque
 from collections.abc import Iterator
+from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from fractions import Fraction
 from unittest import mock
@@ -789,6 +790,22 @@ class TestPackParallel(unittest.TestCase):
                 count, bitmap, workers = self._pack(root, self.N, 2)
                 self.assertEqual((count, bitmap), _cached_reference(root, self.N))
                 self.assertEqual(workers, 2)
+
+    def test_pool_gets_the_worker_count_and_start_method(self) -> None:
+        # The real pool still runs; only its constructor arguments are recorded. The
+        # answer is the same with any worker count or start method, so only the
+        # arguments can show that the pool was asked for what the run reported.
+        spy = mock.Mock(wraps=ProcessPoolExecutor)
+        with mock.patch.object(descartes, "ProcessPoolExecutor", spy):
+            count, bitmap, workers = self._pack(self.ROOT, self.N, 2)
+        self.assertEqual((count, bitmap), _cached_reference(self.ROOT, self.N))
+        self.assertEqual(workers, 2)
+        spy.assert_called_once()
+        self.assertEqual(spy.call_args.kwargs["max_workers"], 2)
+        context = spy.call_args.kwargs["mp_context"]
+        self.assertEqual(
+            context.get_start_method(), "fork" if sys.platform == "linux" else "spawn"
+        )
 
     def _pack_with_tripwire(self, root: Root, cpus: int) -> tuple[int, bytes, int]:
         """Pack with a pool that fails the test if built; stderr must stay empty.
