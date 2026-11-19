@@ -10,8 +10,8 @@ use std::process::{self, Command, Stdio};
 use std::time::Instant;
 
 use descartes::{
-    Circle, DescartesError, distinct, pack_with_workers, render, root_centres, solve, svg_limit,
-    svg_packing, svg_solve, validate_root, visible,
+    Circle, DescartesError, Packing, distinct, pack_with_builder, render, root_centres, solve,
+    svg_limit, svg_packing, svg_solve, validate_root, visible,
 };
 
 /// Largest K: curvature limit 10^8 is the core's `N_MAX` (spec R14, R22).
@@ -414,6 +414,20 @@ fn run_packing<R: BufRead, W: Write, E: Write>(
     stdout: &mut W,
     stderr: &mut E,
 ) -> Result<(), Stop> {
+    let build = || rayon::ThreadPoolBuilder::new().build();
+    run_packing_with_pool(args, stdin, term, out_dir, stdout, stderr, build)
+}
+
+/// `run_packing` with the rayon pool construction injected, so a test can refuse the pool.
+fn run_packing_with_pool<R: BufRead, W: Write, E: Write>(
+    args: &Args,
+    stdin: &mut R,
+    term: &Terminal,
+    out_dir: &Path,
+    stdout: &mut W,
+    stderr: &mut E,
+    build: impl FnOnce() -> Result<rayon::ThreadPool, rayon::ThreadPoolBuildError>,
+) -> Result<(), Stop> {
     let k = exponent(args.size, stdin, stdout, stderr)?;
     // `num_args = 4` with `ArgAction::Set` leaves exactly four values (the last `--root` wins).
     let requested = args
@@ -429,8 +443,8 @@ fn run_packing<R: BufRead, W: Write, E: Write>(
     let file = File::create(out_dir.join(&filename))
         .map_err(|e| fail(stderr, format!("cannot write {filename}: {e}"), 1))?;
     let start = Instant::now();
-    let (count, bitmap, workers) =
-        pack_with_workers(root, n).map_err(|e| fail_descartes(stderr, &e))?;
+    let Packing { count, bitmap, workers, fallback } =
+        pack_with_builder(root, n, build).map_err(|e| fail_descartes(stderr, &e))?;
     let curvatures = distinct(&bitmap);
     let mut writer = BufWriter::new(file);
     for curvature in &curvatures {
@@ -456,6 +470,13 @@ fn run_packing<R: BufRead, W: Write, E: Write>(
     writeln!(stdout, "Saved to {filename}")?;
     if let Some(path) = args.svg.as_deref() {
         writeln!(stdout, "Saved SVG to {}", path.display())?;
+    }
+    if let Some(error) = fallback {
+        writeln!(stderr, "Parallel mode unavailable ({error}); falling back to serial.")?;
+        writeln!(
+            stderr,
+            "Raise the process or thread limit (ulimit -u, a container pids limit) to re-enable parallel mode."
+        )?;
     }
     write_workers_line(stderr, workers)?;
     writeln!(stderr, "Elapsed: {elapsed:.2}s")?;
@@ -691,6 +712,51 @@ mod tests {
         let o = run_k_in_pool("4", 2);
         assert!(!o.stderr.contains("Workers:"), "{}", o.stderr);
         assert_elapsed_line(o.stderr.trim_end());
+    }
+
+    #[test]
+    fn fallback_failed_pool_prints_two_lines_then_elapsed_and_matches_serial() {
+        let root = ["--root", "-11", "21", "24", "28", "--no-draw"];
+        let run_with = |build: fn() -> Result<rayon::ThreadPool, rayon::ThreadPoolBuildError>| {
+            let dir = tempfile::tempdir().unwrap();
+            let mut args = vec!["5"];
+            args.extend(root);
+            let args = Args::try_parse_from(argv(&args)).unwrap();
+            let (mut out, mut err) = (Vec::<u8>::new(), Vec::<u8>::new());
+            let result = run_packing_with_pool(
+                &args,
+                &mut "".as_bytes(),
+                &PIPED,
+                dir.path(),
+                &mut out,
+                &mut err,
+                build,
+            );
+            assert!(result.is_ok());
+            let file =
+                std::fs::read_to_string(dir.path().join(packing_filename(5, [-11, 21, 24, 28])));
+            (String::from_utf8(out).unwrap(), String::from_utf8(err).unwrap(), file.unwrap())
+        };
+        let refuse = || {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(2)
+                .spawn_handler(|_| Err(io::Error::other("refused")))
+                .build()
+        };
+        let (out, err, file) = run_with(refuse);
+        let lines: Vec<&str> = err.lines().collect();
+        assert_eq!(lines.len(), 3, "{err}");
+        assert!(lines[0].starts_with("Parallel mode unavailable ("), "{err}");
+        assert!(lines[0].ends_with("refused); falling back to serial."), "{err}");
+        assert_eq!(
+            lines[1],
+            "Raise the process or thread limit (ulimit -u, a container pids limit) to re-enable parallel mode."
+        );
+        assert_elapsed_line(lines[2]);
+        let (serial_out, serial_err, serial_file) =
+            run_with(|| rayon::ThreadPoolBuilder::new().num_threads(1).build());
+        assert_eq!((out, file), (serial_out, serial_file));
+        assert_eq!(serial_err.lines().count(), 1, "{serial_err}");
     }
 
     #[test]

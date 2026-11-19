@@ -193,27 +193,75 @@ pub fn pack(root: [i64; 4], n: i64) -> Result<(i64, Vec<u64>), DescartesError> {
     Ok((count, bitmap))
 }
 
+/// The result of a packing walk: the count, the bitmap, the workers used and,
+/// when the rayon pool could not be built, the error that made the walk serial.
+#[derive(Debug)]
+pub struct Packing {
+    pub count: i64,
+    pub bitmap: Vec<u64>,
+    /// 1 for a serial walk, otherwise the thread count of the pool that ran it.
+    pub workers: usize,
+    /// The pool-build error text when the walk fell back to serial; the caller reports it.
+    pub fallback: Option<String>,
+}
+
 /// `pack`, also returning the number of workers used: 1 for the serial walk,
-/// `rayon::current_num_threads()` when `n >= PARALLEL_MIN_N`, the frontier left
-/// seeds and the pool has more than one thread. The result is identical either
-/// way. Same checks and errors as `pack`.
+/// the pool's thread count when `n >= PARALLEL_MIN_N`, the frontier left seeds
+/// and the pool has more than one thread. The result is identical either way.
+/// Same checks and errors as `pack`; a pool that cannot be built is not an
+/// error here, use `pack_reporting` to see it.
 pub fn pack_with_workers(root: [i64; 4], n: i64) -> Result<(i64, Vec<u64>, usize), DescartesError> {
+    let packing = pack_reporting(root, n)?;
+    Ok((packing.count, packing.bitmap, packing.workers))
+}
+
+/// `pack_with_workers` that also reports a pool-build failure (R11), so the
+/// caller can tell the user why the run was serial.
+pub fn pack_reporting(root: [i64; 4], n: i64) -> Result<Packing, DescartesError> {
+    pack_with_builder(root, n, || rayon::ThreadPoolBuilder::new().build())
+}
+
+/// The packing walk with the pool construction injected. `build` runs only when
+/// `n >= PARALLEL_MIN_N`, seeds remain and the caller is not already inside a
+/// rayon pool (then that pool is used). If `build` fails the subtrees are
+/// walked serially and the error text is returned in `Packing::fallback`.
+///
+/// The pool is built here, not left to rayon's lazily built global pool: that
+/// one panics when the OS refuses a thread, and a serial run must never reach it.
+pub fn pack_with_builder(
+    root: [i64; 4],
+    n: i64,
+    build: impl FnOnce() -> Result<rayon::ThreadPool, rayon::ThreadPoolBuildError>,
+) -> Result<Packing, DescartesError> {
     check_n(n, N_MAX, "pack", "n")?;
     check_reduced_root(root, "pack")?;
     let (count, bitmap, seeds) = frontier(root, n, &mut || {});
-    // Test `n` and the seeds first: `current_num_threads` builds rayon's global
-    // pool when called outside `install`, so a serial run must never reach it.
+    let mut fallback = None;
     if n >= PARALLEL_MIN_N && !seeds.is_empty() {
-        let workers = rayon::current_num_threads();
         // `!= 1`, not `> 1`: a one-thread pool gives the same answer either way, so
-        // `>= 1` would be an unkillable equivalent mutant; `current_num_threads` is >= 1.
-        if workers != 1 {
-            let (count, bitmap) = parallel_subtrees(count, bitmap, &seeds, n, &|| {});
-            return Ok((count, bitmap, workers));
+        // `>= 1` would be an unkillable equivalent mutant; thread counts are >= 1.
+        if rayon::current_thread_index().is_some() {
+            let workers = rayon::current_num_threads();
+            if workers != 1 {
+                let (count, bitmap) = parallel_subtrees(count, bitmap, &seeds, n, &|| {});
+                return Ok(Packing { count, bitmap, workers, fallback });
+            }
+        } else {
+            match build() {
+                Ok(pool) => {
+                    let workers = pool.current_num_threads();
+                    if workers != 1 {
+                        let (count, bitmap) =
+                            pool.install(|| parallel_subtrees(count, bitmap, &seeds, n, &|| {}));
+                        return Ok(Packing { count, bitmap, workers, fallback });
+                    }
+                }
+                Err(error) => fallback = Some(error.to_string()),
+            }
         }
     }
     let (count, bitmap) = serial_subtrees(count, bitmap, seeds, n, &mut || {});
-    Ok((count, bitmap, 1))
+    Ok(Packing { count, bitmap, workers: 1, fallback })
 }
 
 /// Walk every seed's subtree on the rayon pool into one shared atomic bitmap
@@ -1614,6 +1662,71 @@ mod tests {
     fn parallel_one_thread_stays_serial() {
         let (count, _, workers) = in_pool(1, || pack_with_workers(ROOT_A, 100_000).unwrap());
         assert_eq!((count, workers), (oracle(ROOT_A, 100_000).0, 1));
+    }
+
+    fn refusing_builder() -> Result<rayon::ThreadPool, rayon::ThreadPoolBuildError> {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(2)
+            .spawn_handler(|_| Err(std::io::Error::other("refused")))
+            .build()
+    }
+
+    #[test]
+    fn fallback_failed_pool_build_walks_serially_and_reports_the_error() {
+        let root = [-11, 21, 24, 28];
+        let packing = pack_with_builder(root, 100_000, refusing_builder).unwrap();
+        let (want_count, want) = oracle(root, 100_000);
+        assert_eq!((packing.count, packing.workers), (want_count, 1));
+        assert_eq!(distinct(&packing.bitmap), want.into_iter().collect::<Vec<_>>());
+        assert!(packing.fallback.expect("error reported").contains("refused"));
+    }
+
+    #[test]
+    fn fallback_built_pool_runs_in_parallel_without_a_report() {
+        let root = [-11, 21, 24, 28];
+        let build = || rayon::ThreadPoolBuilder::new().num_threads(2).build();
+        let packing = pack_with_builder(root, 100_000, build).unwrap();
+        let (want_count, want) = oracle(root, 100_000);
+        assert_eq!((packing.count, packing.workers, packing.fallback), (want_count, 2, None));
+        assert_eq!(distinct(&packing.bitmap), want.into_iter().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn fallback_one_thread_pool_stays_serial_without_a_report() {
+        let build = || rayon::ThreadPoolBuilder::new().num_threads(1).build();
+        let packing = pack_with_builder([-11, 21, 24, 28], 100_000, build).unwrap();
+        assert_eq!((packing.workers, packing.fallback), (1, None));
+    }
+
+    #[test]
+    fn fallback_builder_unused_below_threshold_and_with_an_exhausted_frontier() {
+        let never = || -> Result<rayon::ThreadPool, rayon::ThreadPoolBuildError> {
+            panic!("the pool builder must not run")
+        };
+        let below = pack_with_builder([-11, 21, 24, 28], PARALLEL_MIN_N - 1, never).unwrap();
+        assert_eq!((below.workers, below.fallback), (1, None));
+        let exhausted = pack_with_builder([-300, 301, 90300, 90301], 100_000, never).unwrap();
+        assert_eq!((exhausted.workers, exhausted.fallback), (1, None));
+    }
+
+    #[test]
+    fn fallback_inside_a_pool_uses_it_and_skips_the_builder() {
+        let never = || -> Result<rayon::ThreadPool, rayon::ThreadPoolBuildError> {
+            panic!("the pool builder must not run")
+        };
+        let packing = in_pool(2, || pack_with_builder([-11, 21, 24, 28], 100_000, never).unwrap());
+        assert_eq!((packing.workers, packing.fallback), (2, None));
+    }
+
+    #[test]
+    fn fallback_rejects_bad_input_before_building() {
+        let never = || -> Result<rayon::ThreadPool, rayon::ThreadPoolBuildError> {
+            panic!("the pool builder must not run")
+        };
+        assert!(matches!(
+            pack_with_builder(ROOT_A, N_MAX + 1, never),
+            Err(DescartesError::BadInput(_))
+        ));
     }
 
     #[test]
