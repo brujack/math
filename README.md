@@ -400,8 +400,10 @@ Tangent circles by Descartes' circle theorem. A circle's curvature is `k = 1/r`,
 
 It writes the distinct curvatures to `descartes_1e<K>.txt` and draws the packing in braille or, with `--svg PATH`, as an SVG capped at curvature `min(10^K, 1000 x |outer curvature|)`; each drawing reports how many of the computed circles it shows.
 
-- Python implementation (`descartes/descartes.py`) — stdlib only, no external dependencies; K 1-6
-- Rust implementation (`descartes/descartes-rs/`) — `i64`/`f64` arithmetic, bitmap packing; K 1-8
+- Python implementation (`descartes/descartes.py`) — stdlib only, no external dependencies; K 1-6; from K = 5 the packing runs on a process pool (serial fallback if the pool fails)
+- Rust implementation (`descartes/descartes-rs/`) — `i64`/`f64` arithmetic, bitmap packing; K 1-8; from K = 5 the packing runs on rayon threads (serial fallback if the OS refuses a thread)
+
+Both print `Workers: <N>` to stderr before `Elapsed:` when more than one worker ran; output is identical to a serial run.
 
 See [`descartes/README.md`](descartes/README.md) for full details.
 
