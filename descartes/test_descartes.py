@@ -2963,7 +2963,8 @@ class TestWorkersLine(CliTestCase):
     """The Workers stderr line: printed only when the pool actually ran."""
 
     _serial_k5: typing.ClassVar[tuple[int, str, str] | None] = None
-    # A small root: ~59k circles at K=5, still above PARALLEL_MIN_N so the pool runs.
+    # A small root: K=5 gives n = 10**5 = PARALLEL_MIN_N, so the pool runs, and its
+    # packing is small enough to keep these CLI legs fast.
     ROOT = ("-11", "21", "24", "28")
 
     def _run(self, k: str, cpus: int) -> tuple[int, str, str]:
