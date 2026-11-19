@@ -208,7 +208,7 @@ pub fn pack_with_workers(root: [i64; 4], n: i64) -> Result<(i64, Vec<u64>, usize
         // `!= 1`, not `> 1`: a one-thread pool gives the same answer either way, so
         // `>= 1` would be an unkillable equivalent mutant; `current_num_threads` is >= 1.
         if workers != 1 {
-            let (count, bitmap) = parallel_subtrees(count, bitmap, &seeds, n);
+            let (count, bitmap) = parallel_subtrees(count, bitmap, &seeds, n, &|| {});
             return Ok((count, bitmap, workers));
         }
     }
@@ -217,12 +217,23 @@ pub fn pack_with_workers(root: [i64; 4], n: i64) -> Result<(i64, Vec<u64>, usize
 }
 
 /// Walk every seed's subtree on the rayon pool into one shared atomic bitmap
-/// that starts from the frontier's, and add the counts to `count`.
-fn parallel_subtrees(count: i64, bitmap: Vec<u64>, seeds: &[Seed], n: i64) -> (i64, Vec<u64>) {
+/// that starts from the frontier's, and add the counts to `count`. `on_seed`
+/// runs once per seed on the thread that walks it; production passes a no-op,
+/// a test uses it to see which pool threads did the walking.
+fn parallel_subtrees(
+    count: i64,
+    bitmap: Vec<u64>,
+    seeds: &[Seed],
+    n: i64,
+    on_seed: &(impl Fn() + Sync),
+) -> (i64, Vec<u64>) {
     let shared: Vec<AtomicU64> = bitmap.into_iter().map(AtomicU64::new).collect();
     let walked: i64 = seeds
         .par_iter()
-        .map(|&seed| subtree_count(seed, n, &mut |k| mark_atomic(&shared, k)))
+        .map(|&seed| {
+            on_seed();
+            subtree_count(seed, n, &mut |k| mark_atomic(&shared, k))
+        })
         .sum();
     (count + walked, shared.into_iter().map(AtomicU64::into_inner).collect())
 }
@@ -1565,6 +1576,38 @@ mod tests {
             assert_eq!(count, want_count, "{root:?}");
             assert_eq!(distinct(&bitmap), want.into_iter().collect::<Vec<_>>(), "{root:?}");
         }
+    }
+
+    #[test]
+    fn parallel_subtrees_walk_seeds_on_two_pool_threads() {
+        use std::collections::HashSet;
+        use std::sync::Mutex;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::time::{Duration, Instant};
+        let root = [-11, 21, 24, 28];
+        let n = 100_000;
+        let arrived = AtomicUsize::new(0);
+        let threads: Mutex<HashSet<usize>> = Mutex::new(HashSet::new());
+        let (count, bitmap) = in_pool(2, || {
+            let (count, bitmap, seeds) = frontier(root, n, &mut || {});
+            // Each thread's first seed waits for the other thread (bounded), so a
+            // pool that really runs both threads cannot finish on one of them.
+            let on_seed = || {
+                let me = rayon::current_thread_index().expect("walk runs on a pool thread");
+                if threads.lock().unwrap().insert(me) {
+                    arrived.fetch_add(1, Ordering::SeqCst);
+                    let deadline = Instant::now() + Duration::from_secs(5);
+                    while arrived.load(Ordering::SeqCst) < 2 && Instant::now() < deadline {
+                        std::thread::yield_now();
+                    }
+                }
+            };
+            parallel_subtrees(count, bitmap, &seeds, n, &on_seed)
+        });
+        let (want_count, want) = oracle(root, n);
+        assert_eq!(threads.into_inner().unwrap().len(), 2);
+        assert_eq!(count, want_count);
+        assert_eq!(distinct(&bitmap), want.into_iter().collect::<Vec<_>>());
     }
 
     #[test]
