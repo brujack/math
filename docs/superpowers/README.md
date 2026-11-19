@@ -65,7 +65,7 @@ Master status index for all specs and implementation plans in this directory.
 | 2026-11-15 | [descartes](plans/2026-11-15-descartes.md) | [spec](specs/2026-11-15-descartes-design.md) | Done (PR1 Python #224; PR2 Rust #225) |
 | 2026-11-17 | [svg-output-and-prompt-reprompt](plans/2026-11-17-svg-output-and-prompt-reprompt.md) | [spec](specs/2026-11-17-svg-output-and-prompt-reprompt-design.md) | Done (PR2 math#229, PR1 math#230, PR3 math#231) |
 | 2026-11-18 | [descartes-drawn-circle-counts](plans/2026-11-18-descartes-drawn-circle-counts.md) | [spec](specs/2026-11-18-descartes-drawn-circle-counts-design.md) | Done (math#232) |
-| 2026-11-18 | [descartes-parallel-packing](plans/2026-11-18-descartes-parallel-packing.md) | [spec](specs/2026-11-18-descartes-parallel-packing-design.md) | In progress |
+| 2026-11-18 | [descartes-parallel-packing](plans/2026-11-18-descartes-parallel-packing.md) | [spec](specs/2026-11-18-descartes-parallel-packing-design.md) | Done |
 | 2026-10-31 | [shared-push-content-gate](plans/2026-10-31-shared-push-content-gate.md) | ai-config `2026-10-30-shared-push-content-gate-design.md` (cross-repo) | Done |
 
 ---

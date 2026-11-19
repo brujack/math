@@ -2,6 +2,8 @@
 
 spec: docs/superpowers/specs/2026-11-18-descartes-parallel-packing-design.md
 
+> **Status: DONE** — merged via math#234 (6fa6ae8, 2026-11-19). Rust K=8 196.95 s to 11.62 s, Python K=6 30.82 s to 2.76 s on 48 CPUs; output byte-identical to master.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Walk the descartes packing in parallel (rayon in Rust, a `fork`/`spawn` `ProcessPoolExecutor` in Python) with results byte-identical to the serial walk.
