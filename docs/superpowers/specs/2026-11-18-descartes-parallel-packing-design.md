@@ -249,3 +249,8 @@ Round 2's one design finding (the guard copy) is fixed by removing a duplicate r
 ### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+## Amendments
+
+- R4 -> In `descartes-rs` the subtree walks run on a rayon pool with `workers` equal to that pool's thread count: the current pool when `pack_with_workers` is called from inside one (`rayon::current_thread_index()` is `Some`), otherwise a pool built with `rayon::ThreadPoolBuilder::new().build()` and entered with `install`; marks go to one shared `Vec<AtomicU64>` (relaxed load, `fetch_or` only when the bit is unset), counts are summed, the crate adds `rayon = "1"` and keeps `unsafe_code = "forbid"`. — bug-scan found that building rayon's global pool lazily panics when the OS refuses a thread, so the pool is built where its error can be handled.
+- adds R11: When `descartes-rs` cannot build its rayon pool (`ThreadPoolBuilder::build` returns an error), `pack_with_workers` walks the remaining subtrees serially with `workers = 1` and reports the error, and the CLI prints `Parallel mode unavailable (<error>); falling back to serial.` then `Raise the process or thread limit (ulimit -u, a container pids limit) to re-enable parallel mode.` to stderr before `Elapsed:`, exits 0 and writes the same stdout and `.txt` as a serial run. — bug-scan found a K >= 5 run under `ulimit -u 5` panicked with exit 101 after truncating the `.txt`, a regression from master's thread-free crate; the operator chose a descartes-rs fallback on 2026-11-18 and a Backlog row for pi-rs, e-rs, factorial-rs and prime-rs.
