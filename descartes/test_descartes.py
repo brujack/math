@@ -8,6 +8,7 @@ Descartes theorem, so it checks the integer recurrence against geometry.
 import argparse
 import cmath
 import contextlib
+import functools
 import inspect
 import io
 import math
@@ -21,6 +22,8 @@ import typing
 import unittest
 from collections import deque
 from collections.abc import Iterator
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from fractions import Fraction
 from unittest import mock
 
@@ -29,8 +32,10 @@ import annotationlib
 import descartes
 from descartes import (
     LARGE_RUN_THRESHOLD,
+    PARALLEL_MIN_N,
     PIPE_HEIGHT,
     PIPE_WIDTH,
+    SEED_TARGET,
     SMOKE_SIZE,
     BadInput,
     Circle,
@@ -38,12 +43,14 @@ from descartes import (
     _canvas_size,
     _circle_arg,
     _format_value,
+    _frontier,
     _plot,
     check_tangent,
     descartes_fourth,
     distinct,
     get_exponent,
     pack,
+    pack_with_workers,
     parse_args,
     refuse_large_run,
     render,
@@ -422,14 +429,28 @@ class TestValidateRoot(unittest.TestCase):
 # --- pack ---------------------------------------------------------------------
 
 
+@functools.cache
+def _cached_pack(root: Root, n: int) -> tuple[int, bytes, int]:
+    """pack_with_workers memoised per process: the n=10**5 walks are shared."""
+    # One CPU pins the serial path: heavy tests must not fork a pool sized by the
+    # machine (the pool path is covered by TestPackParallel with explicit counts).
+    with mock.patch.object(descartes, "_cpu_count", return_value=1):
+        count, bitmap, workers = pack_with_workers(root, n)
+    return count, bytes(bitmap), workers
+
+
 class TestPackPinned(unittest.TestCase):
+    # Smallest n first and no subTest: a corrupted curvature formula fails the
+    # first row at once, instead of running the n=10**5 walks it would otherwise
+    # reach (those can run for minutes under a mutant and time out the run).
     def test_pinned_values(self) -> None:
-        for root, n, count, n_distinct in PINNED:
-            with self.subTest(root=root, n=n):
-                got_count, bitmap = pack(root, n)
-                self.assertEqual(
-                    (got_count, len(distinct(bitmap))), (count, n_distinct)
-                )
+        for root, n, count, n_distinct in sorted(PINNED, key=lambda row: row[1]):
+            got_count, bitmap, _ = _cached_pack(root, n)
+            self.assertEqual(
+                (got_count, len(distinct(bytearray(bitmap)))),
+                (count, n_distinct),
+                f"root={root} n={n}",
+            )
 
     def test_distinct_list_root_a_30(self) -> None:
         _, bitmap = pack(ROOT_A, 30)
@@ -588,6 +609,353 @@ class TestPackLimits(unittest.TestCase):
                     count, bitmap = pack(root, 30)
                 self.assertEqual(count, calls)
                 self.assertTrue(all(0 <= k <= 30 for k in distinct(bitmap)))
+
+
+def _reference_walk(root: Root, n: int) -> tuple[int, bytearray]:
+    """The serial depth-first walk exactly as pack ran it before the split."""
+    bitmap = bytearray(n // 8 + 1)
+    count = 0
+    for k in root[1:]:
+        if k <= n:
+            count += 1
+            descartes._mark(bitmap, k)
+    total = sum(root)
+    stack: list[tuple[list[int], int]] = []
+    for i in range(4):
+        k = 2 * (total - root[i]) - root[i]
+        if k <= n:
+            quad = list(root)
+            quad[i] = k
+            stack.append((quad, i))
+    while stack:
+        quad, j = stack.pop()
+        count += 1
+        descartes._mark(bitmap, quad[j])
+        total = sum(quad)
+        for i in range(4):
+            if i == j:
+                continue
+            k = 2 * (total - quad[i]) - quad[i]
+            if quad[i] < k <= n:
+                child = list(quad)
+                child[i] = k
+                stack.append((child, i))
+    return count, bitmap
+
+
+@functools.cache
+def _cached_reference(root: Root, n: int) -> tuple[int, bytes]:
+    """_reference_walk memoised per process, so each (root, n) is walked once."""
+    count, bitmap = _reference_walk(root, n)
+    return count, bytes(bitmap)
+
+
+def _guard_pack(root: Root, n: int) -> None:
+    """Raise AssertionError unless pack_with_workers matches the reference at n.
+
+    _mark is budgeted: under a mutant of the curvature formula the walk can be
+    astronomically large even at small n, and must fail here, not run.
+    """
+    # 20x the true count is far above a correct walk's marks (one per circle),
+    # and the 1000 floor keeps tiny packings from tripping on rounding.
+    budget = 20 * _cached_reference(root, n)[0] + 1000
+    calls = 0
+    real_mark = descartes._mark
+
+    def budgeted_mark(bitmap: bytearray, k: int) -> None:
+        nonlocal calls
+        calls += 1
+        if calls > budget:
+            raise AssertionError(f"pack_with_workers walk exceeds budget: {root}")
+        real_mark(bitmap, k)
+
+    with mock.patch.object(descartes, "_mark", budgeted_mark):
+        count, bitmap, _ = pack_with_workers(root, n)
+    if (count, bytes(bitmap)) != _cached_reference(root, n):
+        raise AssertionError(f"pack_with_workers differs from reference: {root}")
+
+
+def setUpModule() -> None:
+    """Abort the whole module at once when the packing enumerator is corrupted.
+
+    A mutant of the curvature formula makes the n >= 10**3 walks in the CLI and
+    oracle tests run for minutes, which cosmic-ray scores as a timeout. Checking
+    two small packings first fails the module in milliseconds instead.
+    """
+    for root in (ROOT_A, ROOT_B):
+        _guard_pack(root, 100)
+    _guard_parallel_rules()
+
+
+def _guard_parallel_rules() -> None:
+    """Raise AssertionError unless the task split and the parallel gate hold.
+
+    A mutant of `4 * workers` builds 4**48 tasks at the real CPU count, and a
+    mutant of the gate forks pools below the threshold in many tests; either
+    runs until cosmic-ray times out. Both rules are checked cheaply up front.
+    """
+    tasks = descartes._tasks([([i], 0) for i in range(10)], 2)
+    if len(tasks) != 8 or any(([i], 0) not in tasks[i % 8] for i in range(10)):
+        raise AssertionError("_tasks does not deal 10 seeds into 8 tasks")
+    with (
+        mock.patch.object(descartes, "_cpu_count", return_value=2),
+        mock.patch.object(
+            descartes, "ProcessPoolExecutor", side_effect=AssertionError("pool")
+        ),
+    ):
+        workers = pack_with_workers((-11, 21, 24, 28), PARALLEL_MIN_N - 1)[2]
+    if workers != 1:
+        raise AssertionError("a pool ran below PARALLEL_MIN_N")
+
+
+class TestPackSplit(unittest.TestCase):
+    """pack = frontier + subtree walks must equal the old single walk exactly."""
+
+    N = 10**5
+    SMALL_N = 10**3
+    ROOTS: tuple[Root, ...] = ((-1, 2, 2, 3), (-11, 21, 24, 28), (-2, 3, 6, 7))
+    SMALL_FRONTIER: Root = (-300, 301, 90300, 90301)
+    packed: dict[Root, tuple[int, bytes, int]]
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.packed = {}
+        for root in cls.ROOTS:
+            cls.packed[root] = _cached_pack(root, cls.N)
+
+    def test_pack_with_workers_equals_reference_walk(self) -> None:
+        for root in self.ROOTS:
+            with self.subTest(root=root):
+                count, bitmap, workers = self.packed[root]
+                self.assertEqual((count, bitmap), _cached_reference(root, self.N))
+                self.assertEqual(workers, 1)
+
+    def test_pack_equals_reference_walk(self) -> None:
+        for root in self.ROOTS:
+            with self.subTest(root=root):
+                count, bitmap = pack(root, self.SMALL_N)
+                self.assertEqual(
+                    (count, bytes(bitmap)), _cached_reference(root, self.SMALL_N)
+                )
+
+    def test_constants_are_pinned(self) -> None:
+        self.assertEqual(SEED_TARGET, 4096)
+        self.assertEqual(PARALLEL_MIN_N, 100_000)
+
+    def test_default_root_frontier_has_exactly_seed_target_seeds(self) -> None:
+        count, _, seeds = _frontier((-1, 2, 2, 3), self.N)
+        self.assertEqual(len(seeds), 4096)
+        self.assertEqual(count, 2049)
+
+    def test_frontier_stops_above_target_when_a_pop_overshoots(self) -> None:
+        count, _, seeds = _frontier((-5, 10, 10, 15), self.N)
+        self.assertEqual(len(seeds), 4097)
+        self.assertEqual(count, 2063)
+
+    def test_small_packing_exhausts_in_the_frontier(self) -> None:
+        count, bitmap, seeds = _frontier(self.SMALL_FRONTIER, self.N)
+        self.assertEqual(seeds, [])
+        reference = _cached_reference(self.SMALL_FRONTIER, self.N)
+        self.assertEqual((count, bytes(bitmap)), reference)
+        count, bitmap, _ = pack_with_workers(self.SMALL_FRONTIER, self.N)
+        self.assertEqual((count, bytes(bitmap)), reference)
+
+    def test_pack_with_workers_validates_before_walking(self) -> None:
+        with self.assertRaisesRegex(BadInput, r"pack\(n=-1\)"):
+            pack_with_workers(ROOT_A, -1)
+        with self.assertRaisesRegex(BadInput, "pack.*not sorted"):
+            pack_with_workers((2, -1, 2, 3), 100)
+
+
+class TestPackParallel(unittest.TestCase):
+    """The pool path: same answer as the serial walk, and the rules for using it."""
+
+    N = 10**5
+    ROOTS: tuple[Root, ...] = ((-1, 2, 2, 3), (-11, 21, 24, 28), (-2, 3, 6, 7))
+    ROOT = (-11, 21, 24, 28)
+    FALLBACK_STDERR = (
+        "Parallel mode unavailable ({err}); falling back to serial.\n"
+        "Install project requirements and ensure OS multiprocessing semaphore "
+        "support is available to re-enable parallel mode.\n"
+    )
+
+    def _pack(self, root: Root, n: int, cpus: int) -> tuple[int, bytes, int]:
+        with mock.patch.object(descartes, "_cpu_count", return_value=cpus):
+            count, bitmap, workers = pack_with_workers(root, n)
+        return count, bytes(bitmap), workers
+
+    def test_two_workers_match_the_reference(self) -> None:
+        for root in self.ROOTS:
+            with self.subTest(root=root):
+                count, bitmap, workers = self._pack(root, self.N, 2)
+                self.assertEqual((count, bitmap), _cached_reference(root, self.N))
+                self.assertEqual(workers, 2)
+
+    def test_pool_gets_the_worker_count_and_start_method(self) -> None:
+        # The real pool still runs; only its constructor arguments are recorded. The
+        # answer is the same with any worker count or start method, so only the
+        # arguments can show that the pool was asked for what the run reported.
+        spy = mock.Mock(wraps=ProcessPoolExecutor)
+        with mock.patch.object(descartes, "ProcessPoolExecutor", spy):
+            count, bitmap, workers = self._pack(self.ROOT, self.N, 2)
+        self.assertEqual((count, bitmap), _cached_reference(self.ROOT, self.N))
+        self.assertEqual(workers, 2)
+        spy.assert_called_once()
+        self.assertEqual(spy.call_args.kwargs["max_workers"], 2)
+        context = spy.call_args.kwargs["mp_context"]
+        self.assertEqual(
+            context.get_start_method(), "fork" if sys.platform == "linux" else "spawn"
+        )
+
+    def _pack_with_tripwire(self, root: Root, cpus: int) -> tuple[int, bytes, int]:
+        """Pack with a pool that fails the test if built; stderr must stay empty.
+
+        A fallback except wide enough to swallow the tripwire's AssertionError
+        would print the fallback message, which the empty-stderr check catches.
+        """
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(
+                descartes,
+                "ProcessPoolExecutor",
+                side_effect=AssertionError("pool constructed"),
+            ),
+            contextlib.redirect_stderr(stderr),
+        ):
+            result = self._pack(root, self.N, cpus)
+        self.assertEqual(stderr.getvalue(), "")
+        return result
+
+    def test_no_pool_without_two_cpus(self) -> None:
+        count, bitmap, workers = self._pack_with_tripwire(self.ROOT, 1)
+        self.assertEqual((count, bitmap), _cached_reference(self.ROOT, self.N))
+        self.assertEqual(workers, 1)
+
+    def test_threshold_is_inclusive(self) -> None:
+        self.assertEqual(self._pack(self.ROOT, PARALLEL_MIN_N - 1, 2)[2], 1)
+        self.assertEqual(self._pack(self.ROOT, PARALLEL_MIN_N, 2)[2], 2)
+        self.assertEqual(self._pack(self.ROOT, PARALLEL_MIN_N + 1, 2)[2], 2)
+
+    def test_small_frontier_stays_serial(self) -> None:
+        root = (-300, 301, 90300, 90301)
+        count, bitmap, workers = self._pack_with_tripwire(root, 2)
+        self.assertEqual((count, bitmap), _cached_reference(root, self.N))
+        self.assertEqual(workers, 1)
+
+    def test_tasks_deal_seeds_round_robin(self) -> None:
+        seeds = [([i, 0, 0, 0], 0) for i in range(10)]
+        tasks = descartes._tasks(seeds, 2)
+        self.assertEqual(len(tasks), 8)
+        for i, seed in enumerate(seeds):
+            self.assertIn(seed, tasks[i % 8])
+        self.assertEqual(sum(len(t) for t in tasks), 10)
+
+    def test_walk_task_bitmap_round_trips_bit_order(self) -> None:
+        _, _, seeds = _frontier(self.ROOT, self.N)
+        count, raw = descartes._walk_task(seeds[:5], self.N)
+        expected = bytearray(self.N // 8 + 1)
+        self.assertEqual(descartes._walk_subtrees(seeds[:5], self.N, expected), count)
+        self.assertEqual(raw, bytes(expected))
+        merged = int.from_bytes(raw, "little")
+        for k in descartes.distinct(expected):
+            self.assertTrue(merged >> k & 1)
+
+    def test_cpu_count_uses_process_cpu_count_when_present(self) -> None:
+        with mock.patch.object(descartes.os, "process_cpu_count", create=True) as fake:
+            fake.return_value = 5
+            self.assertEqual(descartes._cpu_count(), 5)
+            fake.return_value = None
+            self.assertEqual(descartes._cpu_count(), 1)
+
+    def test_cpu_count_falls_back_to_cpu_count_before_3_13(self) -> None:
+        with (
+            mock.patch.dict(descartes.os.__dict__),
+            mock.patch.object(descartes.os, "cpu_count", return_value=3),
+        ):
+            descartes.os.__dict__.pop("process_cpu_count", None)
+            self.assertEqual(descartes._cpu_count(), 3)
+
+    def test_walk_task_bitmap_holds_bit_n(self) -> None:
+        # n // 8 odd: a size of n // 8 | 1 or n // 8 ^ 1 would be one byte short.
+        n = 8 * 12501
+        self.assertEqual(len(descartes._walk_task([], n)[1]), n // 8 + 1)
+
+    def test_mp_context_by_platform(self) -> None:
+        for platform, method in (
+            ("linux", "fork"),
+            ("darwin", "spawn"),
+            ("win32", "spawn"),
+        ):
+            with self.subTest(platform=platform):
+                with mock.patch.object(descartes.sys, "platform", platform):
+                    context = descartes._mp_context()
+                self.assertEqual(context.get_start_method(), method)
+
+    def _assert_fell_back(self, err: Exception, executor: typing.Any) -> None:
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(descartes, "ProcessPoolExecutor", executor),
+            contextlib.redirect_stderr(stderr),
+        ):
+            count, bitmap, workers = self._pack(self.ROOT, self.N, 2)
+        self.assertEqual((count, bitmap), _cached_reference(self.ROOT, self.N))
+        self.assertEqual(workers, 1)
+        self.assertEqual(stderr.getvalue(), self.FALLBACK_STDERR.format(err=err))
+
+    def test_broken_pool_after_a_partial_result_falls_back(self) -> None:
+        err = BrokenProcessPool("worker died")
+
+        class Fake:
+            def __init__(self, **_kw: typing.Any) -> None:
+                pass
+
+            def __enter__(self) -> typing.Self:
+                return self
+
+            def __exit__(self, *_a: object) -> None:
+                return None
+
+            def map(self, fn: typing.Any, tasks: list, ns: list) -> Iterator:
+                yield fn(tasks[0], ns[0])
+                raise err
+
+        self._assert_fell_back(err, Fake)
+
+    def test_constructor_oserror_falls_back(self) -> None:
+        err = OSError("no sem")
+        self._assert_fell_back(err, mock.Mock(side_effect=err))
+
+    def test_constructor_runtime_error_propagates(self) -> None:
+        pool = mock.Mock(side_effect=RuntimeError("bug"))
+        with (
+            mock.patch.object(descartes, "ProcessPoolExecutor", pool),
+            self.assertRaisesRegex(RuntimeError, "bug"),
+        ):
+            self._pack(self.ROOT, self.N, 2)
+
+    def test_map_runtime_error_propagates(self) -> None:
+        class Fake:
+            def __init__(self, **_kw: typing.Any) -> None:
+                pass
+
+            def __enter__(self) -> typing.Self:
+                return self
+
+            def __exit__(self, *_a: object) -> None:
+                return None
+
+            def map(self, fn: typing.Any, tasks: list, ns: list) -> Iterator:
+                raise RuntimeError("bug")
+
+        with (
+            mock.patch.object(descartes, "ProcessPoolExecutor", Fake),
+            self.assertRaisesRegex(RuntimeError, "bug"),
+        ):
+            self._pack(self.ROOT, self.N, 2)
+
+    def test_constructor_not_implemented_falls_back(self) -> None:
+        err = NotImplementedError("no mp")
+        self._assert_fell_back(err, mock.Mock(side_effect=err))
 
 
 class TestPackState(unittest.TestCase):
@@ -2531,7 +2899,7 @@ class TestPackingCli(CliTestCase):
         for k in (1, 6):
             with self.subTest(k=k):
                 with mock.patch.object(
-                    descartes, "pack", return_value=(0, bytearray(1))
+                    descartes, "pack_with_workers", return_value=(0, bytearray(1), 1)
                 ) as fake:
                     code, out, _ = self.run_main(str(k))
                 self.assertEqual(code, 0)
@@ -2581,7 +2949,7 @@ class TestPackingCli(CliTestCase):
 class TestOutputOpenedFirst(CliTestCase):
     def test_unwritable_target_exits_1_before_pack_runs(self) -> None:
         (self.cwd / "descartes_1e1.txt").mkdir()
-        with mock.patch.object(descartes, "pack") as fake:
+        with mock.patch.object(descartes, "pack_with_workers") as fake:
             code, out, err = self.run_main("1")
         self.assertEqual((code, out), (1, ""))
         self.assertTrue(err.startswith("Error: "))
@@ -2596,16 +2964,74 @@ class TestOutputOpenedFirst(CliTestCase):
             order.append("open")
             return real_open(*args, **kwargs)
 
-        def fake_pack(root: Root, n: int) -> tuple[int, bytearray]:
+        def fake_pack(root: Root, n: int) -> tuple[int, bytearray, int]:
             order.append("pack")
-            return 0, bytearray(1)
+            return 0, bytearray(1), 1
 
         with (
             mock.patch("builtins.open", spy_open),
-            mock.patch.object(descartes, "pack", fake_pack),
+            mock.patch.object(descartes, "pack_with_workers", fake_pack),
         ):
             self.run_main("1", "--no-draw")
         self.assertEqual(order, ["open", "pack"])
+
+
+class TestWorkersLine(CliTestCase):
+    """The Workers stderr line: printed only when the pool actually ran."""
+
+    _serial_k5: typing.ClassVar[tuple[int, str, str] | None] = None
+    # A small root: K=5 gives n = 10**5 = PARALLEL_MIN_N, so the pool runs, and its
+    # packing is small enough to keep these CLI legs fast.
+    ROOT = ("-11", "21", "24", "28")
+
+    def _run(self, k: str, cpus: int) -> tuple[int, str, str]:
+        with mock.patch.object(descartes, "_cpu_count", return_value=cpus):
+            return self.run_main(k, "--root", *self.ROOT, "--no-draw")
+
+    def _serial_run_k5(self) -> tuple[int, str, str]:
+        """The one-CPU K=5 run, computed once: a 10**5 walk is the suite's cost."""
+        if TestWorkersLine._serial_k5 is None:
+            TestWorkersLine._serial_k5 = self._run("5", 1)
+        return TestWorkersLine._serial_k5
+
+    def test_pool_run_prints_workers_before_elapsed(self) -> None:
+        code, out, err = self._run("5", 2)
+        serial_code, serial_out, _ = self._serial_run_k5()
+        self.assertEqual((code, serial_code), (0, 0))
+        self.assertRegex(err, r"\AWorkers: 2\nElapsed: \d+\.\d\ds\n\Z")
+        self.assertEqual(out, serial_out)
+
+    def test_serial_run_prints_no_workers_line(self) -> None:
+        _, _, err = self._serial_run_k5()
+        self.assertRegex(err, r"\AElapsed: \d+\.\d\ds\n\Z")
+
+    def test_line_appears_only_above_one_worker(self) -> None:
+        for workers, expected in ((0, False), (1, False), (2, True), (7, True)):
+            with self.subTest(workers=workers):
+                with mock.patch.object(
+                    descartes,
+                    "pack_with_workers",
+                    return_value=(0, bytearray(1), workers),
+                ):
+                    _, _, err = self.run_main("1", "--no-draw")
+                self.assertEqual(f"Workers: {workers}\n" in err, expected)
+
+    def test_below_threshold_prints_no_workers_line(self) -> None:
+        _, _, err = self._run("4", 2)
+        self.assertRegex(err, r"\AElapsed: \d+\.\d\ds\n\Z")
+
+    def test_fallback_prints_no_workers_line(self) -> None:
+        with mock.patch.object(
+            descartes, "ProcessPoolExecutor", mock.Mock(side_effect=OSError("no sem"))
+        ):
+            code, _, err = self._run("5", 2)
+        self.assertEqual(code, 0)
+        self.assertNotIn("Workers:", err)
+        self.assertIn(
+            "Parallel mode unavailable (no sem); falling back to serial.", err
+        )
+        self.assertIn("re-enable parallel mode.", err)
+        self.assertRegex(err, r"Elapsed: \d+\.\d\ds\n\Z")
 
 
 class TestCountLines(CliTestCase):
@@ -2775,7 +3201,9 @@ class TestPackingDrawing(CliTestCase):
             ),
             mock.patch.object(descartes, "render", return_value=["drawn"]),
             mock.patch.object(descartes, "visible", return_value=[]) as fake_visible,
-            mock.patch.object(descartes, "pack", return_value=(1, bytearray(1))),
+            mock.patch.object(
+                descartes, "pack_with_workers", return_value=(1, bytearray(1), 1)
+            ),
         ):
             code, _, _ = self.run_main("6", stdout=TtyStringIO())
         self.assertEqual(code, 0)

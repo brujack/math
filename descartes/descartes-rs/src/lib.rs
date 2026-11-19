@@ -1,5 +1,9 @@
 use std::cmp::Ordering;
+use std::collections::VecDeque;
 use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+
+use rayon::prelude::*;
 
 /// Why a computation produced no answer; mirrors Python's `BadInput` (exit 2)
 /// and `NoSolution` (exit 1).
@@ -157,6 +161,26 @@ fn mark(bitmap: &mut [u64], k: i64) {
     bitmap[(k >> 6) as usize] |= 1u64 << (k & 63);
 }
 
+/// Set bit `k` of a shared bitmap. The relaxed load skips the write when the
+/// bit is already set; `fetch_or` makes concurrent sets of one word a union.
+fn mark_atomic(bitmap: &[AtomicU64], k: i64) {
+    let word = &bitmap[(k >> 6) as usize];
+    let bit = 1u64 << (k & 63);
+    if word.load(AtomicOrdering::Relaxed) & bit == 0 {
+        word.fetch_or(bit, AtomicOrdering::Relaxed);
+    }
+}
+
+/// How many seed subtrees the breadth-first frontier grows before the
+/// subtree walks take over; enough to keep many workers busy.
+pub const SEED_TARGET: usize = 4096;
+
+/// Smallest `n` at which the parallel path is worth its start-up cost.
+pub const PARALLEL_MIN_N: i64 = 100_000;
+
+/// A quadruple and the index of the circle just reflected into it.
+type Seed = ([i64; 4], usize);
+
 /// Count circles of curvature at most `n` in the packing of a reduced `root`
 /// and mark their curvatures in a bitmap of `n / 64 + 1` words.
 ///
@@ -165,24 +189,154 @@ fn mark(bitmap: &mut [u64], k: i64) {
 /// negative or above `N_MAX`, or when `root` is not a sorted, reduced Descartes
 /// root within the 10^8 cap.
 pub fn pack(root: [i64; 4], n: i64) -> Result<(i64, Vec<u64>), DescartesError> {
-    check_n(n, N_MAX, "pack", "n")?;
-    check_reduced_root(root, "pack")?;
-    Ok(walk(root, n, &mut || {}))
+    let (count, bitmap, _) = pack_with_workers(root, n)?;
+    Ok((count, bitmap))
 }
 
-/// The DFS behind `pack`, with no precondition checks; `on_mark` runs once per
-/// counted circle so a test can budget the work.
+/// The result of a packing walk: the count, the bitmap, the workers used and,
+/// when the rayon pool could not be built, the error that made the walk serial.
+#[derive(Debug)]
+pub struct Packing {
+    pub count: i64,
+    pub bitmap: Vec<u64>,
+    /// 1 for a serial walk, otherwise the thread count of the pool that ran it.
+    pub workers: usize,
+    /// The pool-build error text when the walk fell back to serial; the caller reports it.
+    pub fallback: Option<String>,
+}
+
+/// `pack`, also returning the number of workers used: 1 for the serial walk,
+/// the pool's thread count when `n >= PARALLEL_MIN_N`, the frontier left seeds
+/// and the pool has more than one thread. The result is identical either way.
+/// Same checks and errors as `pack`; a pool that cannot be built is not an
+/// error here, use `pack_reporting` to see it.
+pub fn pack_with_workers(root: [i64; 4], n: i64) -> Result<(i64, Vec<u64>, usize), DescartesError> {
+    let packing = pack_reporting(root, n)?;
+    Ok((packing.count, packing.bitmap, packing.workers))
+}
+
+/// `pack_with_workers` that also reports a pool-build failure (R11), so the
+/// caller can tell the user why the run was serial.
+pub fn pack_reporting(root: [i64; 4], n: i64) -> Result<Packing, DescartesError> {
+    pack_with_builder(root, n, default_pool)
+}
+
+/// The production pool: rayon's default sizing (`RAYON_NUM_THREADS`, else the CPU count).
+/// The one place the binary builds a pool, so a test of the real builder covers both callers.
+pub fn default_pool() -> Result<rayon::ThreadPool, rayon::ThreadPoolBuildError> {
+    rayon::ThreadPoolBuilder::new().build()
+}
+
+/// The packing walk with the pool construction injected. `build` runs only when
+/// `n >= PARALLEL_MIN_N`, seeds remain and the caller is not already inside a
+/// rayon pool (then that pool is used). If `build` fails the subtrees are
+/// walked serially and the error text is returned in `Packing::fallback`.
 ///
-/// Termination does not rest on the root being valid: the root's four
-/// reflections are seeded when at most `n`, and every later reflection is
-/// pushed only when it strictly increases the curvature it replaces and stays
-/// at most `n`, so every DFS path climbs a finite integer range. For a reduced
-/// root the increase always holds, so the guard never prunes a valid circle.
+/// The pool is built here, not left to rayon's lazily built global pool: that
+/// one panics when the OS refuses a thread, and a serial run must never reach it.
+pub fn pack_with_builder(
+    root: [i64; 4],
+    n: i64,
+    build: impl FnOnce() -> Result<rayon::ThreadPool, rayon::ThreadPoolBuildError>,
+) -> Result<Packing, DescartesError> {
+    pack_with_builder_observed(root, n, build, &|| {})
+}
+
+/// `pack_with_builder` with `on_seed` forwarded to `parallel_subtrees`, so a test can see
+/// which threads walked the seeds.
+fn pack_with_builder_observed(
+    root: [i64; 4],
+    n: i64,
+    build: impl FnOnce() -> Result<rayon::ThreadPool, rayon::ThreadPoolBuildError>,
+    on_seed: &(impl Fn() + Sync),
+) -> Result<Packing, DescartesError> {
+    check_n(n, N_MAX, "pack", "n")?;
+    check_reduced_root(root, "pack")?;
+    let (count, bitmap, seeds) = frontier(root, n, &mut || {});
+    let mut fallback = None;
+    if n >= PARALLEL_MIN_N && !seeds.is_empty() {
+        // `!= 1`, not `> 1`: a one-thread pool gives the same answer either way, so
+        // `>= 1` would be an unkillable equivalent mutant; thread counts are >= 1.
+        if rayon::current_thread_index().is_some() {
+            let workers = rayon::current_num_threads();
+            if workers != 1 {
+                let (count, bitmap) = parallel_subtrees(count, bitmap, &seeds, n, on_seed);
+                return Ok(Packing { count, bitmap, workers, fallback });
+            }
+        } else {
+            match build() {
+                Ok(pool) => {
+                    let workers = pool.current_num_threads();
+                    if workers != 1 {
+                        let (count, bitmap) =
+                            pool.install(|| parallel_subtrees(count, bitmap, &seeds, n, on_seed));
+                        return Ok(Packing { count, bitmap, workers, fallback });
+                    }
+                }
+                Err(error) => fallback = Some(error.to_string()),
+            }
+        }
+    }
+    let (count, bitmap) = serial_subtrees(count, bitmap, seeds, n, &mut || {});
+    Ok(Packing { count, bitmap, workers: 1, fallback })
+}
+
+/// Walk every seed's subtree on the rayon pool into one shared atomic bitmap
+/// that starts from the frontier's, and add the counts to `count`. `on_seed`
+/// runs once per seed on the thread that walks it; production passes a no-op,
+/// a test uses it to see which pool threads did the walking.
+fn parallel_subtrees(
+    count: i64,
+    bitmap: Vec<u64>,
+    seeds: &[Seed],
+    n: i64,
+    on_seed: &(impl Fn() + Sync),
+) -> (i64, Vec<u64>) {
+    let shared: Vec<AtomicU64> = bitmap.into_iter().map(AtomicU64::new).collect();
+    let walked: i64 = seeds
+        .par_iter()
+        .map(|&seed| {
+            on_seed();
+            subtree_count(seed, n, &mut |k| mark_atomic(&shared, k))
+        })
+        .sum();
+    (count + walked, shared.into_iter().map(AtomicU64::into_inner).collect())
+}
+
+/// Hand `push` each reflection of `quad` worth visiting: it replaces one
+/// curvature `old` by `k` with `old < k <= n`.
+///
+/// Termination does not rest on the root being valid: a reflection is kept
+/// only when it strictly increases the curvature it replaces and stays at most
+/// `n`, so every path climbs a finite integer range. For a reduced root the
+/// increase always holds, so the guard never prunes a valid circle.
 /// **Do not remove this growth guard as dead code**: without it the walk is
 /// unbounded and exhausts memory (spec R21). Reflecting the circle just
 /// reflected gives back the smaller parent curvature, which the same guard
-/// rejects, so no separate "skip the parent" test is needed.
-fn walk(root: [i64; 4], n: i64, on_mark: &mut impl FnMut()) -> (i64, Vec<u64>) {
+/// rejects, so no separate "skip the parent" test is needed. A callback, not
+/// an iterator: the iterator form measured 33% slower in the hot loop.
+fn children(quad: [i64; 4], n: i64, mut push: impl FnMut(Seed)) {
+    let total: i64 = quad.iter().sum();
+    for i in 0..4 {
+        let old = quad[i];
+        let k = 2 * (total - old) - old;
+        if old < k && k <= n {
+            let mut child = quad;
+            child[i] = k;
+            push((child, i));
+        }
+    }
+}
+
+/// Count and mark the root's positive circles and its reflections that fit,
+/// then expand breadth-first until `SEED_TARGET` seeds wait or none are left.
+/// Returns the count so far, the bitmap and the unvisited seeds; `on_mark`
+/// runs once per counted circle.
+///
+/// The root's reflections are seeded with `k <= n` alone, no growth test: the
+/// default root's 3 reflects to 3, which `old < k` would drop although that
+/// circle is a real one to count.
+fn frontier(root: [i64; 4], n: i64, on_mark: &mut impl FnMut()) -> (i64, Vec<u64>, Vec<Seed>) {
     let mut bitmap = vec![0u64; (n / 64 + 1) as usize];
     let mut count: i64 = 0;
     for &k in &root[1..] {
@@ -192,31 +346,64 @@ fn walk(root: [i64; 4], n: i64, on_mark: &mut impl FnMut()) -> (i64, Vec<u64>) {
             on_mark();
         }
     }
-    let mut stack: Vec<([i64; 4], usize)> = Vec::new();
     let total: i64 = root.iter().sum();
+    let mut queue: VecDeque<Seed> = VecDeque::new();
     for (i, &old) in root.iter().enumerate() {
         let k = 2 * (total - old) - old;
         if k <= n {
             let mut quad = root;
             quad[i] = k;
-            stack.push((quad, i));
+            queue.push_back((quad, i));
         }
     }
-    while let Some((quad, j)) = stack.pop() {
+    while queue.len() < SEED_TARGET {
+        let Some((quad, j)) = queue.pop_front() else { break };
         count += 1;
         mark(&mut bitmap, quad[j]);
         on_mark();
-        let total: i64 = quad.iter().sum();
-        for (i, &old) in quad.iter().enumerate() {
-            let k = 2 * (total - old) - old;
-            if old < k && k <= n {
-                let mut child = quad;
-                child[i] = k;
-                stack.push((child, i));
-            }
-        }
+        children(quad, n, |c| queue.push_back(c));
+    }
+    (count, bitmap, queue.into())
+}
+
+/// Depth-first walk of the subtree under `seed`, counting every circle in it
+/// (the seed included) and handing each curvature to `mark`.
+fn subtree_count(seed: Seed, n: i64, mark: &mut impl FnMut(i64)) -> i64 {
+    let mut count: i64 = 0;
+    let mut stack = vec![seed];
+    while let Some((quad, j)) = stack.pop() {
+        count += 1;
+        mark(quad[j]);
+        children(quad, n, |c| stack.push(c));
+    }
+    count
+}
+
+/// Walk each seed's subtree in turn into `bitmap`; `on_mark` runs once per
+/// counted circle so a test can budget the work.
+fn serial_subtrees(
+    mut count: i64,
+    mut bitmap: Vec<u64>,
+    seeds: Vec<Seed>,
+    n: i64,
+    on_mark: &mut impl FnMut(),
+) -> (i64, Vec<u64>) {
+    for seed in seeds {
+        count += subtree_count(seed, n, &mut |k| {
+            mark(&mut bitmap, k);
+            on_mark();
+        });
     }
     (count, bitmap)
+}
+
+/// The serial packing walk with an `on_mark` hook, kept for the tests' work
+/// budgets (`pack_with_workers` splits the same steps itself): the frontier, then
+/// each seed's subtree in turn.
+#[cfg(test)]
+fn walk(root: [i64; 4], n: i64, on_mark: &mut impl FnMut()) -> (i64, Vec<u64>) {
+    let (count, bitmap, seeds) = frontier(root, n, on_mark);
+    serial_subtrees(count, bitmap, seeds, n, on_mark)
 }
 
 /// The curvatures marked in the bitmap, ascending.
@@ -1361,6 +1548,266 @@ mod tests {
             assert_eq!(count, marks, "{root:?}");
             assert!(distinct(&bitmap).iter().all(|&k| (0..=30).contains(&k)), "{root:?}");
         }
+    }
+
+    #[test]
+    fn split_const_pins() {
+        assert_eq!(SEED_TARGET, 4096);
+        assert_eq!(PARALLEL_MIN_N, 100_000);
+    }
+
+    #[test]
+    fn split_serial_equals_the_independent_walk_at_1e5() {
+        for root in [[-1, 2, 2, 3], [-11, 21, 24, 28], [-2, 3, 6, 7]] {
+            let (count, bitmap, workers) = in_pool(1, || pack_with_workers(root, 100_000).unwrap());
+            let (want_count, want) = oracle(root, 100_000);
+            assert_eq!(workers, 1, "{root:?}");
+            assert_eq!(count, want_count, "{root:?}");
+            assert_eq!(distinct(&bitmap), want.into_iter().collect::<Vec<_>>(), "{root:?}");
+            assert_eq!(in_pool(1, || pack(root, 100_000).unwrap()), (count, bitmap), "{root:?}");
+        }
+    }
+
+    #[test]
+    fn split_frontier_counts_are_pinned() {
+        for (root, want_seeds, want_count) in [
+            ([-1, 2, 2, 3], 4096, 2049),
+            ([-5, 10, 10, 15], 4097, 2063),
+            ([-300, 301, 90300, 90301], 0, -1),
+        ] {
+            let mut marks: i64 = 0;
+            let (count, _, seeds) = frontier(root, 100_000, &mut || marks += 1);
+            assert_eq!(seeds.len(), want_seeds, "{root:?}");
+            assert_eq!(count, marks, "{root:?}");
+            if want_count >= 0 {
+                assert_eq!(count, want_count, "{root:?}");
+            } else {
+                assert_eq!(count, oracle(root, 100_000).0, "{root:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn split_exhausted_frontier_equals_the_independent_walk() {
+        let root = [-300, 301, 90300, 90301];
+        let (count, bitmap, workers) = pack_with_workers(root, 100_000).unwrap();
+        let (want_count, want) = oracle(root, 100_000);
+        assert_eq!((count, workers), (want_count, 1));
+        assert_eq!(distinct(&bitmap), want.into_iter().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn split_pack_with_workers_rejects_bad_input() {
+        assert!(matches!(pack_with_workers(ROOT_A, -1), Err(DescartesError::BadInput(_))));
+        assert!(matches!(pack_with_workers(ROOT_A, N_MAX + 1), Err(DescartesError::BadInput(_))));
+        assert!(matches!(pack_with_workers([-1, 2, 3, 3], 10), Err(DescartesError::BadInput(_))));
+    }
+
+    #[test]
+    fn split_on_mark_fires_once_per_circle_through_the_subtrees() {
+        let mut marks: i64 = 0;
+        let (count, _) = walk(ROOT_A, 100_000, &mut || marks += 1);
+        assert_eq!(count, marks);
+        assert!(count > 2049, "subtree walks must have run");
+    }
+
+    // abort() kills the whole test binary, so under cargo-mutants a mutant that
+    // breaks the growth guard is caught at once instead of timing out on the
+    // slow 10^5 tests.
+    #[test]
+    fn split_canary_aborts_on_runaway() {
+        let mut marks: i64 = 0;
+        let (count, _) = walk(ROOT_A, 100, &mut || {
+            marks += 1;
+            if marks > 10_000 {
+                std::process::abort();
+            }
+        });
+        if count != 168 {
+            std::process::abort();
+        }
+    }
+
+    fn in_pool<T: Send>(threads: usize, f: impl FnOnce() -> T + Send) -> T {
+        rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap().install(f)
+    }
+
+    #[test]
+    fn parallel_two_threads_equal_the_independent_walk() {
+        for root in [[-1, 2, 2, 3], [-11, 21, 24, 28], [-2, 3, 6, 7]] {
+            let (count, bitmap, workers) = in_pool(2, || pack_with_workers(root, 100_000).unwrap());
+            let (want_count, want) = oracle(root, 100_000);
+            assert_eq!(workers, 2, "{root:?}");
+            assert_eq!(count, want_count, "{root:?}");
+            assert_eq!(distinct(&bitmap), want.into_iter().collect::<Vec<_>>(), "{root:?}");
+        }
+    }
+
+    #[test]
+    fn parallel_subtrees_walk_seeds_on_two_pool_threads() {
+        use std::collections::HashSet;
+        use std::sync::Mutex;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::time::{Duration, Instant};
+        let root = [-11, 21, 24, 28];
+        let n = 100_000;
+        let arrived = AtomicUsize::new(0);
+        let threads: Mutex<HashSet<usize>> = Mutex::new(HashSet::new());
+        let (count, bitmap) = in_pool(2, || {
+            let (count, bitmap, seeds) = frontier(root, n, &mut || {});
+            // Each thread's first seed waits for the other thread (bounded), so a
+            // pool that really runs both threads cannot finish on one of them.
+            let on_seed = || {
+                let me = rayon::current_thread_index().expect("walk runs on a pool thread");
+                if threads.lock().unwrap().insert(me) {
+                    arrived.fetch_add(1, Ordering::SeqCst);
+                    let deadline = Instant::now() + Duration::from_secs(5);
+                    while arrived.load(Ordering::SeqCst) < 2 && Instant::now() < deadline {
+                        std::thread::yield_now();
+                    }
+                }
+            };
+            parallel_subtrees(count, bitmap, &seeds, n, &on_seed)
+        });
+        let (want_count, want) = oracle(root, n);
+        assert_eq!(threads.into_inner().unwrap().len(), 2);
+        assert_eq!(count, want_count);
+        assert_eq!(distinct(&bitmap), want.into_iter().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn parallel_one_thread_stays_serial() {
+        let (count, _, workers) = in_pool(1, || pack_with_workers(ROOT_A, 100_000).unwrap());
+        assert_eq!((count, workers), (oracle(ROOT_A, 100_000).0, 1));
+    }
+
+    fn refusing_builder() -> Result<rayon::ThreadPool, rayon::ThreadPoolBuildError> {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(2)
+            .spawn_handler(|_| Err(std::io::Error::other("refused")))
+            .build()
+    }
+
+    #[test]
+    fn fallback_failed_pool_build_walks_serially_and_reports_the_error() {
+        let root = [-11, 21, 24, 28];
+        let packing = pack_with_builder(root, 100_000, refusing_builder).unwrap();
+        let (want_count, want) = oracle(root, 100_000);
+        assert_eq!((packing.count, packing.workers), (want_count, 1));
+        assert_eq!(distinct(&packing.bitmap), want.into_iter().collect::<Vec<_>>());
+        assert!(packing.fallback.expect("error reported").contains("refused"));
+    }
+
+    #[test]
+    fn fallback_built_pool_runs_every_seed_on_its_own_threads() {
+        let root = [-11, 21, 24, 28];
+        let build = || {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(2)
+                .thread_name(|i| format!("descartes-test-{i}"))
+                .build()
+        };
+        let names = std::sync::Mutex::new(Vec::<Option<String>>::new());
+        let record = || {
+            let name = std::thread::current().name().map(str::to_owned);
+            names.lock().unwrap().push(name);
+        };
+        let packing = pack_with_builder_observed(root, 100_000, build, &record).unwrap();
+        let (want_count, want) = oracle(root, 100_000);
+        assert_eq!((packing.count, packing.workers), (want_count, 2));
+        assert_eq!(distinct(&packing.bitmap), want.into_iter().collect::<Vec<_>>());
+        let names = names.into_inner().unwrap();
+        assert!(!names.is_empty());
+        for name in names {
+            assert!(
+                name.is_some_and(|n| n.starts_with("descartes-test-")),
+                "walked off the built pool"
+            );
+        }
+    }
+
+    #[test]
+    fn fallback_built_pool_runs_in_parallel_without_a_report() {
+        let root = [-11, 21, 24, 28];
+        let build = || rayon::ThreadPoolBuilder::new().num_threads(2).build();
+        let packing = pack_with_builder(root, 100_000, build).unwrap();
+        let (want_count, want) = oracle(root, 100_000);
+        assert_eq!((packing.count, packing.workers, packing.fallback), (want_count, 2, None));
+        assert_eq!(distinct(&packing.bitmap), want.into_iter().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn fallback_one_thread_pool_stays_serial_without_a_report() {
+        let build = || rayon::ThreadPoolBuilder::new().num_threads(1).build();
+        let packing = pack_with_builder([-11, 21, 24, 28], 100_000, build).unwrap();
+        assert_eq!((packing.workers, packing.fallback), (1, None));
+    }
+
+    #[test]
+    fn fallback_builder_unused_below_threshold_and_with_an_exhausted_frontier() {
+        let never = || -> Result<rayon::ThreadPool, rayon::ThreadPoolBuildError> {
+            panic!("the pool builder must not run")
+        };
+        let below = pack_with_builder([-11, 21, 24, 28], PARALLEL_MIN_N - 1, never).unwrap();
+        assert_eq!((below.workers, below.fallback), (1, None));
+        let exhausted = pack_with_builder([-300, 301, 90300, 90301], 100_000, never).unwrap();
+        assert_eq!((exhausted.workers, exhausted.fallback), (1, None));
+    }
+
+    #[test]
+    fn fallback_inside_a_pool_uses_it_and_skips_the_builder() {
+        let never = || -> Result<rayon::ThreadPool, rayon::ThreadPoolBuildError> {
+            panic!("the pool builder must not run")
+        };
+        let packing = in_pool(2, || pack_with_builder([-11, 21, 24, 28], 100_000, never).unwrap());
+        assert_eq!((packing.workers, packing.fallback), (2, None));
+    }
+
+    #[test]
+    fn fallback_rejects_bad_input_before_building() {
+        let never = || -> Result<rayon::ThreadPool, rayon::ThreadPoolBuildError> {
+            panic!("the pool builder must not run")
+        };
+        assert!(matches!(
+            pack_with_builder(ROOT_A, N_MAX + 1, never),
+            Err(DescartesError::BadInput(_))
+        ));
+    }
+
+    #[test]
+    fn parallel_threshold_is_inclusive() {
+        let root = [-11, 21, 24, 28];
+        let below = in_pool(2, || pack_with_workers(root, PARALLEL_MIN_N - 1).unwrap());
+        let at = in_pool(2, || pack_with_workers(root, PARALLEL_MIN_N).unwrap());
+        assert_eq!(below.2, 1);
+        assert_eq!(at.2, 2);
+    }
+
+    #[test]
+    fn parallel_small_frontier_stays_serial() {
+        let root = [-300, 301, 90300, 90301];
+        let (count, bitmap, workers) = in_pool(2, || pack_with_workers(root, 100_000).unwrap());
+        let (want_count, want) = oracle(root, 100_000);
+        assert_eq!((count, workers), (want_count, 1));
+        assert_eq!(distinct(&bitmap), want.into_iter().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn parallel_atomic_marks_union_exactly() {
+        use rayon::prelude::*;
+        let bits = [0i64, 1, 62, 63, 64, 65, 127, 128, 191];
+        let atomics: Vec<AtomicU64> = (0..3).map(|_| AtomicU64::new(0)).collect();
+        in_pool(4, || {
+            (0..4000usize)
+                .into_par_iter()
+                .for_each(|i| mark_atomic(&atomics, bits[i % bits.len()]));
+        });
+        let plain: Vec<u64> = atomics.into_iter().map(AtomicU64::into_inner).collect();
+        let mut want = vec![0u64; 3];
+        for &k in &bits {
+            mark(&mut want, k);
+        }
+        assert_eq!(plain, want);
     }
 
     #[test]

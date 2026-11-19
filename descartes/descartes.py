@@ -6,6 +6,8 @@ to the packing's canonical root, an enumerator that counts every circle of
 curvature at most n and records which curvatures occur, the geometry
 (centres of a root, the tangency check, the three-circle solver and the
 enumerator that carries centres), a braille renderer and the command line.
+The enumerator splits into a breadth-first frontier and independent depth-first
+subtree walks.
 Standard library only.
 
 Run with no arguments at a terminal for an interactive prompt, or supply K:
@@ -18,18 +20,28 @@ import argparse
 import cmath
 import contextlib
 import math
+import multiprocessing
 import os
 import shutil
 import sys
 import time
-from collections.abc import Iterator
+from collections import deque
+from collections.abc import Iterator, MutableSequence
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from decimal import Decimal
 from fractions import Fraction
+from multiprocessing.context import BaseContext
 from typing import NoReturn, TextIO
 
 # Largest n pack accepts: Python's N = 10^K ceiling (K <= 6, spec R7), about
 # 2.7e7 circles. The core enforces it so no caller can request an unbounded run.
 N_MAX = 10**6
+# pack's breadth-first frontier stops once this many subtrees are pending; each
+# is walked depth first on its own, so the number bounds the available parallelism.
+SEED_TARGET = 4096
+# Smallest n at which a parallel walk pays for its fork and merge.
+PARALLEL_MIN_N = 100_000
 # Largest |curvature| validate_root accepts (spec R28). Reduction takes one step
 # per reflection, and (-1, 2, n²+2, (n+1)²+2) needs n of them, so an uncapped
 # root can run for hours; curvatures grow at least quadratically along a chain,
@@ -133,18 +145,42 @@ def _check_n(n: int, op: str = "pack", arg: str = "n") -> None:
         raise BadInput(f"{op}({arg}={n}): {arg} must be at most {N_MAX}")
 
 
-def pack(root: tuple[int, int, int, int], n: int) -> tuple[int, bytearray]:
-    """Count circles of curvature at most n in the packing and mark their curvatures.
+def _children(
+    quad: list[int],
+    j: int,
+    n: int,
+    out: MutableSequence[tuple[list[int], int]],
+) -> None:
+    """Append the reflections of quad (which replaced index j) worth walking to out.
 
-    The root must come from validate_root. Termination does not rest on that:
-    the root's four reflections are seeded when at most n, and every later
-    reflection is pushed only when it strictly increases the curvature it
-    replaces and stays at most n, so every DFS path climbs a finite integer
-    range. For a reduced root the increase always holds, so the guard never
-    prunes a valid circle; it exists to bound the walk if the invariant breaks.
+    The only copy of the growth guard: a reflection is kept only when it
+    strictly increases the curvature it replaces and stays at most n. The
+    reflection back through index j is skipped (it would undo the step).
+    Appending in place, not yielding, keeps the serial walk's hot loop fast.
     """
-    _check_n(n)
-    _check_reduced_root(root)
+    total = sum(quad)
+    for i in range(4):
+        if i == j:
+            continue
+        old = quad[i]
+        k = 2 * (total - old) - old
+        if old < k <= n:
+            child = quad.copy()
+            child[i] = k
+            out.append((child, i))
+
+
+def _frontier(
+    root: tuple[int, int, int, int], n: int
+) -> tuple[int, bytearray, list[tuple[list[int], int]]]:
+    """Walk breadth first from the root until SEED_TARGET subtrees are pending.
+
+    Returns the count and bitmap of the circles visited so far (the root's
+    positive circles and every circle popped) and the pending subtree roots,
+    each a (quad, replaced index) pair. An empty list means the whole packing
+    was visited. The pending subtrees are disjoint, so they can be walked in
+    any order or in parallel.
+    """
     bitmap = bytearray(n // 8 + 1)
     count = 0
     for k in root[1:]:
@@ -152,27 +188,124 @@ def pack(root: tuple[int, int, int, int], n: int) -> tuple[int, bytearray]:
             count += 1
             _mark(bitmap, k)
     total = sum(root)
-    stack: list[tuple[list[int], int]] = []
+    pending: deque[tuple[list[int], int]] = deque()
     for i in range(4):
         k = 2 * (total - root[i]) - root[i]
         if k <= n:
             quad = list(root)
             quad[i] = k
-            stack.append((quad, i))
+            pending.append((quad, i))
+    while pending and len(pending) < SEED_TARGET:
+        quad, j = pending.popleft()
+        count += 1
+        _mark(bitmap, quad[j])
+        _children(quad, j, n, pending)
+    return count, bitmap, list(pending)
+
+
+def _walk_subtrees(
+    seeds: list[tuple[list[int], int]], n: int, bitmap: bytearray
+) -> int:
+    """Depth first walk of every seed's subtree; mark into bitmap, return the count."""
+    count = 0
+    stack = list(seeds)
     while stack:
         quad, j = stack.pop()
         count += 1
         _mark(bitmap, quad[j])
-        total = sum(quad)
-        for i in range(4):
-            if i == j:
-                continue
-            k = 2 * (total - quad[i]) - quad[i]
-            if quad[i] < k <= n:
-                child = list(quad)
-                child[i] = k
-                stack.append((child, i))
-    return count, bitmap
+        _children(quad, j, n, stack)
+    return count
+
+
+def _cpu_count() -> int:
+    """CPUs this process may use; process_cpu_count needs 3.13, pyright targets 3.11."""
+    counter = getattr(os, "process_cpu_count", os.cpu_count)
+    return counter() or 1
+
+
+def _mp_context() -> BaseContext:
+    """Fork on Linux (cheap workers); spawn elsewhere (fork is unsafe on macOS)."""
+    return multiprocessing.get_context("fork" if sys.platform == "linux" else "spawn")
+
+
+def _tasks(
+    seeds: list[tuple[list[int], int]], workers: int
+) -> list[list[tuple[list[int], int]]]:
+    """Deal seeds round robin into 4 * workers tasks so uneven subtrees balance."""
+    count = 4 * workers
+    tasks: list[list[tuple[list[int], int]]] = [[] for _ in range(count)]
+    for i, seed in enumerate(seeds):
+        tasks[i % count].append(seed)
+    return tasks
+
+
+def _walk_task(task: list[tuple[list[int], int]], n: int) -> tuple[int, bytes]:
+    """Walk one task's subtrees in a worker; return its count and bitmap bytes."""
+    bitmap = bytearray(n // 8 + 1)
+    count = _walk_subtrees(task, n, bitmap)
+    return count, bytes(bitmap)
+
+
+def _walk_parallel(
+    seeds: list[tuple[list[int], int]], n: int, workers: int
+) -> tuple[int, int]:
+    """Walk seeds in a pool; return the count and the OR of the workers' bitmaps.
+
+    Every result is collected before the caller commits any of it, so a pool
+    that dies half way leaves the coordinator's bitmap untouched.
+    """
+    tasks = _tasks(seeds, workers)
+    with ProcessPoolExecutor(max_workers=workers, mp_context=_mp_context()) as pool:
+        results = list(pool.map(_walk_task, tasks, [n] * len(tasks)))
+    merged = 0
+    for _, raw in results:
+        merged |= int.from_bytes(raw, "little")
+    return sum(count for count, _ in results), merged
+
+
+def pack_with_workers(
+    root: tuple[int, int, int, int], n: int
+) -> tuple[int, bytearray, int]:
+    """Count circles of curvature at most n, mark their curvatures, report workers.
+
+    The root must come from validate_root. Termination does not rest on that:
+    the root's four reflections are seeded when at most n, and every later
+    reflection is pushed only when _children's growth guard passes, so every
+    path climbs a finite integer range. For a reduced root the increase always
+    holds, so the guard never prunes a valid circle; it exists to bound the
+    walk if the invariant breaks. At n >= PARALLEL_MIN_N with seeds pending and
+    more than one CPU the subtrees run in a process pool and workers is the CPU
+    count; otherwise, or when the pool is unavailable, the walk is serial and
+    workers is 1.
+    """
+    _check_n(n)
+    _check_reduced_root(root)
+    count, bitmap, seeds = _frontier(root, n)
+    cpus = _cpu_count()
+    if n >= PARALLEL_MIN_N and seeds and cpus > 1:
+        try:
+            walked, merged = _walk_parallel(seeds, n, cpus)
+        except (OSError, NotImplementedError, BrokenProcessPool) as err:
+            print(
+                f"Parallel mode unavailable ({err}); falling back to serial.",
+                file=sys.stderr,
+            )
+            print(
+                "Install project requirements and ensure OS multiprocessing "
+                "semaphore support is available to re-enable parallel mode.",
+                file=sys.stderr,
+            )
+        else:
+            merged |= int.from_bytes(bitmap, "little")
+            bitmap[:] = merged.to_bytes(len(bitmap), "little")
+            return count + walked, bitmap, cpus
+    count += _walk_subtrees(seeds, n, bitmap)
+    return count, bitmap, 1
+
+
+def pack(root: tuple[int, int, int, int], n: int) -> tuple[int, bytearray]:
+    """Count circles of curvature at most n in the packing and mark their curvatures."""
+    return pack_with_workers(root, n)[:2]
 
 
 def distinct(bitmap: bytearray) -> list[int]:
@@ -911,7 +1044,7 @@ def _run_packing(args: argparse.Namespace) -> None:
             # Open first: a path or permission error must not cost a computation.
             with open(filename, "w") as f:
                 start = time.perf_counter()
-                count, bitmap = pack(root, n)
+                count, bitmap, workers = pack_with_workers(root, n)
                 curvatures = distinct(bitmap)
                 f.writelines(f"{curvature}\n" for curvature in curvatures)
         except OSError as error:
@@ -928,6 +1061,8 @@ def _run_packing(args: argparse.Namespace) -> None:
     print(f"Saved to {filename}")
     if args.svg is not None:
         print(f"Saved SVG to {args.svg}")
+    if workers > 1:
+        print(f"Workers: {workers}", file=sys.stderr)
     print(f"Elapsed: {elapsed:.2f}s", file=sys.stderr)
     if count and not args.no_draw:
         _draw_packing(root, n, count)

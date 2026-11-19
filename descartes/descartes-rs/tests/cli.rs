@@ -156,3 +156,35 @@ fn svg_cli_binary_writes_svg_in_cwd() {
     let svg = std::fs::read_to_string(dir.path().join("out.svg")).unwrap();
     assert!(svg.contains("<svg "));
 }
+
+/// K=5 on a small root: n = 10^5 is the parallel threshold and the walk is quick.
+fn run_k5_with_threads(threads: &str) -> (Output, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_descartes"))
+        .args(["5", "--root", "-11", "21", "24", "28", "--no-draw"])
+        .env("RAYON_NUM_THREADS", threads)
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    (out, dir)
+}
+
+#[test]
+fn rayon_num_threads_bounds_the_workers_line() {
+    let (out, _dir) = run_k5_with_threads("3");
+    assert_eq!(out.status.code(), Some(0));
+    let stderr = text(&out.stderr);
+    let lines: Vec<&str> = stderr.lines().collect();
+    assert_eq!(lines.len(), 2, "{stderr}");
+    assert_eq!(lines[0], "Workers: 3");
+    assert!(lines[1].starts_with("Elapsed: "), "{stderr}");
+}
+
+#[test]
+fn rayon_num_threads_one_runs_serial_without_a_report() {
+    let (out, _dir) = run_k5_with_threads("1");
+    assert_eq!(out.status.code(), Some(0));
+    let stderr = text(&out.stderr);
+    assert!(!stderr.contains("Workers:") && !stderr.contains("Parallel mode"), "{stderr}");
+    assert_eq!(stderr.lines().count(), 1, "{stderr}");
+}

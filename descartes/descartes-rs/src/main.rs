@@ -10,8 +10,8 @@ use std::process::{self, Command, Stdio};
 use std::time::Instant;
 
 use descartes::{
-    Circle, DescartesError, distinct, pack, render, root_centres, solve, svg_limit, svg_packing,
-    svg_solve, validate_root, visible,
+    Circle, DescartesError, Packing, default_pool, distinct, pack_with_builder, render,
+    root_centres, solve, svg_limit, svg_packing, svg_solve, validate_root, visible,
 };
 
 /// Largest K: curvature limit 10^8 is the core's `N_MAX` (spec R14, R22).
@@ -398,6 +398,14 @@ fn packing_filename(k: u32, root: [i64; 4]) -> String {
     format!("descartes_1e{k}_root_{}_{}_{}_{}.txt", root[0], root[1], root[2], root[3])
 }
 
+/// The `Workers: <w>` stderr line, printed only when the pool ran (more than one worker).
+fn write_workers_line<E: Write>(stderr: &mut E, workers: usize) -> io::Result<()> {
+    if workers > 1 {
+        writeln!(stderr, "Workers: {workers}")?;
+    }
+    Ok(())
+}
+
 fn run_packing<R: BufRead, W: Write, E: Write>(
     args: &Args,
     stdin: &mut R,
@@ -405,6 +413,19 @@ fn run_packing<R: BufRead, W: Write, E: Write>(
     out_dir: &Path,
     stdout: &mut W,
     stderr: &mut E,
+) -> Result<(), Stop> {
+    run_packing_with_pool(args, stdin, term, out_dir, stdout, stderr, default_pool)
+}
+
+/// `run_packing` with the rayon pool construction injected, so a test can refuse the pool.
+fn run_packing_with_pool<R: BufRead, W: Write, E: Write>(
+    args: &Args,
+    stdin: &mut R,
+    term: &Terminal,
+    out_dir: &Path,
+    stdout: &mut W,
+    stderr: &mut E,
+    build: impl FnOnce() -> Result<rayon::ThreadPool, rayon::ThreadPoolBuildError>,
 ) -> Result<(), Stop> {
     let k = exponent(args.size, stdin, stdout, stderr)?;
     // `num_args = 4` with `ArgAction::Set` leaves exactly four values (the last `--root` wins).
@@ -421,7 +442,8 @@ fn run_packing<R: BufRead, W: Write, E: Write>(
     let file = File::create(out_dir.join(&filename))
         .map_err(|e| fail(stderr, format!("cannot write {filename}: {e}"), 1))?;
     let start = Instant::now();
-    let (count, bitmap) = pack(root, n).map_err(|e| fail_descartes(stderr, &e))?;
+    let Packing { count, bitmap, workers, fallback } =
+        pack_with_builder(root, n, build).map_err(|e| fail_descartes(stderr, &e))?;
     let curvatures = distinct(&bitmap);
     let mut writer = BufWriter::new(file);
     for curvature in &curvatures {
@@ -448,6 +470,14 @@ fn run_packing<R: BufRead, W: Write, E: Write>(
     if let Some(path) = args.svg.as_deref() {
         writeln!(stdout, "Saved SVG to {}", path.display())?;
     }
+    if let Some(error) = fallback {
+        writeln!(stderr, "Parallel mode unavailable ({error}); falling back to serial.")?;
+        writeln!(
+            stderr,
+            "Raise the process or thread limit (ulimit -u, a container pids limit) to re-enable parallel mode."
+        )?;
+    }
+    write_workers_line(stderr, workers)?;
     writeln!(stderr, "Elapsed: {elapsed:.2}s")?;
     if count > 0 && !args.no_draw {
         let (width, _) = canvas_size(term);
@@ -634,6 +664,107 @@ mod tests {
         let (whole, fraction) = line.split_once('.').unwrap();
         assert!(whole.parse::<u32>().is_ok(), "{line}");
         assert_eq!(fraction.len(), 2, "{line}");
+    }
+
+    fn in_pool<T: Send>(threads: usize, f: impl FnOnce() -> T + Send) -> T {
+        rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap().install(f)
+    }
+
+    /// K=5 on a small root: n = 10^5 is the parallel threshold and the walk is quick.
+    fn run_k_in_pool(k: &str, threads: usize) -> Outcome {
+        let dir = tempfile::tempdir().unwrap();
+        in_pool(threads, || {
+            run_in(&[k, "--root", "-11", "21", "24", "28", "--no-draw"], "", &PIPED, dir.path())
+        })
+    }
+
+    fn assert_elapsed_line(line: &str) {
+        let digits = line.strip_prefix("Elapsed: ").and_then(|s| s.strip_suffix('s')).unwrap();
+        let (whole, fraction) = digits.split_once('.').unwrap();
+        assert!(whole.parse::<u32>().is_ok(), "{line}");
+        assert_eq!(fraction.len(), 2, "{line}");
+    }
+
+    #[test]
+    fn workers_line_precedes_elapsed_when_the_pool_runs() {
+        let parallel = run_k_in_pool("5", 2);
+        let serial = run_k_in_pool("5", 1);
+        assert_eq!((parallel.code, serial.code), (0, 0));
+        let (first, rest) = parallel.stderr.split_once('\n').unwrap();
+        assert_eq!(first, "Workers: 2");
+        assert!(rest.ends_with('\n'), "{rest:?}");
+        assert_eq!(rest.lines().count(), 1, "{rest:?}");
+        assert_elapsed_line(rest.trim_end());
+        assert_eq!(parallel.stdout, serial.stdout);
+    }
+
+    #[test]
+    fn workers_line_absent_for_a_one_thread_pool() {
+        let o = run_k_in_pool("5", 1);
+        assert!(!o.stderr.contains("Workers:"), "{}", o.stderr);
+        assert_eq!(o.stderr.lines().count(), 1, "{}", o.stderr);
+        assert_elapsed_line(o.stderr.trim_end());
+    }
+
+    #[test]
+    fn workers_line_absent_below_the_parallel_threshold() {
+        let o = run_k_in_pool("4", 2);
+        assert!(!o.stderr.contains("Workers:"), "{}", o.stderr);
+        assert_elapsed_line(o.stderr.trim_end());
+    }
+
+    #[test]
+    fn fallback_failed_pool_prints_two_lines_then_elapsed_and_matches_serial() {
+        let root = ["--root", "-11", "21", "24", "28", "--no-draw"];
+        let run_with = |build: fn() -> Result<rayon::ThreadPool, rayon::ThreadPoolBuildError>| {
+            let dir = tempfile::tempdir().unwrap();
+            let mut args = vec!["5"];
+            args.extend(root);
+            let args = Args::try_parse_from(argv(&args)).unwrap();
+            let (mut out, mut err) = (Vec::<u8>::new(), Vec::<u8>::new());
+            let result = run_packing_with_pool(
+                &args,
+                &mut "".as_bytes(),
+                &PIPED,
+                dir.path(),
+                &mut out,
+                &mut err,
+                build,
+            );
+            assert!(result.is_ok());
+            let file =
+                std::fs::read_to_string(dir.path().join(packing_filename(5, [-11, 21, 24, 28])));
+            (String::from_utf8(out).unwrap(), String::from_utf8(err).unwrap(), file.unwrap())
+        };
+        let refuse = || {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(2)
+                .spawn_handler(|_| Err(io::Error::other("refused")))
+                .build()
+        };
+        let (out, err, file) = run_with(refuse);
+        let lines: Vec<&str> = err.lines().collect();
+        assert_eq!(lines.len(), 3, "{err}");
+        assert!(lines[0].starts_with("Parallel mode unavailable ("), "{err}");
+        assert!(lines[0].ends_with("refused); falling back to serial."), "{err}");
+        assert_eq!(
+            lines[1],
+            "Raise the process or thread limit (ulimit -u, a container pids limit) to re-enable parallel mode."
+        );
+        assert_elapsed_line(lines[2]);
+        let (serial_out, serial_err, serial_file) =
+            run_with(|| rayon::ThreadPoolBuilder::new().num_threads(1).build());
+        assert_eq!((out, file), (serial_out, serial_file));
+        assert_eq!(serial_err.lines().count(), 1, "{serial_err}");
+    }
+
+    #[test]
+    fn workers_line_printed_only_above_one_worker() {
+        for (workers, expected) in [(1, ""), (2, "Workers: 2\n"), (7, "Workers: 7\n")] {
+            let mut err = Vec::<u8>::new();
+            write_workers_line(&mut err, workers).unwrap();
+            assert_eq!(String::from_utf8(err).unwrap(), expected, "workers={workers}");
+        }
     }
 
     #[test]
