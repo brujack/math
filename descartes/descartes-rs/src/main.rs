@@ -10,8 +10,8 @@ use std::process::{self, Command, Stdio};
 use std::time::Instant;
 
 use descartes::{
-    Circle, DescartesError, Packing, distinct, pack_with_builder, render, root_centres, solve,
-    svg_limit, svg_packing, svg_solve, validate_root, visible,
+    Circle, DescartesError, Packing, default_pool, distinct, pack_with_builder, render,
+    root_centres, solve, svg_limit, svg_packing, svg_solve, validate_root, visible,
 };
 
 /// Largest K: curvature limit 10^8 is the core's `N_MAX` (spec R14, R22).
@@ -414,8 +414,7 @@ fn run_packing<R: BufRead, W: Write, E: Write>(
     stdout: &mut W,
     stderr: &mut E,
 ) -> Result<(), Stop> {
-    let build = || rayon::ThreadPoolBuilder::new().build();
-    run_packing_with_pool(args, stdin, term, out_dir, stdout, stderr, build)
+    run_packing_with_pool(args, stdin, term, out_dir, stdout, stderr, default_pool)
 }
 
 /// `run_packing` with the rayon pool construction injected, so a test can refuse the pool.

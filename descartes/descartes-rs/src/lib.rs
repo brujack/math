@@ -218,7 +218,13 @@ pub fn pack_with_workers(root: [i64; 4], n: i64) -> Result<(i64, Vec<u64>, usize
 /// `pack_with_workers` that also reports a pool-build failure (R11), so the
 /// caller can tell the user why the run was serial.
 pub fn pack_reporting(root: [i64; 4], n: i64) -> Result<Packing, DescartesError> {
-    pack_with_builder(root, n, || rayon::ThreadPoolBuilder::new().build())
+    pack_with_builder(root, n, default_pool)
+}
+
+/// The production pool: rayon's default sizing (`RAYON_NUM_THREADS`, else the CPU count).
+/// The one place the binary builds a pool, so a test of the real builder covers both callers.
+pub fn default_pool() -> Result<rayon::ThreadPool, rayon::ThreadPoolBuildError> {
+    rayon::ThreadPoolBuilder::new().build()
 }
 
 /// The packing walk with the pool construction injected. `build` runs only when
@@ -233,6 +239,17 @@ pub fn pack_with_builder(
     n: i64,
     build: impl FnOnce() -> Result<rayon::ThreadPool, rayon::ThreadPoolBuildError>,
 ) -> Result<Packing, DescartesError> {
+    pack_with_builder_observed(root, n, build, &|| {})
+}
+
+/// `pack_with_builder` with `on_seed` forwarded to `parallel_subtrees`, so a test can see
+/// which threads walked the seeds.
+fn pack_with_builder_observed(
+    root: [i64; 4],
+    n: i64,
+    build: impl FnOnce() -> Result<rayon::ThreadPool, rayon::ThreadPoolBuildError>,
+    on_seed: &(impl Fn() + Sync),
+) -> Result<Packing, DescartesError> {
     check_n(n, N_MAX, "pack", "n")?;
     check_reduced_root(root, "pack")?;
     let (count, bitmap, seeds) = frontier(root, n, &mut || {});
@@ -243,7 +260,7 @@ pub fn pack_with_builder(
         if rayon::current_thread_index().is_some() {
             let workers = rayon::current_num_threads();
             if workers != 1 {
-                let (count, bitmap) = parallel_subtrees(count, bitmap, &seeds, n, &|| {});
+                let (count, bitmap) = parallel_subtrees(count, bitmap, &seeds, n, on_seed);
                 return Ok(Packing { count, bitmap, workers, fallback });
             }
         } else {
@@ -252,7 +269,7 @@ pub fn pack_with_builder(
                     let workers = pool.current_num_threads();
                     if workers != 1 {
                         let (count, bitmap) =
-                            pool.install(|| parallel_subtrees(count, bitmap, &seeds, n, &|| {}));
+                            pool.install(|| parallel_subtrees(count, bitmap, &seeds, n, on_seed));
                         return Ok(Packing { count, bitmap, workers, fallback });
                     }
                 }
@@ -1679,6 +1696,34 @@ mod tests {
         assert_eq!((packing.count, packing.workers), (want_count, 1));
         assert_eq!(distinct(&packing.bitmap), want.into_iter().collect::<Vec<_>>());
         assert!(packing.fallback.expect("error reported").contains("refused"));
+    }
+
+    #[test]
+    fn fallback_built_pool_runs_every_seed_on_its_own_threads() {
+        let root = [-11, 21, 24, 28];
+        let build = || {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(2)
+                .thread_name(|i| format!("descartes-test-{i}"))
+                .build()
+        };
+        let names = std::sync::Mutex::new(Vec::<Option<String>>::new());
+        let record = || {
+            let name = std::thread::current().name().map(str::to_owned);
+            names.lock().unwrap().push(name);
+        };
+        let packing = pack_with_builder_observed(root, 100_000, build, &record).unwrap();
+        let (want_count, want) = oracle(root, 100_000);
+        assert_eq!((packing.count, packing.workers), (want_count, 2));
+        assert_eq!(distinct(&packing.bitmap), want.into_iter().collect::<Vec<_>>());
+        let names = names.into_inner().unwrap();
+        assert!(!names.is_empty());
+        for name in names {
+            assert!(
+                name.is_some_and(|n| n.starts_with("descartes-test-")),
+                "walked off the built pool"
+            );
+        }
     }
 
     #[test]
