@@ -3,110 +3,96 @@
 
 ## Bug Fixes
 
-- stop tempdir leaks, cap file size (#211)
+- re-render descartes workflows (master red); skip Rust SIGTERM-twice tests under the coverage tracer (#228)
 
-- signal-safe TMPDIR cleanup, diagnosable coverage flake (#212)
+- exit on end of input at the interactive prompts (#229)
 
-- read-only mutation-pr token, validated counts, gate ignores dispatch runs (#213)
-
-- classifier rejects non-number counts; pi/e drop equivalent max; crate list checked (#215)
-
-- badges publish after auto-merge; actionlint via install-deps; classifier rejects ambiguous outcomes (#216)
-
-- disable core dumps in mutation runs (#218)
-
-
-
-## CI
-
-- per-PR Rust mutation ratchet on changed lines (#206)
-
-- Rust sweep holds zero missed (#208)
-
-- per-PR Python mutation gate on changed lines (#219)
+- re-prompt on bad input at the K and N prompts (#230)
 
 
 
 ## Documentation
 
-- mark slice 5 rust PR mutation ratchet done
+- descartes multi-lens review round 1
 
-- worldclass slice 6 rust sweep ratchet
+- descartes round-1 review dispositions
 
-- slice 6 round 1 multi-lens review
+- descartes round-2 review and dispositions
 
-- slice 6 round 1 lens revisions and dispositions
+- descartes round-3 review and disposition
 
-- slice 6 round 2 multi-lens review
+- approve descartes spec after round-4 review
 
-- slice 6 round 2 lens revisions and dispositions
+- descartes implementation plan
 
-- slice 6 round 3 scoped review fixes
+- mark descartes PR1 merged; backlog cap wording
 
-- approve slice 6 rust sweep ratchet spec
+- mark descartes Done; post-merge Backlog rows
 
-- slice 6 rust sweep ratchet plan
+- SVG output for descartes and triangle; re-prompt and end-of-input at the prompts
 
-- mark slice 6 rust sweep ratchet done
+- record round-1 multi-lens review for svg/reprompt spec
 
-- tracer-timing flake, runner-loss row update
+- address round-1 lens findings (closed-stdin spin, tolerant SVG parity, path checks)
 
-- amend 0024 with file cap and run-local TMPDIR
+- address round-2 lens findings (integer parity, confirm-EOF exit 0, solve fit, path refusals)
 
-- double-TERM can interrupt mutants TMPDIR cleanup
+- round-3 fixes; approve svg/reprompt spec
 
-- math#212 shipped; tracer flake and crate-list rows
+- svg output and prompt re-prompt/EOF plan (17 tasks, 3 PRs)
 
-- math#213 shipped three rows; null/false count row
+- PR2 done; plan gate fix; backlog row
 
-- runner loss persists after the file cap (run 42157905568)
+- PR1 done (math#230)
 
-- worldclass slice 7 sharded Rust sweep with hang guard
+- PR3 done (math#231); triangle equivalents file
 
-- slice 7 revised to 4 GiB cap and slice shards after round-1 review
+- descartes drawn circle counts and SVG cap disclosure
 
-- slice 7 re-specified to disable mutation core dumps
+- multi-lens review round 1 for descartes drawn counts
 
-- slice 7 round-3 multi-lens review
+- revise descartes drawn counts after lens round 1
 
-- slice 7 round-3 dispositions applied; approved
+- descartes drawn counts round 2; drop canvas shrink
 
-- slice 7 R4 amended after scoped re-review
+- approve descartes drawn circle counts
 
-- slice 7 mutant core dumps implementation plan
+- descartes drawn circle counts
 
-- slice 7 done (math#218); Rust SIGTERM test flaked once under tracer
+- descartes drawn counts done (math#232)
 
-- runner loss fixed; V1 sweep 42328612206 11/11 green
+- root README notes descartes --svg and its cut-off
 
-- drop dead master ruleset row; ruleset deleted
+- widen parallel descartes backlog row to Python
 
-- worldclass slice 8 per-PR Python mutation gate
+- explain Descartes' theorem, packing and K
 
-- slice 8 round 1 lens findings and revisions
+- descartes parallel packing in Rust and Python
 
-- slice 8 round 1 dispositions; mandatory row in equivalents
+- revise descartes parallel packing after lens round 1
 
-- slice 8 round 2 findings, dispositions and the above key
+- revise descartes parallel packing after lens round 2
 
-- slice 8 round 3 fixes; review closed
+- approve descartes parallel packing
 
-- approve slice 8 Python PR mutation gate
+- descartes parallel packing
 
-- slice 8 Python PR mutation gate plan
+- mark descartes parallel packing done
 
-- mark slice 8 Done; backlog bash-coverage flake
-
-- record slice-8 V1, V3, V4 and V6 evidence
-
-- drop empty-plan backlog row, exercised by math#221
-
-- record second bash-coverage SIGTERM flake
+- ADR-0045 for the descartes-rs pool fallback; root README notes parallel packing
 
 
 
-## Refactoring
+## Features
 
-- one exit-code reader and Rust setup macro; pin pi/e render values (#214)
+- add Descartes solver and Apollonian packing CLI (Python) (#224)
+
+- add the Rust crate for the descartes sub-project (#225)
+
+- --svg PATH output for descartes and triangle (#231)
+
+- disclose SVG cut-off, report drawn circle counts (#232)
+
+- parallel packing in Rust and Python (#234)
 
 
