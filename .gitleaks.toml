@@ -1,3 +1,10 @@
+# Without [extend] useDefault = true, a gitleaks config replaces the built-in
+# ruleset instead of adding to it, and the scan runs with no rules.
+# Keep the singular [allowlist]: CI pins gitleaks 8.21.2, which does not read
+# the plural [[allowlists]] form. tests/test_gitleaks_config.py pins both.
+[extend]
+useDefault = true
+
 [allowlist]
 description = "Allowlist for math repo"
 paths = [
