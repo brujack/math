@@ -18,6 +18,8 @@ permissions:
 jobs:
   release:
     name: Release collatz-rs
+    # Sign and publish only from master (audit 2026-11-16 F6).
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
