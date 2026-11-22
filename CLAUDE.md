@@ -156,7 +156,7 @@ Exclude equivalent mutants via the crate's `.cargo/mutants.toml` `exclude_re` re
 
 Project workflows run on PRs to `master` only; the pre-push hook gates branch pushes locally; a build job depends on its test job (`needs: [test]`). → ai-config/docs/knowledge/math-ci.md § Workflow table
 Workflows are `<project>-py.yml` (job `test`) and `<project>-rs.yml` (`test` → build + artifact), `release-<project>-rs.yml` (manual dispatch), plus `auto-merge.yml`, `mutation-pr.yml`, `mutation-testing.yml`, `mutation-testing-python.yml`, `gmp-cache.yml`, `cargo-deny.yml`, `scripts.yml` (`git ls-files .github/workflows/`). → ai-config/docs/knowledge/math-ci.md § Workflow table
-`auto-merge.yml` runs secret-scan, bash-coverage and claude-md-budget (gated), then ci-gate (polls required checks, merges on pass; a draft PR is held green and the `ready_for_review` run merges), then snyk-scan (advisory, not gated); `scripts.yml` runs `bats --jobs 8 --recursive tests/`. → ai-config/docs/knowledge/math-ci.md § Workflow table
+`auto-merge.yml` runs secret-scan (`.gitleaks.toml` extends defaults, `tests/test_gitleaks_config.py`), bash-coverage and claude-md-budget (gated), then ci-gate (polls required checks, merges on pass; a draft PR is held green and the `ready_for_review` run merges), then snyk-scan (advisory, not gated); `scripts.yml` runs `bats --jobs 8 --recursive tests/`. → ai-config/docs/knowledge/math-ci.md § Workflow table
 
 Crate jobs restore the GMP/MPFR build (`gmp-mpfr-sys`) read-only from `actions/cache`, failing open to a cold build via `scripts/gmp-cache-key.sh`; only `gmp-cache.yml` saves it (weekly on master), so dispatch it after a `gmp-mpfr-sys` bump on master (ADR-0034).
 
@@ -167,7 +167,7 @@ Every `softprops/action-gh-release` call sets `fail_on_unmatched_files: true`; `
 Release jobs run only from master (`if: github.ref == 'refs/heads/master'`, `tests/test_release_workflows.py`); every remote `uses:` pins a 40-hex SHA (`tests/test_workflow_actions_pinned.py`).
 Releases attach `THIRD-PARTY-NOTICES.txt` (`scripts/third-party-notices.sh`; fails before the tag). → ai-config/docs/knowledge/math-ci.md § Atomic release publication
 Release workflows use `workflow_dispatch` with a `version` input (no `v`) and create tag `{subproject}-v{version}` themselves. A `Validate version` step after checkout runs `scripts/check-release-version.sh <crate-dir> "${VERSION}"` (plain `MAJOR.MINOR.PATCH`, equal to `Cargo.toml`); every later step reads `steps.version.outputs.version`, never `inputs.version` (`tests/test_release_workflows.py` pins both).
-Rust builds `needs: [test]` and use `actions/upload-artifact@v7`. Coverage jobs only upload `coverage-badge-<project>-<lang>`; `auto-merge.yml` publishes them post-merge (`scripts/publish-coverage-badges.sh`).
+Coverage jobs only upload `coverage-badge-<project>-<lang>`; `auto-merge.yml` publishes them post-merge (`scripts/publish-coverage-badges.sh`).
 
 Pre-commit: `scripts/pre-commit` (installed by `make install-hooks`) runs `make lint` on staged sub-projects and root `.py` and `ggshield secret scan pre-commit` (skipped if absent); install ggshield locally. → ai-config/docs/knowledge/math-ci.md § Pre-commit hook
 
