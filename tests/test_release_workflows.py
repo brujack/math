@@ -894,6 +894,15 @@ class TestReleaseWorkflowContract(unittest.TestCase):
                 }
                 self.assertEqual(used, RELEASE_ACTIONS, path.name)
 
+    def test_every_release_job_runs_only_from_master(self):
+        # Audit 2026-11-16 F6. Exact equality, not a substring: a weakened guard
+        # (`|| true`, a different ref) must fail here, as must a job with none.
+        for path in self.workflows:
+            workflow = load_workflow(path)
+            for name, job in workflow["jobs"].items():
+                with self.subTest(workflow=path.name, job=name):
+                    self.assertEqual(job.get("if"), "github.ref == 'refs/heads/master'")
+
     def test_push_detector_sees_evasive_forms(self):
         cases = {
             'git push origin "pi-v${VERSION}"': ['git push origin "pi-v${VERSION}"'],
