@@ -141,6 +141,12 @@ runs:
         )
         self.assertEqual(uses_refs(document), [])
 
+    def test_non_mapping_steps_are_skipped(self):
+        # A null step and a bare string that contains "uses" are not steps;
+        # neither may be indexed as a mapping or counted as a ref.
+        document = {"jobs": {"a": {"steps": [None, "uses: o/r@v1"]}}}
+        self.assertEqual(uses_refs(document), [])
+
 
 class TestRepoActionsArePinned(unittest.TestCase):
     def test_discovery_finds_workflows_and_composites(self):
