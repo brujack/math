@@ -22,6 +22,7 @@
 [![triangle.py](https://github.com/brujack/math/actions/workflows/triangle-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/triangle-py.yml)
 [![descartes.py](https://github.com/brujack/math/actions/workflows/descartes-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/descartes-py.yml)
 [![descartes-rs](https://github.com/brujack/math/actions/workflows/descartes-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/descartes-rs.yml)
+[![zeta-rs](https://github.com/brujack/math/actions/workflows/zeta-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/zeta-rs.yml)
 [![scripts](https://github.com/brujack/math/actions/workflows/scripts.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/scripts.yml)
 
 High-performance mathematical computation tools.
@@ -41,6 +42,7 @@ High-performance mathematical computation tools.
 | [`amicable/`](amicable/README.md)               | Find all amicable pairs (a,b) with b ≤ 10^N (proper-divisor sum sieve) | Python + Rust  | [![amicable.py](https://github.com/brujack/math/actions/workflows/amicable-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/amicable-py.yml) [![amicable-rs](https://github.com/brujack/math/actions/workflows/amicable-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/amicable-rs.yml)                                           |
 | [`triangle/`](triangle/README.md)               | Solve a triangle from any three sides/angles; area, perimeter, braille drawing, `--svg` output | Python         | [![triangle.py](https://github.com/brujack/math/actions/workflows/triangle-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/triangle-py.yml)                                                                                                                                                                                                                               |
 | [`descartes/`](descartes/README.md)             | Solve tangent circles to three given circles; enumerate integral Apollonian packings; braille drawing, `--svg` output| Python + Rust  | [![descartes.py](https://github.com/brujack/math/actions/workflows/descartes-py.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/descartes-py.yml) [![descartes-rs](https://github.com/brujack/math/actions/workflows/descartes-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/descartes-rs.yml)                                                                                                                                                                                                                               |
+| [`zeta/`](zeta/README.md)                       | Certified Riemann Hypothesis verification up to height 10^N (under construction) | Rust           | [![zeta-rs](https://github.com/brujack/math/actions/workflows/zeta-rs.yml/badge.svg?event=pull_request)](https://github.com/brujack/math/actions/workflows/zeta-rs.yml) |
 
 ## Coverage
 
@@ -59,6 +61,7 @@ High-performance mathematical computation tools.
 | sq              | ![python](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/sq/python.json)              | ![rust](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/sq/rust.json)              |
 | triangle        | ![python](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/triangle/python.json)        | —                                                                                                                                   |
 | twin-primes     | —                                                                                                                                       | ![rust](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/twin-primes/rust.json)     |
+| zeta            | —                                                                                                                                       | ![rust](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/brujack/math/coverage-data/zeta/rust.json)            |
 
 ---
 
@@ -347,6 +350,15 @@ make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnin
 make test      # lint, then cargo test
 ```
 
+### Rust (`zeta/zeta-rs/`)
+
+```bash
+cd zeta/zeta-rs
+make zeta      # cargo build --release
+make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
+make test      # lint, then cargo test
+```
+
 ---
 
 ## collatz
@@ -406,6 +418,16 @@ It writes the distinct curvatures to `descartes_1e<K>.txt` and draws the packing
 Both print `Workers: <N>` to stderr before `Elapsed:` when more than one worker ran; output is identical to a serial run.
 
 See [`descartes/README.md`](descartes/README.md) for full details.
+
+---
+
+## zeta
+
+Certified verification of the Riemann Hypothesis up to height 10^N: every nontrivial zero of ζ with 0 < Im ρ ≤ 10^N lies on the critical line and is simple. Every quantity the proof uses is an MPFR interval with directed rounding, so the claim is a theorem for that range. It is evidence for RH, never a proof of it.
+
+- Rust implementation (`zeta/zeta-rs/`) — **under construction**: the CLI is a stub that prints `RH NOT verified: zeta is under construction` and exits 3; the library has certified interval arithmetic, the verification config and certified Riemann–Siegel θ(t) with Gram brackets
+
+See [`zeta/README.md`](zeta/README.md) for full details.
 
 ---
 
