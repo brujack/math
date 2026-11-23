@@ -4,9 +4,9 @@
 //! Stirling series (DLMF 5.11.1) with its error bound (DLMF 5.11(ii)), applied
 //! at z + SHIFT and moved back by the recurrence
 //! Ln Gamma(z) = Ln Gamma(z + m) - sum_{k<m} Ln(z + k), exact for Re z > 0.
-//! The shift keeps |w| >= 10.25, where the series is accurate to about 3e-22
-//! at 2*pi and far better above it; the accuracy floor is therefore about 1e-22
-//! however many bits are requested.
+//! The shift keeps |w| >= 10.25, where the series is accurate to about 3.4e-22
+//! at 2*pi and far better above it; the accuracy floor is therefore about
+//! 3.4e-22 at t = 2*pi however many bits are requested.
 
 use crate::interval::{Interval, IntervalError, Sign};
 use rug::Float;
@@ -257,7 +257,10 @@ fn asymptotic_theta(t: f64) -> f64 {
 /// d/dt of `asymptotic_theta`.
 fn asymptotic_slope(t: f64) -> f64 {
     let t2 = t * t;
-    0.5 * (t / std::f64::consts::TAU).ln() - 1.0 / (48.0 * t2) - 7.0 / (1920.0 * t2 * t2)
+    0.5 * (t / std::f64::consts::TAU).ln()
+        - 1.0 / (48.0 * t2)
+        - 7.0 / (1920.0 * t2 * t2)
+        - 31.0 / (16128.0 * t2 * t2 * t2)
 }
 
 fn midpoint_f64(i: &Interval) -> f64 {
@@ -646,10 +649,13 @@ mod tests {
 
     #[test]
     fn asymptotic_slope_is_the_derivative_of_asymptotic_theta() {
-        let h = 1e-3;
-        for t in [10.0, 14.134725141734693, 100.0] {
+        // The omitted -31/(16128 t^6) term is 1.9e-9 at t = 10 and 2.4e-10 at
+        // t = 14.13; with h = 1e-4 the central difference is good to about 1e-11,
+        // so a 1e-10 tolerance sees it. At t = 100 rounding noise dominates.
+        let h = 1e-4;
+        for (t, tol) in [(10.0, 1e-10), (14.134725141734693, 1e-10), (100.0, 1e-7)] {
             let fd = (asymptotic_theta(t + h) - asymptotic_theta(t - h)) / (2.0 * h);
-            assert!((asymptotic_slope(t) - fd).abs() < 1e-7, "t={t}");
+            assert!((asymptotic_slope(t) - fd).abs() < tol, "t={t}");
         }
     }
 
@@ -802,7 +808,8 @@ mod tests {
             }
         };
         assert_eq!(bracket_around(0, est, 64, &fake), None);
-        // Eight ulps up, the fourth rung lands four ulps above 2*pi and is accepted.
+        // Eight ulps up, rungs step 1, 2, 4, 8 ulps from est; the third (j = 2) lands
+        // four ulps above 2*pi and is accepted, the fourth would land on 2*pi (refused).
         let est = f64::from_bits(tau.to_bits() + 8);
         let ok_below = f64::from_bits(tau.to_bits() + 4);
         let fake = |t: f64| {

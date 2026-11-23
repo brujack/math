@@ -6,7 +6,7 @@ use clap::Parser;
     about = "Verify the Riemann Hypothesis up to height 10^N with certified interval arithmetic"
 )]
 struct Cli {
-    /// N: verify all zeros with 0 < Im s <= 10^N (2-7)
+    /// N: target height 10^N (range 2-7 enforced once verification lands; this build exits 3 for any input)
     exponent: Option<u32>,
 }
 
