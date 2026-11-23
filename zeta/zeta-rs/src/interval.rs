@@ -154,12 +154,9 @@ impl Interval {
             for b in [&other.lo, &other.hi] {
                 let down = lower_or_unbounded(op(a, b, p, Round::Down));
                 let up = upper_or_unbounded(op(a, b, p, Round::Up));
-                if down < lo {
-                    lo = down;
-                }
-                if up > hi {
-                    hi = up;
-                }
+                // down/up are NaN-free here, so MPFR min/max are plain comparisons.
+                lo = lo.min(&down);
+                hi = hi.max(&up);
             }
         }
         Interval { lo, hi }
@@ -224,17 +221,14 @@ impl Interval {
         m /= 2u32;
         let r_hi = rounded(p, &self.hi - &m, Round::Up);
         let r_lo = rounded(p, &m - &self.lo, Round::Up);
-        let r = if r_hi > r_lo { r_hi } else { r_lo };
+        let r = r_hi.max(&r_lo);
         let f_down = eval(&m, p, Round::Down);
         let f_up = eval(&m, p, Round::Up);
-        let mut lo = rounded(p, &f_down - &r, Round::Down);
-        let mut hi = rounded(p, &f_up + &r, Round::Up);
-        if lo < -1 || lo.is_nan() {
-            lo = Float::with_val(p, -1);
-        }
-        if hi > 1 || hi.is_nan() {
-            hi = Float::with_val(p, 1);
-        }
+        let lo = rounded(p, &f_down - &r, Round::Down);
+        let hi = rounded(p, &f_up + &r, Round::Up);
+        // MPFR max/min return the non-NaN operand, so a NaN bound clamps to the unit limit.
+        let lo = lo.max(&Float::with_val(p, -1));
+        let hi = hi.min(&Float::with_val(p, 1));
         Interval { lo, hi }
     }
 
@@ -264,7 +258,8 @@ impl Interval {
     pub fn sign(&self) -> Option<Sign> {
         if !self.excludes_zero() {
             None
-        } else if self.lo > 0 {
+        } else if self.lo.is_sign_positive() {
+            // excludes_zero holds, so lo is either > 0 or negative with hi < 0.
             Some(Sign::Positive)
         } else {
             Some(Sign::Negative)
@@ -813,5 +808,16 @@ mod tests {
         }
         let boxed: Box<dyn std::error::Error> = Box::new(IntervalError::NotANumber);
         assert_eq!(boxed.to_string(), "interval bound is NaN");
+    }
+
+    #[test]
+    fn cos_of_width_exactly_pi_down_uses_the_midpoint_path() {
+        let pi_down = rounded(PREC, rug::float::Constant::Pi, Round::Down);
+        let h = Float::with_val(PREC, &pi_down / 2u32);
+        let i = Interval::new(Float::with_val(PREC, -&h), h).unwrap();
+        assert_eq!(i.width(), pi_down);
+        // Midpoint 0 gives cos in about [cos(pi/2) - pi/2, 1]; the full-circle
+        // fallback would give lo == -1.
+        assert!(i.cos().lo > -1);
     }
 }
