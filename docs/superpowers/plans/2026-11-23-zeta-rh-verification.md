@@ -62,7 +62,7 @@ acceptance:
   - cmd: test "$(wc -c < CLAUDE.md)" -le 30000
     exit_code: 0
 max_retries: 3
-files_touched: [CLAUDE.md, zeta/zeta-rs/Cargo.toml, zeta/zeta-rs/Cargo.lock, zeta/zeta-rs/src/lib.rs, zeta/zeta-rs/src/main.rs, zeta/zeta-rs/Makefile, zeta/zeta-rs/rustfmt.toml, zeta/zeta-rs/.config/nextest.toml, zeta/zeta-rs/install_deps.sh, .github/workflows/zeta-rs.yml, .github/workflows/release-zeta-rs.yml, .github/workflows/benchmarks.yml, .github/workflows/release-sbom-monitor-schedule.yml, zeta/zeta-rs/benches/zeta.rs, scripts/render_crate_files.py, scripts/cargo-deny-all.sh, scripts/pre-commit, scripts/pre-push, tests/test_crate_uniformity.py, tests/scripts/cargo_deny_all.bats, .gitignore]
+files_touched: [CLAUDE.md, zeta/zeta-rs/Cargo.toml, zeta/zeta-rs/Cargo.lock, zeta/zeta-rs/src/lib.rs, zeta/zeta-rs/src/main.rs, zeta/zeta-rs/Makefile, zeta/zeta-rs/rustfmt.toml, zeta/zeta-rs/.config/nextest.toml, zeta/zeta-rs/install_deps.sh, .github/workflows/zeta-rs.yml, .github/workflows/release-zeta-rs.yml, .github/workflows/benchmarks.yml, .github/workflows/release-sbom-monitor-schedule.yml, zeta/zeta-rs/benches/zeta.rs, scripts/render_crate_files.py, scripts/cargo-deny-all.sh, scripts/pre-commit, scripts/pre-push, tests/test_crate_uniformity.py, tests/scripts/cargo_deny_all.bats, tests/test_deny_policy.py, tests/test_release_workflows.py, tests/test_rust_ci_jobs.py, tests/test_gmp_cache_workflow.py, tests/scripts/makefile.bats, tests/scripts/crate_build_target.bats, .gitignore]
 depends_on: []
 requirements: [R15]
 ```
