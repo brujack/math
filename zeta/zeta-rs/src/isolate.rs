@@ -95,7 +95,8 @@ pub enum Straddle {
     Below,
     /// The zero is certified above T.
     Above,
-    /// 60 bisections left the zero's side unknown: the run exits 3.
+    /// The zero's side of T could not be certified (an uncertain midpoint, a
+    /// midpoint equal to T, or 60 bisections exhausted): the run exits 3.
     Uncertain,
 }
 
