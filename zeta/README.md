@@ -1,10 +1,10 @@
 # zeta
 
-Certified verification of the Riemann Hypothesis up to height 10^N. **Under construction.**
+Certified verification of the Riemann Hypothesis up to height 10^N. **Under construction:** verification works for N = 2–7; `--refine` and progress output are still to come.
 
-When finished, `zeta N` will prove a finite-range theorem: every nontrivial zero ρ of the
+`zeta N` proves a finite-range theorem: every nontrivial zero ρ of the
 Riemann zeta function with 0 < Im ρ ≤ T = 10^N lies on the critical line Re s = 1/2 and is
-simple. It will also report how many such zeros there are. Every number the proof depends
+simple. It also reports how many such zeros there are. Every number the proof depends
 on is an interval enclosure computed with directed rounding (MPFR), so the claim holds even
 though the computation runs in floating point.
 
@@ -15,24 +15,29 @@ No Python implementation — Rust only.
 
 ## Status
 
-The current build checks its input and its Hardy Z evaluator, but does not yet isolate
-zeros, so it never claims verification. For N from 2 to 7 it runs the self-check, prints
-this line to stdout and exits with code 3:
+For N from 2 to 7 the CLI runs the self-check of its Hardy Z evaluator, then the one-pass
+verification. When every zero up to T = 10^N is isolated, it writes `zeta_1eN.txt`
+(header `# n a b`, then one line per zero with the certified interval (a, b), a rounded
+down and b rounded up to 30 significant digits) and prints to stdout:
 
 ```text
-RH NOT verified up to <T>: zero isolation is not implemented yet
+RH verified: all <count> nontrivial zeros with 0 < Im s <= <T> lie on Re s = 1/2 and are simple
 ```
 
-N = 7 also prints a warning about output size and run time to stderr.
+The table is written to `zeta_1eN.tmp.txt` and renamed on completion; no `zeta_1eN.txt` is
+created on any other exit. When the proof cannot be completed it prints
+`RH NOT verified up to <T>: <reason>` (with the unresolved Gram blocks, if any) and exits 3;
+no claim is made for that range. N = 7 also prints a warning about output size and run time
+to stderr. `--refine` and progress output are not implemented yet.
 
 | Exit | Meaning |
 | ---- | ------- |
-| 0 | Verified up to T (arrives with the verifier) |
+| 0 | Verified up to T |
 | 1 | Bad input: N outside 2–7, not a number, or end of input at the prompt |
-| 3 | Not verified (today: zero isolation is not implemented yet) |
-| 4 | A write to stdout, stderr or the output file failed |
+| 3 | Not verified (an uncertified block, or Turing's bound not established); no output file |
+| 4 | A write to stdout, stderr or the output file failed (the temporary file is removed) |
 | 5 | Self-check failed: the Riemann–Siegel and Euler–Maclaurin paths disagree at a test point |
-| 6 | Internal fault during verification (arrives with the verifier) |
+| 6 | Internal fault during verification (a Z fault, a NaN height, a sign conflict, a worker panic) |
 
 The library already has the certified building blocks:
 
@@ -49,7 +54,7 @@ The library already has the certified building blocks:
 
 ```bash
 ./target/release/zeta        # prompts for N
-./target/release/zeta 3      # self-check, then exits 3: zero isolation not implemented yet
+./target/release/zeta 3      # verifies the 649 zeros up to 1000, writes zeta_1e3.txt, exits 0
 ```
 
 ## Build

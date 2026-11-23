@@ -33,6 +33,7 @@ EXPECTED = {
     "pi/pi-rs",
     "prime/prime-rs",
     "twin-primes/twin-primes-rs",
+    "zeta/zeta-rs",
 }
 INSTALL_HINT = "cargo install cargo-mutants --locked --version 27.1.0"
 
@@ -147,7 +148,7 @@ class CheckConfigTest(unittest.TestCase):
 
 
 class MutantsExclusionsTest(unittest.TestCase):
-    def test_crate_set_is_the_expected_nine(self) -> None:
+    def test_crate_set_is_the_expected_ten(self) -> None:
         self.assertEqual(crate_dirs(), EXPECTED)
 
     def test_each_file_has_a_nonempty_exclude_re_list_or_only_test_args(self) -> None:
