@@ -24,7 +24,7 @@ use crate::isolate::{
     BlockPoints, GramBlock, IsolateError, Point, Straddle, alternations, isolate_block,
     resolve_straddle,
 };
-use crate::turing::{InternalFault, TuringBound, TuringFailure, choose_m};
+use crate::turing::{TuringBound, TuringFailure, choose_m};
 use crate::zfun::{ZFault, ZSource};
 
 /// A run of Gram intervals g_`first` .. g_`last`, named when a block stays unresolved.
@@ -47,6 +47,27 @@ pub enum NotVerifiedReason {
     ShortCount { found: usize, needed: usize },
     /// The zero in the sign-change interval holding T could not be put on one side of T.
     ZeroSideUncertain,
+    /// L = M + 1, but a block stayed short of Rosser's count after the neighbour
+    /// search; its span is in `blocks` (spec: unresolved blocks are reported, exit 3).
+    UnresolvedBlocks,
+}
+
+/// A defect in the collected points: a fault, never a refusal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PointsFault {
+    /// A point's height is NaN.
+    NanHeight,
+    /// One height carries two different certified signs.
+    SignConflict,
+}
+
+impl std::fmt::Display for PointsFault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NanHeight => f.write_str("a point height is NaN"),
+            Self::SignConflict => f.write_str("one height carries two different certified signs"),
+        }
+    }
 }
 
 /// An implementation fault (exit 6): never reported as merely "not verified".
@@ -59,7 +80,7 @@ pub enum Fault {
     /// `isolate_block` or `resolve_straddle` refused an input verify built itself.
     Isolate(IsolateError),
     /// A NaN height, or one height with two signs, among the collected points.
-    Points(InternalFault),
+    Points(PointsFault),
     /// L > M + 1, which a correct implementation cannot produce.
     TooManySignChanges { found: usize, bound: usize },
     /// A worker thread panicked.
@@ -90,22 +111,29 @@ pub enum Verdict {
     /// Nothing is claimed; `blocks` names the Gram blocks left unresolved.
     NotVerified { reason: NotVerifiedReason, blocks: Vec<GramSpan> },
     /// An implementation fault.
-    InternalFault { reason: Fault },
+    Fault { reason: Fault },
     /// The fallback notice could not be written to the caller's stderr (exit 4).
     WriteFailed { error: String },
 }
 
 /// How `verify` runs its blocks.
+// The hidden `FailBuild` is a test hook, not a marker for future variants, so the
+// manual-non-exhaustive heuristic does not apply.
+#[allow(clippy::manual_non_exhaustive)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PoolPolicy {
     /// A private pool with rayon's default thread count.
     #[default]
     Parallel,
-    /// A private pool with this many threads.
+    /// A private pool with this many threads; `Threads(0)` means no workers, so
+    /// it runs serially like `Serial` (not rayon's "0 means default").
     Threads(usize),
     /// No pool: every block runs on the calling thread.
     Serial,
     /// A pool whose thread spawn fails, so the build error and fallback are testable.
+    /// Public but hidden: `main.rs`'s test-only `run_with` is a separate crate and
+    /// cannot see a `#[cfg(test)]` variant of this library.
+    #[doc(hidden)]
     FailBuild,
 }
 
@@ -117,7 +145,7 @@ struct Runner {
 
 fn build_pool(policy: PoolPolicy) -> Result<Option<ThreadPool>, ThreadPoolBuildError> {
     match policy {
-        PoolPolicy::Serial => Ok(None),
+        PoolPolicy::Serial | PoolPolicy::Threads(0) => Ok(None),
         PoolPolicy::Parallel => ThreadPoolBuilder::new().build().map(Some),
         PoolPolicy::Threads(n) => ThreadPoolBuilder::new().num_threads(n).build().map(Some),
         PoolPolicy::FailBuild => ThreadPoolBuilder::new()
@@ -144,16 +172,21 @@ impl Runner {
         catch_unwind(AssertUnwindSafe(f)).map_err(|_| Fault::WorkerPanicked)
     }
 
-    /// `f(0..len)` in index order, on the pool when there is one.
-    fn map<R: Send>(
+    /// `f(0..len)` in index order, on the pool when there is one. The first `Err`
+    /// stops the remaining work (which `Err` wins among several in parallel is not
+    /// defined; any fault is a fault), and a panic is `Fault::WorkerPanicked`.
+    fn try_map<R: Send>(
         &self,
         len: usize,
-        f: impl Fn(usize) -> R + Sync + Send,
+        f: impl Fn(usize) -> Result<R, Fault> + Sync + Send,
     ) -> Result<Vec<R>, Fault> {
         Runner::guard(|| match &self.pool {
-            Some(pool) => pool.install(|| (0..len).into_par_iter().map(&f).collect()),
-            None => (0..len).map(&f).collect(),
+            Some(pool) => {
+                pool.install(|| (0..len).into_par_iter().map(&f).collect::<Result<Vec<R>, Fault>>())
+            }
+            None => (0..len).map(&f).collect::<Result<Vec<R>, Fault>>(),
         })
+        .and_then(|collected| collected)
     }
 }
 
@@ -203,37 +236,32 @@ fn plan_blocks(usable: &[(i64, Boundary)]) -> Vec<PlannedBlock> {
     planned
 }
 
-/// Sort certified points by height, keep one copy of an identical (t, sign), and
-/// reject a NaN height or one height with two signs.
-fn merge_points(mut points: Vec<Point>) -> Result<Vec<Point>, InternalFault> {
+/// Sorts certified points by height in place, keeps one copy of an identical
+/// (t, sign), and rejects a NaN height or one height with two signs.
+fn sort_and_merge(mut points: Vec<Point>) -> Result<Vec<Point>, PointsFault> {
     if points.iter().any(|p| p.t.is_nan()) {
-        return Err(InternalFault::NanHeight);
+        return Err(PointsFault::NanHeight);
     }
     points.sort_by(|a, b| a.t.total_cmp(&b.t));
-    let mut merged: Vec<Point> = Vec::with_capacity(points.len());
-    for p in points {
-        match merged.last() {
-            Some(last) if last.t == p.t => {
-                if last.sign != p.sign {
-                    return Err(InternalFault::SignConflict);
-                }
-            }
-            _ => merged.push(p),
-        }
-    }
+    let mut conflict = false;
+    points.dedup_by(|current, kept| {
+        let same = current.t == kept.t;
+        conflict |= same && current.sign != kept.sign;
+        same
+    });
+    if conflict { Err(PointsFault::SignConflict) } else { Ok(points) }
+}
+
+/// The merged points whose height lies in `[lo, hi]` (R4: L counts only [b_-1, b_M]).
+fn points_in_range(points: Vec<Point>, lo: f64, hi: f64) -> Result<Vec<Point>, PointsFault> {
+    let mut merged = sort_and_merge(points)?;
+    merged.retain(|p| lo <= p.t && p.t <= hi);
     Ok(merged)
 }
 
-/// The adjacent pairs with different signs among the merged points whose height
-/// lies in `[lo, hi]` (R4: L counts only [b_-1, b_M]).
-fn sign_changes(
-    points: Vec<Point>,
-    lo: f64,
-    hi: f64,
-) -> Result<Vec<(Point, Point)>, InternalFault> {
-    let inside: Vec<Point> =
-        merge_points(points)?.into_iter().filter(|p| lo <= p.t && p.t <= hi).collect();
-    Ok(inside.windows(2).filter(|w| w[0].sign != w[1].sign).map(|w| (w[0], w[1])).collect())
+/// The adjacent pairs of `points` (sorted) with different signs: L is their number.
+fn sign_changes(points: &[Point]) -> impl Iterator<Item = (Point, Point)> + '_ {
+    points.windows(2).filter(|w| w[0].sign != w[1].sign).map(|w| (w[0], w[1]))
 }
 
 /// Every point found, and the blocks still short of Rosser's count after the neighbour search.
@@ -265,35 +293,43 @@ fn search_neighbours<Z: ZSource>(
         .flat_map(|r| r.points.iter().copied())
         .chain(fresh.points.iter().copied())
         .collect();
-    let merged = merge_points(known).map_err(Fault::Points)?;
+    let merged = sort_and_merge(known).map_err(Fault::Points)?;
     Ok((fresh.points, alternations(&merged) >= union.expected))
 }
 
-/// Isolates every block, then re-searches each unresolved block with its neighbours.
+/// Isolates every block, then re-searches each unresolved block with its
+/// neighbours. Consumes the plan and the per-block results so the copies do not
+/// pile up at N = 7.
 fn isolate_all<Z: ZSource + Sync>(
-    planned: &[PlannedBlock],
+    planned: Vec<PlannedBlock>,
     z: &Z,
     cfg: &VerifyConfig,
     runner: &Runner,
 ) -> Result<Isolated, Fault> {
-    let first_pass = runner.map(planned.len(), |i| isolate_block(&planned[i].block, z, cfg))?;
+    let first_pass = runner.try_map(planned.len(), |i| {
+        isolate_block(&planned[i].block, z, cfg).map_err(Fault::Isolate)
+    })?;
     let mut results = Vec::with_capacity(planned.len());
-    for (block, result) in planned.iter().zip(first_pass) {
-        let mut found = result.map_err(Fault::Isolate)?;
+    for (block, mut found) in planned.iter().zip(first_pass) {
         found.points.extend(block.between.iter().copied());
         results.push(found);
     }
     let short: Vec<usize> = (0..planned.len()).filter(|&i| !results[i].resolved).collect();
     let searched =
-        runner.map(short.len(), |k| search_neighbours(short[k], planned, &results, z, cfg))?;
-    let mut points: Vec<Point> = results.iter().flat_map(|r| r.points.iter().copied()).collect();
-    let mut unresolved = Vec::new();
-    for (&i, outcome) in short.iter().zip(searched) {
-        let (fresh, resolved) = outcome?;
+        runner.try_map(short.len(), |k| search_neighbours(short[k], &planned, &results, z, cfg))?;
+    let unresolved: Vec<GramSpan> = short
+        .iter()
+        .zip(&searched)
+        .filter(|(_, (_, resolved))| !resolved)
+        .map(|(&i, _)| planned[i].span)
+        .collect();
+    drop(planned);
+    let mut points = Vec::new();
+    for found in results {
+        points.extend(found.points);
+    }
+    for (fresh, _) in searched {
         points.extend(fresh);
-        if !resolved {
-            unresolved.push(planned[i].span);
-        }
     }
     Ok(Isolated { points, unresolved })
 }
@@ -308,10 +344,11 @@ fn certify_gram_points<Z: ZSource + Sync>(
     runner: &Runner,
 ) -> Result<Vec<(i64, Boundary)>, Fault> {
     let count = (m + 1) as usize;
-    let certified = runner.map(count, |i| certify_boundary(i as i64 - 1, z, cfg))?;
+    let certified =
+        runner.try_map(count, |i| certify_boundary(i as i64 - 1, z, cfg).map_err(Fault::Z))?;
     let mut usable = Vec::with_capacity(count + 1);
-    for (i, result) in certified.into_iter().enumerate() {
-        if let Some(boundary) = result.map_err(Fault::Z)? {
+    for (i, boundary) in certified.into_iter().enumerate() {
+        if let Some(boundary) = boundary {
             usable.push((i as i64 - 1, boundary));
         }
     }
@@ -323,13 +360,13 @@ fn certify_gram_points<Z: ZSource + Sync>(
 /// zero in the interval holding `t` cannot be put on one side of it (R23).
 fn intervals_up_to<Z: ZSource>(
     t: f64,
-    changes: &[(Point, Point)],
+    points: &[Point],
     bracket: &ZeroFreeBracket,
     z: &Z,
     cfg: &VerifyConfig,
 ) -> Result<Option<Vec<(f64, f64)>>, Fault> {
     let mut intervals = Vec::new();
-    for &(a, b) in changes {
+    for (a, b) in sign_changes(points) {
         match resolve_straddle(a, b, t, Some(bracket), z, cfg).map_err(Fault::Isolate)? {
             Straddle::Below => intervals.push((a.t, b.t)),
             Straddle::Above => {}
@@ -356,22 +393,28 @@ fn verify_with_bound<Z: ZSource + Sync>(
     if first_n != -1 {
         return Ok(not_verified(NotVerifiedReason::NoLeftBoundary, Vec::new()));
     }
+    let left_t = left.point().t;
     let planned = plan_blocks(&usable);
+    drop(usable);
     if planned.is_empty() {
         return Ok(not_verified(NotVerifiedReason::NoBlocks, Vec::new()));
     }
-    let isolated = isolate_all(&planned, z, cfg, runner)?;
-    let changes = sign_changes(isolated.points, left.point().t, bound.boundary.point().t)
+    let isolated = isolate_all(planned, z, cfg, runner)?;
+    let points = points_in_range(isolated.points, left_t, bound.boundary.point().t)
         .map_err(Fault::Points)?;
+    let found = sign_changes(&points).count();
     let needed = (bound.m + 1) as usize;
-    if changes.len() > needed {
-        return Err(Fault::TooManySignChanges { found: changes.len(), bound: needed });
+    if found > needed {
+        return Err(Fault::TooManySignChanges { found, bound: needed });
     }
-    if changes.len() < needed {
-        let reason = NotVerifiedReason::ShortCount { found: changes.len(), needed };
+    if found < needed {
+        let reason = NotVerifiedReason::ShortCount { found, needed };
         return Ok(not_verified(reason, isolated.unresolved));
     }
-    let Some(intervals) = intervals_up_to(t, &changes, &bound.boundary.bracket(), z, cfg)? else {
+    if !isolated.unresolved.is_empty() {
+        return Ok(not_verified(NotVerifiedReason::UnresolvedBlocks, isolated.unresolved));
+    }
+    let Some(intervals) = intervals_up_to(t, &points, &bound.boundary.bracket(), z, cfg)? else {
         return Ok(not_verified(NotVerifiedReason::ZeroSideUncertain, Vec::new()));
     };
     Ok(Verdict::Verified { count: intervals.len(), intervals })
@@ -404,7 +447,7 @@ pub fn verify<Z: ZSource + Sync, E: Write>(
         Ok(runner) => runner,
         Err(error) => return Verdict::WriteFailed { error: error.to_string() },
     };
-    run(t, z, cfg, &runner).unwrap_or_else(|reason| Verdict::InternalFault { reason })
+    run(t, z, cfg, &runner).unwrap_or_else(|reason| Verdict::Fault { reason })
 }
 
 #[cfg(test)]
@@ -415,6 +458,7 @@ mod tests {
     use crate::turing::choose_m;
     use rug::Float;
     use std::f64::consts::PI;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn cfg() -> VerifyConfig {
         VerifyConfig::default()
@@ -503,11 +547,19 @@ mod tests {
         blind: (f64, f64),
         z_fault: (f64, f64),
         over_fault: (f64, f64),
+        over_calls: AtomicUsize,
     }
 
     fn fake<F: Fn(f64) -> f64 + Sync>(f: F) -> Fake<F> {
         let none = (1.0, 0.0);
-        Fake { f, refuse_below: f64::NEG_INFINITY, blind: none, z_fault: none, over_fault: none }
+        Fake {
+            f,
+            refuse_below: f64::NEG_INFINITY,
+            blind: none,
+            z_fault: none,
+            over_fault: none,
+            over_calls: AtomicUsize::new(0),
+        }
     }
 
     impl<F: Fn(f64) -> f64 + Sync> ZSource for Fake<F> {
@@ -523,6 +575,7 @@ mod tests {
         }
 
         fn z_over(&self, lo: f64, hi: f64, _prec: u32) -> Result<Option<Interval>, ZFault> {
+            self.over_calls.fetch_add(1, Ordering::SeqCst);
             if inside(self.over_fault, lo) {
                 return Err(ZFault::NanHeight);
             }
@@ -665,7 +718,7 @@ mod tests {
         let z = fake(|t| if t > 520.0 { 1.0 } else { wave(t) });
         let (verdict, _) = go(&z, 100.0, &shallow(), PoolPolicy::Serial);
         let (reason, blocks) = not_verified(verdict);
-        assert!(matches!(reason, NotVerifiedReason::Turing(_)), "{reason:?}");
+        assert_eq!(reason, NotVerifiedReason::Turing(TuringFailure::Exhausted { tried: 11 }));
         assert!(blocks.is_empty());
     }
 
@@ -697,8 +750,8 @@ mod tests {
 
     fn fault(verdict: Verdict) -> Fault {
         match verdict {
-            Verdict::InternalFault { reason } => reason,
-            other => panic!("expected InternalFault, got {other:?}"),
+            Verdict::Fault { reason } => reason,
+            other => panic!("expected Fault, got {other:?}"),
         }
     }
 
@@ -776,7 +829,7 @@ mod tests {
         );
         assert_eq!(Fault::WorkerPanicked.to_string(), "worker panicked");
         assert!(Fault::Z(ZFault::NanHeight).to_string().starts_with("Z fault: "));
-        assert!(Fault::Points(InternalFault::SignConflict).to_string().contains("two"));
+        assert!(Fault::Points(PointsFault::SignConflict).to_string().contains("two"));
         let turing = Fault::Turing(TuringFailure::BelowRange);
         assert!(turing.to_string().starts_with("Turing's method: "));
         let isolate = Fault::Isolate(IsolateError::BadInterval);
@@ -785,21 +838,27 @@ mod tests {
 
     // ---- the one-pass count ----
 
+    /// The sign changes among the merged points in [lo, hi], as `verify` counts them.
+    fn counted(points: Vec<Point>, lo: f64, hi: f64) -> Result<Vec<(Point, Point)>, PointsFault> {
+        let inside = points_in_range(points, lo, hi)?;
+        Ok(sign_changes(&inside).collect())
+    }
+
     #[test]
     fn a_sign_conflict_or_a_nan_height_is_a_fault() {
         let conflict = vec![pt(1.0, pos()), pt(1.0, neg())];
-        assert_eq!(sign_changes(conflict, 0.0, 9.0), Err(InternalFault::SignConflict));
+        assert_eq!(counted(conflict, 0.0, 9.0), Err(PointsFault::SignConflict));
         let nan = vec![pt(1.0, pos()), pt(f64::NAN, neg())];
-        assert_eq!(sign_changes(nan, 0.0, 9.0), Err(InternalFault::NanHeight));
+        assert_eq!(counted(nan, 0.0, 9.0), Err(PointsFault::NanHeight));
         // A NaN is a fault even outside the range.
         let far = vec![pt(1.0, pos()), pt(f64::NAN, neg())];
-        assert_eq!(sign_changes(far, 5.0, 9.0), Err(InternalFault::NanHeight));
+        assert_eq!(counted(far, 5.0, 9.0), Err(PointsFault::NanHeight));
     }
 
     #[test]
     fn a_duplicate_identical_point_counts_once() {
         let points = vec![pt(2.0, neg()), pt(1.0, pos()), pt(2.0, neg()), pt(1.0, pos())];
-        let changes = sign_changes(points, 0.0, 9.0).unwrap();
+        let changes = counted(points, 0.0, 9.0).unwrap();
         assert_eq!(changes, vec![(pt(1.0, pos()), pt(2.0, neg()))]);
     }
 
@@ -813,7 +872,7 @@ mod tests {
             pt(5.0, neg()),
             pt(6.0, pos()),
         ];
-        let at = |lo: f64, hi: f64| sign_changes(points.clone(), lo, hi).unwrap().len();
+        let at = |lo: f64, hi: f64| counted(points.clone(), lo, hi).unwrap().len();
         assert_eq!(at(2.0, 5.0), 3);
         assert_eq!(at(2.5, 5.0), 2);
         assert_eq!(at(2.0, 4.5), 2);
@@ -824,7 +883,7 @@ mod tests {
     #[test]
     fn equal_signs_between_points_are_not_a_change() {
         let points = vec![pt(1.0, pos()), pt(2.0, pos()), pt(3.0, neg()), pt(4.0, neg())];
-        let changes = sign_changes(points, 0.0, 9.0).unwrap();
+        let changes = counted(points, 0.0, 9.0).unwrap();
         assert_eq!(changes, vec![(pt(2.0, pos()), pt(3.0, neg()))]);
     }
 
@@ -888,7 +947,7 @@ mod tests {
     fn isolate_range(f: impl Fn(f64) -> f64 + Sync, from: i64, to: i64) -> Isolated {
         let planned = plan_blocks(&usable_range(&f, from, to));
         let runner = Runner::new(PoolPolicy::Serial, &mut Vec::new()).unwrap();
-        isolate_all(&planned, &fake(&f), &shallow(), &runner).unwrap()
+        isolate_all(planned, &fake(&f), &shallow(), &runner).unwrap()
     }
 
     #[test]
@@ -911,10 +970,27 @@ mod tests {
         assert!(isolated.unresolved.is_empty(), "{:?}", isolated.unresolved);
     }
 
+    /// No sign change over g_60..g_62 and two extra over g_70..g_72, so L is M + 1
+    /// although the first block is short.
+    fn short_block_offset_by_an_over_block(t: f64) -> f64 {
+        if (0.0..=2.0).contains(&u_of(t, 60)) { 1.0 } else { patched(t, 70, 2.0, &FOUR_FIRST) }
+    }
+
     #[test]
     fn a_block_still_short_after_merging_is_named() {
-        let isolated = isolate_range(|t| patched(t, 60, 2.0, &[]), 58, 66);
+        let isolated = isolate_range(short_block_offset_by_an_over_block, 58, 74);
         assert_eq!(isolated.unresolved, vec![GramSpan { first: 60, last: 62 }]);
+    }
+
+    #[test]
+    fn an_unresolved_block_is_not_verified_even_when_l_is_m_plus_1() {
+        let z = fake(short_block_offset_by_an_over_block);
+        for policy in [PoolPolicy::Serial, PoolPolicy::Threads(2)] {
+            let (verdict, _) = go(&z, 100.0, &shallow(), policy);
+            let (reason, blocks) = not_verified(verdict);
+            assert_eq!(reason, NotVerifiedReason::UnresolvedBlocks, "{policy:?}");
+            assert_eq!(blocks, vec![GramSpan { first: 60, last: 62 }]);
+        }
     }
 
     #[test]
@@ -930,6 +1006,110 @@ mod tests {
             let (verdict, _) = go(&z, 100.0, &shallow(), policy);
             assert!(matches!(verdict, Verdict::Verified { count: 29, .. }), "{verdict:?}");
         }
+    }
+
+    // ---- what the neighbour search contributes ----
+
+    /// The union of block `i` with its neighbours, as `search_neighbours` builds it.
+    fn union_of(planned: &[PlannedBlock], i: usize) -> GramBlock {
+        let (a, b) = (i - 1, i + 1);
+        GramBlock {
+            lo: planned[a].block.lo,
+            hi: planned[b].block.hi,
+            expected: planned[a..=b].iter().map(|p| p.block.expected).sum(),
+        }
+    }
+
+    fn index_of(planned: &[PlannedBlock], first: i64) -> usize {
+        planned.iter().position(|p| p.span.first == first).unwrap()
+    }
+
+    #[test]
+    fn points_only_the_union_search_finds_are_kept() {
+        // g_62..g_64 resolves on its first window at depth 2; its second window sits
+        // where only a finer grid looks, which only the union's fresh points supply.
+        let f = |t: f64| patched(t, 60, 4.0, &[(2.3, 2.7), (3.2, 3.3)]);
+        let planned = plan_blocks(&usable_range(f, 58, 66));
+        let own = isolate_block(&planned[index_of(&planned, 62)].block, &fake(f), &shallow());
+        let own = own.unwrap();
+        assert!(own.resolved && alternations(&own.points) == 2);
+        for policy in [PoolPolicy::Serial, PoolPolicy::Threads(2)] {
+            let (verdict, _) = go(&fake(f), 100.0, &shallow(), policy);
+            assert!(matches!(verdict, Verdict::Verified { count: 29, .. }), "{verdict:?}");
+        }
+    }
+
+    #[test]
+    fn the_union_is_judged_by_the_points_already_known_inside_it() {
+        // The over-full neighbour's changes sit in 2e-6 windows at its own level-2
+        // grid points, which the union's coarser grid misses: only the known points
+        // make the union meet its expected count.
+        let (lo, hi) = (bracket_of(62).0, bracket_of(64).0);
+        let mid = lo + (hi - lo) / 2.0;
+        let (q1, q3) = (lo + (mid - lo) / 2.0, mid + (hi - mid) / 2.0);
+        let f = move |t: f64| {
+            if (t - q1).abs() < 1e-6 || (t - q3).abs() < 1e-6 {
+                -1.0
+            } else {
+                patched(t, 60, 4.0, &[])
+            }
+        };
+        let planned = plan_blocks(&usable_range(f, 58, 66));
+        let i = index_of(&planned, 60);
+        let union = union_of(&planned, i);
+        assert_eq!(union.expected, 5);
+        assert!(!isolate_block(&union, &fake(f), &shallow()).unwrap().resolved);
+        let isolated = isolate_range(f, 58, 66);
+        assert!(isolated.unresolved.is_empty(), "{:?}", isolated.unresolved);
+        let (verdict, _) = go(&fake(f), 100.0, &shallow(), PoolPolicy::Serial);
+        assert!(matches!(verdict, Verdict::Verified { count: 29, .. }), "{verdict:?}");
+    }
+
+    /// g_60..g_64 cannot be sampled (its interior is uncertain), so its only
+    /// negative point is the bad Gram point g_62; g_64..g_66 holds the surplus.
+    fn dead_block_with_a_bad_point(t: f64) -> f64 {
+        let u = u_of(t, 60);
+        if (0.0..=4.0).contains(&u) {
+            if (1.9..=2.1).contains(&u) { -1.0 } else { 1.0 }
+        } else {
+            patched(t, 64, 2.0, &FOUR_FIRST)
+        }
+    }
+
+    #[test]
+    fn a_bad_gram_point_inside_a_block_supplies_its_alternations() {
+        let mut z = fake(dead_block_with_a_bad_point);
+        z.blind = (bracket_of(60).1, bracket_of(64).0);
+        let usable = usable_range(dead_block_with_a_bad_point, 58, 66);
+        let planned = plan_blocks(&usable);
+        let block = &planned[index_of(&planned, 60)];
+        assert_eq!(block.span, GramSpan { first: 60, last: 64 });
+        let signs: Vec<Sign> = block.between.iter().map(|p| p.sign).collect();
+        assert_eq!(signs, vec![pos(), neg(), pos()]);
+        for policy in [PoolPolicy::Serial, PoolPolicy::Threads(2)] {
+            let (verdict, _) = go(&z, 100.0, &shallow(), policy);
+            assert!(matches!(verdict, Verdict::Verified { count: 29, .. }), "{verdict:?}");
+        }
+    }
+
+    #[test]
+    fn a_fault_stops_certification_early() {
+        let full = fake(wave);
+        assert!(matches!(go(&full, 100.0, &cfg(), PoolPolicy::Serial).0, Verdict::Verified { .. }));
+        let n0 = bracket_of(0).0;
+        let mut early = fake(wave);
+        early.over_fault = (n0 - 1e-3, n0 + 1e-3);
+        let reason = fault(go(&early, 100.0, &cfg(), PoolPolicy::Serial).0);
+        assert_eq!(reason, Fault::Z(ZFault::NanHeight));
+        let (all, some) =
+            (full.over_calls.load(Ordering::SeqCst), early.over_calls.load(Ordering::SeqCst));
+        assert!(some + 250 < all, "{some} calls with the fault, {all} without");
+    }
+
+    #[test]
+    fn t_below_the_first_zero_verifies_zero_zeros() {
+        let (verdict, _) = go(&fake(wave), 10.0, &cfg(), PoolPolicy::Serial);
+        assert_eq!(verdict, Verdict::Verified { count: 0, intervals: vec![] });
     }
 
     // ---- the pool ----
@@ -968,18 +1148,48 @@ mod tests {
     #[test]
     fn the_runner_uses_its_own_pool_in_order_and_catches_a_panic() {
         let runner = Runner::new(PoolPolicy::Threads(3), &mut Vec::new()).unwrap();
-        let sizes = runner.map(8, |_| rayon::current_num_threads()).unwrap();
+        let sizes = runner.try_map(8, |_| Ok(rayon::current_num_threads())).unwrap();
         assert_eq!(sizes, vec![3; 8]);
-        assert_eq!(
-            runner.map(100, |i| i * 2).unwrap(),
-            (0..100).map(|i| i * 2).collect::<Vec<_>>()
-        );
-        assert_eq!(runner.map(0, |i| i).unwrap(), Vec::<usize>::new());
-        let panicked = runner.map(4, |i| assert!(i != 2, "boom"));
+        let doubled = runner.try_map(100, |i| Ok(i * 2)).unwrap();
+        assert_eq!(doubled, (0..100).map(|i| i * 2).collect::<Vec<_>>());
+        assert_eq!(runner.try_map(0, Ok).unwrap(), Vec::<usize>::new());
+        let panicked = runner.try_map(4, |i| {
+            assert!(i != 2, "boom");
+            Ok(i)
+        });
         assert_eq!(panicked, Err(Fault::WorkerPanicked));
         let serial = Runner::new(PoolPolicy::Serial, &mut Vec::new()).unwrap();
-        assert_eq!(serial.map(3, |i| i + 1).unwrap(), vec![1, 2, 3]);
-        assert_eq!(serial.map(2, |i| assert!(i != 1, "boom")), Err(Fault::WorkerPanicked));
+        assert_eq!(serial.try_map(3, |i| Ok(i + 1)).unwrap(), vec![1, 2, 3]);
+        let panicked = serial.try_map(2, |i| {
+            assert!(i != 1, "boom");
+            Ok(i)
+        });
+        assert_eq!(panicked, Err(Fault::WorkerPanicked));
+    }
+
+    #[test]
+    fn the_first_error_stops_the_remaining_work_on_either_runner() {
+        for policy in [PoolPolicy::Serial, PoolPolicy::Threads(2)] {
+            let runner = Runner::new(policy, &mut Vec::new()).unwrap();
+            let ran = AtomicUsize::new(0);
+            let out = runner.try_map(100_000, |i| {
+                ran.fetch_add(1, Ordering::SeqCst);
+                if i == 3 { Err(Fault::WorkerPanicked) } else { Ok(i) }
+            });
+            assert_eq!(out, Err(Fault::WorkerPanicked), "{policy:?}");
+            assert!(
+                ran.load(Ordering::SeqCst) < 50_000,
+                "{policy:?}: {}",
+                ran.load(Ordering::SeqCst)
+            );
+        }
+    }
+
+    #[test]
+    fn zero_threads_means_no_workers_and_runs_serially() {
+        let runner = Runner::new(PoolPolicy::Threads(0), &mut Vec::new()).unwrap();
+        assert!(runner.pool.is_none());
+        assert!(Runner::new(PoolPolicy::Threads(1), &mut Vec::new()).unwrap().pool.is_some());
     }
 
     #[test]
