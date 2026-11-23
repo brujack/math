@@ -246,7 +246,7 @@ class CheckStepTests(unittest.TestCase):
         self.assertEqual(code, 0, err)
 
     def test_lock_without_gmp_is_skipped(self) -> None:
-        # 7 of the 13 crates lock no gmp-mpfr-sys; they must not fail the check.
+        # 8 of the 13 crates lock no gmp-mpfr-sys; they must not fail the check.
         code, err = self._run_check({"1.7.1": LIBS}, {"e": "1.7.0", "b": None})
         self.assertEqual((code, err), (0, ""))
 

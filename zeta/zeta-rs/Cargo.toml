@@ -14,8 +14,6 @@ name = "zeta"
 path = "src/lib.rs"
 
 [dependencies]
-rug = { version = "1.30", features = ["integer", "float"] }
-rayon = "1"
 clap = { version = "4", features = ["derive"] }
 
 [dev-dependencies]
