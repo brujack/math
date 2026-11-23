@@ -117,9 +117,9 @@ fn e2e_prompted_n_is_accepted() {
 }
 
 #[test]
-fn unwritable_directory_for_the_table_exits_4_without_a_verified_claim() {
+fn e2e_stale_removal_failure_exits_4_without_a_verified_claim() {
     let dir = tempfile::tempdir().unwrap();
-    // A directory at the temporary name makes both the stale removal and the create fail.
+    // A directory at the temporary name makes the start-of-run stale removal fail.
     std::fs::create_dir(dir.path().join("zeta_1e2.tmp.txt")).unwrap();
     let (code, out, err) = run_in(dir.path(), &["2"], "");
     assert_eq!(code, Some(4), "{out}{err}");
@@ -160,4 +160,27 @@ fn cli_help_exits_0() {
     let output = Command::new(zeta_bin()).arg("--help").output().unwrap();
     assert_eq!(output.status.code(), Some(0));
     assert!(!output.stdout.is_empty());
+}
+
+/// A read-only work directory: verification succeeds, then creating the temporary file
+/// fails (exit 4) and no verified claim is printed. Skipped when the process can write
+/// to a read-only directory anyway (root).
+#[test]
+fn e2e_create_failure_after_verification_exits_4_without_a_verified_claim() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+    let probe = dir.path().join("probe");
+    if std::fs::write(&probe, "x").is_ok() {
+        std::fs::remove_file(&probe).unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        eprintln!("skipped: this process can write to a read-only directory (root)");
+        return;
+    }
+    let (code, out, err) = run_in(dir.path(), &["2"], "");
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(code, Some(4), "{out}{err}");
+    assert!(!out.contains("RH verified"), "{out}");
+    assert!(err.starts_with("Error: cannot write zeta_1e2.txt: "), "{err}");
+    assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
 }

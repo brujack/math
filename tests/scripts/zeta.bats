@@ -52,7 +52,7 @@ setup() {
     [ "$(grep -vc '^#' "${WORK_DIR}/zeta_1e2.txt")" -eq 29 ]
 }
 
-@test "a stale temporary file blocking the table exits 4 without a verified claim" {
+@test "a stale temporary file that cannot be removed exits 4 without a verified claim" {
     mkdir "${WORK_DIR}/zeta_1e2.tmp.txt"
     run --separate-stderr bash -c "cd '${WORK_DIR}' && '${RUST_BIN}' 2 </dev/null"
     [ "${status}" -eq 4 ]

@@ -21,12 +21,23 @@ verification. When every zero up to T = 10^N is isolated, it writes `zeta_1eN.tx
 down and b rounded up to 30 significant digits) and prints to stdout:
 
 ```text
+Self-check: Riemann–Siegel and Euler–Maclaurin agree on [200, 300] (8 points)
+Turing bound: N(g_M) <= M+1 established at g_M = [<b_M>, <c_M>]
+Isolating zeros in 0 < t <= <T> (<k> threads)...
+
 RH verified: all <count> nontrivial zeros with 0 < Im s <= <T> lie on Re s = 1/2 and are simple
+Gram blocks: <b>   Rosser exceptions: <r>   max precision: <p> bits
+Saved zeta_1eN.txt
+Elapsed: <s> s
 ```
+
+These lines are printed together once the table is saved, so a failed save is never preceded
+by a verified claim.
 
 The table is written to `zeta_1eN.tmp.txt` and renamed on completion; no `zeta_1eN.txt` is
 created on any other exit. When the proof cannot be completed it prints
-`RH NOT verified up to <T>: <reason>` (with the unresolved Gram blocks, if any) and exits 3;
+`RH NOT verified up to <T>: <reason>` (for example `647 of 649 zeros isolated`, then the
+unresolved Gram blocks and `No claim is made for this range.`) and exits 3;
 no claim is made for that range. N = 7 also prints a warning about output size and run time
 to stderr. `--refine` and progress output are not implemented yet.
 
@@ -35,7 +46,7 @@ to stderr. `--refine` and progress output are not implemented yet.
 | 0 | Verified up to T |
 | 1 | Bad input: N outside 2–7, not a number, or end of input at the prompt |
 | 3 | Not verified (an uncertified block, or Turing's bound not established); no output file |
-| 4 | A write to stdout, stderr or the output file failed (the temporary file is removed) |
+| 4 | A write to stdout, stderr or the output file failed (a failed table write removes the temporary file; if only stdout fails after the table was saved, the table stays) |
 | 5 | Self-check failed: the Riemann–Siegel and Euler–Maclaurin paths disagree at a test point |
 | 6 | Internal fault during verification (a Z fault, a NaN height, a sign conflict, a worker panic) |
 

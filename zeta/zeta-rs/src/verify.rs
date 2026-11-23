@@ -13,13 +13,14 @@
 
 use std::io::{self, Write};
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use rayon::prelude::*;
 use rayon::{ThreadPool, ThreadPoolBuildError, ThreadPoolBuilder};
 
 use crate::boundary::{Boundary, ZeroFreeBracket, certify_boundary};
 use crate::config::VerifyConfig;
-use crate::interval::Sign;
+use crate::interval::{Interval, Sign};
 use crate::isolate::{
     BlockPoints, GramBlock, IsolateError, Point, Straddle, alternations, isolate_block,
     resolve_straddle,
@@ -50,6 +51,25 @@ pub enum NotVerifiedReason {
     /// L = M + 1, but a block stayed short of Rosser's count after the neighbour
     /// search; its span is in `blocks` (spec: unresolved blocks are reported, exit 3).
     UnresolvedBlocks,
+}
+
+impl std::fmt::Display for NotVerifiedReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Turing(_) => f.write_str("Turing bound not established"),
+            Self::NoLeftBoundary => f.write_str("g_-1 has no certified bracket"),
+            Self::NoBlocks => f.write_str("no Gram block covers the range"),
+            Self::ShortCount { found, needed } => {
+                write!(f, "{found} of {needed} zeros isolated")
+            }
+            Self::ZeroSideUncertain => {
+                f.write_str("the zero nearest the height could not be placed on one side of it")
+            }
+            Self::UnresolvedBlocks => f.write_str(
+                "every zero isolated, but some Gram blocks stayed short of Rosser's count",
+            ),
+        }
+    }
 }
 
 /// A defect in the collected points: a fault, never a refusal.
@@ -102,12 +122,54 @@ impl std::fmt::Display for Fault {
     }
 }
 
+/// What a verified run reports beside the count (the spec's output block).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RunStats {
+    /// The Gram index M Turing's bound holds at.
+    pub m: i64,
+    /// g_M's certified zero-free bracket `[b_M, c_M]`, which encloses g_M.
+    pub g_m: (f64, f64),
+    /// Gram blocks processed.
+    pub gram_blocks: usize,
+    /// Blocks short of Rosser's count that the neighbour search then resolved.
+    pub rosser_exceptions: usize,
+    /// The highest precision (bits) any Z evaluation of the run used.
+    pub max_precision: u32,
+    /// Threads the run used: 1 when serial, including after a pool build failure.
+    pub threads: usize,
+}
+
+/// A `ZSource` that records the highest precision at which the inner source
+/// produced an enclosure, so the report can state the precision actually used.
+struct PrecisionProbe<'a, Z> {
+    inner: &'a Z,
+    max: AtomicU32,
+}
+
+impl<Z: ZSource> ZSource for PrecisionProbe<'_, Z> {
+    fn z(&self, t: f64, prec: u32) -> Result<Option<Interval>, ZFault> {
+        let result = self.inner.z(t, prec)?;
+        if result.is_some() {
+            self.max.fetch_max(prec, Ordering::Relaxed);
+        }
+        Ok(result)
+    }
+
+    fn z_over(&self, lo: f64, hi: f64, prec: u32) -> Result<Option<Interval>, ZFault> {
+        let result = self.inner.z_over(lo, hi, prec)?;
+        if result.is_some() {
+            self.max.fetch_max(prec, Ordering::Relaxed);
+        }
+        Ok(result)
+    }
+}
+
 /// The outcome of `verify`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Verdict {
     /// Every zero with 0 < Im <= T is on the line and simple. `intervals[k]` is
     /// the certified sign-change interval holding the (k+1)-th zero; `count == intervals.len()`.
-    Verified { count: usize, intervals: Vec<(f64, f64)> },
+    Verified { count: usize, intervals: Vec<(f64, f64)>, stats: RunStats },
     /// Nothing is claimed; `blocks` names the Gram blocks left unresolved.
     NotVerified { reason: NotVerifiedReason, blocks: Vec<GramSpan> },
     /// An implementation fault.
@@ -165,6 +227,11 @@ impl Runner {
                 Ok(Runner { pool: None })
             }
         }
+    }
+
+    /// Threads the run uses: the pool's, or 1 when serial.
+    fn threads(&self) -> usize {
+        self.pool.as_ref().map_or(1, ThreadPool::current_num_threads)
     }
 
     /// Runs `f`, turning a panic into a fault (no partial verdict survives it).
@@ -269,6 +336,8 @@ fn sign_changes(points: &[Point]) -> impl Iterator<Item = (Point, Point)> + '_ {
 struct Isolated {
     points: Vec<Point>,
     unresolved: Vec<GramSpan>,
+    /// Blocks short of Rosser's count that the neighbour search resolved.
+    exceptions: usize,
 }
 
 /// Rosser neighbour search for block `i`: merge it with its neighbours (expected
@@ -323,6 +392,7 @@ fn isolate_all<Z: ZSource + Sync>(
         .filter(|(_, (_, resolved))| !resolved)
         .map(|(&i, _)| planned[i].span)
         .collect();
+    let exceptions = short.len() - unresolved.len();
     drop(planned);
     let mut points = Vec::new();
     for found in results {
@@ -331,7 +401,7 @@ fn isolate_all<Z: ZSource + Sync>(
     for (fresh, _) in searched {
         points.extend(fresh);
     }
-    Ok(Isolated { points, unresolved })
+    Ok(Isolated { points, unresolved, exceptions })
 }
 
 /// Certifies g_-1 .. g_(m-1) on the pool; g_m is `last`, the boundary Turing's
@@ -395,6 +465,7 @@ fn verify_with_bound<Z: ZSource + Sync>(
     }
     let left_t = left.point().t;
     let planned = plan_blocks(&usable);
+    let gram_blocks = planned.len();
     drop(usable);
     if planned.is_empty() {
         return Ok(not_verified(NotVerifiedReason::NoBlocks, Vec::new()));
@@ -419,7 +490,15 @@ fn verify_with_bound<Z: ZSource + Sync>(
     let Some(intervals) = Runner::guard(|| intervals_up_to(t, &points, &bracket, z, cfg))?? else {
         return Ok(not_verified(NotVerifiedReason::ZeroSideUncertain, Vec::new()));
     };
-    Ok(Verdict::Verified { count: intervals.len(), intervals })
+    let stats = RunStats {
+        m: bound.m,
+        g_m: (bracket.lo(), bracket.hi()),
+        gram_blocks,
+        rosser_exceptions: isolated.exceptions,
+        max_precision: 0,
+        threads: runner.threads(),
+    };
+    Ok(Verdict::Verified { count: intervals.len(), intervals, stats })
 }
 
 fn run<Z: ZSource + Sync>(
@@ -428,12 +507,17 @@ fn run<Z: ZSource + Sync>(
     cfg: &VerifyConfig,
     runner: &Runner,
 ) -> Result<Verdict, Fault> {
-    let bound = match Runner::guard(|| choose_m(t, z, cfg))? {
+    let probe = PrecisionProbe { inner: z, max: AtomicU32::new(0) };
+    let bound = match Runner::guard(|| choose_m(t, &probe, cfg))? {
         Ok(bound) => bound,
         Err(failure) if failure.is_fault() => return Err(Fault::Turing(failure)),
         Err(failure) => return Ok(not_verified(NotVerifiedReason::Turing(failure), Vec::new())),
     };
-    verify_with_bound(t, &bound, z, cfg, runner)
+    let mut verdict = verify_with_bound(t, &bound, &probe, cfg, runner)?;
+    if let Verdict::Verified { stats, .. } = &mut verdict {
+        stats.max_precision = probe.max.load(Ordering::Relaxed);
+    }
+    Ok(verdict)
 }
 
 /// Verifies the Riemann Hypothesis up to `t`: the one verdict a run reports.
@@ -616,7 +700,7 @@ mod tests {
         let z = fake(wave);
         let (serial, err) = go(&z, 100.0, &cfg(), PoolPolicy::Serial);
         assert_eq!(err, "");
-        let Verdict::Verified { count, intervals } = &serial else {
+        let Verdict::Verified { count, intervals, .. } = &serial else {
             panic!("expected Verified, got {serial:?}");
         };
         assert_eq!((*count, intervals.len()), (29, 29));
@@ -628,7 +712,11 @@ mod tests {
         assert!(intervals.windows(2).all(|w| w[0].1 <= w[1].0));
         for policy in [PoolPolicy::Parallel, PoolPolicy::Threads(3)] {
             let (other, err) = go(&z, 100.0, &cfg(), policy);
-            assert_eq!((other, err), (serial.clone(), String::new()), "{policy:?}");
+            assert_eq!(err, "", "{policy:?}");
+            let Verdict::Verified { count: c, intervals: i, .. } = &other else {
+                panic!("{other:?}");
+            };
+            assert_eq!((c, i), (count, intervals), "{policy:?}");
         }
     }
 
@@ -995,6 +1083,7 @@ mod tests {
     fn a_block_still_short_after_merging_is_named() {
         let isolated = isolate_range(short_block_offset_by_an_over_block, 58, 74);
         assert_eq!(isolated.unresolved, vec![GramSpan { first: 60, last: 62 }]);
+        assert_eq!(isolated.exceptions, 0, "an unresolved block is not an exception");
     }
 
     #[test]
@@ -1124,7 +1213,131 @@ mod tests {
     #[test]
     fn t_below_the_first_zero_verifies_zero_zeros() {
         let (verdict, _) = go(&fake(wave), 10.0, &cfg(), PoolPolicy::Serial);
-        assert_eq!(verdict, Verdict::Verified { count: 0, intervals: vec![] });
+        let Verdict::Verified { count, intervals, .. } = verdict else { panic!("{verdict:?}") };
+        assert_eq!((count, intervals), (0, vec![]));
+    }
+
+    // ---- the report: reason text and stats ----
+
+    /// Refuses every precision below `min`, so the ladder must climb to it.
+    struct NeedsPrecision<Z> {
+        inner: Z,
+        min: u32,
+    }
+
+    impl<Z: ZSource> ZSource for NeedsPrecision<Z> {
+        fn z(&self, t: f64, prec: u32) -> Result<Option<Interval>, ZFault> {
+            if prec < self.min { Ok(None) } else { self.inner.z(t, prec) }
+        }
+
+        fn z_over(&self, lo: f64, hi: f64, prec: u32) -> Result<Option<Interval>, ZFault> {
+            if prec < self.min { Ok(None) } else { self.inner.z_over(lo, hi, prec) }
+        }
+    }
+
+    fn stats_of(verdict: Verdict) -> RunStats {
+        let Verdict::Verified { stats, .. } = verdict else { panic!("{verdict:?}") };
+        stats
+    }
+
+    #[test]
+    fn reasons_read_as_the_specs_wording() {
+        let cases = [
+            (
+                NotVerifiedReason::Turing(TuringFailure::Exhausted { tried: 11 }),
+                "Turing bound not established",
+            ),
+            (NotVerifiedReason::NoLeftBoundary, "g_-1 has no certified bracket"),
+            (NotVerifiedReason::NoBlocks, "no Gram block covers the range"),
+            (
+                NotVerifiedReason::ShortCount { found: 647, needed: 649 },
+                "647 of 649 zeros isolated",
+            ),
+            (
+                NotVerifiedReason::ZeroSideUncertain,
+                "the zero nearest the height could not be placed on one side of it",
+            ),
+            (
+                NotVerifiedReason::UnresolvedBlocks,
+                "every zero isolated, but some Gram blocks stayed short of Rosser's count",
+            ),
+        ];
+        for (reason, text) in cases {
+            assert_eq!(reason.to_string(), text);
+        }
+    }
+
+    #[test]
+    fn stats_report_m_the_bracket_blocks_and_threads() {
+        let z = fake(wave);
+        for (policy, threads) in
+            [(PoolPolicy::Serial, 1), (PoolPolicy::Threads(3), 3), (PoolPolicy::Threads(0), 1)]
+        {
+            let stats = stats_of(go(&z, 100.0, &cfg(), policy).0);
+            let m = m_at(100.0);
+            assert_eq!(stats.m, m);
+            assert_eq!(stats.g_m, bracket_of(m));
+            assert!(stats.gram_blocks >= 1, "{stats:?}");
+            assert_eq!(stats.rosser_exceptions, 0);
+            assert_eq!(stats.max_precision, 64);
+            assert_eq!(stats.threads, threads, "{policy:?}");
+        }
+    }
+
+    #[test]
+    fn a_pool_that_cannot_be_built_reports_one_thread() {
+        let stats = stats_of(go(&fake(wave), 100.0, &cfg(), PoolPolicy::FailBuild).0);
+        assert_eq!(stats.threads, 1);
+    }
+
+    #[test]
+    fn stats_count_blocks_as_planned() {
+        let m = m_at(100.0);
+        let stats = stats_of(go(&fake(wave), 100.0, &cfg(), PoolPolicy::Serial).0);
+        // Every Gram point is good, so g_-1 .. g_M bound M + 1 blocks of one interval.
+        assert_eq!(stats.gram_blocks as i64, m + 1);
+    }
+
+    #[test]
+    fn a_resolved_rosser_failure_counts_as_one_exception() {
+        let z = fake(|t| patched(t, 60, 4.0, &FOUR_SECOND));
+        let stats = stats_of(go(&z, 100.0, &shallow(), PoolPolicy::Serial).0);
+        assert_eq!(stats.rosser_exceptions, 1);
+        assert_eq!(isolate_range(|t| patched(t, 60, 4.0, &FOUR_SECOND), 60, 64).exceptions, 1);
+        assert_eq!(isolate_range(wave, 60, 64).exceptions, 0);
+    }
+
+    #[test]
+    fn max_precision_is_the_rung_the_ladder_had_to_reach() {
+        for min in [64, 128, 256, 512] {
+            let z = NeedsPrecision { inner: fake(wave), min };
+            let stats = stats_of(go(&z, 100.0, &cfg(), PoolPolicy::Serial).0);
+            assert_eq!(stats.max_precision, min);
+        }
+    }
+
+    #[test]
+    fn the_probe_records_only_precisions_that_produced_an_enclosure() {
+        let source = NeedsPrecision { inner: fake(wave), min: 128 };
+        let probe = PrecisionProbe { inner: &source, max: AtomicU32::new(0) };
+        assert!(probe.z(20.0, 64).unwrap().is_none());
+        assert_eq!(probe.max.load(Ordering::Relaxed), 0);
+        assert!(probe.z(20.0, 128).unwrap().is_some());
+        assert!(probe.z_over(20.0, 21.0, 256).unwrap().is_some());
+        assert!(probe.z_over(20.0, 21.0, 64).unwrap().is_none());
+        assert!(probe.z(20.0, 128).unwrap().is_some());
+        assert_eq!(probe.max.load(Ordering::Relaxed), 256, "a later lower rung never lowers it");
+    }
+
+    #[test]
+    fn the_probe_passes_a_fault_through() {
+        let mut inner = fake(wave);
+        inner.z_fault = (10.0, 30.0);
+        inner.over_fault = (10.0, 30.0);
+        let probe = PrecisionProbe { inner: &inner, max: AtomicU32::new(0) };
+        assert_eq!(probe.z(20.0, 64).unwrap_err(), ZFault::NanHeight);
+        assert_eq!(probe.z_over(20.0, 21.0, 64).unwrap_err(), ZFault::NanHeight);
+        assert_eq!(probe.max.load(Ordering::Relaxed), 0);
     }
 
     // ---- the pool ----

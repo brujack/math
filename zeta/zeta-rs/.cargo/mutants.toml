@@ -3,3 +3,11 @@
 # mutation run exercises the unit tests, and every line only an `e2e_` test reaches is
 # also covered by a unit test. `make test` and CI still run them.
 additional_cargo_test_args = ["--", "--skip", "e2e_"]
+
+# The real `sync_all` call: forcing the temporary file to disk before the rename cannot be
+# observed from a test (the data is readable either way), so replacing it with Ok(()) is a
+# true equivalent. The sync is tested through `MemFile::sync` (`save_table` calls it, and a
+# failing sync removes the temporary file).
+exclude_re = [
+    "src/main\\.rs:\\d+:\\d+: replace <impl SyncFile for File>::sync -> io::Result<\\(\\)> with Ok\\(\\(\\)\\)",
+]

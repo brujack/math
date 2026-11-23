@@ -1,12 +1,13 @@
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufWriter, Write};
 use std::path::PathBuf;
+use std::time::Instant;
 
 use clap::Parser;
 use rug::Float;
 use rug::float::Round;
 use zeta::config::VerifyConfig;
-use zeta::verify::{PoolPolicy, Verdict, verify};
+use zeta::verify::{GramSpan, PoolPolicy, RunStats, Verdict, verify};
 use zeta::zfun::{RealZ, SELF_CHECK_PREC, ZError, ZEvaluator, ZSource, self_check};
 
 /// Smallest and largest accepted N (the height is 10^N).
@@ -67,12 +68,24 @@ fn prompt_n<R: BufRead, W: Write, E: Write>(
 /// Where the output table goes. A trait so tests can fail each step; production
 /// uses `DirStore`. Names are bare file names, resolved by the store.
 trait OutputStore {
-    type File: Write;
+    type File: SyncFile;
     /// Removes a stale temporary file; a missing file is success.
     fn remove_stale(&self, name: &str) -> io::Result<()>;
     fn create(&self, name: &str) -> io::Result<Self::File>;
     fn rename(&self, from: &str, to: &str) -> io::Result<()>;
     fn remove(&self, name: &str) -> io::Result<()>;
+}
+
+/// A writable file that can be forced to stable storage before it is renamed
+/// into place, so a crash cannot leave a complete-looking but truncated table.
+trait SyncFile: Write {
+    fn sync(&mut self) -> io::Result<()>;
+}
+
+impl SyncFile for File {
+    fn sync(&mut self) -> io::Result<()> {
+        self.sync_all()
+    }
 }
 
 /// The real store: files in one directory (the current directory in production).
@@ -89,8 +102,10 @@ impl OutputStore for DirStore {
         }
     }
 
+    /// `create_new`: an existing file is another run's (or a stale one the start of
+    /// this run failed to remove), never ours to truncate.
     fn create(&self, name: &str) -> io::Result<File> {
-        File::create(self.0.join(name))
+        OpenOptions::new().write(true).create_new(true).open(self.0.join(name))
     }
 
     fn rename(&self, from: &str, to: &str) -> io::Result<()> {
@@ -110,6 +125,8 @@ struct Env<'a, Z, S> {
     z: Result<Z, ZError>,
     store: &'a S,
     policy: PoolPolicy,
+    /// Test-only (R24): production always runs the self-check.
+    #[cfg(test)]
     skip_self_check: bool,
 }
 
@@ -127,6 +144,7 @@ fn run<R: BufRead, W: Write, E: Write>(
         cfg: &cfg,
         store: &DirStore(PathBuf::from(".")),
         policy: PoolPolicy::Parallel,
+        #[cfg(test)]
         skip_self_check: false,
     };
     run_core(cli, reader, out, err, env)
@@ -185,6 +203,18 @@ where
             "Warning: N=7 writes about 1.5 GB (about 2.2 GB with --refine) and may take many hours."
         )?;
     }
+    // A stale temporary file from an interrupted run goes first (R9), before any
+    // work that could end the run.
+    let tmp = tmp_name(n);
+    if let Err(e) = env.store.remove_stale(&tmp) {
+        writeln!(err, "Error: cannot remove stale {tmp}: {e}")?;
+        return Ok(4);
+    }
+    // Test-only skip (R24): in a production build the self-check always runs.
+    #[cfg(test)]
+    let skip_self_check = env.skip_self_check;
+    #[cfg(not(test))]
+    let skip_self_check = false;
     let z = match env.z {
         Ok(z) => z,
         Err(e) => {
@@ -192,21 +222,17 @@ where
             return Ok(5);
         }
     };
-    if !env.skip_self_check
-        && let Err(reason) = self_check_with(env.cfg)
-    {
+    let self_checked = !skip_self_check;
+    if self_checked && let Err(reason) = self_check_with(env.cfg) {
         writeln!(err, "self-check failed: {reason}")?;
         return Ok(5);
     }
-    let tmp = tmp_name(n);
-    if let Err(e) = env.store.remove_stale(&tmp) {
-        writeln!(err, "Error: cannot remove stale {tmp}: {e}")?;
-        return Ok(4);
-    }
+    let started = Instant::now();
     let height = 10u64.pow(n);
     // Exact: 10^7 < 2^53.
     let verdict = verify(height as f64, &z, env.cfg, env.policy, err);
-    report(verdict, n, env.store, out, err)
+    let elapsed = started.elapsed().as_secs_f64();
+    report(verdict, n, env.store, out, err, self_checked, elapsed)
 }
 
 /// Name of the temporary file the table is written to before it is renamed.
@@ -219,34 +245,47 @@ fn table_name(n: u32) -> String {
     format!("zeta_1e{n}.txt")
 }
 
+/// The self-check's spec line, printed only when the self-check ran.
+const SELF_CHECK_LINE: &str =
+    "Self-check: Riemann\u{2013}Siegel and Euler\u{2013}Maclaurin agree on [200, 300] (8 points)";
+
+/// Why a Gram block is listed as uncertified: only blocks still short of Rosser's
+/// count after the neighbour search are listed.
+const BLOCK_REASON: &str = "Rosser's count not reached after the neighbour search";
+
 /// Turns a verdict into the report, the table (only when verified) and the exit code.
+/// The verified block is printed only after the table is saved, so a failed save
+/// never follows a claim.
 fn report<W: Write, E: Write, S: OutputStore>(
     verdict: Verdict,
     n: u32,
     store: &S,
     out: &mut W,
     err: &mut E,
+    self_checked: bool,
+    elapsed: f64,
 ) -> io::Result<i32> {
     let height = 10u64.pow(n);
     match verdict {
-        Verdict::Verified { count, intervals } => {
+        Verdict::Verified { count, intervals, stats } => {
             if let Err(e) = save_table(store, n, &intervals) {
                 writeln!(err, "Error: cannot write {}: {e}", table_name(n))?;
                 return Ok(4);
             }
-            writeln!(
-                out,
-                "RH verified: all {count} nontrivial zeros with 0 < Im s <= {height} lie on Re s = 1/2 and are simple"
-            )?;
-            writeln!(out, "Saved {}", table_name(n))?;
+            if self_checked {
+                writeln!(out, "{SELF_CHECK_LINE}")?;
+            }
+            write_verified(out, n, count, &stats, elapsed)?;
             Ok(0)
         }
         Verdict::NotVerified { reason, blocks } => {
-            writeln!(out, "RH NOT verified up to {height}: {reason:?}")?;
+            writeln!(out, "RH NOT verified up to {height}: {reason}")?;
             if !blocks.is_empty() {
-                let spans: Vec<String> =
-                    blocks.iter().map(|b| format!("[g_{}, g_{}]", b.first, b.last)).collect();
-                writeln!(out, "Uncertified Gram blocks: {}", spans.join(" "))?;
+                writeln!(
+                    out,
+                    "Uncertified Gram blocks: {}  ({BLOCK_REASON})",
+                    spans_text(&blocks)
+                )?;
             }
             writeln!(out, "No claim is made for this range.")?;
             Ok(3)
@@ -262,14 +301,49 @@ fn report<W: Write, E: Write, S: OutputStore>(
     }
 }
 
-/// Writes the table to the temporary file and renames it into place; any failure
-/// removes the temporary file, so no partial table is left under either name.
+/// `[g_a, g_b], [g_c, g_d]`
+fn spans_text(blocks: &[GramSpan]) -> String {
+    let spans: Vec<String> =
+        blocks.iter().map(|b| format!("[g_{}, g_{}]", b.first, b.last)).collect();
+    spans.join(", ")
+}
+
+/// The verified block after the self-check line, in the spec's order.
+fn write_verified<W: Write>(
+    out: &mut W,
+    n: u32,
+    count: usize,
+    stats: &RunStats,
+    elapsed: f64,
+) -> io::Result<()> {
+    let height = 10u64.pow(n);
+    let (b_m, c_m) = stats.g_m;
+    writeln!(out, "Turing bound: N(g_M) <= M+1 established at g_M = [{b_m:.6}, {c_m:.6}]")?;
+    writeln!(out, "Isolating zeros in 0 < t <= {height} ({} threads)...", stats.threads)?;
+    writeln!(out)?;
+    writeln!(
+        out,
+        "RH verified: all {count} nontrivial zeros with 0 < Im s <= {height} lie on Re s = 1/2 and are simple"
+    )?;
+    writeln!(
+        out,
+        "Gram blocks: {}   Rosser exceptions: {}   max precision: {} bits",
+        stats.gram_blocks, stats.rosser_exceptions, stats.max_precision
+    )?;
+    writeln!(out, "Saved {}", table_name(n))?;
+    writeln!(out, "Elapsed: {elapsed:.1} s")
+}
+
+/// Writes the table to the temporary file, syncs it and renames it into place; a
+/// failure after the file was created removes the temporary file, so no partial table
+/// is left under either name. A failed create removes nothing: the file in the way
+/// is not ours (`AlreadyExists` is another run's temporary file).
 fn save_table<S: OutputStore>(store: &S, n: u32, intervals: &[(f64, f64)]) -> io::Result<()> {
     let (tmp, table) = (tmp_name(n), table_name(n));
-    let result = store
-        .create(&tmp)
-        .and_then(|file| write_table(file, intervals))
-        .and_then(|()| store.rename(&tmp, &table));
+    let mut file = store.create(&tmp)?;
+    let written = write_table(&mut file, intervals).and_then(|()| file.sync());
+    drop(file);
+    let result = written.and_then(|()| store.rename(&tmp, &table));
     if result.is_err() {
         // Cleanup only: the write error is the one to report.
         let _ = store.remove(&tmp);
@@ -417,6 +491,7 @@ mod tests {
         Stale,
         Create,
         Write,
+        Sync,
         Rename,
     }
 
@@ -426,12 +501,19 @@ mod tests {
     struct MemStore {
         files: Files,
         removed: RefCell<Vec<String>>,
+        /// Names of files whose `sync` ran.
+        synced: Rc<RefCell<Vec<String>>>,
         brk: Break,
     }
 
     impl MemStore {
         fn new(brk: Break) -> MemStore {
-            MemStore { files: Rc::default(), removed: RefCell::default(), brk }
+            MemStore {
+                files: Rc::default(),
+                removed: RefCell::default(),
+                synced: Rc::default(),
+                brk,
+            }
         }
 
         fn names(&self) -> Vec<String> {
@@ -441,8 +523,20 @@ mod tests {
 
     struct MemFile {
         files: Files,
+        synced: Rc<RefCell<Vec<String>>>,
         name: String,
         fail: bool,
+        fail_sync: bool,
+    }
+
+    impl SyncFile for MemFile {
+        fn sync(&mut self) -> io::Result<()> {
+            if self.fail_sync {
+                return Err(io::Error::other("sync failed"));
+            }
+            self.synced.borrow_mut().push(self.name.clone());
+            Ok(())
+        }
     }
 
     impl Write for MemFile {
@@ -474,11 +568,16 @@ mod tests {
             if self.brk == Break::Create {
                 return Err(io::Error::other("no space"));
             }
+            if self.files.borrow().contains_key(name) {
+                return Err(io::Error::from(io::ErrorKind::AlreadyExists));
+            }
             self.files.borrow_mut().insert(name.to_string(), Vec::new());
             Ok(MemFile {
                 files: Rc::clone(&self.files),
+                synced: Rc::clone(&self.synced),
                 name: name.to_string(),
                 fail: self.brk == Break::Write,
+                fail_sync: self.brk == Break::Sync,
             })
         }
 
@@ -599,7 +698,12 @@ mod tests {
             let store = MemStore::new(Break::Nothing);
             let (code, out, _) = drive_with(&[n], "", env(&cfg, RefusingZ, &store));
             assert_eq!(code, 3, "{n}");
-            assert!(out.starts_with(&format!("RH NOT verified up to {t}: ")), "{n}: {out:?}");
+            assert!(
+                out.starts_with(&format!(
+                    "RH NOT verified up to {t}: Turing bound not established\n"
+                )),
+                "{n}: {out:?}"
+            );
             assert!(out.ends_with("No claim is made for this range.\n"), "{n}: {out:?}");
             assert!(store.names().is_empty(), "{n}: wrote {:?}", store.names());
         }
@@ -695,6 +799,16 @@ mod tests {
         assert_eq!(code, 4, "a Z fault would be exit 6");
         assert_eq!(err, "Error: cannot remove stale zeta_1e3.tmp.txt: stale stuck\n");
         assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn stale_removal_failure_exits_4_before_the_self_check() {
+        let cfg = widened();
+        let store = MemStore::new(Break::Stale);
+        let mut e = env(&cfg, RefusingZ, &store);
+        e.skip_self_check = false;
+        let (code, ..) = drive_with(&["3"], "", e);
+        assert_eq!(code, 4, "the widened config would fail the self-check with exit 5");
     }
 
     #[test]
@@ -892,7 +1006,7 @@ mod tests {
 
     #[test]
     fn save_table_failure_at_any_step_leaves_no_file_and_removes_the_temporary() {
-        for brk in [Break::Create, Break::Write, Break::Rename] {
+        for brk in [Break::Write, Break::Sync, Break::Rename] {
             let store = MemStore::new(brk);
             assert!(save_table(&store, 3, &[(14.0, 15.0)]).is_err());
             assert!(store.names().is_empty(), "{:?}", store.names());
@@ -900,20 +1014,73 @@ mod tests {
         }
     }
 
+    #[test]
+    fn save_table_syncs_the_temporary_file_before_the_rename() {
+        let store = MemStore::new(Break::Nothing);
+        save_table(&store, 3, &[(14.0, 15.0)]).unwrap();
+        assert_eq!(*store.synced.borrow(), vec!["zeta_1e3.tmp.txt".to_string()]);
+    }
+
+    #[test]
+    fn a_failed_create_removes_nothing() {
+        let store = MemStore::new(Break::Create);
+        assert!(save_table(&store, 3, &[(14.0, 15.0)]).is_err());
+        assert!(store.removed.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_temporary_file_that_already_exists_is_left_untouched_and_fails_the_save() {
+        let store = MemStore::new(Break::Nothing);
+        store.files.borrow_mut().insert("zeta_1e3.tmp.txt".into(), b"other run".to_vec());
+        let error = save_table(&store, 3, &[(14.0, 15.0)]).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(store.files.borrow()["zeta_1e3.tmp.txt"], b"other run");
+        assert!(store.removed.borrow().is_empty());
+        assert!(store.synced.borrow().is_empty());
+    }
+
+    fn stats() -> RunStats {
+        RunStats {
+            m: 5,
+            g_m: (535.25, 535.75),
+            gram_blocks: 7,
+            rosser_exceptions: 2,
+            max_precision: 128,
+            threads: 4,
+        }
+    }
+
     fn verified() -> Verdict {
-        Verdict::Verified { count: 2, intervals: vec![(14.0, 15.0), (21.0, 22.0)] }
+        Verdict::Verified { count: 2, intervals: vec![(14.0, 15.0), (21.0, 22.0)], stats: stats() }
+    }
+
+    /// `report` as a run that did the self-check and took 1.25 s.
+    fn report_for<W: Write, E: Write, S: OutputStore>(
+        verdict: Verdict,
+        n: u32,
+        store: &S,
+        out: &mut W,
+        err: &mut E,
+    ) -> io::Result<i32> {
+        report(verdict, n, store, out, err, true, 1.25)
     }
 
     #[test]
     fn verified_verdict_prints_the_line_saves_the_table_and_exits_0() {
         let store = MemStore::new(Break::Nothing);
         let (mut out, mut err) = (Vec::new(), Vec::new());
-        let code = report(verified(), 2, &store, &mut out, &mut err).unwrap();
+        let code = report_for(verified(), 2, &store, &mut out, &mut err).unwrap();
         assert_eq!(code, 0);
         assert_eq!(
             String::from_utf8(out).unwrap(),
-            "RH verified: all 2 nontrivial zeros with 0 < Im s <= 100 lie on Re s = 1/2 and are simple\n\
-             Saved zeta_1e2.txt\n"
+            "Self-check: Riemann\u{2013}Siegel and Euler\u{2013}Maclaurin agree on [200, 300] (8 points)\n\
+             Turing bound: N(g_M) <= M+1 established at g_M = [535.250000, 535.750000]\n\
+             Isolating zeros in 0 < t <= 100 (4 threads)...\n\
+             \n\
+             RH verified: all 2 nontrivial zeros with 0 < Im s <= 100 lie on Re s = 1/2 and are simple\n\
+             Gram blocks: 7   Rosser exceptions: 2   max precision: 128 bits\n\
+             Saved zeta_1e2.txt\n\
+             Elapsed: 1.2 s\n"
         );
         assert!(err.is_empty());
         assert_eq!(store.names(), vec!["zeta_1e2.txt".to_string()]);
@@ -921,16 +1088,35 @@ mod tests {
 
     #[test]
     fn verified_verdict_with_a_failed_write_exits_4_and_claims_nothing() {
-        for brk in [Break::Create, Break::Write, Break::Rename] {
+        for brk in [Break::Create, Break::Write, Break::Sync, Break::Rename] {
             let store = MemStore::new(brk);
             let (mut out, mut err) = (Vec::new(), Vec::new());
-            let code = report(verified(), 2, &store, &mut out, &mut err).unwrap();
+            let code = report_for(verified(), 2, &store, &mut out, &mut err).unwrap();
             assert_eq!(code, 4);
             assert!(out.is_empty(), "{:?}", String::from_utf8_lossy(&out));
             let err = String::from_utf8(err).unwrap();
             assert!(err.starts_with("Error: cannot write zeta_1e2.txt: "), "{err:?}");
             assert!(store.names().is_empty());
         }
+    }
+
+    #[test]
+    fn a_failing_stdout_after_the_save_exits_4_and_the_table_stays() {
+        let store = MemStore::new(Break::Nothing);
+        let result = report_for(verified(), 2, &store, &mut FailingWriter, &mut Vec::new());
+        assert_eq!(exit_code(result), 4);
+        assert_eq!(store.names(), vec!["zeta_1e2.txt".to_string()]);
+    }
+
+    #[test]
+    fn the_self_check_line_is_printed_only_when_it_ran() {
+        let store = MemStore::new(Break::Nothing);
+        let mut out = Vec::new();
+        report(verified(), 2, &store, &mut out, &mut Vec::new(), false, 0.04).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        assert!(out.starts_with("Turing bound: "), "{out:?}");
+        assert!(!out.contains("Self-check"), "{out:?}");
+        assert!(out.ends_with("Elapsed: 0.0 s\n"), "{out:?}");
     }
 
     #[test]
@@ -941,11 +1127,11 @@ mod tests {
             reason: NotVerifiedReason::UnresolvedBlocks,
             blocks: vec![GramSpan { first: 412, last: 414 }, GramSpan { first: 7, last: 8 }],
         };
-        assert_eq!(report(verdict, 3, &store, &mut out, &mut err).unwrap(), 3);
+        assert_eq!(report_for(verdict, 3, &store, &mut out, &mut err).unwrap(), 3);
         assert_eq!(
             String::from_utf8(out).unwrap(),
-            "RH NOT verified up to 1000: UnresolvedBlocks\n\
-             Uncertified Gram blocks: [g_412, g_414] [g_7, g_8]\n\
+            "RH NOT verified up to 1000: every zero isolated, but some Gram blocks stayed short of Rosser's count\n\
+             Uncertified Gram blocks: [g_412, g_414], [g_7, g_8]  (Rosser's count not reached after the neighbour search)\n\
              No claim is made for this range.\n"
         );
         assert!(err.is_empty());
@@ -958,7 +1144,7 @@ mod tests {
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let verdict =
             Verdict::NotVerified { reason: NotVerifiedReason::NoBlocks, blocks: Vec::new() };
-        assert_eq!(report(verdict, 2, &store, &mut out, &mut err).unwrap(), 3);
+        assert_eq!(report_for(verdict, 2, &store, &mut out, &mut err).unwrap(), 3);
         let out = String::from_utf8(out).unwrap();
         assert!(!out.contains("Gram blocks"), "{out:?}");
     }
@@ -968,7 +1154,7 @@ mod tests {
         let store = MemStore::new(Break::Nothing);
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let verdict = Verdict::Fault { reason: Fault::WorkerPanicked };
-        assert_eq!(report(verdict, 3, &store, &mut out, &mut err).unwrap(), 6);
+        assert_eq!(report_for(verdict, 3, &store, &mut out, &mut err).unwrap(), 6);
         assert_eq!(String::from_utf8(err).unwrap(), "internal error: worker panicked\n");
         assert!(out.is_empty());
     }
@@ -978,7 +1164,7 @@ mod tests {
         let store = MemStore::new(Break::Nothing);
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let verdict = Verdict::WriteFailed { error: "pipe".into() };
-        assert_eq!(report(verdict, 3, &store, &mut out, &mut err).unwrap(), 4);
+        assert_eq!(report_for(verdict, 3, &store, &mut out, &mut err).unwrap(), 4);
         assert_eq!(String::from_utf8(err).unwrap(), "Error: cannot write to stderr: pipe\n");
     }
 
@@ -991,7 +1177,7 @@ mod tests {
             Verdict::WriteFailed { error: "x".into() },
         ] {
             let (mut out, mut err) = (Vec::new(), Vec::new());
-            report(verdict, 3, &store, &mut out, &mut err).unwrap();
+            report_for(verdict, 3, &store, &mut out, &mut err).unwrap();
             for text in [out, err] {
                 let text = String::from_utf8(text).unwrap();
                 assert!(!text.contains("RH verified") && !text.contains("RH holds"), "{text:?}");
@@ -1060,7 +1246,12 @@ mod tests {
     fn e2e_real_z_verifies_n_2_through_run_with() {
         let (code, out, _, store) = real_run("2", &VerifyConfig::default(), false);
         assert_eq!(code, 0, "{out}");
+        assert!(out.starts_with(SELF_CHECK_LINE), "{out}");
+        assert!(out.contains("Isolating zeros in 0 < t <= 100 ("), "{out}");
         assert!(out.contains("all 29 nontrivial zeros"), "{out}");
+        assert!(out.contains("   max precision: "), "{out}");
+        let seconds = out.lines().last().unwrap().strip_prefix("Elapsed: ").unwrap();
+        assert!(seconds.strip_suffix(" s").unwrap().parse::<f64>().unwrap() >= 0.0, "{out}");
         assert_eq!(store.names(), vec!["zeta_1e2.txt".to_string()]);
     }
 
@@ -1072,8 +1263,8 @@ mod tests {
         assert!(store.names().is_empty());
         assert!(
             out.starts_with(
-                "RH NOT verified up to 1000: ShortCount { found: 605, needed: 649 }\n\
-                 Uncertified Gram blocks: [g_125, g_127]"
+                "RH NOT verified up to 1000: 605 of 649 zeros isolated\n\
+                 Uncertified Gram blocks: [g_125, g_127], [g_133, g_135]"
             ),
             "{out}"
         );
@@ -1087,7 +1278,7 @@ mod tests {
         assert!(store.names().is_empty());
         assert_eq!(
             out,
-            "RH NOT verified up to 100: Turing(Exhausted { tried: 11 })\n\
+            "RH NOT verified up to 100: Turing bound not established\n\
              No claim is made for this range.\n"
         );
     }
