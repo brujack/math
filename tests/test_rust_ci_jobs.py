@@ -171,8 +171,8 @@ class TestGmpCacheRestore(unittest.TestCase):
             lambda s: "actions/cache/restore@" in uses_of(s),
         )
 
-    def test_twelve_workflows_times_three_jobs(self):
-        self.assertEqual(len(cache_jobs()), 36)
+    def test_thirteen_workflows_times_three_jobs(self):
+        self.assertEqual(len(cache_jobs()), 39)
 
     def test_no_job_env_uses_runner_context(self):
         # The runner context is not available at jobs.<id>.env; GitHub rejects the file.

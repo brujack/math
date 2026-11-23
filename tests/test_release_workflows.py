@@ -629,7 +629,7 @@ class TestReleaseWorkflowContract(unittest.TestCase):
         # Executes each workflow's notices step verbatim under `bash -e` (GitHub's
         # default shell) with LICENSES_DIR unset and RUNNER_TEMP lacking notices/,
         # so the default licences path and the step's own mkdir are both exercised.
-        gmp_crates = {"e", "factorial", "fib", "perfect-numbers", "pi"}
+        gmp_crates = {"e", "factorial", "fib", "perfect-numbers", "pi", "zeta"}
         lgpl, no_lgpl = set(), set()
         env_base = {
             k: v
