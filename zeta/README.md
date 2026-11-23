@@ -22,7 +22,7 @@ down and b rounded up to 30 significant digits) and prints to stdout:
 
 ```text
 Self-check: Riemann–Siegel and Euler–Maclaurin agree on [200, 300] (8 points)
-Turing bound: N(g_M) <= M+1 established at g_M = [<b_M>, <c_M>]
+Turing bound: N(g_M) <= M+1 established at g_M = <value>
 Isolating zeros in 0 < t <= <T> (<k> threads)...
 
 RH verified: all <count> nontrivial zeros with 0 < Im s <= <T> lie on Re s = 1/2 and are simple
@@ -31,7 +31,7 @@ Saved zeta_1eN.txt
 Elapsed: <s> s
 ```
 
-These lines are printed together once the table is saved, so a failed save is never preceded
+`<value>` is g_M to 6 decimals (a `[lo, hi]` pair when its certified bracket is wider than that). These lines are printed together once the table is saved, so a failed save is never preceded
 by a verified claim.
 
 The table is written to `zeta_1eN.tmp.txt` and renamed on completion; no `zeta_1eN.txt` is

@@ -308,6 +308,12 @@ fn spans_text(blocks: &[GramSpan]) -> String {
     spans.join(", ")
 }
 
+/// g_M's bracket to 6 decimals: one value when both ends print alike, else `[lo, hi]`.
+fn g_m_text((lo, hi): (f64, f64)) -> String {
+    let (lo, hi) = (format!("{lo:.6}"), format!("{hi:.6}"));
+    if lo == hi { lo } else { format!("[{lo}, {hi}]") }
+}
+
 /// The verified block after the self-check line, in the spec's order.
 fn write_verified<W: Write>(
     out: &mut W,
@@ -317,8 +323,7 @@ fn write_verified<W: Write>(
     elapsed: f64,
 ) -> io::Result<()> {
     let height = 10u64.pow(n);
-    let (b_m, c_m) = stats.g_m;
-    writeln!(out, "Turing bound: N(g_M) <= M+1 established at g_M = [{b_m:.6}, {c_m:.6}]")?;
+    writeln!(out, "Turing bound: N(g_M) <= M+1 established at g_M = {}", g_m_text(stats.g_m))?;
     writeln!(out, "Isolating zeros in 0 < t <= {height} ({} threads)...", stats.threads)?;
     writeln!(out)?;
     writeln!(
@@ -1106,6 +1111,42 @@ mod tests {
         let result = report_for(verified(), 2, &store, &mut FailingWriter, &mut Vec::new());
         assert_eq!(exit_code(result), 4);
         assert_eq!(store.names(), vec!["zeta_1e2.txt".to_string()]);
+    }
+
+    #[test]
+    fn g_m_prints_one_value_when_the_ends_agree_to_six_decimals() {
+        assert_eq!(g_m_text((1000.4755762, 1000.4755764)), "1000.475576");
+        assert_eq!(g_m_text((535.25, 535.75)), "[535.250000, 535.750000]");
+        assert_eq!(g_m_text((535.0, 535.000_002)), "[535.000000, 535.000002]");
+    }
+
+    #[test]
+    fn the_verified_block_prints_a_single_g_m_when_the_bracket_is_that_narrow() {
+        let store = MemStore::new(Break::Nothing);
+        let mut verdict = verified();
+        if let Verdict::Verified { stats, .. } = &mut verdict {
+            stats.g_m = (1000.4755762, 1000.4755764);
+        }
+        let mut out = Vec::new();
+        report(verdict, 2, &store, &mut out, &mut Vec::new(), true, 0.0).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        assert!(out.contains("established at g_M = 1000.475576\n"), "{out:?}");
+    }
+
+    #[test]
+    fn the_real_file_sync_reports_a_failing_fsync() {
+        // fsync on a pipe is EINVAL on Linux, so the real impl must pass the error on.
+        let (_read, write) = io::pipe().unwrap();
+        let mut file = File::from(std::os::fd::OwnedFd::from(write));
+        assert!(SyncFile::sync(&mut file).is_err());
+    }
+
+    #[test]
+    fn the_real_file_sync_succeeds_on_a_regular_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut file = File::create(dir.path().join("f")).unwrap();
+        file.write_all(b"x").unwrap();
+        SyncFile::sync(&mut file).unwrap();
     }
 
     #[test]
