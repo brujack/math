@@ -167,11 +167,12 @@ acceptance:
   - cmd: make -C zeta/zeta-rs test
     exit_code: 0
 max_retries: 3
-files_touched: [zeta/zeta-rs/src/zfun.rs, zeta/zeta-rs/src/lib.rs, zeta/zeta-rs/benches/zeta.rs]
+files_touched: [zeta/zeta-rs/src/zfun.rs, zeta/zeta-rs/src/complex.rs, zeta/zeta-rs/src/theta.rs, zeta/zeta-rs/src/lib.rs, zeta/zeta-rs/benches/zeta.rs]
 depends_on: [3, 4]
 requirements: [R6, R7]
 ```
 
+- [ ] Move theta.rs's private complex-interval type to `src/complex.rs` (`pub(crate)`), shared by θ and Euler–Maclaurin; θ's behaviour and tests unchanged.
 - [ ] `riemann_siegel(t, prec, &VerifyConfig)` per appendix §1 (C₀ only), widened by `multiplier × 0.127·t^(−3/4)`; refuses (returns `None`) when the t enclosure's lower bound is below 200.
 - [ ] `euler_maclaurin(t, prec)` per appendix §2 (Johansson 2015 Theorem 1), returning Z(t) as an `Interval`.
 - [ ] `z(t, prec, cfg)` dispatches on the lower bound of t: ≥ 200 Riemann–Siegel, otherwise Euler–Maclaurin.
