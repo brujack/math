@@ -137,8 +137,9 @@ fn self_check_with(cfg: &VerifyConfig) -> Result<(), String> {
 }
 
 /// Maps a `run` outcome to a process exit code. `run` returns `Err` only when a
-/// write to stdout or stderr fails (a closed pipe, a full disk), which is exit 4;
-/// bad input is exit 1 and never an `Err`.
+/// write to stdout or stderr fails (a closed pipe, a full disk), which is exit 4.
+/// Bad input is exit 1, except that a failure to write its error report is exit 4;
+/// an unreadable prompt answer stays exit 1 because that report is best effort.
 fn exit_code(result: std::io::Result<i32>) -> i32 {
     result.unwrap_or(4)
 }
