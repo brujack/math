@@ -47,7 +47,7 @@ fn n_7_warns_on_stderr_and_still_exits_3() {
 
 #[test]
 fn out_of_range_and_non_numeric_n_exit_1() {
-    for arg in ["1", "8", "abc"] {
+    for arg in ["1", "8", "abc", "-1", "-5"] {
         let (code, out, err) = run(&[arg], "");
         assert_eq!(code, Some(1), "{arg}");
         assert_eq!(err, "Error: N must be between 2 and 7.\n", "{arg}");

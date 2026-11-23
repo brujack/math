@@ -1,17 +1,20 @@
 #!/usr/bin/env bats
 
-# Input-error failure modes of the zeta Rust CLI (spec R1, R13). The crate is not
-# built by scripts.yml, so each test skips when no binary is present.
+# Input-error failure modes of the zeta Rust CLI (spec R1, R13). scripts.yml builds
+# no crate, so CI's gate for the CLI is zeta/zeta-rs/tests/cli.rs (as descartes.bats
+# explains); these tests run only where `make test` in zeta-rs has built the debug
+# binary, and skip when it is missing or older than any source file.
 
 bats_require_minimum_version 1.5.0
 
 setup() {
     load "../helpers/common.bash"
-    RUST_BIN="${REPO_ROOT}/zeta/zeta-rs/target/release/zeta"
-    if [[ ! -x "${RUST_BIN}" ]]; then
-        RUST_BIN="${REPO_ROOT}/zeta/zeta-rs/target/debug/zeta"
-    fi
-    [[ -x "${RUST_BIN}" ]] || skip "zeta binary not built"
+    RUST_BIN="${REPO_ROOT}/zeta/zeta-rs/target/debug/zeta"
+    [[ -x "${RUST_BIN}" ]] || skip "zeta binary not built (run make test in zeta/zeta-rs)"
+    local src
+    for src in "${REPO_ROOT}"/zeta/zeta-rs/src/*.rs; do
+        [[ "${RUST_BIN}" -nt "${src}" ]] || skip "zeta binary is older than ${src##*/}; rebuild"
+    done
     WORK_DIR="${BATS_TEST_TMPDIR}/work"
     mkdir -p "${WORK_DIR}"
 }
@@ -24,7 +27,7 @@ setup() {
 }
 
 @test "N out of range exits 1 naming the range" {
-    for n in 1 8; do
+    for n in 1 8 -1 -5; do
         run --separate-stderr bash -c "cd '${WORK_DIR}' && '${RUST_BIN}' ${n} </dev/null"
         [ "${status}" -eq 1 ]
         [[ "${stderr}" == *"Error: N must be between 2 and 7."* ]]
@@ -36,6 +39,7 @@ setup() {
     run --separate-stderr bash -c "cd '${WORK_DIR}' && '${RUST_BIN}' abc </dev/null"
     [ "${status}" -eq 1 ]
     [[ "${stderr}" == *"Error: N must be between 2 and 7."* ]]
+    [ -z "$(ls -A "${WORK_DIR}")" ]
 }
 
 @test "a valid N is never reported as verified" {
@@ -44,4 +48,5 @@ setup() {
     [[ "${output}" == "RH NOT verified up to 100: zero isolation is not implemented yet" ]]
     [[ "${output}${stderr}" != *"RH verified"* ]]
     [[ "${output}${stderr}" != *"RH holds"* ]]
+    [ -z "$(ls -A "${WORK_DIR}")" ]
 }
