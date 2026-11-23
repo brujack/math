@@ -21,7 +21,13 @@ make test       # lint + cargo test
 - `src/interval.rs` — `Interval` over MPFR with directed rounding (lo Down, hi Up); `excludes_zero()` is true only for finite bounds that exclude 0, so a sign is certified only then
 - `src/config.rs` — `VerifyConfig`, widen-only: `new` admits only settings at least as strict as the defaults (Gabcke multiplier ≥ 1, precision cap 64–512, depth cap ≤ 40)
 - `src/theta.rs` — certified θ(t) by Stirling (DLMF 5.11, shift 10, n = 25; floor about 3.4·10⁻²² near t = 2π); `ThetaContext` per precision; `gram_bracket(n, prec)` returns f64 points 2π < b < c with certified signs of θ − nπ at both ends
-- `src/main.rs` — clap `Cli` (optional exponent N) and a thin `main()`, excluded from tarpaulin with `#[cfg(not(tarpaulin_include))]`
+- `src/complex.rs` — `pub(crate)` complex intervals (re, im as `Interval`), shared by θ and Euler–Maclaurin
+- `src/zfun.rs` — Hardy Z: `ZEvaluator` per precision (Riemann–Siegel with Gabcke's C₀ bound 0.127·t^(−3/4) for t ≥ 200, tabulated ln k and 1/√k; Euler–Maclaurin by Johansson Thm 1 below 200); `RealZ` holds one evaluator per rung 64/128/256/512; `ZSource::z(t, prec)` returns `Ok(None)` for a refusal and `Err(ZFault)` for a fault (exit 6); `self_check` compares both paths at 8 points in [200, 300] at 128 bits with the unscaled 0.127
+- `src/main.rs` — `run` reads N (argument or prompt, 2–7 else exit 1), warns on N = 7, runs the self-check (exit 5 on failure) and, until zero isolation lands, prints `RH NOT verified up to <T>: zero isolation is not implemented yet` and exits 3; thin `main()` excluded from tarpaulin with `#[cfg(not(tarpaulin_include))]`
+
+## Exit codes
+
+0 verified, 1 bad input, 3 not verified (uncertified, Turing bound not established or not yet implemented), 4 output write failed, 5 self-check failed, 6 internal fault (a Z fault, a NaN height, a sign conflict). Only 0 claims verification, and only up to T.
 
 ## Testing
 
