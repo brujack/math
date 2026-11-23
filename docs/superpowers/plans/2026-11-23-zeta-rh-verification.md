@@ -141,12 +141,13 @@ acceptance:
   - cmd: make -C zeta/zeta-rs test
     exit_code: 0
 max_retries: 3
-files_touched: [zeta/zeta-rs/src/theta.rs, zeta/zeta-rs/src/lib.rs, zeta/zeta-rs/tests/fixtures/gram_points.txt]
+files_touched: [zeta/zeta-rs/src/theta.rs, zeta/zeta-rs/src/lib.rs, zeta/zeta-rs/src/interval.rs, zeta/zeta-rs/tests/fixtures/gram_points.txt]
 depends_on: [2]
 requirements: [R22]
 ```
 
 - [ ] θ(t) = Im ln Γ(1/4 + it/2) − (t/2) ln π with the DLMF 5.11 Stirling series and its remainder bound (appendix §3), shifting z by 10 via the recurrence; returns an `Interval`.
+- [ ] `Interval::atan` (increasing, endpoint images rounded outward) in `interval.rs`: arg z = atan(y/x) for Re z > 0 and each shift term Im Ln(z+k) = atan(y/(x+k)) need it.
 - [ ] `gram_bracket(n, prec) -> Option<(f64, f64)>`: finds `f64` values 2π < b < c with θ(b) − nπ < 0 and θ(c) − nπ > 0 both certified; returns `None` when it cannot certify or the search leaves t > 2π.
 - [ ] Fixture `tests/fixtures/gram_points.txt`: g_n for n = −1, 0, 100, 1000 at 30 digits, generated with mpmath (`mp.dps = 40`; `findroot(lambda t: siegeltheta(t) - n*pi, guess)`), command and mpmath version in its header.
 - [ ] Tests, first: b < g_n < c for the fixture values; b_n strictly increasing over n = −1..1000; a shifted fake enclosure that contains nπ in θ's range but not g_n fails the endpoint certificate; θ's enclosure at t = 9.667 and t = 2π is narrower than 10⁻²⁰ at 128 bits.
