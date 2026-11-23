@@ -4,6 +4,7 @@
 - **Sub-project:** `zeta/` (new), Rust only: crate `zeta/zeta-rs`, binary `zeta`
 - **Revised:** 2026-11-23, after Multi-Lens Review rounds 1–4 and External Review round 1 (see the review sections at the end)
 
+- **Approved:** 2026-11-23
 ## Summary
 
 `zeta N` proves a finite-range theorem: every nontrivial zero ρ of the Riemann zeta
@@ -468,7 +469,7 @@ Round 1 reviewed at commit: `b27bae1` (Step 7 self-review commit, before Step 8 
 
 Finding: (1) Trudgian's ∫S bound holds only for t ≥ 168π ≈ 527.8 (Trudgian 2011 abstract; Brent 2021), but step 1 picks g_M ≥ T, so N = 2 (T = 100) applies Turing outside its proven range: an unsound "verified", or an exit 3 that contradicts R16. Fix: g_M ≥ max(T, 168π). (2) `--refine` and the spacing histogram have no consumer that changes a decision; their real consumer is the π(x) follow-up, so they could move there. (3) The self-check shares `interval.rs` and `theta.rs` between both Z paths, so a θ error is invisible to it; keep it as a canary and drop "independent implementations". (4) "Proof witness" overclaims while nothing re-checks the file; a cheap `--check` would make it true. Math corrections: g_n is unique only for t > 2π (θ dips to about −3.53 near 2π), and Rosser's rule says *at least* k − j zeros, not exactly. Premise checks run: rug 1.30.0 has `cos_round`, `sin_round`, `ln_round`, `exp_round`, `sqrt_round`, `ln_gamma_round` and `*AssignRound`; `rayon_core::ThreadPoolBuilder::build` returns `Err`, not a panic, on a failed spawn; `tests/test_crate_uniformity.py` and `render_crate_files.py` hard-code 12 crates.
 Assumption: C₀-only Riemann–Siegel with Gabcke's bound (about 7·10⁻⁷ at t = 10⁷) certifies every sign up to 10⁷. Refuted if some close pair below 10⁷ has max |Z| between its zeros under that floor; settled by a pre-implementation scan of the smallest gaps in [10⁶, 10⁷] or by the extreme small-|Z| values in published verifications.
-Disposition: Addressed (operator, 2026-11-23: "Address all"): 168π range fixed (R19); self-check now a canary with a width ceiling (R7); g_n uniqueness and Rosser wording corrected. Accepted (operator: "Keep in this spec"): `--refine` and the spacing histogram stay. Not put to the operator: the `--check` mode was deferred as N5 by the author; flagged for Step 9.
+Disposition: Addressed (operator, 2026-11-23: "Address all"): 168π range fixed (R19); self-check now a canary with a width ceiling (R7); g_n uniqueness and Rosser wording corrected. Accepted (operator: "Keep in this spec"): `--refine` and the spacing histogram stay. The `--check` mode was deferred as N5 by the author and flagged for Step 9; the operator confirmed it stays deferred (2026-11-23: "Keep deferred (N5)").
 
 ### Ergonomics
 
@@ -543,14 +544,14 @@ Report: [round1.md](2026-11-23-zeta-rh-verification-design.external-review/round
 
 | finding | disposition | evidence | reviewer verdict | operator (Step 9) |
 | ------- | ----------- | -------- | ---------------- | ----------------- |
-| F1.1 | Fixed | Testing "CLI" bullet: `run()` covers exits 0 and 1, end of input, N out of range and the N = 7 warning; `run_with` covers exits 3–6, the failing writer, the zero throttle and stale-temp removal. R24 unchanged. | unjudged | |
-| F1.2 | Fixed | The 64-bit precision control is replaced by a depth cap of 1 at N = 3; the Gabcke × 10⁶ control is pinned to N = 2 and expected to bind through Turing; a control measured to verify is replaced before planning (R20 and the controls bullet). | unjudged | |
-| F1.3 | Fixed | The bound now reads "at most 2.067 plus 0.059·ln t₂", so no line can start with a sign. Confirmed the defect was worse than reported: the formatter had rendered "+ 0.059" as "- 0.059", a list bullet. | unjudged | |
-| F1.4 | Measured | `cargo mutants --help` (cargo-mutants 27.1.0, Linux 7.0.0-43, on `claude`): `--timeout-multiplier` is "Test timeout multiplier (relative to base test time)" and `--minimum-test-timeout` is "Minimum timeout for tests, in seconds, as a lower bound on the auto-set time". The timeout applies to the whole test run. V8 now times the prototype's debug `cargo test` baseline B and projects (timed-out mutants × max(30 s, 5·B)) + (other mutants × B); the Testing paragraph says the same. | unjudged | |
-| F1.5 | Fixed | Header now says rounds 1–4 and External Review round 1; the Multi-Lens round-1 stamp line no longer calls the body the round-3 revision; the round-2 disposition notes that its R25 was removed in round 3. | unjudged | |
-| F1.6 | Fixed | R8 pins t_n at 15 significant digits and w_n at 3; at about 104 bytes per line the N = 7 `--refine` file is about 2.2 GB, and R14 and the CLI warning now say 2.2 GB. | unjudged | |
-| F1.7 | Fixed | R12 pins the KS distance to the surmise's CDF F(s) = erf(√a·s) − (2/√π)·√a·s·e^(−a·s²), a = 4/π; V5 cites the reviewer's 0.045 on the first 649 zeros and states that a V5 failure blocks merging. | unjudged | |
-| F1.8 | Fixed | The straddle bullet states that when T lies in [b_M, c_M], which is certified zero-free, nothing straddles T and nothing is bisected. | unjudged | |
-| F1.9 | Fixed | The self-check bullet states that the self-check always uses the unscaled constant 0.127, whatever the configured multiplier. | unjudged | |
+| F1.1 | Fixed | Testing "CLI" bullet: `run()` covers exits 0 and 1, end of input, N out of range and the N = 7 warning; `run_with` covers exits 3–6, the failing writer, the zero throttle and stale-temp removal. R24 unchanged. | unjudged | accepted (operator, 2026-11-23) |
+| F1.2 | Fixed | The 64-bit precision control is replaced by a depth cap of 1 at N = 3; the Gabcke × 10⁶ control is pinned to N = 2 and expected to bind through Turing; a control measured to verify is replaced before planning (R20 and the controls bullet). | unjudged | accepted (operator, 2026-11-23) |
+| F1.3 | Fixed | The bound now reads "at most 2.067 plus 0.059·ln t₂", so no line can start with a sign. Confirmed the defect was worse than reported: the formatter had rendered "+ 0.059" as "- 0.059", a list bullet. | unjudged | accepted (operator, 2026-11-23) |
+| F1.4 | Measured | `cargo mutants --help` (cargo-mutants 27.1.0, Linux 7.0.0-43, on `claude`): `--timeout-multiplier` is "Test timeout multiplier (relative to base test time)" and `--minimum-test-timeout` is "Minimum timeout for tests, in seconds, as a lower bound on the auto-set time". The timeout applies to the whole test run. V8 now times the prototype's debug `cargo test` baseline B and projects (timed-out mutants × max(30 s, 5·B)) + (other mutants × B); the Testing paragraph says the same. | unjudged | accepted (operator, 2026-11-23) |
+| F1.5 | Fixed | Header now says rounds 1–4 and External Review round 1; the Multi-Lens round-1 stamp line no longer calls the body the round-3 revision; the round-2 disposition notes that its R25 was removed in round 3. | unjudged | accepted (operator, 2026-11-23) |
+| F1.6 | Fixed | R8 pins t_n at 15 significant digits and w_n at 3; at about 104 bytes per line the N = 7 `--refine` file is about 2.2 GB, and R14 and the CLI warning now say 2.2 GB. | unjudged | accepted (operator, 2026-11-23) |
+| F1.7 | Fixed | R12 pins the KS distance to the surmise's CDF F(s) = erf(√a·s) − (2/√π)·√a·s·e^(−a·s²), a = 4/π; V5 cites the reviewer's 0.045 on the first 649 zeros and states that a V5 failure blocks merging. | unjudged | accepted (operator, 2026-11-23) |
+| F1.8 | Fixed | The straddle bullet states that when T lies in [b_M, c_M], which is certified zero-free, nothing straddles T and nothing is bisected. | unjudged | accepted (operator, 2026-11-23) |
+| F1.9 | Fixed | The self-check bullet states that the self-check always uses the unscaled constant 0.127, whatever the configured multiplier. | unjudged | accepted (operator, 2026-11-23) |
 
 Stopped: reviewer recommended stopping in round 1
