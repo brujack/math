@@ -6,13 +6,12 @@
 //! moved to a nearby `f64` or discarded, never used. Rosser's expected count only
 //! steers where to subdivide; it is never credited (spec, "The proof" step 4).
 
-use std::cmp::Ordering;
 use std::collections::HashSet;
 
 use crate::boundary::ZeroFreeBracket;
 use crate::config::VerifyConfig;
 use crate::interval::Sign;
-use crate::zfun::{PRECISION_RUNGS, ZFault, ZSource};
+use crate::zfun::{ZFault, ZSource, certified_sign_ladder};
 
 /// A sample height with its certified Z sign.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -34,10 +33,6 @@ pub const MAX_BLOCK_POINTS: usize = 1 << 16;
 
 /// A moved point sits at the gap midpoint plus or minus (gap length) / 2^k.
 const MOVE_SHIFTS: [i32; 7] = [6, 7, 8, 9, 10, 11, 12];
-
-/// A rung must at least halve the enclosure width to justify climbing further:
-/// otherwise the width is dominated by truncation, not by working precision.
-const MIN_WIDTH_SHRINK: f64 = 0.5;
 
 /// A Gram block as Task 8/9 hand it over: certified boundary points (their
 /// signs come from the Gram bracket's certificate) and Rosser's expected number
@@ -109,31 +104,9 @@ pub fn alternations(points: &[Point]) -> usize {
     points.windows(2).filter(|w| w[0].sign != w[1].sign).count()
 }
 
-/// Z's sign at exactly `t`, certified at the first rung (within the cap) that
-/// excludes 0; `None` when no rung does. Climbing stops once a rung fails to
-/// shrink the enclosure width by `MIN_WIDTH_SHRINK` (more bits cannot help). A
-/// refusal carries no width and just moves to the next rung. A fault propagates.
+/// Z's sign at exactly `t`, by the shared precision ladder (`certified_sign_ladder`).
 fn certified_sign<Z: ZSource>(z: &Z, t: f64, cfg: &VerifyConfig) -> Result<Option<Sign>, ZFault> {
-    let mut previous_width: Option<f64> = None;
-    for prec in PRECISION_RUNGS.into_iter().filter(|&p| p <= cfg.precision_cap()) {
-        let Some(enclosure) = z.z(t, prec)? else {
-            continue;
-        };
-        if let Some(sign) = enclosure.sign() {
-            return Ok(Some(sign));
-        }
-        let width = enclosure.width().to_f64();
-        if let Some(previous) = previous_width
-            && !matches!(
-                width.partial_cmp(&(previous * MIN_WIDTH_SHRINK)),
-                Some(Ordering::Less | Ordering::Equal)
-            )
-        {
-            return Ok(None);
-        }
-        previous_width = Some(width);
-    }
-    Ok(None)
+    certified_sign_ladder(cfg, |prec| z.z(t, prec))
 }
 
 /// A certified point strictly inside `(a, b)`: the midpoint, or (when allowed)
@@ -341,6 +314,11 @@ mod tests {
                 None => Some(uncertain()),
             })
         }
+
+        // Not under test here: a refusal.
+        fn z_over(&self, _lo: f64, _hi: f64, _prec: u32) -> Result<Option<Interval>, ZFault> {
+            Ok(None)
+        }
     }
 
     impl<F: Fn(f64, u32) -> Verdict> Fake<F> {
@@ -396,6 +374,11 @@ mod tests {
             let w = (self.width)(prec);
             Ok(Some(Interval::new(Float::with_val(64, -w), Float::with_val(64, w)).unwrap()))
         }
+
+        // Not under test here: a refusal.
+        fn z_over(&self, _lo: f64, _hi: f64, _prec: u32) -> Result<Option<Interval>, ZFault> {
+            Ok(None)
+        }
     }
 
     #[test]
@@ -439,6 +422,11 @@ mod tests {
                 self.0.borrow_mut().push(prec);
                 Ok((prec >= 128).then(|| Interval::point(-1.0, prec)))
             }
+
+            // Not under test here: a refusal.
+            fn z_over(&self, _lo: f64, _hi: f64, _prec: u32) -> Result<Option<Interval>, ZFault> {
+                Ok(None)
+            }
         }
         let z = RefuseFirst(RefCell::new(Vec::new()));
         assert_eq!(certified_sign(&z, 1.0, &cfg_prec(512)).unwrap(), Some(neg()));
@@ -464,6 +452,11 @@ mod tests {
         struct Refuse;
         impl ZSource for Refuse {
             fn z(&self, _: f64, _: u32) -> Result<Option<Interval>, ZFault> {
+                Ok(None)
+            }
+
+            // Not under test here: a refusal.
+            fn z_over(&self, _lo: f64, _hi: f64, _prec: u32) -> Result<Option<Interval>, ZFault> {
                 Ok(None)
             }
         }

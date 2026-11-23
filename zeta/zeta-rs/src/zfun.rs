@@ -8,10 +8,11 @@
 
 use crate::complex::Complex;
 use crate::config::VerifyConfig;
-use crate::interval::{Interval, IntervalError};
+use crate::interval::{Interval, IntervalError, Sign};
 use crate::theta::{BERNOULLI, ThetaContext, ThetaError, pi_interval};
 use rug::float::Round;
 use rug::{Float, Integer};
+use std::cmp::Ordering;
 
 /// Riemann-Siegel is certified (Gabcke, Satz 3.2.2) only from this height.
 pub const MIN_RS_HEIGHT: f64 = 200.0;
@@ -28,7 +29,7 @@ pub const DEFAULT_MAX_HEIGHT: f64 = 1e8;
 pub const EM_MAX_HEIGHT: f64 = 1e4;
 
 /// Euler-Maclaurin correction terms M (Bernoulli numbers B_2 .. B_2M). With
-/// N = ceil(t) + 2M terms in the direct sum, (|s| + 2M) / (2 pi (N + 1)) stays
+/// N = ceil(hi) + 2M terms in the direct sum (hi = t for a point), (|s| + 2M) / (2 pi (N + 1)) stays
 /// below 1 / (2 pi), and Johansson's bound is about 1e-34 at t = 300.
 const EM_TERMS: usize = 20;
 
@@ -318,7 +319,7 @@ impl ZEvaluator {
     }
 
     /// Z(t) by Euler-Maclaurin for zeta(1/2 + it) (Johansson 2015, Theorem 1,
-    /// a = 1, no derivatives) with N = ceil(t) + 2M direct terms and M = 20.
+    /// a = 1, no derivatives) with N = ceil(hi) + 2M direct terms (hi = t for a point) and M = 20.
     ///
     /// `t` must lie in `(0, EM_MAX_HEIGHT]`, else `HeightOutOfRange`. The remainder
     /// bound is added to both parts of zeta; a rotated imaginary part that excludes
@@ -331,7 +332,8 @@ impl ZEvaluator {
     /// taken from `hi` (any N is valid; the remainder bound grows with t).
     ///
     /// `MIN_POSITIVE <= lo <= hi <= EM_MAX_HEIGHT` is required, else
-    /// `HeightOutOfRange`; so is `lo < hi` with `lo` below `THETA_MONOTONE_FROM`.
+    /// `HeightOutOfRange`; an interval (`lo < hi`) whose `lo` is below
+    /// `THETA_MONOTONE_FROM` is also `HeightOutOfRange`.
     pub fn euler_maclaurin_over(&self, lo: f64, hi: f64) -> Result<EmEnclosure, ZError> {
         if !(f64::MIN_POSITIVE..=EM_MAX_HEIGHT).contains(&lo) || !(lo..=EM_MAX_HEIGHT).contains(&hi)
         {
@@ -431,11 +433,9 @@ pub trait ZSource {
     fn z(&self, t: f64, prec: u32) -> Result<Option<Interval>, ZFault>;
 
     /// An enclosure of Z(t) for every t in `[lo, hi]`, with the same refusal and
-    /// fault convention as `z`. The default refuses (never a made-up enclosure), so
-    /// a source that cannot bound Z over an interval certifies no boundary.
-    fn z_over(&self, _lo: f64, _hi: f64, _prec: u32) -> Result<Option<Interval>, ZFault> {
-        Ok(None)
-    }
+    /// fault convention as `z`. Required, so a source that cannot bound Z over an
+    /// interval must say so by refusing rather than inherit a default.
+    fn z_over(&self, lo: f64, hi: f64, prec: u32) -> Result<Option<Interval>, ZFault>;
 }
 
 /// Split a Z result into a refusal (`Ok(None)`) and a fault (`Err`).
@@ -444,6 +444,44 @@ fn refusal_or_fault(result: Result<Interval, ZError>) -> Result<Option<Interval>
         Ok(z) => Ok(Some(z)),
         Err(e) => e.into_fault().map_or(Ok(None), Err),
     }
+}
+
+/// A rung must at least halve the enclosure width to justify climbing further:
+/// otherwise the width is dominated by truncation, not by working precision.
+const MIN_WIDTH_SHRINK: f64 = 0.5;
+
+/// The sign of a Z enclosure, certified at the first rung (within the cap of
+/// `cfg`) whose `eval(prec)` excludes 0; `None` when no rung does. Climbing stops
+/// once a rung fails to shrink the enclosure width by `MIN_WIDTH_SHRINK` (more
+/// bits cannot help). A refusal carries no width and moves to the next rung. A
+/// fault propagates. The one ladder for points and for intervals.
+pub(crate) fn certified_sign_ladder<F>(
+    cfg: &VerifyConfig,
+    mut eval: F,
+) -> Result<Option<Sign>, ZFault>
+where
+    F: FnMut(u32) -> Result<Option<Interval>, ZFault>,
+{
+    let mut previous_width: Option<f64> = None;
+    for prec in PRECISION_RUNGS.into_iter().filter(|&p| p <= cfg.precision_cap()) {
+        let Some(enclosure) = eval(prec)? else {
+            continue;
+        };
+        if let Some(sign) = enclosure.sign() {
+            return Ok(Some(sign));
+        }
+        let width = enclosure.width().to_f64();
+        if let Some(previous) = previous_width
+            && !matches!(
+                width.partial_cmp(&(previous * MIN_WIDTH_SHRINK)),
+                Some(Ordering::Less | Ordering::Equal)
+            )
+        {
+            return Ok(None);
+        }
+        previous_width = Some(width);
+    }
+    Ok(None)
 }
 
 /// Precisions of the certification ladder; `RealZ` holds those up to the cap.

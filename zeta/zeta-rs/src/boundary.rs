@@ -6,10 +6,9 @@
 //! no zero. An unusable Gram point is `Ok(None)`, never a guess.
 
 use crate::config::VerifyConfig;
-use crate::interval::Sign;
 use crate::isolate::Point;
 use crate::theta::gram_bracket;
-use crate::zfun::{PRECISION_RUNGS, ZFault, ZSource};
+use crate::zfun::{ZFault, ZSource, certified_sign_ladder};
 
 /// A closed range of heights over which Z has been certified zero-free. Only
 /// `certify_boundary` builds one, so holding one is the proof.
@@ -37,26 +36,21 @@ impl ZeroFreeBracket {
 }
 
 /// A block boundary: `point` is b_n with Z's certified sign over `bracket`.
+/// The fields are private so only `certify_boundary` builds one.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Boundary {
-    pub point: Point,
-    pub bracket: ZeroFreeBracket,
+    point: Point,
+    bracket: ZeroFreeBracket,
 }
 
-/// Z's sign over `[lo, hi]`, certified at the first rung (within the cap) whose
-/// enclosure excludes 0; `None` when no rung does. A fault propagates.
-fn certified_sign_over<Z: ZSource>(
-    z: &Z,
-    lo: f64,
-    hi: f64,
-    cfg: &VerifyConfig,
-) -> Result<Option<Sign>, ZFault> {
-    for prec in PRECISION_RUNGS.into_iter().filter(|&p| p <= cfg.precision_cap()) {
-        if let Some(sign) = z.z_over(lo, hi, prec)?.and_then(|i| i.sign()) {
-            return Ok(Some(sign));
-        }
+impl Boundary {
+    pub fn point(&self) -> Point {
+        self.point
     }
-    Ok(None)
+
+    pub fn bracket(&self) -> ZeroFreeBracket {
+        self.bracket
+    }
 }
 
 /// The boundary at Gram point g_n (n >= -1): `Ok(None)` when theta cannot be
@@ -70,15 +64,15 @@ pub fn certify_boundary<Z: ZSource>(
     let Some((lo, hi)) = gram_bracket(n, cfg.precision_cap()) else {
         return Ok(None);
     };
-    Ok(certified_sign_over(z, lo, hi, cfg)?
+    Ok(certified_sign_ladder(cfg, |prec| z.z_over(lo, hi, prec))?
         .map(|sign| Boundary { point: Point { t: lo, sign }, bracket: ZeroFreeBracket { lo, hi } }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interval::Interval;
-    use crate::zfun::RealZ;
+    use crate::interval::{Interval, Sign};
+    use crate::zfun::{RealZ, ZError, ZEvaluator};
     use proptest::prelude::*;
     use std::cell::RefCell;
 
@@ -122,9 +116,9 @@ mod tests {
         let z = real();
         for (n, want) in [(-1, Sign::Negative), (0, Sign::Positive), (1000, Sign::Positive)] {
             let b = certify_boundary(n, &z, &cfg()).unwrap().expect("certifies");
-            assert_eq!(b.point.sign, want, "n = {n}");
-            assert_eq!(b.point.t, b.bracket.lo());
-            assert!(b.bracket.lo() < b.bracket.hi(), "n = {n}");
+            assert_eq!(b.point().sign, want, "n = {n}");
+            assert_eq!(b.point().t, b.bracket().lo());
+            assert!(b.bracket().lo() < b.bracket().hi(), "n = {n}");
         }
     }
 
@@ -137,13 +131,16 @@ mod tests {
     #[test]
     fn bracket_is_the_gram_bracket() {
         let b = certify_boundary(1000, &real(), &cfg()).unwrap().unwrap();
-        assert_eq!((b.bracket.lo(), b.bracket.hi()), gram_bracket(1000, 512).unwrap());
+        assert_eq!(
+            (b.bracket().lo(), b.bracket().hi()),
+            gram_bracket(1000, cfg().precision_cap()).unwrap()
+        );
     }
 
     #[test]
     fn sign_matches_gram_s_law_at_good_points_and_flips_at_the_first_bad_one() {
         let z = real();
-        let sign_of = |n: i64| certify_boundary(n, &z, &cfg()).unwrap().unwrap().point.sign;
+        let sign_of = |n: i64| certify_boundary(n, &z, &cfg()).unwrap().unwrap().point().sign;
         let law = |n: i64| if n % 2 == 0 { Sign::Positive } else { Sign::Negative };
         for n in [2, 3, 50, 100, 125, 127] {
             assert_eq!(sign_of(n), law(n), "good Gram point n = {n}");
@@ -154,12 +151,25 @@ mod tests {
         assert_ne!(sign_of(126), law(126));
     }
 
+    /// A Z enclosure `[-w, w]` that excludes 0 never.
+    fn around_zero(width: f64) -> Result<Option<Interval>, ZFault> {
+        Ok(span(-width, width))
+    }
+
     #[test]
-    fn a_z_enclosure_straddling_zero_gives_none_at_every_rung() {
-        let z = Scripted::new(|_| Ok(span(-1.0, 1.0)));
+    fn a_halving_straddle_climbs_every_rung_then_gives_none() {
+        let z = Scripted::new(|prec| around_zero(64.0 / f64::from(prec)));
         assert_eq!(certify_boundary(10, &z, &cfg()).unwrap(), None);
         let precs: Vec<u32> = z.calls.borrow().iter().map(|c| c.2).collect();
         assert_eq!(precs, vec![64, 128, 256, 512]);
+    }
+
+    #[test]
+    fn the_width_stop_rule_applies_to_boundaries_too() {
+        let z = Scripted::new(|_| around_zero(1.0));
+        assert_eq!(certify_boundary(10, &z, &cfg()).unwrap(), None);
+        let precs: Vec<u32> = z.calls.borrow().iter().map(|c| c.2).collect();
+        assert_eq!(precs, vec![64, 128]);
     }
 
     #[test]
@@ -169,23 +179,12 @@ mod tests {
     }
 
     #[test]
-    fn the_default_z_over_refuses() {
-        struct PointsOnly;
-        impl ZSource for PointsOnly {
-            fn z(&self, _t: f64, _prec: u32) -> Result<Option<Interval>, ZFault> {
-                Ok(span(1.0, 2.0))
-            }
-        }
-        assert!(matches!(PointsOnly.z_over(10.0, 11.0, 64), Ok(None)));
-        assert_eq!(certify_boundary(10, &PointsOnly, &cfg()).unwrap(), None);
-    }
-
-    #[test]
     fn precision_climbs_until_the_sign_certifies() {
-        let z =
-            Scripted::new(|prec| Ok(if prec >= 256 { span(2.0, 3.0) } else { span(-1.0, 1.0) }));
+        let z = Scripted::new(|prec| {
+            if prec >= 256 { Ok(span(2.0, 3.0)) } else { around_zero(64.0 / f64::from(prec)) }
+        });
         let b = certify_boundary(10, &z, &cfg()).unwrap().unwrap();
-        assert_eq!(b.point.sign, Sign::Positive);
+        assert_eq!(b.point().sign, Sign::Positive);
         let precs: Vec<u32> = z.calls.borrow().iter().map(|c| c.2).collect();
         assert_eq!(precs, vec![64, 128, 256]);
     }
@@ -193,7 +192,7 @@ mod tests {
     #[test]
     fn the_precision_cap_bounds_the_ladder() {
         let capped = VerifyConfig::new(1.0, 128, 40, true).unwrap();
-        let z = Scripted::new(|_| Ok(span(-1.0, 1.0)));
+        let z = Scripted::new(|prec| around_zero(64.0 / f64::from(prec)));
         assert_eq!(certify_boundary(10, &z, &capped).unwrap(), None);
         let precs: Vec<u32> = z.calls.borrow().iter().map(|c| c.2).collect();
         assert_eq!(precs, vec![64, 128]);
@@ -202,7 +201,7 @@ mod tests {
     #[test]
     fn the_sign_is_taken_from_the_enclosure() {
         let z = Scripted::new(|_| Ok(span(-3.0, -2.0)));
-        assert_eq!(certify_boundary(10, &z, &cfg()).unwrap().unwrap().point.sign, Sign::Negative);
+        assert_eq!(certify_boundary(10, &z, &cfg()).unwrap().unwrap().point().sign, Sign::Negative);
     }
 
     #[test]
@@ -215,7 +214,7 @@ mod tests {
     fn the_source_is_asked_about_the_gram_bracket() {
         let z = Scripted::new(|_| Ok(span(1.0, 2.0)));
         certify_boundary(10, &z, &cfg()).unwrap().unwrap();
-        let (lo, hi) = gram_bracket(10, 512).unwrap();
+        let (lo, hi) = gram_bracket(10, cfg().precision_cap()).unwrap();
         assert_eq!(z.calls.borrow()[0], (lo, hi, 64));
     }
 
@@ -242,6 +241,26 @@ mod tests {
         assert!(z.z_over(3.0, 3.0, 128).unwrap().is_some());
         // The threshold itself is usable: 7 is the first height an interval may start at.
         assert!(z.z_over(7.0, 7.001, 128).unwrap().is_some());
+    }
+
+    #[test]
+    fn an_interval_spanning_a_split_change_is_a_refusal_not_a_fault() {
+        // 2 pi 6^2 = 226.19: N = floor(sqrt(t / 2 pi)) is 5 below it and 6 above.
+        let ev = ZEvaluator::new(128, &cfg()).unwrap();
+        assert_eq!(ev.riemann_siegel_over(226.0, 226.4).unwrap_err(), ZError::AmbiguousSplit);
+        let z = real();
+        assert!(matches!(z.z_over(226.0, 226.4, 128), Ok(None)));
+        assert_eq!(certified_sign_ladder(&cfg(), |p| z.z_over(226.0, 226.4, p)), Ok(None));
+    }
+
+    #[test]
+    fn an_interval_over_p_one_quarter_is_a_refusal_not_a_fault() {
+        // 2 pi 6.25^2 = 245.44: p = 1/4 there, so cos(2 pi p) holds 0.
+        let ev = ZEvaluator::new(128, &cfg()).unwrap();
+        assert_eq!(ev.riemann_siegel_over(245.4, 245.5).unwrap_err(), ZError::SingularCorrection);
+        let z = real();
+        assert!(matches!(z.z_over(245.4, 245.5, 128), Ok(None)));
+        assert_eq!(certified_sign_ladder(&cfg(), |p| z.z_over(245.4, 245.5, p)), Ok(None));
     }
 
     #[test]
