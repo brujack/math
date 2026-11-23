@@ -522,6 +522,32 @@ mod tests {
         assert_eq!(blocks_needed(1.5), Ok(1));
     }
 
+    /// The certified enclosure must contain eq. 2.1 evaluated independently at 512 bits
+    /// with a = 2067/1000, b = 59/1000 and a 512-bit pi, as Floats (never through f64).
+    #[test]
+    fn trudgian_rhs_encloses_a_512_bit_reference() {
+        let p = 512;
+        let pi = Float::with_val(p, Constant::Pi);
+        let a = Float::with_val(p, 2067) / Float::with_val(p, 1000);
+        let b = Float::with_val(p, 59) / Float::with_val(p, 1000);
+        let six_pi = Float::with_val(p, 6) * &pi;
+        let ln_two_pi = (Float::with_val(p, 2) * &pi).ln();
+        for g in [168.0 * PI, 1e3, 2426.3888, 1e5, 840_759.87, 1e7] {
+            let ln = Float::with_val(p, g).ln();
+            let quadratic = &b / Float::with_val(p, &six_pi) * &ln * &ln;
+            let linear =
+                (Float::with_val(p, &a) - &b * &ln_two_pi) / Float::with_val(p, &six_pi) * &ln;
+            let want = quadratic + linear;
+            let rhs = trudgian_rhs(g).unwrap();
+            assert!(
+                *rhs.lo() <= want && want <= *rhs.hi(),
+                "g = {g}: {want} not in [{}, {}]",
+                rhs.lo(),
+                rhs.hi()
+            );
+        }
+    }
+
     /// Eq. 2.1 reaches 1 near g = 2426.3888: the block count steps from 1 to 2
     /// between two adjacent `f64`s, found by bisection on the certified upper end.
     #[test]
