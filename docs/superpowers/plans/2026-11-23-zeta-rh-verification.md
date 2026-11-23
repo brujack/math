@@ -196,11 +196,12 @@ acceptance:
   - cmd: make test
     exit_code: 0
 max_retries: 3
-files_touched: [zeta/zeta-rs/src/main.rs, tests/scripts/zeta.bats]
+files_touched: [zeta/zeta-rs/src/main.rs, zeta/zeta-rs/tests/cli.rs, zeta/zeta-rs/src/theta.rs, tests/scripts/zeta.bats]
 depends_on: [5]
 requirements: [R1, R3, R13, R14]
 ```
 
+- [ ] Replace PR 1's interim stub (`RH NOT verified: zeta is under construction`, exit 3) and update `tests/cli.rs` to the new behaviour. Carried from PR 1 review: re-add public-API asserts that `gram_bracket(-2, 128)` and `gram_bracket(i64::MIN, 128)` return None in theta.rs's guard test. The self-check uses `RealZ::new(&VerifyConfig::default())` at `SELF_CHECK_PREC`.
 - [ ] `run<R, W, E>(cli, reader, out, err) -> io::Result<i32>` and `prompt_n` in goldbach's shape: N 2–7 else exit 1; end of input prints a newline to stdout and `Error: no input; pass SIZE as an argument (e.g. zeta 3).` to stderr, exit 1; N = 7 prints `Warning: N=7 writes about 1.5 GB (about 2.2 GB with --refine) and may take many hours.` to stderr.
 - [ ] Runs `self_check(RealZ)`; on failure `self-check failed` to stderr, exit 5. Then prints `RH NOT verified up to <T>: zero isolation is not implemented yet` and exits 3.
 - [ ] Tests, first: each branch above; a test that no output of any path contains `RH holds`. BATS `tests/scripts/zeta.bats`: missing/invalid/too large N exit 1, with `[[ -x "$RUST_BIN" ]] || skip`.
