@@ -28,8 +28,8 @@ fn parse_n(text: &str) -> Option<u32> {
 }
 
 /// Prompts for N until valid. `Ok(Err(code))` means end the run with exit `code`
-/// (end of input or unreadable input, already reported on `err`). `Err` is a failed
-/// write to `out` or `err`.
+/// (end of input, reported on `err`; unreadable input, reported on `err` best effort).
+/// `Err` is a failed write to `out` or `err`.
 fn prompt_n<R: BufRead, W: Write, E: Write>(
     reader: &mut R,
     out: &mut W,

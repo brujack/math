@@ -328,8 +328,9 @@ impl ZEvaluator {
 
 /// An implementation fault in a Z evaluation, as opposed to a refusal: the
 /// verifier (plan Tasks 9–10) must surface it as an internal error (exit 6), never
-/// as a merely uncertified height. Inside the self-check a fault is a self-check
-/// failure (exit 5), since the self-check runs before any verdict.
+/// as a merely uncertified height. `ZFault` never reaches the self-check: that runs
+/// over `ZPaths`, where any `ZError` from either path (refusal or fault) becomes a
+/// `SelfCheckFailure` and exit 5, since the self-check runs before any verdict.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ZFault {
     /// The imaginary part of e^(i theta) zeta(1/2 + it) does not contain 0.
