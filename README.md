@@ -350,6 +350,35 @@ make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnin
 make test      # lint, then cargo test
 ```
 
+### Python (`triangle/`)
+
+```bash
+cd triangle
+make run       # python3 triangle.py
+make lint      # ruff check . && ruff format --check .
+make test      # lint, then pytest test_triangle.py -v
+make coverage  # pytest --cov=triangle --cov-report=term-missing
+```
+
+### Python (`descartes/`)
+
+```bash
+cd descartes
+make run       # python3 descartes.py
+make lint      # ruff check . && ruff format --check .
+make test      # lint, then pytest test_descartes.py -v
+make coverage  # pytest --cov=descartes --cov-report=term-missing
+```
+
+### Rust (`descartes/descartes-rs/`)
+
+```bash
+cd descartes/descartes-rs
+make descartes # cargo build --release
+make lint      # cargo fmt --check, then cargo clippy --all-targets -- -D warnings
+make test      # lint, then cargo test
+```
+
 ### Rust (`zeta/zeta-rs/`)
 
 ```bash
