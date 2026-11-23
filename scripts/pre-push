@@ -165,7 +165,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         range="${remote_sha}..${local_sha}"
     fi
 
-    for dir in pi pi/pi-rs prime/prime-rs fib fib/fib-rs sq sq/sq-rs twin-primes/twin-primes-rs e e/e-rs factorial factorial/factorial-rs perfect-numbers perfect-numbers/perfect-numbers-rs collatz collatz/collatz-rs goldbach/goldbach-rs amicable amicable/amicable-rs triangle descartes descartes/descartes-rs; do
+    for dir in pi pi/pi-rs prime/prime-rs fib fib/fib-rs sq sq/sq-rs twin-primes/twin-primes-rs e e/e-rs factorial factorial/factorial-rs perfect-numbers perfect-numbers/perfect-numbers-rs collatz collatz/collatz-rs goldbach/goldbach-rs amicable amicable/amicable-rs triangle descartes descartes/descartes-rs zeta/zeta-rs; do
         # Only trigger tests when Python or Rust source changed, not Makefiles
         # or workflow files. Makefile/CI changes don't affect test outcomes.
         #

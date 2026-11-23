@@ -11,8 +11,8 @@ A trailing pointer on a rule means: before acting on that rule's subject, read t
 High-performance mathematical computation tools.
 
 Each sub-project's `CLAUDE.md` is the source of truth for its detail (a crate's is `<crate>/<crate>-rs/CLAUDE.md`); keep this file and those in sync. → ai-config/docs/knowledge/math-overview.md § Sub-project table
-Sub-projects (dir: language): `pi/` Python+Rust, `prime/` Rust, `fib/` Python+Rust, `sq/` Python+Rust, `twin-primes/` Rust, `e/` Python+Rust, `factorial/` Python+Rust, `perfect-numbers/` Python+Rust, `collatz/` Python+Rust, `goldbach/` Rust, `amicable/` Python+Rust, `triangle/` Python, `descartes/` Python+Rust. → ai-config/docs/knowledge/math-overview.md § Sub-project table
-Rust crates live at `<project>/<project>-rs/` (all 12 crates, e.g. `pi/pi-rs`); the Python sub-projects sit at `<project>/` (pi, fib, sq, e, factorial, perfect-numbers, collatz, amicable, triangle, descartes).
+Sub-projects (dir: language): `pi/` Python+Rust, `prime/` Rust, `fib/` Python+Rust, `sq/` Python+Rust, `twin-primes/` Rust, `e/` Python+Rust, `factorial/` Python+Rust, `perfect-numbers/` Python+Rust, `collatz/` Python+Rust, `goldbach/` Rust, `amicable/` Python+Rust, `triangle/` Python, `descartes/` Python+Rust, `zeta/` Rust. → ai-config/docs/knowledge/math-overview.md § Sub-project table
+Rust crates live at `<project>/<project>-rs/` (e.g. `pi/pi-rs`); the Python sub-projects sit at `<project>/` (pi, fib, sq, e, factorial, perfect-numbers, collatz, amicable, triangle, descartes).
 
 ## Architectural Decision Records
 
@@ -29,8 +29,8 @@ Reference material lives in `ai-config/docs/knowledge/math-<topic>.md` (ADR-0020
 
 ## Dependency Installation
 
-Each sub-project has its own installer: `<project>/install_deps.sh` for Python, `<project>/<project>-rs/install_deps.sh` for Rust (`goldbach`, `prime` and `twin-primes` have only the nested Rust one). → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
-The 12 Rust installers are identical (rendered from `scripts/crate_templates/install_deps.sh`, tested by `tests/scripts/crate_install_deps.bats`): GMP + MPFR, the rustup toolchain, and `cargo-nextest`, `cargo-machete` and `cargo-tarpaulin` at CI's pinned versions; the Python installers are identical too (from `scripts/crate_templates/python/install_deps.sh`): GMP + MPFR and every pinned package. → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
+Each sub-project has its own installer: `<project>/install_deps.sh` for Python, `<project>/<project>-rs/install_deps.sh` for Rust (`goldbach`, `prime`, `twin-primes` and `zeta` have only the nested Rust one). → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
+The Rust installers are identical (rendered from `scripts/crate_templates/install_deps.sh`, tested by `tests/scripts/crate_install_deps.bats`): GMP + MPFR, the rustup toolchain, and `cargo-nextest`, `cargo-machete` and `cargo-tarpaulin` at CI's pinned versions; the Python installers are identical too (from `scripts/crate_templates/python/install_deps.sh`): GMP + MPFR and every pinned package. → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
 
 Root-scope Python has no `install_deps.sh` by design: `requirements-dev.txt` (`defusedxml==0.7.1`, `pyright==1.1.411`, `pyyaml==6.0.3`) is consumed by `make install-deps`. → ai-config/docs/knowledge/math-dependency-installation.md § Root-scope Python
 
@@ -59,7 +59,7 @@ make coverage  # pytest --cov, fails under 90%
 
 ### Rust (`<project>/<project>-rs/`)
 
-All 12 crates (pi, prime, fib, sq, twin-primes, e, factorial, perfect-numbers, collatz, goldbach, amicable, descartes); the release build target is the project name (`make pi`, `make twin-primes`, ...). → ai-config/docs/knowledge/math-quick-reference.md § Sub-project command blocks
+All crates (pi, prime, fib, sq, twin-primes, e, factorial, perfect-numbers, collatz, goldbach, amicable, descartes, zeta); the release build target is the project name (`make pi`, `make twin-primes`, ...). → ai-config/docs/knowledge/math-quick-reference.md § Sub-project command blocks
 
 ```bash
 cd <project>/<project>-rs
@@ -69,14 +69,14 @@ make lint       # cargo fmt --check, then cargo clippy --all-targets -- -D warni
 make test       # lint, then cargo test
 ```
 
-All 12 crates are treated identically (operator rule): each crate's `Makefile`, `rustfmt.toml`, `.config/nextest.toml`, `install_deps.sh`, `<crate>-rs.yml` and `release-<crate>-rs.yml` is rendered from `scripts/crate_templates/` by `scripts/render_crate_files.py`, and so are the Python projects' `Makefile`, `install_deps.sh`, `<project>-py.yml`, `pyrightconfig.json` and `cosmic-ray.toml` (from `scripts/crate_templates/python/`; `@CRATE@` is the directory, `@MODULE@` the module name, the only placeholders); edit the template and run `--write`, never one crate's copy, and `tests/test_crate_uniformity.py` fails on any drift.
+All crates are treated identically (operator rule): each crate's `Makefile`, `rustfmt.toml`, `.config/nextest.toml`, `install_deps.sh`, `<crate>-rs.yml` and `release-<crate>-rs.yml` is rendered from `scripts/crate_templates/` by `scripts/render_crate_files.py`, and so are the Python projects' `Makefile`, `install_deps.sh`, `<project>-py.yml`, `pyrightconfig.json` and `cosmic-ray.toml` (from `scripts/crate_templates/python/`; `@CRATE@` is the directory, `@MODULE@` the module name, the only placeholders); edit the template and run `--write`, never one crate's copy, and `tests/test_crate_uniformity.py` fails on any drift.
 A single root `ruff.toml` serves every Python sub-project via ancestor discovery; keep one and never create per-subproject configs. It uses `extend-select` over ruff's default rule set (pinned by `tests/test_ruff_config.py`); new defaults arrive only with a deliberate ruff pin bump, gated by that PR's `make lint`. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 Every `pip install` in every workflow and every Python `install_deps.sh` pins `name==X.Y.Z`, one version per package across all sites (`tests/test_tool_pins.py`); bump them together in the templates. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 Root `make lint` runs `ruff check .`, `ruff format --check` on `git ls-files '*.py'` (never `.`: rewrites markdown), `lint-hooks` and `lint-workflows` (actionlint 1.7.12; skips if absent, fails if `CI=true`). → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 `lint-python` exits 0 when ruff is missing (so a machine can still commit the fix); `scripts.yml` installs ruff so CI enforces it, and `tests/scripts/makefile.bats` asserts that. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 The two `# noqa: C901` directives in `e/e.py` and `pi/pi.py` are load-bearing: `maintainability-review` runs `ruff check --select C901` on the CLI, which overrides config, so removing one without refactoring reads as a 0 → 12 regression. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 
-Root `make test-rust` runs `make test` in all 12 crates concurrently via `scripts/parallel-make-test.sh` (`JOBS` default 8, crate list derived from `git ls-files '*/*-rs/Makefile'`, exits non-zero on an empty list or any `FAIL <crate>`); covered by `tests/scripts/makefile.bats`.
+Root `make test-rust` runs `make test` in every crate concurrently via `scripts/parallel-make-test.sh` (`JOBS` default 8, crate list derived from `git ls-files '*/*-rs/Makefile'`, exits non-zero on an empty list or any `FAIL <crate>`); covered by `tests/scripts/makefile.bats`.
 
 ### Rust lint/test wrapper (`scripts/rust-check.sh`)
 
@@ -89,7 +89,7 @@ Neither file is loaded at session start; read it before the work it governs:
 - **Read `~/.claude/standards/python.md` before writing or changing any `.py` file or Python tooling config** (`ruff.toml`, `pyrightconfig.json`, `install_deps.sh`, `requirements-dev.txt`, a `*-py.yml` workflow, mutmut/cosmic-ray setup).
 - **Read `~/.claude/standards/rust.md` before writing or changing any `.rs` file, `Cargo.toml`, `.cargo/mutants.toml`, `rustfmt.toml`, `scripts/rust-check.sh` or a `*-rs.yml` workflow.** The trigger includes source on purpose. → ai-config/docs/knowledge/math-language-standards.md § Language standards triggers
 
-### API-quality lints (all 12 Rust crates)
+### API-quality lints (all Rust crates)
 
 Every `*-rs/Cargo.toml` enables `missing_debug_implementations = "warn"` (`[lints.rust]`) and `wrong_self_convention = "warn"` (`[lints.clippy]`); clippy runs `-D warnings`, so a `pub struct` without `#[derive(Debug)]` fails `make lint`. Every crate is edition 2024, sets `[lints.rust] unsafe_code = "forbid"` and declares no `rust-version` (`tests/test_crate_uniformity.py` pins all three). → ai-config/docs/knowledge/math-language-standards.md § API-quality lints in the Rust crates
 Do not enable `missing_docs` in these crates (no cross-crate consumers). → ai-config/docs/knowledge/math-language-standards.md § API-quality lints in the Rust crates
@@ -123,7 +123,7 @@ Its `exclude` is pyright's default list minus `**/.*`, and the omission is load-
 `pyright==1.1.411` is pinned at every install site (each `*-py.yml` workflow, both Python mutation workflows, each Python `install_deps.sh`, `requirements-dev.txt`, which `scripts.yml` installs), and every `cargo install` in a workflow or `install_deps.sh` carries `--locked --version`, and every `taiki-e/install-action` `tool:` is `name@X.Y.Z` with `fallback: none` at the installers' version; `tests/test_tool_pins.py` requires one version per tool, so bump them together. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
 `tests/test_root_pyright_scope.py` runs pyright under `make test-python`, which pre-push invokes on pushes touching `scripts/`, `tests/`, `.claude/scripts/` or `pyrightconfig.json`; it fails on any root error or an engine other than the `requirements-dev.txt` pin, and prints a skip line when pyright is absent outside CI; sub-project pyright stays CI-only. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
 pyright walks up the tree for its config like `ruff.toml`: deleting a sub-project's `pyrightconfig.json` falls through to the root config instead of removing type checking. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
-Run pyright with `cd <sub-project> && pyright`, or `pyright` at the repo root for root scope.
+Run pyright with `cd <sub-project> && pyright`, or `pyright` at the root for root scope.
 
 When adding a new Python sub-project, add `pyrightconfig.json` (copy from any `standard`-mode sub-project) and a `Run pyright` step to the CI workflow. Start with `standard`; if a dependency has no stubs, extend the shared stub in `typings/` rather than dropping to `basic`.
 
@@ -161,7 +161,7 @@ Workflows are `<project>-py.yml` (job `test`) and `<project>-rs.yml` (`test` →
 Crate jobs restore the GMP/MPFR build (`gmp-mpfr-sys`) read-only from `actions/cache`, failing open to a cold build via `scripts/gmp-cache-key.sh`; only `gmp-cache.yml` saves it (weekly on master), so dispatch it after a `gmp-mpfr-sys` bump on master (ADR-0034).
 
 Every `release-*-rs.yml` builds with `cargo auditable build --release` (plain: SBOM lists 1 package, not 13). → ai-config/docs/knowledge/math-ci.md § Atomic release publication
-MIT: root `LICENSE`, `license = "MIT"` per crate; root `deny.toml` is guarded by `tests/fixtures/cargo-deny` and `tests/test_deny_policy.py`; `scripts/cargo-deny-all.sh` checks all 12 crates (`--locked`).
+MIT: root `LICENSE`, `license = "MIT"` per crate; root `deny.toml` is guarded by `tests/fixtures/cargo-deny` and `tests/test_deny_policy.py`; `scripts/cargo-deny-all.sh` checks every crate (`--locked`).
 Sign in the release job via the composite action `.github/actions/sbom-sign`; never reintroduce a separate signing job, and keep the `Create and push tag` step after the sbom-sign step (a failure after the tag leaves an unshippable version: `fatal: tag already exists`). → ai-config/docs/knowledge/math-ci.md § Atomic release publication
 Every `softprops/action-gh-release` call sets `fail_on_unmatched_files: true`; `tests/test_release_workflows.py` pins all three invariants via `yaml.safe_load`. → ai-config/docs/knowledge/math-ci.md § Atomic release publication
 Release jobs run only from master (`if: github.ref == 'refs/heads/master'`, `tests/test_release_workflows.py`); every remote `uses:` pins a 40-hex SHA (`tests/test_workflow_actions_pinned.py`).

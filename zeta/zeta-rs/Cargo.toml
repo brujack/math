@@ -1,0 +1,40 @@
+[package]
+name = "zeta"
+version = "0.2.0"
+edition = "2024"
+license = "MIT"
+description = "Certified verification of the Riemann Hypothesis up to height 10^N"
+
+[[bin]]
+name = "zeta"
+path = "src/main.rs"
+
+[lib]
+name = "zeta"
+path = "src/lib.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+rug = { version = "1.30", features = ["integer", "float"] }
+
+[dev-dependencies]
+tempfile = "3"
+proptest = "1"
+criterion = "0.8"
+
+[[bench]]
+name = "zeta"
+harness = false
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }
+missing_debug_implementations = "warn"
+unsafe_code = "forbid"
+
+[lints.clippy]
+wrong_self_convention = "warn"
+
+[profile.release]
+opt-level     = 3
+lto           = "thin"
+codegen-units = 1

@@ -19,11 +19,11 @@ make_crates() {
     done
 }
 
-@test "12 crates all pass → exit 0, 12 invocations with --config before check" {
-    make_crates 12
+@test "13 crates all pass → exit 0, 13 invocations with --config before check" {
+    make_crates 13
     run "${REPO_ROOT}/scripts/cargo-deny-all.sh"
     [ "$status" -eq 0 ]
-    [ "$(wc -l < "${MOCK_CARGO_LOG}")" -eq 12 ]
+    [ "$(wc -l < "${MOCK_CARGO_LOG}")" -eq 13 ]
     while IFS= read -r line; do
         [[ "${line}" == *"--config "*" check" ]]
         prefix="${line%% check}"
@@ -33,64 +33,64 @@ make_crates() {
 }
 
 @test "--manifest-path is the absolute path of each crate manifest" {
-    make_crates 12
+    make_crates 13
     run "${REPO_ROOT}/scripts/cargo-deny-all.sh"
     [ "$status" -eq 0 ]
     local i
-    for ((i = 1; i <= 12; i++)); do
+    for ((i = 1; i <= 13; i++)); do
         [ "$(command grep -cF -- "--manifest-path ${REPO_ROOT}/c${i}/c${i}-rs/Cargo.toml " "${MOCK_CARGO_LOG}")" -eq 1 ]
     done
 }
 
 @test "--config precedes check on every invocation" {
-    make_crates 12
+    make_crates 13
     run "${REPO_ROOT}/scripts/cargo-deny-all.sh"
     [ "$status" -eq 0 ]
-    [ "$(wc -l < "${MOCK_CARGO_LOG}")" -eq 12 ]
+    [ "$(wc -l < "${MOCK_CARGO_LOG}")" -eq 13 ]
     while IFS= read -r line; do
         before_check="${line%% check*}"
         [[ "${before_check}" == "deny --locked --config ${REPO_ROOT}/deny.toml --manifest-path "* ]]
     done < "${MOCK_CARGO_LOG}"
 }
 
-@test "one failing crate → exit 1, all 12 still invoked, failed crate named" {
-    make_crates 12
+@test "one failing crate → exit 1, all 13 still invoked, failed crate named" {
+    make_crates 13
     export MOCK_CARGO_FAIL="c3-rs"
     run "${REPO_ROOT}/scripts/cargo-deny-all.sh"
     [ "$status" -eq 1 ]
-    [ "$(wc -l < "${MOCK_CARGO_LOG}")" -eq 12 ]
+    [ "$(wc -l < "${MOCK_CARGO_LOG}")" -eq 13 ]
     [[ "$output" == *"c3/c3-rs"* ]]
-    [[ "$output" == *"1 of 12 crates failed"* ]]
+    [[ "$output" == *"1 of 13 crates failed"* ]]
 }
 
-@test "empty crate list → exit 1, expected 12 crates, found 0" {
+@test "empty crate list → exit 1, expected 13 crates, found 0" {
     make_crates 0
     run "${REPO_ROOT}/scripts/cargo-deny-all.sh"
     [ "$status" -eq 1 ]
-    [[ "$output" == *"expected 12 crates, found 0"* ]]
+    [[ "$output" == *"expected 13 crates, found 0"* ]]
     [ ! -e "${MOCK_CARGO_LOG}" ]
 }
 
-@test "11 crates → exit 1, found 11, cargo never invoked" {
-    make_crates 11
+@test "12 crates → exit 1, found 12, cargo never invoked" {
+    make_crates 12
     run "${REPO_ROOT}/scripts/cargo-deny-all.sh"
     [ "$status" -eq 1 ]
-    [[ "$output" == *"expected 12 crates, found 11"* ]]
+    [[ "$output" == *"expected 13 crates, found 12"* ]]
     [ ! -e "${MOCK_CARGO_LOG}" ]
 }
 
-@test "13 crates → exit 1, found 13" {
-    make_crates 13
+@test "14 crates → exit 1, found 14" {
+    make_crates 14
     run "${REPO_ROOT}/scripts/cargo-deny-all.sh"
     [ "$status" -eq 1 ]
-    [[ "$output" == *"expected 12 crates, found 13"* ]]
+    [[ "$output" == *"expected 13 crates, found 14"* ]]
 }
 
 @test "--locked precedes check on every invocation" {
-    make_crates 12
+    make_crates 13
     run "${REPO_ROOT}/scripts/cargo-deny-all.sh"
     [ "$status" -eq 0 ]
-    [ "$(wc -l < "${MOCK_CARGO_LOG}")" -eq 12 ]
+    [ "$(wc -l < "${MOCK_CARGO_LOG}")" -eq 13 ]
     while IFS= read -r line; do
         prefix="${line%% check*}"
         [[ "${prefix}" == *"--locked"* ]]

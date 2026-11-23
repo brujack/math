@@ -21,7 +21,7 @@ jobs:
       - name: Run all benchmarks
         run: |
           # "<crate dir>:<bench target>". The target is spelled out rather than
-          # derived from the directory because two of the twelve do not match:
+          # derived from the directory because two of the thirteen do not match:
           # perfect-numbers/ declares perfect_numbers and twin-primes/ declares
           # twin_primes. A basename-derived name silently breaks exactly those.
           #
@@ -44,7 +44,8 @@ jobs:
             twin-primes/twin-primes-rs:twin_primes \
             goldbach/goldbach-rs:goldbach \
             descartes/descartes-rs:descartes \
-            sq/sq-rs:sq; do
+            sq/sq-rs:sq \
+            zeta/zeta-rs:zeta; do
             dir="${pair%:*}"
             bench="${pair##*:}"
             printf 'Benchmarking %s (--bench %s)...\n' "${dir}" "${bench}"
@@ -55,13 +56,13 @@ jobs:
           done
 
           # Report every failure rather than stopping at the first: across
-          # twelve crates on a monthly job, which ones broke is the useful part.
+          # thirteen crates on a monthly job, which ones broke is the useful part.
           if [[ ${#failed_crates[@]} -gt 0 ]]; then
             printf 'bench failed: %s\n' "${failed_crates[@]}" >&2
             exit 1
           fi
 
-          # A loop that benchmarks twelve crates must not report success having
+          # A loop that benchmarks thirteen crates must not report success having
           # produced nothing. This is the check that would have caught the bug
           # directly instead of via the store action.
           if [[ ! -s output.txt ]]; then

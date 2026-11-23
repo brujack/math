@@ -35,10 +35,11 @@ spec: docs/superpowers/specs/2026-11-23-zeta-rh-verification-design.md
 
 ## PR structure (orchestrator)
 
-- **PR 1** `feat/zeta-core`: Tasks 1–6. Open with `gh pr create --draft`; `gh pr ready` only after Phase 3 passes.
-- **PR 2** `feat/zeta-verify`: Tasks 7–10, branched from master after PR 1 merges.
-- **PR 3** `feat/zeta-refine-cli`: Tasks 11–12, branched from master after PR 2 merges.
-- After PR 1, `zeta N` runs the self-check and prints `RH NOT verified up to <T>: zero isolation is not implemented yet` with exit 3; Task 10 replaces this. It never claims verification (R3).
+- **PR 1** `feat/zeta-foundation`: Tasks 1–4 (crate, interval, config, θ and Gram brackets). Split from the original Tasks 1–6 on 2026-11-23 because mutation of `interval.rs` and `theta.rs` alone took about 14 minutes locally and `mutation-rs` is one 60-minute CI job. Open with `gh pr create --draft`; `gh pr ready` only after Phase 3 passes. In this PR `zeta N` prints `RH NOT verified: zeta is under construction` to stderr and exits 3.
+- **PR 2** `feat/zeta-core`: Tasks 5–6, rebased onto master after PR 1 merges (`git rebase --onto origin/master <PR 1 tip> feat/zeta-core`). After PR 2, `zeta N` runs the self-check and prints `RH NOT verified up to <T>: zero isolation is not implemented yet` with exit 3; Task 10 replaces this.
+- **PR 3** `feat/zeta-verify`: Tasks 7–10, branched from master after PR 2 merges.
+- **PR 4** `feat/zeta-refine-cli`: Tasks 11–12, branched from master after PR 3 merges.
+- No PR's binary ever claims verification before Task 10 (R3).
 
 ---
 
@@ -62,7 +63,7 @@ acceptance:
   - cmd: test "$(wc -c < CLAUDE.md)" -le 30000
     exit_code: 0
 max_retries: 3
-files_touched: [CLAUDE.md, zeta/zeta-rs/Cargo.toml, zeta/zeta-rs/Cargo.lock, zeta/zeta-rs/src/lib.rs, zeta/zeta-rs/src/main.rs, zeta/zeta-rs/Makefile, zeta/zeta-rs/rustfmt.toml, zeta/zeta-rs/.config/nextest.toml, zeta/zeta-rs/install_deps.sh, .github/workflows/zeta-rs.yml, .github/workflows/release-zeta-rs.yml, .github/workflows/benchmarks.yml, .github/workflows/release-sbom-monitor-schedule.yml, zeta/zeta-rs/benches/zeta.rs, scripts/render_crate_files.py, scripts/cargo-deny-all.sh, scripts/pre-commit, scripts/pre-push, tests/test_crate_uniformity.py, tests/scripts/cargo_deny_all.bats, .gitignore]
+files_touched: [CLAUDE.md, zeta/zeta-rs/Cargo.toml, zeta/zeta-rs/Cargo.lock, zeta/zeta-rs/src/lib.rs, zeta/zeta-rs/src/main.rs, zeta/zeta-rs/Makefile, zeta/zeta-rs/rustfmt.toml, zeta/zeta-rs/.config/nextest.toml, zeta/zeta-rs/install_deps.sh, .github/workflows/zeta-rs.yml, .github/workflows/release-zeta-rs.yml, .github/workflows/benchmarks.yml, .github/workflows/release-sbom-monitor-schedule.yml, zeta/zeta-rs/benches/zeta.rs, scripts/render_crate_files.py, scripts/cargo-deny-all.sh, scripts/pre-commit, scripts/pre-push, tests/test_crate_uniformity.py, tests/scripts/cargo_deny_all.bats, tests/test_deny_policy.py, tests/test_release_workflows.py, tests/test_rust_ci_jobs.py, tests/test_gmp_cache_workflow.py, tests/scripts/makefile.bats, tests/scripts/crate_build_target.bats, tests/test_mutation_workflows.py, tests/test_rust_workflows_no_system_gmp.py, zeta/zeta-rs/CLAUDE.md, .gitignore]
 depends_on: []
 requirements: [R15]
 ```
@@ -72,7 +73,7 @@ requirements: [R15]
 - [ ] Add `"zeta"` to both `CRATES` lists in `scripts/render_crate_files.py`; run `--write`.
 - [ ] Change the hard-coded 12 to 13 in `tests/test_crate_uniformity.py` and `EXPECTED_CRATES=13` in `scripts/cargo-deny-all.sh` (and its bats fixture).
 - [ ] Add `zeta/zeta-rs` to the `dirs` lists in `scripts/pre-commit` and `scripts/pre-push`, `zeta/zeta-rs:zeta` to `benchmarks.yml`, a `zeta` entry to `release-sbom-monitor-schedule.yml`, and `zeta_1e*.txt` to `.gitignore`.
-- [ ] `Cargo.toml` per Global Constraints, `[[bin]] zeta`, `[lib] zeta`, deps `rug = { version = "1.30", features = ["integer", "float"] }`, `rayon = "1"`, `clap` (derive); dev-deps `tempfile`, `proptest`, `criterion = "0.8"`; `[[bench]] zeta`.
+- [ ] `Cargo.toml` per Global Constraints, `[[bin]] zeta`, `[lib] zeta`, deps `clap` (derive) only, since `cargo-machete` rejects an unused dependency (Task 2 adds `rug`, Task 9 adds `rayon`); a minimal `zeta/zeta-rs/CLAUDE.md` like the other crates' (the uniformity test requires one; Task 12 completes it); dev-deps `tempfile`, `proptest`, `criterion = "0.8"`; `[[bench]] zeta`.
 - [ ] Root `CLAUDE.md`: every "12 crates" / "12 Rust installers" / "all 12" statement becomes 13, `zeta/` Rust joins the sub-project list and the Rust crate list. The file is at 29,999 bytes against a 30,000 cap, so trim an equal number of bytes elsewhere without dropping a rule (shorten wording, never delete a rule line).
 - [ ] `src/main.rs`: thin `main` under `#[cfg(not(tarpaulin_include))]`; a unit test that `--help` parses. `benches/zeta.rs`: a placeholder bench Task 5 fills.
 
@@ -89,19 +90,22 @@ tdd: required
 acceptance:
   - cmd: make -C zeta/zeta-rs test
     exit_code: 0
+  - cmd: make test
+    exit_code: 0
 max_retries: 3
-files_touched: [zeta/zeta-rs/src/interval.rs, zeta/zeta-rs/src/lib.rs]
+files_touched: [zeta/zeta-rs/src/interval.rs, zeta/zeta-rs/src/lib.rs, zeta/zeta-rs/Cargo.toml, zeta/zeta-rs/Cargo.lock, tests/test_release_workflows.py, tests/test_gmp_cache_workflow.py]
 depends_on: [1]
 requirements: [R5, R18]
 ```
 
+- [ ] Add `rug = { version = "1.30", features = ["integer", "float"] }` to `Cargo.toml` and refresh `Cargo.lock`. zeta now locks `gmp-mpfr-sys`: add `zeta` to `gmp_crates` in `tests/test_release_workflows.py`, set its `no_lgpl` pin (about line 677) back to 7, and make the `test_gmp_cache_workflow.py` comment say 7 of the 13 (verify with `grep -L gmp-mpfr-sys */*-rs/Cargo.lock | wc -l`). The acceptance gate adds `make test`.
 - [ ] `pub struct Interval { lo: Float, hi: Float }` (`#[derive(Debug, Clone)]`), constructors `point(f64, prec)`, `new(lo, hi)`; `add`, `sub`, `mul`, `div` (error when the divisor contains 0), `sqrt`, `ln` (error when lo ≤ 0), `exp`, `cos`, `sin`, `widen(&Float)`, `excludes_zero()`, `sign() -> Option<Sign>`, `width()`.
 - [ ] `lo` uses `Round::Down`, `hi` uses `Round::Up` (`*_round` methods, `AddAssignRound` and siblings).
 - [ ] `excludes_zero()` is true only when both bounds are finite and `lo > 0` or `hi < 0`.
 - [ ] `cos`/`sin`: argument wider than π returns [−1, 1]; otherwise m = midpoint, r = max(hi − m, m − lo) rounded up, f(m) evaluated rounded down and rounded up, result widened by r.
 - [ ] Tests, written first: proptest over random intervals with magnitudes up to 10⁹, each operation's enclosure contains the value computed at 4× precision with outward rounding; zero-width `cos`/`sin` inputs; width shrinks as precision grows; `excludes_zero()` false for NaN and infinite bounds; error paths for `div` and `ln`.
 
-**Interfaces:** Produces `zeta::interval::{Interval, Sign}`.
+**Interfaces:** Produces `zeta::interval::{Interval, Sign, IntervalError}`; `new`, `div`, `ln` and `sqrt` return `Result<_, IntervalError>` (`sqrt` errors when lo < 0); a NaN from an indeterminate form widens that bound to its infinity.
 
 ### Task 3: Widen-only configuration
 
@@ -138,12 +142,13 @@ acceptance:
   - cmd: make -C zeta/zeta-rs test
     exit_code: 0
 max_retries: 3
-files_touched: [zeta/zeta-rs/src/theta.rs, zeta/zeta-rs/src/lib.rs, zeta/zeta-rs/tests/fixtures/gram_points.txt]
+files_touched: [zeta/zeta-rs/src/theta.rs, zeta/zeta-rs/src/lib.rs, zeta/zeta-rs/src/interval.rs, zeta/zeta-rs/tests/fixtures/gram_points.txt]
 depends_on: [2]
 requirements: [R22]
 ```
 
 - [ ] θ(t) = Im ln Γ(1/4 + it/2) − (t/2) ln π with the DLMF 5.11 Stirling series and its remainder bound (appendix §3), shifting z by 10 via the recurrence; returns an `Interval`.
+- [ ] `Interval::atan` (increasing, endpoint images rounded outward) in `interval.rs`: arg z = atan(y/x) for Re z > 0 and each shift term Im Ln(z+k) = atan(y/(x+k)) need it.
 - [ ] `gram_bracket(n, prec) -> Option<(f64, f64)>`: finds `f64` values 2π < b < c with θ(b) − nπ < 0 and θ(c) − nπ > 0 both certified; returns `None` when it cannot certify or the search leaves t > 2π.
 - [ ] Fixture `tests/fixtures/gram_points.txt`: g_n for n = −1, 0, 100, 1000 at 30 digits, generated with mpmath (`mp.dps = 40`; `findroot(lambda t: siegeltheta(t) - n*pi, guess)`), command and mpmath version in its header.
 - [ ] Tests, first: b < g_n < c for the fixture values; b_n strictly increasing over n = −1..1000; a shifted fake enclosure that contains nπ in θ's range but not g_n fails the endpoint certificate; θ's enclosure at t = 9.667 and t = 2π is narrower than 10⁻²⁰ at 128 bits.
@@ -260,14 +265,14 @@ acceptance:
   - cmd: make -C zeta/zeta-rs test
     exit_code: 0
 max_retries: 3
-files_touched: [zeta/zeta-rs/src/verify.rs, zeta/zeta-rs/src/lib.rs]
+files_touched: [zeta/zeta-rs/src/verify.rs, zeta/zeta-rs/src/lib.rs, zeta/zeta-rs/Cargo.toml, zeta/zeta-rs/Cargo.lock]
 depends_on: [8]
 requirements: [R4, R10, R11, R17]
 ```
 
 - [ ] `verify(T, z_source, cfg, pool_policy) -> Verdict` (`Verified{count, intervals}`, `NotVerified{reason, blocks}`, `InternalFault{reason}`): choose M, build blocks over [b₋₁, b_M], isolate on a pool built with `ThreadPoolBuilder::build` (serial fallback with `Parallel mode unavailable ({error}); falling back to serial.`; a worker panic becomes `InternalFault`), collect, sort, keep one identical (t, sign), count L.
 - [ ] Sign conflict at one t, NaN t, L > M + 1 → `InternalFault`; L < M + 1 → `NotVerified`.
-- [ ] No use of the global rayon pool.
+- [ ] Add `rayon = "1"` to `Cargo.toml` and refresh `Cargo.lock`. No use of the global rayon pool.
 - [ ] Tests, first: fakes for a double root, a missing sign change, an irregular pattern after g_M, an always-uncertain sign, an empty block list, an uncertifiable g₋₁ (each `NotVerified` with its reason); an extra sign change, a sign conflict, a NaN t, a panicking worker (each `InternalFault`); L counts only [b₋₁, b_M]; a duplicate (t, sign) counts once; serial and parallel give identical intervals.
 
 **Interfaces:** Produces `verify::{verify, Verdict, PoolPolicy}`.

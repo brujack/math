@@ -692,7 +692,7 @@ class RustSetupJobTests(unittest.TestCase):
         self.assertTrue(lines[1].startswith("units="), lines)
         units = outputs["units"].split()
         dirs = tracked_crate_dirs()
-        self.assertEqual(len(units), 12)
+        self.assertEqual(len(units), 13)
         self.assertEqual(units, [d.replace("/", "-") for d in dirs])
         self.assertFalse([u for u in units if u.startswith("tests-")])
 

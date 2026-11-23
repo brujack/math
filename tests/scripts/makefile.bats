@@ -297,7 +297,7 @@ for e in json.load(open('${REPO_ROOT}/renovate.json')).get('extends', []):
             || bad="${bad}${mf}(missing --minimum-test-timeout) "
     done <<< "${makefiles}"
 
-    [ "${count}" -eq 12 ]
+    [ "${count}" -eq 13 ]
 
     if [[ -n "${bad}" ]]; then
         printf 'mutants recipe does not scale the baseline timeout: %s\n' "${bad}" >&2
@@ -333,7 +333,7 @@ for e in json.load(open('${REPO_ROOT}/renovate.json')).get('extends', []):
         fi
     done <<< "${makefiles}"
 
-    [ "${count}" -eq 12 ]
+    [ "${count}" -eq 13 ]
     [ -z "${bad}" ] || { printf 'mutants-diff problems: %s\n' "${bad}" >&2; return 1; }
 }
 
@@ -1206,9 +1206,9 @@ setup_test_rust() {
     EXPECTED_DIRS="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git -C "${REPO_ROOT}" ls-files '*/*-rs/Makefile' | sed 's|/Makefile$||')"
 }
 
-@test "make test-rust runs make test once in each of the 12 Rust crates" {
+@test "make test-rust runs make test once in each of the 13 Rust crates" {
     setup_test_rust
-    [ "$(printf '%s\n' "${EXPECTED_DIRS}" | wc -l)" -eq 12 ]
+    [ "$(printf '%s\n' "${EXPECTED_DIRS}" | wc -l)" -eq 13 ]
     run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u JOBS "${REAL_MAKE}" -C "${REPO_ROOT}" test-rust JOBS=3 --no-print-directory
     [ "${status}" -eq 0 ]
     # GNU make's $(CURDIR) is the physical path (macOS /var -> /private/var), while
@@ -1219,7 +1219,7 @@ setup_test_rust() {
         [ "$(grep -cxF "make -C ${root}/${dir} test" "${MOCK_CALLS_FILE}")" -eq 1 ]
         [[ "${output}" == *"ok ${dir}"* ]]
     done
-    [ "$(grep -c '^make -C ' "${MOCK_CALLS_FILE}")" -eq 12 ]
+    [ "$(grep -c '^make -C ' "${MOCK_CALLS_FILE}")" -eq 13 ]
 }
 
 @test "make test-rust fails and names the crate when one crate's tests fail" {
@@ -1243,11 +1243,11 @@ setup_test_rust() {
     run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u JOBS GIT_DIR=/nonexistent make -C "${REPO_ROOT}" -n test-rust --no-print-directory
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"twin-primes/twin-primes-rs"* ]]
-    [ "$(printf '%s\n' "${output}" | grep -o '[a-z-]*/[a-z-]*-rs' | sort -u | wc -l)" -eq 12 ]
+    [ "$(printf '%s\n' "${output}" | grep -o '[a-z-]*/[a-z-]*-rs' | sort -u | wc -l)" -eq 13 ]
 }
 
 # The concurrency probe in the make mock records, per call, how many calls were live
-# at once. JOBS=1 must never overlap; JOBS=3 over 12 crates must overlap at least once.
+# at once. JOBS=1 must never overlap; JOBS=3 over 13 crates must overlap at least once.
 # Together they pin that `make test-rust JOBS=N` reaches the runner in both directions.
 run_test_rust_with_probe() {
     local jobs="$1"
@@ -1258,7 +1258,7 @@ run_test_rust_with_probe() {
     run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u JOBS "${REAL_MAKE}" -C "${REPO_ROOT}" test-rust JOBS="${jobs}" --no-print-directory
     [ "${status}" -eq 0 ]
     local seen=("${PROBE_DIR}"/seen.*)
-    [ "${#seen[@]}" -eq 12 ]
+    [ "${#seen[@]}" -eq 13 ]
     PROBE_MAX=0
     local f v
     for f in "${seen[@]}"; do

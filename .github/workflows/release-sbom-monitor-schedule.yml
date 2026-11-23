@@ -102,3 +102,11 @@ jobs:
     permissions:
       contents: read
       issues: write
+  zeta:
+    uses: ./.github/workflows/release-sbom-monitor.yml
+    with:
+      binary_name: zeta
+      release_tag_pattern: "zeta-v"
+    permissions:
+      contents: read
+      issues: write
