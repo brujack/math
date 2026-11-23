@@ -623,10 +623,20 @@ mod tests {
     }
 
     #[test]
-    fn gram_index_below_minus_one_has_no_bracket() {
-        assert_eq!(gram_bracket(-2, 128), None);
-        assert_eq!(gram_bracket(i64::MIN, 128), None);
-        assert!(gram_bracket(-1, 128).is_some());
+    fn gram_index_guard_rejects_before_any_theta_evaluator_is_built() {
+        // Counting the factory calls isolates the `n < -1` guard: the search
+        // alone would also return None for these inputs, but only after calling it.
+        let calls = std::cell::Cell::new(0u32);
+        let counting = |p: u32| {
+            calls.set(calls.get() + 1);
+            ThetaContext::new(p).map(|ctx| move |t: f64| ctx.theta(t))
+        };
+        for n in [-2, i64::MIN] {
+            assert_eq!(bracket_with(n, 128, &counting), None, "n={n}");
+            assert_eq!(calls.get(), 0, "n={n}: factory called despite the guard");
+        }
+        assert!(bracket_with(-1, 128, &counting).is_some());
+        assert!(calls.get() > 0, "control: n=-1 must reach the factory");
     }
 
     #[test]
