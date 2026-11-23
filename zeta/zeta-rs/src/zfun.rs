@@ -53,7 +53,19 @@ impl ZError {
     /// True for a refusal (the height cannot be certified by this path, so a
     /// caller may retry at higher precision); false for an internal fault.
     pub fn is_refusal(&self) -> bool {
-        matches!(self, Self::HeightOutOfRange | Self::AmbiguousSplit | Self::SingularCorrection)
+        self.clone().into_fault().is_none()
+    }
+
+    /// The fault this error is, or `None` for a refusal. The one exhaustive
+    /// match over the variants: a new `ZError` variant fails to compile here until
+    /// it is classified, and `is_refusal` and `refusal_or_fault` both follow it.
+    fn into_fault(self) -> Option<ZFault> {
+        match self {
+            Self::HeightOutOfRange | Self::AmbiguousSplit | Self::SingularCorrection => None,
+            Self::ImaginaryPartNonzero => Some(ZFault::ImaginaryPartNonzero),
+            Self::Theta(e) => Some(ZFault::Theta(e)),
+            Self::Interval(e) => Some(ZFault::Interval(e)),
+        }
     }
 }
 
@@ -370,12 +382,7 @@ pub trait ZSource {
 fn refusal_or_fault(result: Result<Interval, ZError>) -> Result<Option<Interval>, ZFault> {
     match result {
         Ok(z) => Ok(Some(z)),
-        Err(ZError::HeightOutOfRange | ZError::AmbiguousSplit | ZError::SingularCorrection) => {
-            Ok(None)
-        }
-        Err(ZError::ImaginaryPartNonzero) => Err(ZFault::ImaginaryPartNonzero),
-        Err(ZError::Theta(e)) => Err(ZFault::Theta(e)),
-        Err(ZError::Interval(e)) => Err(ZFault::Interval(e)),
+        Err(e) => e.into_fault().map_or(Ok(None), Err),
     }
 }
 
@@ -526,8 +533,9 @@ fn self_check_point<P: ZPaths>(paths: &P, t: f64) -> Result<(), SelfCheckFailure
 /// truncation bound. Both paths share `theta`, so a theta error is invisible.
 ///
 /// Callers must pass paths built with `VerifyConfig::default()` (multiplier 1) at
-/// `SELF_CHECK_PREC`: the limits use the unscaled constant, so a multiplier above
-/// 1 always fails with `RiemannSiegelTooWide` (exit 5).
+/// `SELF_CHECK_PREC`: the limits use the unscaled constant, so a multiplier
+/// noticeably above 1 fails with `RiemannSiegelTooWide` (exit 5). The 1e-10 slack
+/// admits a multiplier up to about 1 + 2e-8 at t = 200, the tightest point.
 pub fn self_check<P: ZPaths>(paths: &P) -> Result<(), SelfCheckFailure> {
     SELF_CHECK_POINTS.iter().try_for_each(|&t| self_check_point(paths, t))
 }
@@ -539,6 +547,7 @@ mod tests {
     use crate::config::VerifyConfig;
     use crate::interval::{Interval, IntervalError, Sign};
     use crate::theta::ThetaError;
+    use proptest::prelude::*;
     use rug::Float;
 
     const PREC: u32 = 128;
@@ -1193,5 +1202,22 @@ mod tests {
         let full = real_z(512);
         assert!(full.z(250.0, 256).unwrap().is_some());
         assert!(full.z(250.0, 512).unwrap().is_some());
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(8))]
+
+        /// Both paths enclose the true Z(t), so they overlap, and any sign both
+        /// certify is the same.
+        #[test]
+        fn riemann_siegel_and_euler_maclaurin_agree(t in 200.0f64..400.0) {
+            let ev = evaluator();
+            let rs = ev.riemann_siegel(t).unwrap();
+            let em = ev.euler_maclaurin(t).unwrap().z;
+            prop_assert!(rs.lo() <= em.hi() && em.lo() <= rs.hi());
+            if let (Some(a), Some(b)) = (rs.sign(), em.sign()) {
+                prop_assert_eq!(a, b);
+            }
+        }
     }
 }

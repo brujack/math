@@ -130,7 +130,8 @@ where
 }
 
 /// The self-check of both Z paths at `SELF_CHECK_PREC`; production passes default
-/// settings (a Gabcke multiplier above 1 always fails it).
+/// settings (a Gabcke multiplier noticeably above 1 fails it; the 1e-10 slack
+/// admits up to about 1 + 2e-8).
 fn self_check_with(cfg: &VerifyConfig) -> Result<(), String> {
     let z = ZEvaluator::new(SELF_CHECK_PREC, cfg).map_err(|e| e.to_string())?;
     self_check(&z).map_err(|e| e.to_string())
