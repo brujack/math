@@ -5,6 +5,7 @@
 //! - `theta`: certified Riemann-Siegel theta and Gram-point brackets.
 //! - `boundary`: Gram boundaries whose Z sign is certified over the whole bracket.
 //! - `isolate`: certified sign points per Gram block and the straddle rule at T.
+//! - `turing`: Turing's method with Trudgian's bound, and the choice of M.
 //! - `zfun`: certified Hardy Z by Riemann-Siegel and Euler-Maclaurin, and the self-check.
 
 pub mod boundary;
@@ -13,4 +14,5 @@ pub mod config;
 pub mod interval;
 pub mod isolate;
 pub mod theta;
+pub mod turing;
 pub mod zfun;
