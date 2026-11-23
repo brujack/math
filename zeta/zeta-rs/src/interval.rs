@@ -455,6 +455,24 @@ mod tests {
             }
         }
 
+        /// Same formula check on intervals straddling zero at low precision, where
+        /// the midpoint rounds and `hi - m` / `m - lo` are inexact.
+        #[test]
+        fn cos_sin_bounds_cover_the_formula_when_straddling_zero(
+            a in 0.05f64..1.5,
+            b in 0.05f64..1.5,
+            p in 2u32..40,
+        ) {
+            let (i, _, _) = make(p, -a, b);
+            let (m, r) = exact_midpoint_and_radius(&i, p);
+            for (res, f) in [(i.cos(), Float::with_val(2000, m.cos_ref())), (i.sin(), Float::with_val(2000, m.sin_ref()))] {
+                let want_lo = Float::with_val(2000, &f - &r).max(&Float::with_val(2000, -1));
+                let want_hi = Float::with_val(2000, &f + &r).min(&Float::with_val(2000, 1));
+                prop_assert!(*res.lo() <= want_lo, "lo {} > {}", res.lo(), want_lo);
+                prop_assert!(*res.hi() >= want_hi, "hi {} < {}", res.hi(), want_hi);
+            }
+        }
+
         /// Raising the precision on identical inputs only tightens the result.
         #[test]
         fn higher_precision_nests_inside_lower(
