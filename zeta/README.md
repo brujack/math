@@ -15,14 +15,24 @@ No Python implementation — Rust only.
 
 ## Status
 
-The current build is a stub. It accepts an optional exponent N, never claims
-verification, and for every input prints this line to stderr and exits with code 3:
+The current build checks its input and its Hardy Z evaluator, but does not yet isolate
+zeros, so it never claims verification. For N from 2 to 7 it runs the self-check, prints
+this line to stdout and exits with code 3:
 
 ```text
-RH NOT verified: zeta is under construction
+RH NOT verified up to <T>: zero isolation is not implemented yet
 ```
 
-A failed write to stderr exits with code 1.
+N = 7 also prints a warning about output size and run time to stderr.
+
+| Exit | Meaning |
+| ---- | ------- |
+| 0 | Verified up to T (arrives with the verifier) |
+| 1 | Bad input: N outside 2–7, not a number, or end of input at the prompt |
+| 3 | Not verified (today: zero isolation is not implemented yet) |
+| 4 | A write to stdout, stderr or the output file failed |
+| 5 | Self-check failed: the Riemann–Siegel and Euler–Maclaurin paths disagree at a test point |
+| 6 | Internal fault during verification (arrives with the verifier) |
 
 The library already has the certified building blocks:
 
@@ -31,12 +41,15 @@ The library already has the certified building blocks:
 - `VerifyConfig` — verification settings, which can only be made stricter than the defaults
 - certified Riemann–Siegel θ(t) by the Stirling series with an explicit remainder bound,
   and Gram-point brackets with certified signs at both ends
+- certified Hardy Z(t): Riemann–Siegel with Gabcke's remainder bound for t ≥ 200,
+  Euler–Maclaurin below 200, and a self-check that compares the two paths at 8 points
+  in [200, 300]
 
 ## Usage
 
 ```bash
-./target/release/zeta        # exits 3: under construction
-./target/release/zeta 3      # exits 3: under construction
+./target/release/zeta        # prompts for N
+./target/release/zeta 3      # self-check, then exits 3: zero isolation not implemented yet
 ```
 
 ## Build
