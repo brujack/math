@@ -313,12 +313,12 @@ class TestHelperBoundaries(unittest.TestCase):
 
 
 class TestReleaseWorkflowDiscovery(unittest.TestCase):
-    def test_twelve_release_workflows_exist(self):
+    def test_thirteen_release_workflows_exist(self):
         workflows = discover_release_workflows()
         self.assertEqual(
             len(workflows),
-            12,
-            f"expected 12 release-*-rs.yml workflows, found {len(workflows)}: {workflows}",
+            13,
+            f"expected 13 release-*-rs.yml workflows, found {len(workflows)}: {workflows}",
         )
 
 
@@ -678,7 +678,7 @@ class TestReleaseWorkflowContract(unittest.TestCase):
         self.assertEqual(lgpl & no_lgpl, set())
 
     def test_no_step_continues_on_error(self):
-        # continue-on-error turned a GH006-rejected CHANGELOG push green on all 12
+        # continue-on-error turned a GH006-rejected CHANGELOG push green on all 13
         # first releases (2026-10-24); a release step either works or fails the job.
         for path in self.workflows:
             with self.subTest(workflow=path.name):

@@ -41,8 +41,8 @@ def step_text(job):
 
 
 class TestRustCiJobSplit(unittest.TestCase):
-    def test_twelve_ci_workflows_found(self):
-        self.assertEqual(len(CI_WORKFLOWS), 12)
+    def test_thirteen_ci_workflows_found(self):
+        self.assertEqual(len(CI_WORKFLOWS), 13)
 
     def test_jobs_are_test_coverage_build(self):
         for path in CI_WORKFLOWS:

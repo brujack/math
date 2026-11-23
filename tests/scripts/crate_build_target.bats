@@ -10,7 +10,7 @@
 
 load '../helpers/common'
 
-CRATES=(amicable collatz descartes e factorial fib goldbach perfect-numbers pi prime sq twin-primes)
+CRATES=(amicable collatz descartes e factorial fib goldbach perfect-numbers pi prime sq twin-primes zeta)
 
 setup() {
     export HOME="${BATS_TEST_TMPDIR}/home"
