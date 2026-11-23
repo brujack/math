@@ -8,6 +8,7 @@
 //! at 2*pi and far better above it; the accuracy floor is therefore about
 //! 3.4e-22 at t = 2*pi however many bits are requested.
 
+use crate::complex::Complex;
 use crate::interval::{Interval, IntervalError, Sign};
 use rug::Float;
 use rug::float::Round;
@@ -24,7 +25,7 @@ const SHIFT: u32 = 10;
 const SERIES_ORDER: usize = 25;
 
 /// B_2, B_4, ..., B_50 as exact (numerator, denominator) pairs in lowest terms.
-const BERNOULLI: [(i128, u32); SERIES_ORDER] = [
+pub(crate) const BERNOULLI: [(i128, u32); SERIES_ORDER] = [
     (1, 6),
     (-1, 30),
     (1, 42),
@@ -82,7 +83,7 @@ impl From<IntervalError> for ThetaError {
 }
 
 /// Interval enclosing pi.
-fn pi_interval(prec: u32) -> Result<Interval, ThetaError> {
+pub(crate) fn pi_interval(prec: u32) -> Result<Interval, ThetaError> {
     let round = |r| Float::with_val_round(prec, rug::float::Constant::Pi, r).0;
     Ok(Interval::new(round(Round::Down), round(Round::Up))?)
 }
@@ -98,21 +99,6 @@ fn series_coefficient(k: usize, prec: u32) -> Result<Interval, ThetaError> {
     let (num, den) = BERNOULLI[k - 1];
     let divisor = integer_interval(i128::from(den) * (2 * k as i128) * (2 * k as i128 - 1), prec)?;
     Ok(integer_interval(num, prec)?.div(&divisor)?)
-}
-
-/// Complex interval, just enough for powers of conj(w).
-struct Complex {
-    re: Interval,
-    im: Interval,
-}
-
-impl Complex {
-    fn mul(&self, o: &Complex) -> Complex {
-        Complex {
-            re: self.re.mul(&o.re).sub(&self.im.mul(&o.im)),
-            im: self.re.mul(&o.im).add(&self.im.mul(&o.re)),
-        }
-    }
 }
 
 fn validate_height(t: f64) -> Result<(), ThetaError> {
@@ -182,7 +168,7 @@ impl ThetaContext {
         let lead = x.sub(&self.half).mul(&y.div(x)?.atan()).add(&y.mul(&ln_modulus)).sub(y);
         // conj(w)^j / |w|^(2j) for j = 1, 3, 5, ...
         let zero = Interval::point(0.0, self.prec);
-        let conj = Complex { re: x.clone(), im: zero.sub(y) };
+        let conj = Complex::new(x.clone(), zero.sub(y));
         let step = conj.mul(&conj);
         let q_step = q.mul(&q);
         let mut power = conj;
