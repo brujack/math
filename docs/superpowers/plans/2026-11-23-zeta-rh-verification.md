@@ -304,7 +304,7 @@ requirements: [R2, R8, R9, R16, R20]
 - [ ] Tests, first: N = 2 and N = 3 exit 0 with the verified line (29, 649), that many non-`#` lines, each fixture zero in its interval (test names start `e2e_`); exits 3–6 through `run_with`; controls: depth cap 1 with point moving off at N = 3, Gabcke × 10⁶ with self-check skipped at N = 2, each exit 3 with the reason measured first and then asserted (if one verifies, stop and report it as a blocker so the spec can be amended).
 - [ ] `.cargo/mutants.toml`: skip tests named `e2e_` (cargo-mutants `additional_cargo_test_args`), with a comment citing spec V8.
 
-**Interfaces:** Produces the complete verifying CLI. PR 2 ends here.
+**Interfaces:** Produces the complete verifying CLI. PR 3 ends here.
 
 ### Task 11: `--refine` and the spacing histogram
 
@@ -354,7 +354,7 @@ requirements: [R21]
 - [ ] Docs: README CLI and Coverage rows and badge; root `CLAUDE.md` sub-project and crate-count lines (stay under 30,000 bytes); `zeta-rs/CLAUDE.md` with layout, exit codes 0–6 as zeta's convention, and the V8 mutants note.
 - [ ] BATS: binary present → `zeta 2` exits 0 and prints the verified line.
 
-**Interfaces:** PR 3 ends here; the orchestrator then runs V3–V7.
+**Interfaces:** PR 4 ends here; the orchestrator then runs V3–V7.
 
 ---
 
