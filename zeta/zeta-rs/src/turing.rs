@@ -13,10 +13,12 @@ use std::f64::consts::PI;
 
 use crate::boundary::{Boundary, certify_boundary};
 use crate::config::VerifyConfig;
-use crate::interval::Sign;
+use crate::interval::{Interval, Sign};
 use crate::isolate::{GramBlock, IsolateError, Point, isolate_block};
-use crate::theta::{gram_bracket, theta};
+use crate::theta::theta;
 use crate::zfun::{ZFault, ZSource};
+use rug::Float;
+use rug::float::{Constant, Round};
 
 /// Most candidates `choose_m` tries: the first and ten retries (spec step 3).
 pub const MAX_CANDIDATES: usize = 11;
@@ -50,6 +52,9 @@ pub struct TuringBound {
     pub last_index: i64,
     /// The upper end c of the last block's boundary bracket, the height eq. 2.1 used.
     pub upper: f64,
+    /// g_M's certified boundary: b_M with its sign and the zero-free bracket
+    /// (the one source of truth for b_M, and for T inside g_M's bracket).
+    pub boundary: Boundary,
 }
 
 /// An inconsistency in the points Turing's pass was given: never a candidate failure.
@@ -61,8 +66,27 @@ pub enum InternalFault {
     SignConflict,
     /// A point's height is NaN.
     NanHeight,
+    /// T is NaN or infinite.
+    NonFiniteHeight,
+    /// Eq. 2.1 gave a bound that is not finite and positive, or its height was not.
+    BadBlockBound,
     /// `isolate_block` refused an interval that Turing built itself.
     Isolate(IsolateError),
+}
+
+impl std::fmt::Display for InternalFault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PairInNoBlock => {
+                f.write_str("an adjacent pair of points lies in no single Gram block")
+            }
+            Self::SignConflict => f.write_str("one height carries two different certified signs"),
+            Self::NanHeight => f.write_str("a point height is NaN"),
+            Self::NonFiniteHeight => f.write_str("T is not finite"),
+            Self::BadBlockBound => f.write_str("eq. 2.1 gave no finite positive block bound"),
+            Self::Isolate(e) => write!(f, "isolate_block refused a Turing block: {e}"),
+        }
+    }
 }
 
 /// Why `establish` or `choose_m` did not produce a bound.
@@ -119,7 +143,7 @@ impl std::fmt::Display for TuringFailure {
             ),
             Self::Exhausted { tried } => write!(f, "no candidate of {tried} established the bound"),
             Self::Fault(e) => write!(f, "Z fault: {e}"),
-            Self::Internal(e) => write!(f, "internal fault: {e:?}"),
+            Self::Internal(e) => write!(f, "internal fault: {e}"),
         }
     }
 }
@@ -148,9 +172,15 @@ fn ceil_with_margin(x: f64) -> usize {
     (x + ROUNDING_MARGIN).ceil() as usize
 }
 
-/// Blocks eq. 2.1 asks for when the last block's upper height is `g_p`.
-fn blocks_needed(g_p: f64) -> usize {
-    ceil_with_margin(trudgian_rhs(g_p))
+/// Blocks eq. 2.1 asks for when the last block's upper height is `g_p`; a bound that
+/// is not finite and positive (which a NaN, infinite or non-positive height gives
+/// through its logarithm) is an internal fault, never zero blocks.
+fn blocks_needed(g_p: f64) -> Result<usize, InternalFault> {
+    let rhs = trudgian_rhs(g_p);
+    if !rhs.is_finite() || rhs <= 0.0 {
+        return Err(InternalFault::BadBlockBound);
+    }
+    Ok(ceil_with_margin(rhs))
 }
 
 /// Good means (-1)^n Z(g_n) > 0.
@@ -250,6 +280,19 @@ pub fn establish<Z: ZSource>(
     z: &Z,
     cfg: &VerifyConfig,
 ) -> Result<TuringBound, TuringFailure> {
+    establish_with(m, z, cfg, &mut None)
+}
+
+/// `establish` with a memory of the last Rosser failure: a chain that reaches the
+/// block starting at that failure's index fails with it again, without isolating
+/// the block a second time. Only a chain that reaches that start is cut short: a
+/// candidate before it can still meet eq. 2.1 on blocks that end at or before it.
+fn establish_with<Z: ZSource>(
+    m: i64,
+    z: &Z,
+    cfg: &VerifyConfig,
+    known: &mut Option<TuringFailure>,
+) -> Result<TuringBound, TuringFailure> {
     let first = boundary_at(m, z, cfg)?;
     if first.point().t <= RANGE_START {
         return Err(TuringFailure::BelowRange);
@@ -262,15 +305,30 @@ pub fn establish<Z: ZSource>(
     let (mut start_n, mut start) = (m, first);
     loop {
         let (end_n, end, between) = next_good(start_n, z, cfg)?;
+        if let Some(failure @ TuringFailure::RosserFailed { start: failed, .. }) = known.as_ref()
+            && *failed == start_n
+        {
+            return Err(failure.clone());
+        }
         let len = (end_n - start_n) as usize;
         let block = GramBlock { lo: start.point(), hi: end.point(), expected: len };
         points.extend(isolate_block(&block, z, cfg).map_err(from_isolate)?.points);
         points.extend(between);
         blocks.push(BlockRange { lo: start.point().t, hi: end.point().t, start: start_n, len });
-        check_rosser(&merge_points(points.clone())?, &blocks)?;
+        let verdict = check_rosser(&merge_points(points.clone())?, &blocks);
+        if let Err(failure @ TuringFailure::RosserFailed { .. }) = &verdict {
+            *known = Some(failure.clone());
+        }
+        verdict?;
         let upper = end.bracket().hi();
-        if blocks.len() >= blocks_needed(upper) {
-            return Ok(TuringBound { m, blocks: blocks.len(), last_index: end_n, upper });
+        if blocks.len() >= blocks_needed(upper)? {
+            return Ok(TuringBound {
+                m,
+                blocks: blocks.len(),
+                last_index: end_n,
+                upper,
+                boundary: first,
+            });
         }
         (start_n, start) = (end_n, end);
     }
@@ -283,25 +341,30 @@ fn walk_start(theta_lo: f64) -> i64 {
     ((theta_lo / PI).floor() as i64 - 2).max(-1)
 }
 
-/// Whether a Gram point with lower bracket end `b` may serve as g_M for a search floor.
-fn qualifies(b: f64, floor: f64) -> bool {
-    b > RANGE_START && b >= floor
+/// True when theta(T) - n*pi <= 0 is certified for the enclosure `theta_t` of theta(T),
+/// i.e. g_n >= T (theta is increasing at these heights): its upper end is at or
+/// below n*pi rounded down.
+fn g_at_or_above(n: i64, theta_t: &Interval) -> bool {
+    let prec = theta_t.prec();
+    let pi_down = Float::with_val_round(prec, Constant::Pi, Round::Down).0;
+    let n_pi_down = Float::with_val_round(prec, &pi_down * n, Round::Down).0;
+    *theta_t.hi() <= n_pi_down
 }
 
-/// The first Gram index worth trying: the smallest n with b_n above 168*pi and
-/// at least `t_min`, found by walking up from `walk_start`.
-fn first_candidate(t_min: f64, cfg: &VerifyConfig) -> Result<i64, TuringFailure> {
-    let floor = t_min.max(RANGE_START);
-    let theta_lo = theta(floor, cfg.precision_cap()).map_err(ZFault::Theta)?.lo().to_f64();
-    let mut n = walk_start(theta_lo);
-    loop {
-        let (b, _) =
-            gram_bracket(n, cfg.precision_cap()).ok_or(TuringFailure::NoCertifiedBracket { n })?;
-        if qualifies(b, floor) {
-            return Ok(n);
-        }
+/// The smallest n with g_n >= max(T, 168*pi), certified through theta(T) - n*pi <= 0
+/// at the precision cap. An index where that is uncertain is passed over (the next
+/// is certain), so M is never smaller than the true first index. T may then lie
+/// inside g_M's zero-free bracket. The 168*pi test on b_M is `establish`'s.
+fn first_candidate(t: f64, cfg: &VerifyConfig) -> Result<i64, TuringFailure> {
+    if !t.is_finite() {
+        return Err(InternalFault::NonFiniteHeight.into());
+    }
+    let theta_t = theta(t.max(RANGE_START), cfg.precision_cap()).map_err(ZFault::Theta)?;
+    let mut n = walk_start(theta_t.lo().to_f64());
+    while !g_at_or_above(n, &theta_t) {
         n += 1;
     }
+    Ok(n)
 }
 
 /// Run `attempt` on `first`, `first + 1`, ... until one succeeds, at most
@@ -320,21 +383,23 @@ where
     Err(TuringFailure::Exhausted { tried: MAX_CANDIDATES })
 }
 
-/// The smallest M with b_M above 168*pi and at least `t_min` at which Turing's
-/// method establishes N(g_M) <= M + 1, trying at most `MAX_CANDIDATES` indices
-/// in a row (a candidate refused for any reason counts as tried).
+/// The smallest M with g_M >= max(T, 168*pi) at which Turing's method establishes
+/// N(g_M) <= M + 1, trying at most `MAX_CANDIDATES` consecutive indices (a
+/// candidate refused for any reason, or cut short by an already-failed block,
+/// still counts as tried). T that is not finite is an internal fault.
 pub fn choose_m<Z: ZSource>(
-    t_min: f64,
+    t: f64,
     z: &Z,
     cfg: &VerifyConfig,
 ) -> Result<TuringBound, TuringFailure> {
-    try_candidates(first_candidate(t_min, cfg)?, |m| establish(m, z, cfg))
+    let mut known = None;
+    try_candidates(first_candidate(t, cfg)?, |m| establish_with(m, z, cfg, &mut known))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interval::Interval;
+    use crate::theta::gram_bracket;
     use crate::zfun::RealZ;
     use rug::Float;
     use std::cell::Cell;
@@ -372,12 +437,19 @@ mod tests {
     struct Fake<F: Fn(f64) -> f64> {
         f: F,
         z_fault: bool,
+        refuse_below: f64,
         z_calls: Cell<usize>,
         over_calls: Cell<usize>,
     }
 
     fn fake<F: Fn(f64) -> f64>(f: F) -> Fake<F> {
-        Fake { f, z_fault: false, z_calls: Cell::new(0), over_calls: Cell::new(0) }
+        Fake {
+            f,
+            z_fault: false,
+            refuse_below: f64::NEG_INFINITY,
+            z_calls: Cell::new(0),
+            over_calls: Cell::new(0),
+        }
     }
 
     fn span(lo: f64, hi: f64) -> Interval {
@@ -396,6 +468,9 @@ mod tests {
 
         fn z_over(&self, lo: f64, hi: f64, _prec: u32) -> Result<Option<Interval>, ZFault> {
             self.over_calls.set(self.over_calls.get() + 1);
+            if hi < self.refuse_below {
+                return Ok(None);
+            }
             let (a, b) = ((self.f)(lo), (self.f)(hi));
             Ok(Some(span(a.min(b), a.max(b))))
         }
@@ -403,6 +478,12 @@ mod tests {
 
     fn bracket(n: i64) -> (f64, f64) {
         gram_bracket(n, cfg().precision_cap()).unwrap()
+    }
+
+    /// g_n's certified boundary under the all-good `wave` fake (the sign is the same under
+    /// any fake that agrees with `wave` on the bracket).
+    fn boundary_of(n: i64) -> Boundary {
+        certify_boundary(n, &fake(wave), &cfg()).unwrap().unwrap()
     }
 
     // ---- Trudgian's inequality ----
@@ -427,11 +508,21 @@ mod tests {
     /// Python), so the block count steps from 1 to 2 and from 2 to 3 there.
     #[test]
     fn block_count_steps_at_the_independent_thresholds() {
-        assert_eq!(blocks_needed(RANGE_START), 1);
-        assert_eq!(blocks_needed(2426.38), 1);
-        assert_eq!(blocks_needed(2426.40), 2);
-        assert_eq!(blocks_needed(840_759.0), 2);
-        assert_eq!(blocks_needed(840_761.0), 3);
+        let needed = |g: f64| blocks_needed(g).unwrap();
+        assert_eq!(needed(RANGE_START), 1);
+        assert_eq!(needed(2426.38), 1);
+        assert_eq!(needed(2426.40), 2);
+        assert_eq!(needed(840_759.0), 2);
+        assert_eq!(needed(840_761.0), 3);
+    }
+
+    #[test]
+    fn a_height_or_bound_that_is_not_finite_and_positive_is_an_internal_fault() {
+        // ln 1 = 0 gives a zero bound; below 1 the bound is negative.
+        for g in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 0.0, -5.0, 1.0, 0.5] {
+            assert_eq!(blocks_needed(g), Err(InternalFault::BadBlockBound), "g = {g}");
+        }
+        assert_eq!(blocks_needed(1.5), Ok(1));
     }
 
     #[test]
@@ -549,16 +640,39 @@ mod tests {
     }
 
     #[test]
-    fn display_names_every_failure() {
-        assert!(TuringFailure::BelowRange.to_string().contains("168"));
-        assert!(TuringFailure::BadGramPoint.to_string().contains("good"));
-        assert!(TuringFailure::NoCertifiedBracket { n: 7 }.to_string().contains('7'));
-        assert!(TuringFailure::BlockTooLong { from: 8 }.to_string().contains('8'));
-        let rosser = TuringFailure::RosserFailed { start: 3, length: 2, credited: 1 };
-        assert!(rosser.to_string().contains("length 2"));
-        assert!(TuringFailure::Exhausted { tried: 11 }.to_string().contains("11"));
-        assert!(TuringFailure::Fault(ZFault::NanHeight).to_string().contains("NaN"));
-        assert!(TuringFailure::Internal(InternalFault::SignConflict).to_string().contains("Sign"));
+    fn display_gives_the_message_for_every_failure() {
+        let shows = |failure: TuringFailure, text: &str| assert_eq!(failure.to_string(), text);
+        shows(TuringFailure::BelowRange, "b_M is not above 168*pi");
+        shows(TuringFailure::BadGramPoint, "g_M is not a good Gram point");
+        shows(TuringFailure::NoCertifiedBracket { n: 7 }, "Gram point 7 has no certified bracket");
+        shows(TuringFailure::BlockTooLong { from: 8 }, "no good Gram point soon after g_8");
+        shows(
+            TuringFailure::RosserFailed { start: 3, length: 2, credited: 1 },
+            "block from g_3 of length 2 holds 1 certified sign changes",
+        );
+        shows(TuringFailure::Exhausted { tried: 11 }, "no candidate of 11 established the bound");
+        shows(TuringFailure::Fault(ZFault::NanHeight), "Z fault: height is NaN");
+        shows(
+            TuringFailure::Internal(InternalFault::SignConflict),
+            "internal fault: one height carries two different certified signs",
+        );
+    }
+
+    #[test]
+    fn display_gives_the_message_for_every_internal_fault() {
+        let shows = |fault: InternalFault, text: &str| assert_eq!(fault.to_string(), text);
+        shows(
+            InternalFault::PairInNoBlock,
+            "an adjacent pair of points lies in no single Gram block",
+        );
+        shows(InternalFault::SignConflict, "one height carries two different certified signs");
+        shows(InternalFault::NanHeight, "a point height is NaN");
+        shows(InternalFault::NonFiniteHeight, "T is not finite");
+        shows(InternalFault::BadBlockBound, "eq. 2.1 gave no finite positive block bound");
+        shows(
+            InternalFault::Isolate(IsolateError::BadInterval),
+            &format!("isolate_block refused a Turing block: {}", IsolateError::BadInterval),
+        );
     }
 
     // ---- refusals ----
@@ -643,12 +757,24 @@ mod tests {
         let below = establish(1912, &z, &cfg()).unwrap();
         assert_eq!(
             below,
-            TuringBound { m: 1912, blocks: 1, last_index: 1913, upper: bracket(1913).1 }
+            TuringBound {
+                m: 1912,
+                blocks: 1,
+                last_index: 1913,
+                upper: bracket(1913).1,
+                boundary: boundary_of(1912)
+            }
         );
         let above = establish(1913, &z, &cfg()).unwrap();
         assert_eq!(
             above,
-            TuringBound { m: 1913, blocks: 2, last_index: 1915, upper: bracket(1915).1 }
+            TuringBound {
+                m: 1913,
+                blocks: 2,
+                last_index: 1915,
+                upper: bracket(1915).1,
+                boundary: boundary_of(1913)
+            }
         );
     }
 
@@ -685,7 +811,13 @@ mod tests {
         let z = fake(move |t| if t > c0 && t <= c15 { -wave(t) } else { wave(t) });
         assert_eq!(
             establish(1912, &z, &cfg()),
-            Ok(TuringBound { m: 1912, blocks: 2, last_index: 1929, upper: bracket(1929).1 })
+            Ok(TuringBound {
+                m: 1912,
+                blocks: 2,
+                last_index: 1929,
+                upper: bracket(1929).1,
+                boundary: boundary_of(1912)
+            })
         );
     }
 
@@ -698,19 +830,92 @@ mod tests {
         assert_eq!(walk_start(0.0), -1);
     }
 
+    fn theta_enclosure(lo: f64, hi: f64) -> Interval {
+        span(lo, hi)
+    }
+
     #[test]
-    fn qualifying_needs_b_strictly_above_168_pi_and_at_least_the_floor() {
-        assert!(!qualifies(RANGE_START, RANGE_START));
-        assert!(qualifies(RANGE_START.next_up(), RANGE_START));
-        assert!(qualifies(1000.0, 1000.0));
-        assert!(!qualifies(999.9, 1000.0));
-        assert!(qualifies(1000.1, 1000.0));
+    fn g_at_or_above_needs_the_whole_theta_enclosure_at_or_below_n_pi() {
+        // pi = 3.14159...: hi = 3.1 is below 1*pi, 3.2 is above.
+        assert!(g_at_or_above(1, &theta_enclosure(3.0, 3.1)));
+        assert!(!g_at_or_above(1, &theta_enclosure(3.0, 3.2)));
+        assert!(g_at_or_above(0, &theta_enclosure(-1.0, 0.0)));
+        assert!(!g_at_or_above(0, &theta_enclosure(-1.0, 1e-9)));
+        assert!(g_at_or_above(2, &theta_enclosure(6.0, 2.0 * PI - 1e-9)));
+        assert!(!g_at_or_above(2, &theta_enclosure(6.0, 2.0 * PI + 1e-9)));
+    }
+
+    /// g_1912 = 2424.4358, g_1913 = 2425.4907, g_1914 = 2426.5457 (Python, independent).
+    #[test]
+    fn m_is_the_smallest_index_with_g_m_at_or_above_t() {
+        let first = |t: f64| first_candidate(t, &cfg()).unwrap();
+        assert_eq!(first(2425.49), 1913); // just below g_1913
+        assert_eq!(first(2425.4908), 1914); // just above g_1913
+        assert_eq!(first(2424.0), 1912);
+        // T at b_1913 lies inside g_1913's bracket, so g_1913 >= T still holds
+        assert_eq!(first(bracket(1913).0), 1913);
+        // T at c_1913 is above g_1913
+        assert_eq!(first(bracket(1913).1), 1914);
+        // below 168*pi the floor is 168*pi: g_288 = 527.697 < 168*pi <= g_289
+        assert_eq!(first(0.0), 289);
+        assert_eq!(first(-5.0), 289);
+        assert_eq!(first(100.0), 289);
+    }
+
+    #[test]
+    fn a_t_that_is_not_finite_is_refused_before_any_work() {
+        let z = fake(wave);
+        for t in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert_eq!(
+                choose_m(t, &z, &cfg()),
+                Err(TuringFailure::Internal(InternalFault::NonFiniteHeight)),
+                "t = {t}"
+            );
+        }
+        assert_eq!((z.over_calls.get(), z.z_calls.get()), (0, 0));
+    }
+
+    #[test]
+    fn choose_m_carries_g_m_s_boundary_with_t_inside_its_bracket() {
+        let (b, c) = bracket(1913);
+        let got = choose_m(b, &fake(wave), &cfg()).unwrap();
+        assert_eq!(got.m, 1913);
+        assert_eq!(got.boundary, boundary_of(1913));
+        assert!(got.boundary.bracket().lo() <= b && b <= got.boundary.bracket().hi());
+        assert_eq!((got.boundary.point().t, got.boundary.bracket().hi()), (b, c));
+    }
+
+    #[test]
+    fn indices_below_the_first_candidate_are_never_certified() {
+        // Every bracket below g_1913's is refused: a walk that certified them would fail.
+        let mut z = fake(wave);
+        z.refuse_below = bracket(1913).0;
+        assert_eq!(choose_m(2425.49, &z, &cfg()).unwrap().m, 1913);
+    }
+
+    /// Z positive above c_1914: from M = 1913 the second block [g_1914, g_1916) fails.
+    /// A later chain that reaches g_1914 fails with the remembered failure, and the block
+    /// is not isolated again; a chain that ends before g_1914 still establishes.
+    #[test]
+    fn a_failed_block_is_isolated_once() {
+        let (_, c) = bracket(1914);
+        let z = fake(move |t| if t > c { 1.0 } else { wave(t) });
+        let mut known = None;
+        let failure = Err(TuringFailure::RosserFailed { start: 1914, length: 2, credited: 0 });
+        assert_eq!(establish_with(1913, &z, &cfg(), &mut known).map(|b| b.m), failure);
+        let calls = z.z_calls.get();
+        assert!(calls > 1000, "the failed block was sampled: {calls}");
+        assert_eq!(establish_with(1914, &z, &cfg(), &mut known).map(|b| b.m), failure);
+        assert_eq!(z.z_calls.get(), calls, "g_1914's block was not sampled again");
+        // g_1912's single block ends at g_1913 and needs no more
+        assert_eq!(establish_with(1912, &z, &cfg(), &mut known).unwrap().blocks, 1);
+        assert_eq!(known, failure.err());
     }
 
     // ---- candidates ----
 
     fn bound(m: i64) -> TuringBound {
-        TuringBound { m, blocks: 1, last_index: m + 1, upper: 0.0 }
+        TuringBound { m, blocks: 1, last_index: m + 1, upper: 0.0, boundary: boundary_of(1000) }
     }
 
     #[test]
@@ -760,16 +965,14 @@ mod tests {
         assert_eq!(calls.get(), 3);
     }
 
-    /// 168*pi lies between g_288 and g_289, so a small T starts at 289; for
-    /// t_min = 1000 the first Gram point with b above 1000 is chosen.
+    /// 168*pi lies between g_288 and g_289, so a small T starts at 289; for T = 1000
+    /// the first index with g_M >= 1000 is chosen (c_{M-1} < 1000 < c_M).
     #[test]
-    fn choose_m_starts_at_the_first_qualifying_index() {
+    fn choose_m_starts_at_the_first_index_with_g_m_at_or_above_t() {
         let z = fake(wave);
         assert_eq!(choose_m(100.0, &z, &cfg()).unwrap().m, 289);
         let m = choose_m(1000.0, &z, &cfg()).unwrap().m;
-        assert!(bracket(m).0 >= 1000.0 && bracket(m - 1).0 < 1000.0, "m = {m}");
-        // NaN falls back to the 168*pi floor
-        assert_eq!(choose_m(f64::NAN, &z, &cfg()).unwrap().m, 289);
+        assert!(bracket(m - 1).1 < 1000.0 && bracket(m).1 > 1000.0, "m = {m}");
     }
 
     #[test]
@@ -790,15 +993,6 @@ mod tests {
             choose_m(100.0, &z, &cfg()),
             Err(TuringFailure::Exhausted { tried: MAX_CANDIDATES })
         );
-    }
-
-    #[test]
-    fn choose_m_reports_a_theta_failure_as_a_fault() {
-        let z = fake(wave);
-        assert!(matches!(
-            choose_m(f64::INFINITY, &z, &cfg()),
-            Err(TuringFailure::Fault(ZFault::Theta(_)))
-        ));
     }
 
     // ---- real Z ----
