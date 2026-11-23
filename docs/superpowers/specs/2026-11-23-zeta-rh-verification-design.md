@@ -64,7 +64,7 @@ nothing on 2026-11-23, so this design was not previously proposed or rejected.
 2. **Gram boundaries are certified points.** For each Gram point g_n used as a block
    boundary, the CLI finds two `f64` values b_n < c_n such that:
    - θ(b_n) − nπ < 0 and θ(c_n) − nπ > 0 are both certified, which proves g_n ∈ (b_n, c_n)
-     because θ is increasing above 6.29; and
+     because θ is continuous and g_n is the only t > 2π with θ(t) = nπ; and
    - Z's sign is certified over the whole interval [b_n, c_n], which proves the interval
      holds no zero and gives g_n's sign, and so whether g_n is good.
 
@@ -88,10 +88,14 @@ nothing on 2026-11-23, so this design was not previously proposed or rejected.
    a distinct open interval inside (b₋₁, b_M) ⊂ (0, g_M), so no zero is counted twice.
 6. **Turing's counts in one pass.** Turing's method uses its own vector, built the same way
    from the points in [b_M, end of its last block], with every certified boundary point b_k in
-   that range included. Because each boundary is a point of the vector, a sign change is a
-   pair of adjacent points within one block, and it is credited to the block that contains
-   both points. A pair whose points lie in different blocks is an implementation fault: exit 6.
-   Rosser's expected counts are never credited.
+   that range included. Turing block j is the closed range [b_j, b_k] of points, and each
+   boundary point b_k belongs to both neighbouring blocks. A sign change is a pair of adjacent
+   points, and it is credited to block j exactly when both points lie in [b_j, b_k]. Because
+   every boundary is a point of the vector, every adjacent pair lies in exactly one block; a
+   pair that does not is an implementation fault: exit 6. Rosser's expected counts are never
+   credited. Every Gram-dependent quantity in Turing's inequality uses the worst-case end of
+   its bracket: the 168π test uses b_M, and the inequality's upper height uses c of its last
+   block.
 7. **Compare.** L ≤ N(g_M) ≤ M + 1 holds for any correct implementation.
    - If L = M + 1, every zero up to g_M is on the line, and since N counts multiplicity, each
      is simple. The claim is printed for T.
@@ -148,9 +152,9 @@ Modules in `zeta/zeta-rs/src/`, each testable on its own:
 | `isolate.rs`  | One Gram block in, certified (t, sign) points out. Uses Rosser's expected count to decide when to subdivide (maximum depth 40) and raises precision when a sign is uncertain.                                                                                                                                                                                                                                                                                                                                     | `zfun`              |
 | `turing.rs`   | Establishes N(g_M) ≤ M + 1 from its own sorted point vector and Trudgian's bound; refuses a g_M below 168π, a bad g_M, and a g_M without a certified bracket; credits a sign change only to the block holding both of its points.                                                                                                                                                                                                                                                                                 | `zfun`, `theta`     |
 | `verify.rs`   | Orchestration: block list, parallel isolation, collection and sort, the one-pass count of L, comparison with M + 1, `Verdict`. Generic over a `ZSource` trait so tests can inject fakes.                                                                                                                                                                                                                                                                                                                          | all above           |
-| `config.rs`   | `VerifyConfig` with private fields: Gabcke multiplier, precision cap and subdivision-depth cap. `VerifyConfig::new` rejects a multiplier that is not finite or is below 1, and caps above the defaults, so a configuration can only make certification harder.                                                                                                                                                                                                                                                    | —                   |
-| `spacing.rs`  | `--refine` only: bisection of each zero's interval on certified `f64` points until no certified point fits between the ends; normalised spacings; histogram against the Wigner surmise; KS distance.                                                                                                                                                                                                                                                                                                              | `zfun`              |
-| `main.rs`     | clap CLI, `run()` and `prompt_n()` in goldbach's shape, thin `main` excluded from tarpaulin. `run()` takes no configuration and always uses `VerifyConfig::default()`; a `run_with(config, skip_self_check)` exists only under `cfg(test)`.                                                                                                                                                                                                                                                                       | `verify`, `spacing` |
+| `config.rs` | `VerifyConfig` with private fields: Gabcke multiplier, precision cap, subdivision-depth cap and whether uncertain points may be moved. `VerifyConfig::new` rejects a multiplier that is not finite or is below 1, a precision cap below 64 or above the default, and a depth cap above the default; turning point moving off is allowed. Every setting can only make certification harder, and `VerifyConfig::default()` passes `new`'s own validation. | — |
+| `spacing.rs` | `--refine` only: bisection of each zero's interval on certified `f64` points; it stops when the midpoint's sign stays uncertain at 512 bits after 8 nearby `f64` tries, or when no `f64` lies strictly between the ends. Then normalised spacings, histogram against the Wigner surmise, KS distance. | `zfun` |
+| `main.rs` | clap CLI, `run()` and `prompt_n()` in goldbach's shape, thin `main` excluded from tarpaulin. `run()` takes no configuration and always uses `VerifyConfig::default()`, the real Z, the real output writer, the 2 s progress throttle and the real pool. The library's entry points take the `ZSource`, configuration, writer, throttle and pool policy as explicit parameters; `run()` passes the production values. `run_with(config, z_source, writer, throttle, pool_policy, skip_self_check)` lives in `main.rs` under `cfg(test)`, so `main.rs`'s unit tests reach the exit-code mapping. | `verify`, `spacing` |
 
 ## Parallelism and memory
 
@@ -274,8 +278,10 @@ The rule throughout: anything uncertain becomes "not verified", never "verified"
 - **Turing's method fails.** See step 3 of the proof: up to 11 candidates, then exit 3.
 - **Self-check on [200, 300].** At 8 points, both Z paths are evaluated at 128 bits. The check
   fails if any pair of enclosures does not intersect, if the Euler–Maclaurin enclosure is
-  wider than 10⁻¹⁰, or if the Riemann–Siegel enclosure is wider than 2 × Gabcke's bound at
-  that t plus 10⁻¹⁰. On failure: stderr `self-check failed`, exit 5, before any verdict.
+  wider than 10⁻¹⁰ or narrower than twice its own stated remainder bound, or if the
+  Riemann–Siegel enclosure is wider than 2 × Gabcke's bound at that t plus 10⁻¹⁰ or narrower
+  than 2 × Gabcke's bound. The floors catch an implementation that drops a truncation bound.
+  On failure: stderr `self-check failed`, exit 5, before any verdict.
 - **Implementation faults** (see exit 6 in the table). Each prints an `internal error: …`
   line naming the fault and exits 6; none is reported as merely "not verified".
 - **End of input at the prompt.** As goldbach: a newline on stdout, then
@@ -301,7 +307,12 @@ published error bound before planning. A ratio below 1 removes N = 7 from this s
 ## Testing
 
 All tests run in `make test` and the coverage job, and all logic is reachable from them, so
-the per-PR mutation gate (which runs `cargo test`) sees every line. There is no `#[ignore]`
+the per-PR mutation gate (which runs `cargo test`) sees every line. `mutation-rs` is one
+60-minute job, and a mutant that breaks Z can run each end-to-end test to its 30 s timeout;
+V8 measures this before planning. If the projected time exceeds 50 minutes, zeta's
+`.cargo/mutants.toml` skips the end-to-end tests by name (crate-local configuration, not a
+template change), and every line those tests alone reach gets a unit test through a fake or
+the single-block real-Z test. There is no `#[ignore]`
 tier. Larger runs (N = 4 and up) are verification obligations run on `claude` and recorded
 in the PR (V3, V7).
 
@@ -319,7 +330,8 @@ Ground truth comes from outside the crate:
 - **Verdict end to end.** For N = 2 and N = 3, the process exits 0, stdout contains the
   `RH verified` line with 29 and 649, the file has that many non-`#` lines, and the nth Odlyzko
   zero lies in the nth interval. With `--refine` at N = 3, each Odlyzko zero lies inside its
-  refined bracket and every printed w_n equals b − a.
+  refined bracket, every printed w_n equals b − a, every w_n is below 10⁻², and every refined
+  bracket is strictly narrower than the zero's unrefined interval.
 - **Fakes that lower L** (via `ZSource`): a double root (sign touch without change), a
   missing sign change, an irregular pattern after g_M, an always-uncertain sign, an empty
   block list, and an uncertifiable g₋₁ bracket. Each yields exit 3, and each test asserts the
@@ -330,24 +342,31 @@ Ground truth comes from outside the crate:
   [b₋₁, b_M] for the M at which Turing succeeded, and that a duplicate identical (t, sign) is
   counted once.
 - **Gram brackets.** A fake shifted enclosure that contains nπ in θ's range but not g_n
-  fails the endpoint certificate and is unusable; b_n < g_n < c_n holds for the real θ at
-  n = −1, 0, 100 and 1000; b_n is strictly increasing in n.
-- **Turing.** `turing.rs` refuses g_M < 168π, a bad g_M and a g_M without a certified
-  bracket. A Turing-region fake with a pair spanning two blocks yields exit 6, and a spurious
-  extra sign change in the Turing region does not raise any block's credit beyond the
-  certified points. `zeta 2` chooses g_M ≥ 168π. Exhausting exactly 11 candidates yields
-  exit 3 and a 12th is never tried.
+  fails the endpoint certificate and is unusable. For n = −1, 0, 100 and 1000, b_n < g_n < c_n
+  holds where g_n comes from a committed fixture `tests/fixtures/gram_points.txt` computed with
+  mpmath at 30 digits (source and command in its header), not from the crate's own θ. b_n is
+  strictly increasing in n. A fake whose Z sign over [b_n, c_n] is uncertain makes that Gram
+  point unusable and its block merges with the next, both below g_M (L still correct) and in
+  Turing's region (credit computed over the merged block).
+- **Turing.** `turing.rs` refuses g_M < 168π (tested against b_M), a bad g_M and a g_M
+  without a certified bracket. A sign change whose left point is a shared boundary b_k is
+  credited to block k only. Known-answer tests, built from the inequality pinned in V2: at a
+  fixed g_M, one block-count pattern that just establishes N(g_M) ≤ M + 1 and one that just
+  fails to. `zeta 2` chooses g_M ≥ 168π. Exhausting exactly 11 candidates yields exit 3 and a
+  12th is never tried.
 - **Configuration-based negative controls**, through `run_with` with the real Z paths: the
   precision cap at 64 bits with point moving off, and Gabcke's bound × 10⁶ with the self-check
   skipped. Each yields exit 3 and no `zeta_1eN.txt`; each control's reason (an uncertified
   block, or `Turing bound not established`) is measured before the plan is written and then
   asserted.
 - **Configuration safety.** `VerifyConfig::new` rejects a multiplier of 0.5, NaN and
-  infinity, and caps above the defaults. `VerifyConfig` cannot be built by struct literal
+  infinity, a precision cap of 0, 1 and 63, and caps above the defaults;
+  `VerifyConfig::default()` passes `new`'s validation. `VerifyConfig` cannot be built by struct literal
   outside its module. `excludes_zero()` is false for any interval with a NaN or infinite
   bound. `run()` has no configuration parameter.
-- **Self-check.** Each of R7's three conditions (no intersection, Euler–Maclaurin too wide,
-  Riemann–Siegel too wide), injected through `run_with`, yields exit 5.
+- **Self-check.** Each of R7's five conditions (no intersection, Euler–Maclaurin too wide or
+  too narrow, Riemann–Siegel too wide or too narrow), injected through a `ZSource` passed to
+  `run_with`, yields exit 5.
 - **Interval properties (proptest).** Inputs are sampled inside random intervals with
   magnitudes up to |x| = 10⁹. Every operation's enclosure contains the value computed at four
   times the precision with outward rounding. Enclosure width shrinks as precision grows. A
@@ -397,8 +416,8 @@ re-verifies the signs at each listed interval's endpoints is also left for later
 - **R4.** Every sample point is an exact `f64` t whose sign is certified by interval evaluation of Z on [t, t]; L is computed after all blocks finish, by sorting all certified points in [b₋₁, b_M] (including the boundary points) by t, keeping one copy of an identical (t, sign), and counting adjacent pairs with differing signs, where M is the index at which Turing's method succeeded; identical t with different signs, or a NaN t, exits 6; the verdict is verified only when L = M + 1, L < M + 1 prints `RH NOT verified up to <T>` and exits 3, and L > M + 1 prints `internal error: L > M+1` and exits 6.
 - **R5.** Every value the verdict depends on (θ, Gram points, Z, truncation bounds) is computed as an interval whose lower bound is rounded toward −∞ and upper bound toward +∞, and a sign is used only when both bounds are finite and the interval excludes 0.
 - **R6.** Z(t) uses Riemann–Siegel with Gabcke's remainder bound only when the lower bound of the t enclosure is ≥ 200, and Euler–Maclaurin with its remainder bound otherwise; every truncation bound's validity condition is checked against the worst-case end of its argument's enclosure.
-- **R7.** Before any verdict, the CLI evaluates both Z paths at 128 bits at 8 points in [200, 300]; it prints `self-check failed` to stderr and exits 5 if any pair of enclosures fails to intersect, if an Euler–Maclaurin enclosure is wider than 10⁻¹⁰, or if a Riemann–Siegel enclosure is wider than 2 × 0.127·t^(−3/4) + 10⁻¹⁰.
-- **R8.** `zeta_1eN.txt` starts with the header line `# n a b` (or `# n a b t_n w_n` with `--refine`), followed by one line per zero with 0 < t ≤ T in increasing order, where a is rounded down and b rounded up to 30 significant digits, and with `--refine` t_n is the midpoint of the narrowest certified bracket (a, b) and w_n = b − a.
+- **R7.** Before any verdict, the CLI evaluates both Z paths at 128 bits at 8 points in [200, 300]; it prints `self-check failed` to stderr and exits 5 if any pair of enclosures fails to intersect, if an Euler–Maclaurin enclosure is wider than 10⁻¹⁰ or narrower than twice its stated remainder bound, or if a Riemann–Siegel enclosure is wider than 2 × 0.127·t^(−3/4) + 10⁻¹⁰ or narrower than 2 × 0.127·t^(−3/4).
+- **R8.** `zeta_1eN.txt` starts with the header line `# n a b` (or `# n a b t_n w_n` with `--refine`), followed by one line per zero with 0 < t ≤ T in increasing order, where a is rounded down and b rounded up to 30 significant digits, and with `--refine` t_n is the midpoint of the certified bracket (a, b) after bisection stops (midpoint sign uncertain at 512 bits after 8 nearby `f64` tries, or no `f64` strictly between the ends) and w_n = b − a.
 - **R9.** The output file is opened only after a verified verdict, written to `zeta_1eN.tmp.txt` and renamed to `zeta_1eN.txt` when complete; a write failure removes the temporary file and exits 4; each run first removes a stale `zeta_1eN.tmp.txt`; no output file is created on exits 1, 3, 5 or 6.
 - **R10.** Zero isolation runs on a rayon pool built with `ThreadPoolBuilder::build`; if the build fails, stderr shows `Parallel mode unavailable ({error}); falling back to serial.`, and the output file is byte-identical to the parallel run; a worker panic prints `internal error: worker panicked` and exits 6.
 - **R11.** The global rayon pool (`rayon::current_num_threads`, `par_iter` outside the built pool) is not used.
@@ -406,15 +425,15 @@ re-verifies the signs at each listed interval's endpoints is also left for later
 - **R13.** End of input at the N prompt prints a newline to stdout, `Error: no input; pass SIZE as an argument (e.g. zeta 3).` to stderr, and exits 1.
 - **R14.** N = 7 prints `Warning: N=7 writes about 1.5 GB (about 2 GB with --refine) and may take many hours.` to stderr before computation starts.
 - **R15.** The crate is Rust only (`zeta/zeta-rs`), with no Python sub-project, every templated file is rendered from `scripts/crate_templates/` without a template change, and `tests/test_crate_uniformity.py` passes for 13 crates.
-- **R16.** `zeta/zeta-rs/tests/fixtures/odlyzko_1e3.txt` holds the first 649 zeros with its source URL and retrieval date in a header, and tests assert, for N = 2 and N = 3, exit 0, the `RH verified` line with counts 29 and 649, that many non-`#` lines, and each table zero inside its interval (and, with `--refine` at N = 3, inside its refined bracket).
+- **R16.** `zeta/zeta-rs/tests/fixtures/odlyzko_1e3.txt` holds the first 649 zeros with its source URL and retrieval date in a header, and tests assert, for N = 2 and N = 3, exit 0, the `RH verified` line with counts 29 and 649, that many non-`#` lines, and each table zero inside its interval (and, with `--refine` at N = 3, inside its refined bracket, with every w_n below 10⁻² and every refined bracket strictly narrower than the unrefined interval).
 - **R17.** `ZSource` fakes for a double root, a missing sign change, an irregular pattern after g_M, an always-uncertain sign, an empty block list and an uncertifiable g₋₁ bracket each yield exit 3 with the specific reason asserted; fakes for an extra sign change, a sign conflict at one t, a NaN t and a panicking worker each yield exit 6; tests assert that L counts only points in [b₋₁, b_M] for Turing's M and counts a duplicated identical (t, sign) once.
 - **R18.** Proptest samples inputs inside random intervals with magnitudes up to |x| = 10⁹ and asserts that every `Interval` operation's enclosure contains the value computed at four times the working precision with outward rounding, including zero-width inputs to `cos` and `sin`; the `cos`/`sin` radius is max(hi − m, m − lo) rounded toward +∞.
-- **R19.** M is the smallest index such that g_M ≥ max(T, 168π), g_M has a certified bracket, g_M is good, and Turing's method succeeds at g_M, trying at most 11 candidates; `turing.rs` refuses g_M < 168π, a bad g_M and a g_M without a certified bracket; Turing's vector includes every certified boundary point in its range, credits each sign change to the block containing both of its points, and exits 6 on a pair spanning two blocks.
+- **R19.** M is the smallest index such that g_M ≥ max(T, 168π), g_M has a certified bracket, g_M is good, and Turing's method succeeds at g_M, trying at most 11 candidates; `turing.rs` refuses g_M < 168π, a bad g_M and a g_M without a certified bracket; Turing's vector includes every certified boundary point in its range; Turing block j is the closed range [b_j, b_k] with each b_k shared by both neighbours; a sign change is credited to block j exactly when both of its points lie in [b_j, b_k], and an adjacent pair lying in no single block exits 6; the 168π test uses b_M and the inequality's upper height uses c of the last block; known-answer tests at a fixed g_M cover one just-establishing and one just-failing block-count pattern.
 - **R20.** Through `run_with`, the 64-bit precision cap with point moving off and Gabcke's bound × 10⁶ with the self-check skipped each yield exit 3, no `zeta_1eN.txt`, and the reason measured for that control before the plan was written.
 - **R21.** Progress lines `progress: <done>/<total> Gram blocks, t = <t>` go to stderr, with t the highest boundary below which every block has finished, printed when at least 1% more blocks have finished and at least 2 s have passed since the previous line, plus one final line.
 - **R22.** A Gram point is a usable boundary only when θ(b_n) − nπ < 0, θ(c_n) − nπ > 0 and Z's sign over [b_n, c_n] are all certified for `f64` values 2π < b_n < c_n; b_n is then inserted, with that sign, into every vector that counts sign changes across it.
 - **R23.** The sign-change interval containing T is bisected at most 60 times; if the zero's side of T is still uncertain, the run exits 3.
-- **R24.** `VerifyConfig` has private fields; `VerifyConfig::new` rejects a multiplier that is not finite or is below 1 and precision or depth caps above the defaults; `run()` takes no configuration and uses `VerifyConfig::default()`; `run_with` and the self-check skip exist only under `cfg(test)`; no environment variable or CLI flag sets the configuration.
+- **R24.** `VerifyConfig` has private fields (Gabcke multiplier, precision cap, depth cap, point moving); `VerifyConfig::new` rejects a multiplier that is not finite or is below 1, a precision cap below 64 or above the default, and a depth cap above the default; `VerifyConfig::default()` passes that validation; `run()` takes no configuration and uses the defaults with the real Z, writer, throttle and pool; `run_with` and the self-check skip exist only in `main.rs` under `cfg(test)`; no environment variable or CLI flag sets the configuration.
 - **R25.** A test calls `isolate()` on the Gram block containing t ≈ 7005.06 with the real Z paths; at the default depth it returns certified points bracketing both zeros of Lehmer's pair, and with subdivision depth capped at 1 it reports the block unresolved.
 - **V1.** Before the implementation plan is written, run the pilot scan described above on the 1,000 smallest normalised gaps below 10⁷ (zeros from the LMFDB database) and record the minimum ratio of max |Z| to 0.127·t^(−3/4) in the plan; below 10 requires an amendment adding C₁–C₄, below 1 removes N = 7.
 - **V2.** Before implementation, pin against the primary sources and record in the plan: the exact form, constant and validity range of Gabcke's bound; the Euler–Maclaurin and Stirling remainder bounds used; the Turing inequality with Trudgian's constants, validity range and number of blocks needed after g_M; the Gram index of the first Rosser-rule failure; and the location of Lehmer's pair.
@@ -423,6 +442,7 @@ re-verifies the signs at each listed interval's endpoints is also left for later
 - **V5.** Run `zeta 3 --refine` and confirm the histogram's first bin is near empty and the KS distance to the Wigner surmise is below 0.1.
 - **V6.** Time `make test` under tarpaulin on `ubuntu-latest`; no single test exceeds 30 s.
 - **V7.** Run `zeta 4` and `zeta 4 --refine` on `claude`; the count is 10,142, and each of the first 10,142 Odlyzko zeros lies in its interval and in its refined bracket; record times.
+- **V8.** Before the implementation plan is written, time a prototype Riemann–Siegel loop on 64-bit `rug` intervals in a debug build over t ≤ 1000, estimate zeta's mutant count from the per-line rate of goldbach, pi and descartes, and record the projected `mutation-rs` time in the plan; above 50 minutes, the end-to-end tests are skipped in zeta's `.cargo/mutants.toml` and their lines covered by unit tests.
 - **N1.** The CLI never claims RH in general; no code path prints a verification claim beyond T.
 - **N2.** No new native library beyond GMP and MPFR, and no `unsafe` code in the crate.
 - **N3.** No arbitrary-range mode (`--from`/`--to`) in this spec.
@@ -493,3 +513,13 @@ Every serious round-2 finding sat in text the round-1 revision added.
 **Risk.** Finding: proof step 2's "same count" claim was false as written: [b_n, enclosure) was uncertified, safe for L but able to over-credit Turing; b_M was not required to be a sample point, so the last zero could fall between L's and Turing's vectors; de-duplication on identical t hid a sign conflict. Checked sound: the good test over an enclosure, enclosure ordering, b₋₁, f64 resolution (two zeros with no `f64` between them fail closed), the self-check RS bound, widen-only caps. Assumption: none it judged genuinely uncertain; V1 estimated at about 100–160× (unmeasured). Disposition: Addressed (operator: "Apply it"): certified bracket (b_n, c_n) with b_n inserted into both vectors (R22, R4, R19); sign conflict or NaN t exits 6 (R4).
 
 **Adversarial.** Findings: F1 (unsound) "credit by position" was ambiguous for a pair straddling a boundary in Turing's region, so a later block's zero could be credited early and hide an off-line pair; F2 the uncertified b_n sliver; F3 "θ(g_n) encloses nπ" did not prove g_n lies in the enclosure, and a shifted enclosure could cover two zeros; F4 `VerifyConfig` could be built by struct literal or with a NaN multiplier, `excludes_zero()` might pass NaN, and the self-check skip had no confinement; F5 a sign conflict at one t, and a NaN t, were unhandled; F6 R20's controls likely produce a different reason than asserted; F7 `--no-tests=pass` masked a missing tier; F8 the 10⁻¹² `--refine` claim. Most important change: certify every Gram boundary as an `f64` bracket by endpoint signs, insert it into both vectors, and credit a sign change only to a block holding both of its points. Disposition: Addressed (operator: "Apply it", "Drop it", "Certified bracket", "Scoped round 4"): R22 bracket certificate and shifted-enclosure test; R19 crediting with exit 6 on a cross-block pair; R24 private fields, finite ≥ 1 multiplier, NaN-safe `excludes_zero()`, `run_with` only under `cfg(test)`; exit 6 for sign conflict, NaN t and worker panic (R4, R10, R17); R20 reasons measured before planning; release tier dropped (N7); Lehmer control moved to a block-level test (R25).
+
+### Round 4 (scoped: Risk and Adversarial only, reviewed at `370a141`, the round-3 revision)
+
+Scope (operator, 2026-11-23: "Scoped round 4"): the sections round 3 changed. Goal-Fit and Ergonomics were not re-run.
+
+**Risk.** Finding: block membership of a boundary point b_k was undefined, so step 6 read literally exits 6 on every run, and the obvious workaround reintroduces over-crediting; the per-PR mutation gate (`mutation-rs`, one 60-minute job) may not finish once the end-to-end tests run per mutant, since a Z-breaking mutant can reach the 30 s timeout on each (descartes needed about 1.8 s per mutant to fit); `cfg(test)` hooks in the library are not compiled for `main.rs`'s unit tests, so the test seams must live in `main.rs` or be explicit library parameters; R20's "point moving off" was not a `VerifyConfig` field. Checked sound: b_M shared by L and Turing (no zero between b_M and g_M), the θ endpoint certificate at n = −1 (by continuity and uniqueness, not monotonicity), and the Lehmer block (measured cheap). Assumption: the mutation budget fits (V8). Disposition: Addressed (operator, 2026-11-23: "Apply all", "Measure, then decide"): closed-range block membership with shared boundaries (R19); test seams as explicit library parameters with `run_with` in `main.rs` (R24); point moving is a validated field (R24); V8 measures the mutation budget before planning, with a crate-local fallback.
+
+**Adversarial.** Findings: F1 the same block-membership gap; F2 nothing pinned Turing's inequality arithmetic, so an off-by-one or a wrong constant could pass every test; F3 widen-only was not enforced on `default()`, and the self-check had only width ceilings, so dropping Gabcke's widening passed; F4 `run_with` took no `ZSource` or writer, leaving the exit-code mapping untested; F5 a `--refine` that refines nothing passed, and its stop rule was not checkable; F6 the Gram-bracket test had no external oracle and the block-merge path was untested; F7 point moving was missing from `VerifyConfig`. Most important change: define Turing block membership on the certified b-points. Disposition: Addressed (operator: "Apply all"): R19 closed-range membership and known-answer Turing tests; R7 width floors and `default()` validated (R24); `run_with` with `ZSource`, writer, throttle and pool policy; `--refine` stop rule and width assertions (R8, R16); mpmath Gram fixture and merge-path tests; worst-case bracket ends for Turing's 168π test and upper height.
+
+Step 8 stops here (operator: "Stop; go external"). Round 4's findings were definitions, test seams and a CI budget, with no new mechanism; the next instruments are the V1 and V8 measurements and the external review loop.
