@@ -164,11 +164,8 @@ fn from_isolate(error: IsolateError) -> TuringFailure {
 
 /// Outward-rounded enclosure of the right side of Trudgian's eq. 2.1 at `g_p`:
 /// (b / 6pi) ln^2 g_p + ((a - b ln 2pi) / 6pi) ln g_p. `None` when `g_p` is not
-/// finite and positive or a step has no enclosure.
+/// positive (its logarithm has no enclosure) or a step has none.
 fn trudgian_rhs(g_p: f64) -> Option<Interval> {
-    if !g_p.is_finite() || g_p <= 0.0 {
-        return None;
-    }
     let prec = RHS_PRECISION;
     let thousand = Interval::point(1000.0, prec);
     let a = Interval::point(TRUDGIAN_A_MILLIS, prec).div(&thousand).ok()?;
