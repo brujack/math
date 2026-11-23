@@ -7,7 +7,7 @@ fn bench_z(c: &mut Criterion) {
     let mut group = c.benchmark_group("zeta");
     let evaluator =
         RealZ::new(&VerifyConfig::default()).expect("the default configuration builds every rung");
-    for t in [1e4, 1e6] {
+    for t in [1e4, 1e6, 1e7] {
         group.bench_function(format!("z_{t:e}"), |b| b.iter(|| evaluator.z(black_box(t), 128)));
     }
     group.finish();

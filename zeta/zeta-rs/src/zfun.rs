@@ -20,6 +20,10 @@ pub const MIN_RS_HEIGHT: f64 = 200.0;
 /// so a larger request is a mistake (the CLI stops at 10^7), not a need.
 pub const MAX_HEIGHT: f64 = 1e10;
 
+/// Default Riemann-Siegel limit of a `ZEvaluator`: 10x the CLI's 10^7, which
+/// keeps the ln k / 1/sqrt k tables at about 4000 entries.
+pub const DEFAULT_MAX_HEIGHT: f64 = 1e8;
+
 /// Euler-Maclaurin is used only up to this height: its term count grows like t.
 pub const EM_MAX_HEIGHT: f64 = 1e4;
 
@@ -134,6 +138,12 @@ pub struct ZEvaluator {
     theta: ThetaContext,
     multiplier: f64,
     two_pi: Interval,
+    /// Largest height `riemann_siegel` accepts; the tables below cover it.
+    max_height: f64,
+    /// ln k for k = 1..=floor(sqrt(max_height / 2 pi)) + 1 (index k - 1).
+    ln_k: Vec<Interval>,
+    /// 1 / sqrt(k), same indexing.
+    inv_sqrt_k: Vec<Interval>,
     /// B_2k / (2k)! for k = 1..=EM_TERMS.
     em_coefficients: Vec<Interval>,
     /// 4 / ((2 pi)^(2M) (2M - 1/2)), the t-independent factor of Johansson's bound.
@@ -141,8 +151,23 @@ pub struct ZEvaluator {
 }
 
 impl ZEvaluator {
-    /// Build the evaluator for `prec` bits; the Gabcke multiplier comes from `cfg`.
+    /// Build the evaluator for `prec` bits with Riemann-Siegel up to
+    /// `DEFAULT_MAX_HEIGHT`; the Gabcke multiplier comes from `cfg`.
     pub fn new(prec: u32, cfg: &VerifyConfig) -> Result<ZEvaluator, ZError> {
+        Self::with_max_height(prec, cfg, DEFAULT_MAX_HEIGHT)
+    }
+
+    /// Like `new`, with Riemann-Siegel accepted up to `max_height` (a larger
+    /// limit costs a larger table). `max_height` must lie in
+    /// `MIN_RS_HEIGHT..=MAX_HEIGHT`, else `HeightOutOfRange`.
+    pub fn with_max_height(
+        prec: u32,
+        cfg: &VerifyConfig,
+        max_height: f64,
+    ) -> Result<ZEvaluator, ZError> {
+        if !(MIN_RS_HEIGHT..=MAX_HEIGHT).contains(&max_height) {
+            return Err(ZError::HeightOutOfRange);
+        }
         let theta = ThetaContext::new(prec)?;
         let two_pi = pi_interval(prec)?.mul(&Interval::point(2.0, prec));
         let em_coefficients = (1..=EM_TERMS)
@@ -151,11 +176,24 @@ impl ZEvaluator {
         let degree = Interval::point(2.0 * EM_TERMS as f64 - 0.5, prec);
         let em_remainder_scale =
             Interval::point(4.0, prec).div(&power(&two_pi, 2 * EM_TERMS).mul(&degree))?;
+        // N = floor(a) <= floor(sqrt(max_height / 2 pi)); the extra entry absorbs
+        // the f64 rounding of that estimate.
+        let terms = (max_height / std::f64::consts::TAU).sqrt().floor() as u64 + 1;
+        let mut ln_k = Vec::new();
+        let mut inv_sqrt_k = Vec::new();
+        for k in 1..=terms {
+            let k = Interval::point(k as f64, prec);
+            ln_k.push(k.ln()?);
+            inv_sqrt_k.push(Interval::point(1.0, prec).div(&k.sqrt()?)?);
+        }
         Ok(ZEvaluator {
             prec,
             theta,
             multiplier: cfg.gabcke_multiplier(),
             two_pi,
+            max_height,
+            ln_k,
+            inv_sqrt_k,
             em_coefficients,
             em_remainder_scale,
         })
@@ -172,9 +210,9 @@ impl ZEvaluator {
 
     /// Z(t) by the Riemann-Siegel formula with C_0 and Gabcke's remainder bound.
     ///
-    /// `t` must lie in `MIN_RS_HEIGHT..=MAX_HEIGHT`, else `HeightOutOfRange`.
+    /// `t` must lie in `MIN_RS_HEIGHT..=max_height`, else `HeightOutOfRange`.
     pub fn riemann_siegel(&self, t: f64) -> Result<Interval, ZError> {
-        if !(MIN_RS_HEIGHT..=MAX_HEIGHT).contains(&t) {
+        if !(MIN_RS_HEIGHT..=self.max_height).contains(&t) {
             return Err(ZError::HeightOutOfRange);
         }
         let prec = self.prec;
@@ -183,11 +221,15 @@ impl ZEvaluator {
         let n = Self::certified_floor(&a)?;
         let p = a.sub(&Interval::point(n as f64, prec));
         let theta = self.theta.theta(t)?;
+        let terms = n as usize;
+        let (Some(ln_k), Some(inv_sqrt_k)) = (self.ln_k.get(..terms), self.inv_sqrt_k.get(..terms))
+        else {
+            return Err(ZError::HeightOutOfRange);
+        };
         let mut sum = Interval::point(0.0, prec);
-        for k in 1..=n {
-            let k = Interval::point(k as f64, prec);
-            let phase = theta.sub(&height.mul(&k.ln()?));
-            sum = sum.add(&phase.cos().div(&k.sqrt()?)?);
+        for (ln, inv_sqrt) in ln_k.iter().zip(inv_sqrt_k) {
+            let phase = theta.sub(&height.mul(ln));
+            sum = sum.add(&phase.cos().mul(inv_sqrt));
         }
         let main = sum.mul(&Interval::point(2.0, prec));
         // C_0 = cos(2 pi (p^2 - p - 1/16)) / cos(2 pi p).
@@ -564,11 +606,43 @@ mod tests {
     }
 
     #[test]
-    fn riemann_siegel_refuses_beyond_the_height_limit() {
+    fn riemann_siegel_refuses_beyond_the_evaluator_s_table() {
         let ev = evaluator();
         assert_eq!(ev.riemann_siegel(f64::INFINITY).unwrap_err(), ZError::HeightOutOfRange);
-        let beyond = f64::from_bits(MAX_HEIGHT.to_bits() + 1);
+        let beyond = f64::from_bits(DEFAULT_MAX_HEIGHT.to_bits() + 1);
         assert_eq!(ev.riemann_siegel(beyond).unwrap_err(), ZError::HeightOutOfRange);
+        let small = ZEvaluator::with_max_height(PREC, &VerifyConfig::default(), 300.0).unwrap();
+        assert!(small.riemann_siegel(300.0).is_ok());
+        let just_above = f64::from_bits(300.0f64.to_bits() + 1);
+        assert_eq!(small.riemann_siegel(just_above).unwrap_err(), ZError::HeightOutOfRange);
+    }
+
+    #[test]
+    fn with_max_height_rejects_unusable_limits() {
+        let cfg = VerifyConfig::default();
+        let just_below = f64::from_bits(MIN_RS_HEIGHT.to_bits() - 1);
+        let just_above = f64::from_bits(MAX_HEIGHT.to_bits() + 1);
+        for limit in [f64::NAN, just_below, just_above, 0.0, f64::INFINITY] {
+            let err = ZEvaluator::with_max_height(PREC, &cfg, limit).unwrap_err();
+            assert_eq!(err, ZError::HeightOutOfRange, "limit = {limit}");
+        }
+        assert!(ZEvaluator::with_max_height(PREC, &cfg, MIN_RS_HEIGHT).is_ok());
+    }
+
+    #[test]
+    fn tables_hold_ln_k_and_inverse_sqrt_k_up_to_the_limit() {
+        // floor(sqrt(300 / 2 pi)) + 1 = 7 entries.
+        let ev = ZEvaluator::with_max_height(PREC, &VerifyConfig::default(), 300.0).unwrap();
+        assert_eq!(ev.ln_k.len(), 7);
+        assert_eq!(ev.inv_sqrt_k.len(), 7);
+        for (index, (ln, inv)) in ev.ln_k.iter().zip(&ev.inv_sqrt_k).enumerate() {
+            let k = (index + 1) as f64;
+            for (value, want) in [(ln, k.ln()), (inv, 1.0 / k.sqrt())] {
+                assert!((value.lo().to_f64() - want).abs() < 1e-15, "k = {k}");
+                assert!((value.hi().to_f64() - want).abs() < 1e-15, "k = {k}");
+                assert!(value.lo() <= value.hi());
+            }
+        }
     }
 
     #[test]
@@ -709,7 +783,10 @@ mod tests {
 
     #[test]
     fn riemann_siegel_accepts_the_height_limit() {
-        assert!(evaluator().riemann_siegel(MAX_HEIGHT).is_ok());
+        let ev = ZEvaluator::with_max_height(PREC, &VerifyConfig::default(), MAX_HEIGHT).unwrap();
+        assert!(ev.riemann_siegel(MAX_HEIGHT).is_ok());
+        let beyond = f64::from_bits(MAX_HEIGHT.to_bits() + 1);
+        assert_eq!(ev.riemann_siegel(beyond).unwrap_err(), ZError::HeightOutOfRange);
     }
 
     #[test]
