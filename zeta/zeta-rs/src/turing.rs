@@ -16,7 +16,7 @@ use crate::config::VerifyConfig;
 use crate::interval::{Interval, Sign};
 use crate::isolate::{GramBlock, IsolateError, Point, isolate_block};
 use crate::theta::theta;
-use crate::zfun::{ZFault, ZSource};
+use crate::zfun::{MAX_HEIGHT, ZFault, ZSource};
 use rug::Float;
 use rug::float::{Constant, Round};
 
@@ -68,6 +68,10 @@ pub enum InternalFault {
     NanHeight,
     /// T is NaN or infinite.
     NonFiniteHeight,
+    /// T is above `zfun::MAX_HEIGHT`, the largest height Z is evaluated at.
+    HeightAboveRange,
+    /// A Gram index would overflow `i64`.
+    IndexOverflow,
     /// Eq. 2.1 gave a bound that is not finite and positive, or its height was not.
     BadBlockBound,
     /// `isolate_block` refused an interval that Turing built itself.
@@ -83,6 +87,8 @@ impl std::fmt::Display for InternalFault {
             Self::SignConflict => f.write_str("one height carries two different certified signs"),
             Self::NanHeight => f.write_str("a point height is NaN"),
             Self::NonFiniteHeight => f.write_str("T is not finite"),
+            Self::HeightAboveRange => f.write_str("T is above the largest height Z supports"),
+            Self::IndexOverflow => f.write_str("a Gram index overflowed"),
             Self::BadBlockBound => f.write_str("eq. 2.1 gave no finite positive block bound"),
             Self::Isolate(e) => write!(f, "isolate_block refused a Turing block: {e}"),
         }
@@ -341,6 +347,11 @@ fn walk_start(theta_lo: f64) -> i64 {
     ((theta_lo / PI).floor() as i64 - 2).max(-1)
 }
 
+/// The Gram index after `n`, or an internal fault where it would overflow.
+fn next_index(n: i64) -> Result<i64, InternalFault> {
+    n.checked_add(1).ok_or(InternalFault::IndexOverflow)
+}
+
 /// True when theta(T) - n*pi <= 0 is certified for the enclosure `theta_t` of theta(T),
 /// i.e. g_n >= T (theta is increasing at these heights): its upper end is at or
 /// below n*pi rounded down.
@@ -359,10 +370,13 @@ fn first_candidate(t: f64, cfg: &VerifyConfig) -> Result<i64, TuringFailure> {
     if !t.is_finite() {
         return Err(InternalFault::NonFiniteHeight.into());
     }
+    if t > MAX_HEIGHT {
+        return Err(InternalFault::HeightAboveRange.into());
+    }
     let theta_t = theta(t.max(RANGE_START), cfg.precision_cap()).map_err(ZFault::Theta)?;
     let mut n = walk_start(theta_t.lo().to_f64());
     while !g_at_or_above(n, &theta_t) {
-        n += 1;
+        n = next_index(n)?;
     }
     Ok(n)
 }
@@ -668,6 +682,8 @@ mod tests {
         shows(InternalFault::SignConflict, "one height carries two different certified signs");
         shows(InternalFault::NanHeight, "a point height is NaN");
         shows(InternalFault::NonFiniteHeight, "T is not finite");
+        shows(InternalFault::HeightAboveRange, "T is above the largest height Z supports");
+        shows(InternalFault::IndexOverflow, "a Gram index overflowed");
         shows(InternalFault::BadBlockBound, "eq. 2.1 gave no finite positive block bound");
         shows(
             InternalFault::Isolate(IsolateError::BadInterval),
@@ -860,6 +876,34 @@ mod tests {
         assert_eq!(first(0.0), 289);
         assert_eq!(first(-5.0), 289);
         assert_eq!(first(100.0), 289);
+    }
+
+    #[test]
+    fn a_t_above_the_z_range_is_refused_before_any_work() {
+        let z = fake(wave);
+        for t in [1e300, MAX_HEIGHT * 2.0, MAX_HEIGHT.next_up()] {
+            assert_eq!(
+                choose_m(t, &z, &cfg()),
+                Err(TuringFailure::Internal(InternalFault::HeightAboveRange)),
+                "t = {t}"
+            );
+        }
+        assert_eq!((z.over_calls.get(), z.z_calls.get()), (0, 0));
+    }
+
+    /// T = MAX_HEIGHT is inside the range: the walk finds g_M at about theta(1e10)/pi ~ 3e10.
+    #[test]
+    fn a_t_at_the_z_range_is_accepted_by_the_index_search() {
+        let m = first_candidate(MAX_HEIGHT, &cfg()).unwrap();
+        assert!((1e10..1e11).contains(&(m as f64)), "m = {m}");
+    }
+
+    #[test]
+    fn the_index_step_refuses_to_overflow() {
+        assert_eq!(next_index(5), Ok(6));
+        assert_eq!(next_index(-1), Ok(0));
+        assert_eq!(next_index(i64::MAX - 1), Ok(i64::MAX));
+        assert_eq!(next_index(i64::MAX), Err(InternalFault::IndexOverflow));
     }
 
     #[test]
