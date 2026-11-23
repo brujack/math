@@ -43,9 +43,10 @@ if printf '%s\n' "${staged_files}" | grep -qE '^(scripts|tests|\.claude/scripts|
 fi
 
 # Secret scan (audit 2026-11-16 F9). Ported from ai-devops scripts/pre-commit
-# (resolve_ggshield_bin, run_secret_scan); every exit status is captured with
-# `cmd && rc=0 || rc=$?` because this hook runs under `set -e`, which would
-# otherwise abort before the status is read.
+# (resolve_ggshield_bin, run_secret_scan). This hook runs under `set -e`. The
+# call site `run_secret_scan || exit 1` suspends it inside the function, so a
+# plain `$?` would work there; the statuses are still captured with
+# `cmd && rc=0 || rc=$?` so a bare call would not abort before reading them.
 #
 # Binary resolution order: an explicit GGSHIELD_BIN override, then
 # `command -v`, then a short list of absolute fallback paths. A hook inherits
