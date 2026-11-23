@@ -89,13 +89,15 @@ tdd: required
 acceptance:
   - cmd: make -C zeta/zeta-rs test
     exit_code: 0
+  - cmd: make test
+    exit_code: 0
 max_retries: 3
-files_touched: [zeta/zeta-rs/src/interval.rs, zeta/zeta-rs/src/lib.rs, zeta/zeta-rs/Cargo.toml, zeta/zeta-rs/Cargo.lock]
+files_touched: [zeta/zeta-rs/src/interval.rs, zeta/zeta-rs/src/lib.rs, zeta/zeta-rs/Cargo.toml, zeta/zeta-rs/Cargo.lock, tests/test_release_workflows.py, tests/test_gmp_cache_workflow.py]
 depends_on: [1]
 requirements: [R5, R18]
 ```
 
-- [ ] Add `rug = { version = "1.30", features = ["integer", "float"] }` to `Cargo.toml` and refresh `Cargo.lock`.
+- [ ] Add `rug = { version = "1.30", features = ["integer", "float"] }` to `Cargo.toml` and refresh `Cargo.lock`. zeta now locks `gmp-mpfr-sys`: add `zeta` to `gmp_crates` in `tests/test_release_workflows.py`, set its `no_lgpl` pin (about line 677) back to 7, and make the `test_gmp_cache_workflow.py` comment say 7 of the 13 (verify with `grep -L gmp-mpfr-sys */*-rs/Cargo.lock | wc -l`). The acceptance gate adds `make test`.
 - [ ] `pub struct Interval { lo: Float, hi: Float }` (`#[derive(Debug, Clone)]`), constructors `point(f64, prec)`, `new(lo, hi)`; `add`, `sub`, `mul`, `div` (error when the divisor contains 0), `sqrt`, `ln` (error when lo ≤ 0), `exp`, `cos`, `sin`, `widen(&Float)`, `excludes_zero()`, `sign() -> Option<Sign>`, `width()`.
 - [ ] `lo` uses `Round::Down`, `hi` uses `Round::Up` (`*_round` methods, `AddAssignRound` and siblings).
 - [ ] `excludes_zero()` is true only when both bounds are finite and `lo > 0` or `hi < 0`.
