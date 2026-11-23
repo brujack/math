@@ -66,6 +66,7 @@ Master status index for all specs and implementation plans in this directory.
 | 2026-11-17 | [svg-output-and-prompt-reprompt](plans/2026-11-17-svg-output-and-prompt-reprompt.md) | [spec](specs/2026-11-17-svg-output-and-prompt-reprompt-design.md) | Done (PR2 math#229, PR1 math#230, PR3 math#231) |
 | 2026-11-18 | [descartes-drawn-circle-counts](plans/2026-11-18-descartes-drawn-circle-counts.md) | [spec](specs/2026-11-18-descartes-drawn-circle-counts-design.md) | Done (math#232) |
 | 2026-11-18 | [descartes-parallel-packing](plans/2026-11-18-descartes-parallel-packing.md) | [spec](specs/2026-11-18-descartes-parallel-packing-design.md) | Done |
+| 2026-11-23 | zeta-rh-verification (plan pending) | [spec](specs/2026-11-23-zeta-rh-verification-design.md) | Pending |
 | 2026-10-31 | [shared-push-content-gate](plans/2026-10-31-shared-push-content-gate.md) | ai-config `2026-10-30-shared-push-content-gate-design.md` (cross-repo) | Done |
 
 ---
@@ -165,6 +166,7 @@ Add a new row to the group that matches its priority.
 
 | Feature                     | Notes                                                                                                                                                                     |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prime counts from zeta zeros | Rebuild π(x) from Riemann's explicit formula using `zeta N --refine` zeros, with `prime/` exact counts as ground truth, so the staircase sharpens as zeros are added. Spec `specs/2026-11-23-zeta-rh-verification-design.md` N4. |
 | Descartes graphical output | A Desmos-style window outside the terminal (macOS first) for `descartes` circles and packings. v1 draws braille only; `render` reads a plain `(k, x, y)` circle list so a new back end needs no math changes. Spec `specs/2026-11-15-descartes-design.md` N1. |
 | amicable-rs has no interactive prompt | `amicable.py` prompts for N at a terminal; `amicable-rs` has no prompt (0 `read_line` calls), so the pair differs on a bare TTY run. Found while scoping the 2026-11-17 re-prompt spec (N4 keeps it out). |
 | amicable prompt traceback on undecodable input | `amicable.py`'s re-prompt loop (math PR1, 2026-11-17 spec R3) guards `input()` with `except EOFError` only, so undecodable bytes at a terminal raise `UnicodeDecodeError` as a traceback (exit 1, no loop); before, `int(input())` sat inside `except ValueError` and printed `Invalid input.`. `descartes.py` had this shape already. Found by bug-scan. |
