@@ -231,6 +231,32 @@ requirements: [R23, R25]
 
 **Interfaces:** Consumes `ZSource`, `VerifyConfig`, `gram_bracket`. Produces `isolate_block`, `resolve_straddle`, `BlockPoints`.
 
+### Task 7b (id 13): Certified Gram boundaries (R22)
+
+Added 2026-11-23 by the Task 7 spec review: no task built Z's sign over [b_n, c_n], so every block boundary would rest on an uncertified bracket.
+
+```yaml-task
+id: 13
+description: Add a Z enclosure over an interval of t, certify_boundary(n) returning b_n, its certified sign and a ZeroFreeBracket that only this function can build, and record isolate.rs and boundary.rs in the crate CLAUDE.md
+role: executor
+model: sonnet
+tdd: required
+acceptance:
+  - cmd: make -C zeta/zeta-rs test
+    exit_code: 0
+max_retries: 3
+files_touched: [zeta/zeta-rs/src/zfun.rs, zeta/zeta-rs/src/boundary.rs, zeta/zeta-rs/src/lib.rs, zeta/zeta-rs/CLAUDE.md]
+depends_on: [7]
+requirements: [R5, R22]
+```
+
+- [ ] `ZSource` gains an interval evaluation (Z enclosed over every t in [lo, hi], refusing as the point path does); `RealZ` implements it through the existing Riemann–Siegel and Euler–Maclaurin paths with an interval t.
+- [ ] `boundary::certify_boundary(n, z, cfg) -> Result<Option<Boundary>, ZFault>`: `gram_bracket(n, prec)` certifies θ − nπ at both ends; Z's sign over [b_n, c_n] is certified through the precision ladder; `Ok(None)` when any part stays uncertain (an unusable Gram point, R22), `Err` only for a fault. `Boundary { point: (b_n, sign), bracket: ZeroFreeBracket }`; `ZeroFreeBracket` has private fields and no public constructor.
+- [ ] Tests, first: g₋₁ and a mid-range n certify; a fake whose Z straddles 0 over the bracket gives `Ok(None)`; a fault propagates; the sign agrees with (−1)^n at a good Gram point and is opposite at a known bad one (g_126).
+- [ ] `zeta-rs/CLAUDE.md` layout lines for `isolate.rs` and `boundary.rs`, and the 2^16-point block budget (effective depth 16 below the configured cap of 40).
+
+**Interfaces:** Produces `boundary::{certify_boundary, Boundary, ZeroFreeBracket}` and `ZSource`'s interval method. Task 7's `resolve_straddle` then takes `Option<&ZeroFreeBracket>`.
+
 ### Task 8: Turing's method
 
 ```yaml-task
@@ -244,7 +270,7 @@ acceptance:
     exit_code: 0
 max_retries: 3
 files_touched: [zeta/zeta-rs/src/turing.rs, zeta/zeta-rs/src/lib.rs]
-depends_on: [7]
+depends_on: [7, 13]
 requirements: [R19]
 ```
 
@@ -273,6 +299,7 @@ requirements: [R4, R10, R11, R17]
 ```
 
 - [ ] `verify(T, z_source, cfg, pool_policy) -> Verdict` (`Verified{count, intervals}`, `NotVerified{reason, blocks}`, `InternalFault{reason}`): choose M, build blocks over [b₋₁, b_M], isolate on a pool built with `ThreadPoolBuilder::build` (serial fallback with `Parallel mode unavailable ({error}); falling back to serial.`; a worker panic becomes `InternalFault`), collect, sort, keep one identical (t, sign), count L.
+- [ ] Rosser neighbour search (spec, Error handling; added 2026-11-23 by the Task 7 spec review): a block left unresolved is merged with its neighbouring block(s), whose expected counts add, and the union is re-isolated; points join the same collected vector. Fake test: a Rosser-failure pair (one block one change short, its neighbour one change over) verifies; a block still short after merging is `NotVerified`.
 - [ ] Sign conflict at one t, NaN t, L > M + 1 → `InternalFault`; L < M + 1 → `NotVerified`.
 - [ ] Add `rayon = "1"` to `Cargo.toml` and refresh `Cargo.lock`. No use of the global rayon pool.
 - [ ] Tests, first: fakes for a double root, a missing sign change, an irregular pattern after g_M, an always-uncertain sign, an empty block list, an uncertifiable g₋₁ (each `NotVerified` with its reason); an extra sign change, a sign conflict, a NaN t, a panicking worker (each `InternalFault`); L counts only [b₋₁, b_M]; a duplicate (t, sign) counts once; serial and parallel give identical intervals.
