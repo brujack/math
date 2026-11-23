@@ -45,7 +45,7 @@ to stderr. `--refine` and progress output are not implemented yet.
 | ---- | ------- |
 | 0 | Verified up to T |
 | 1 | Bad input: N outside 2–7, not a number, or end of input at the prompt |
-| 3 | Not verified (an uncertified block, or Turing's bound not established); no output file |
+| 3 | Not verified: any uncertain result (an unresolved Gram block, too few zeros isolated, Turing's bound not established, a zero's side of T uncertain, no certified left boundary or Gram block); no output file |
 | 4 | A write to stdout, stderr or the output file failed (a failed table write removes the temporary file; if only stdout fails after the table was saved, the table stays) |
 | 5 | Self-check failed: the Riemann–Siegel and Euler–Maclaurin paths disagree at a test point |
 | 6 | Internal fault during verification (a Z fault, a NaN height, a sign conflict, a worker panic) |
