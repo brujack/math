@@ -355,6 +355,20 @@ mod tests {
         (m, if r_hi > r_lo { r_hi } else { r_lo })
     }
 
+    /// Result bounds are at least as wide as f(m) -/+ r (outward-rounded at 2000
+    /// bits), clamped to [-1, 1]; `m` is the midpoint the implementation uses.
+    fn covers_formula<F: Fn(&Float, Round) -> Float>(
+        res: &Interval,
+        m: &Float,
+        r: &Float,
+        f: F,
+    ) -> bool {
+        let want_lo =
+            rounded(2000, &f(m, Round::Down) - r, Round::Down).max(&Float::with_val(2000, -1));
+        let want_hi = rounded(2000, &f(m, Round::Up) + r, Round::Up).min(&Float::with_val(2000, 1));
+        *res.lo() <= want_lo && *res.hi() >= want_hi
+    }
+
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(256))]
 
@@ -444,15 +458,9 @@ mod tests {
         #[test]
         fn cos_sin_bounds_cover_the_midpoint_formula((c, w) in centred(), p in 2u32..120) {
             let (i, _, _) = make(p, c, c + w);
-            let width = Float::with_val(2000, i.hi() - i.lo());
-            prop_assume!(width <= 3 && i.lo().is_finite());
             let (m, r) = exact_midpoint_and_radius(&i, p);
-            for (res, f) in [(i.cos(), Float::with_val(2000, m.cos_ref())), (i.sin(), Float::with_val(2000, m.sin_ref()))] {
-                let want_lo = Float::with_val(2000, &f - &r).max(&Float::with_val(2000, -1));
-                let want_hi = Float::with_val(2000, &f + &r).min(&Float::with_val(2000, 1));
-                prop_assert!(*res.lo() <= want_lo, "lo {} > {}", res.lo(), want_lo);
-                prop_assert!(*res.hi() >= want_hi, "hi {} < {}", res.hi(), want_hi);
-            }
+            prop_assert!(covers_formula(&i.cos(), &m, &r, |x, rd| rounded(2000, x.cos_ref(), rd)));
+            prop_assert!(covers_formula(&i.sin(), &m, &r, |x, rd| rounded(2000, x.sin_ref(), rd)));
         }
 
         /// Same formula check on intervals straddling zero at low precision, where
@@ -465,12 +473,8 @@ mod tests {
         ) {
             let (i, _, _) = make(p, -a, b);
             let (m, r) = exact_midpoint_and_radius(&i, p);
-            for (res, f) in [(i.cos(), Float::with_val(2000, m.cos_ref())), (i.sin(), Float::with_val(2000, m.sin_ref()))] {
-                let want_lo = Float::with_val(2000, &f - &r).max(&Float::with_val(2000, -1));
-                let want_hi = Float::with_val(2000, &f + &r).min(&Float::with_val(2000, 1));
-                prop_assert!(*res.lo() <= want_lo, "lo {} > {}", res.lo(), want_lo);
-                prop_assert!(*res.hi() >= want_hi, "hi {} < {}", res.hi(), want_hi);
-            }
+            prop_assert!(covers_formula(&i.cos(), &m, &r, |x, rd| rounded(2000, x.cos_ref(), rd)));
+            prop_assert!(covers_formula(&i.sin(), &m, &r, |x, rd| rounded(2000, x.sin_ref(), rd)));
         }
 
         /// Raising the precision on identical inputs only tightens the result.
@@ -481,7 +485,6 @@ mod tests {
             pa in (positive(-200, 200), positive(-200, 200)),
             pb in (positive(-200, 200), positive(-200, 200)),
             e in (-20.0f64..20.0, -20.0f64..20.0),
-            (c, w) in centred(),
             r in endpoint(-200, 200),
             p in 2u32..=200,
         ) {
@@ -490,7 +493,6 @@ mod tests {
             let (qa, ..) = make(p, pa.0, pa.1);
             let (qb, ..) = make(p, pb.0, pb.1);
             let (ie, ..) = make(p, e.0, e.1);
-            let (ic, ..) = make(p, c, c + w);
             let q = 4 * p;
             let up = |i: &Interval| at_prec(i, q);
             prop_assert!(nested(&up(&ia).add(&up(&ib)), &ia.add(&ib)));
@@ -500,8 +502,8 @@ mod tests {
             prop_assert!(nested(&up(&qa).sqrt().unwrap(), &qa.sqrt().unwrap()));
             prop_assert!(nested(&up(&qa).ln().unwrap(), &qa.ln().unwrap()));
             prop_assert!(nested(&up(&ie).exp(), &ie.exp()));
-            prop_assert!(nested(&up(&ic).cos(), &ic.cos()));
-            prop_assert!(nested(&up(&ic).sin(), &ic.sin()));
+            // cos/sin are excluded: the midpoint form recentres per precision, so
+            // nesting across precisions is not implied (see the formula tests).
             let rr = fl(p, r);
             prop_assert!(nested(&up(&ia).widen(&Float::with_val(q, &rr)), &ia.widen(&rr)));
             let exact = Float::with_val(2000, ia.hi() - ia.lo());
