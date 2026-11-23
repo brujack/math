@@ -44,7 +44,8 @@ jobs:
             twin-primes/twin-primes-rs:twin_primes \
             goldbach/goldbach-rs:goldbach \
             descartes/descartes-rs:descartes \
-            sq/sq-rs:sq; do
+            sq/sq-rs:sq \
+            zeta/zeta-rs:zeta; do
             dir="${pair%:*}"
             bench="${pair##*:}"
             printf 'Benchmarking %s (--bench %s)...\n' "${dir}" "${bench}"
