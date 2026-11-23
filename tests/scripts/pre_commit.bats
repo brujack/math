@@ -20,6 +20,47 @@ setup() {
     # Default: show-toplevel returns our fake root; no staged files
     export MOCK_GIT_SHOW_TOPLEVEL="${BATS_TEST_TMPDIR}/fake-root"
     export MOCK_GIT_DIFF_NAMES=""
+    # The hook's real fallback list names absolute install paths that exist on
+    # dev machines, so a test that leaves it alone can run the real ggshield.
+    # Empty fallbacks and no override make tests/mocks/ggshield on PATH the only
+    # binary any test can reach unless it says otherwise.
+    export GGSHIELD_FALLBACK_PATHS=""
+    unset GGSHIELD_BIN
+}
+
+# A recording ggshield stub at an absolute path, for the override and fallback
+# branches. It logs under a distinct name so a test can tell it from the PATH
+# mock, and exits with MOCK_GGSHIELD_EXIT like the mock does.
+make_stub() {
+    local stub="$1"
+    mkdir -p "$(dirname "${stub}")"
+    printf '#!/usr/bin/env bash\nprintf "stub %%s %%s\\n" "%s" "$*" >> "${MOCK_CALLS_FILE}"\nexit "${MOCK_GGSHIELD_EXIT:-0}"\n' \
+        "${stub}" > "${stub}"
+    chmod +x "${stub}"
+}
+
+# PATH with every entry that holds an executable ggshield removed (the mocks
+# dir and any real install, so a dev machine's ggshield is never run) and a
+# dir holding only the git and make mocks prepended, so `command -v ggshield`
+# finds nothing.
+path_without_ggshield() {
+    local no_ggs="${BATS_TEST_TMPDIR}/no_ggs"
+    mkdir -p "${no_ggs}"
+    ln -sf "${REPO_ROOT}/tests/mocks/git"  "${no_ggs}/git"
+    ln -sf "${REPO_ROOT}/tests/mocks/make" "${no_ggs}/make"
+    local entry kept=""
+    local -a entries
+    IFS=':' read -r -a entries <<< "${PATH}"
+    for entry in "${entries[@]}"; do
+        [[ -n "${entry}" && -x "${entry}/ggshield" ]] && continue
+        kept="${kept:+${kept}:}${entry}"
+    done
+    printf '%s:%s' "${no_ggs}" "${kept}"
+}
+
+@test "path_without_ggshield leaves no ggshield resolvable" {
+    run env "PATH=$(path_without_ggshield)" bash -c 'command -v ggshield'
+    [ "$status" -ne 0 ]
 }
 
 teardown() {
@@ -60,24 +101,104 @@ teardown() {
     [ "$status" -ne 0 ]
 }
 
-@test "ggshield not on PATH exits 0" {
-    # Build a mock dir with git+make but no ggshield
-    local no_ggs="${BATS_TEST_TMPDIR}/no_ggs"
-    mkdir -p "${no_ggs}"
-    ln -sf "${REPO_ROOT}/tests/mocks/git"  "${no_ggs}/git"
-    ln -sf "${REPO_ROOT}/tests/mocks/make" "${no_ggs}/make"
-    # Strip tests/mocks from PATH and prepend our ggshield-free dir
-    local base_path
-    base_path="$(printf '%s' "${PATH}" | tr ':' '\n' \
-        | grep -v "${REPO_ROOT}/tests/mocks" | paste -sd: -)"
-    run env "PATH=${no_ggs}:${base_path}" bash "${REPO_ROOT}/scripts/pre-commit"
+@test "ggshield unresolvable anywhere: exits 0 but says the scan did not run" {
+    run env "PATH=$(path_without_ggshield)" bash "${REPO_ROOT}/scripts/pre-commit"
     [ "$status" -eq 0 ]
+    [[ "$output" == *"SECRET SCAN DID NOT RUN"* ]]
+    assert_no_match "ggshield"
 }
 
-@test "ggshield failure exits non-zero" {
+@test "ggshield on PATH runs the pre-commit scan with --fail-on-server-error" {
+    run bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -eq 0 ]
+    grep -qx "ggshield secret scan pre-commit --fail-on-server-error" "${MOCK_CALLS_FILE}"
+}
+
+@test "ggshield off PATH but at a fallback path is found and run" {
+    local stub="${BATS_TEST_TMPDIR}/fallback/ggshield"
+    make_stub "${stub}"
+    export GGSHIELD_FALLBACK_PATHS="${BATS_TEST_TMPDIR}/absent/ggshield ${stub}"
+    run env "PATH=$(path_without_ggshield)" bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -eq 0 ]
+    grep -qx "stub ${stub} secret scan pre-commit --fail-on-server-error" "${MOCK_CALLS_FILE}"
+    [[ "$output" != *"SECRET SCAN DID NOT RUN"* ]]
+}
+
+@test "override set to an executable is used ahead of PATH" {
+    local stub="${BATS_TEST_TMPDIR}/override/ggshield"
+    make_stub "${stub}"
+    export GGSHIELD_BIN="${stub}"
+    run bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -eq 0 ]
+    grep -qx "stub ${stub} secret scan pre-commit --fail-on-server-error" "${MOCK_CALLS_FILE}"
+    assert_no_match "^ggshield "
+}
+
+@test "override set but empty falls through to PATH" {
+    export GGSHIELD_BIN=""
+    run bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -eq 0 ]
+    grep -qx "ggshield secret scan pre-commit --fail-on-server-error" "${MOCK_CALLS_FILE}"
+}
+
+@test "override set to a non-executable path blocks the commit" {
+    local stub="${BATS_TEST_TMPDIR}/override/ggshield"
+    make_stub "${stub}"
+    chmod -x "${stub}"
+    export GGSHIELD_BIN="${stub}"
+    run bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"is set but not executable"* ]]
+    assert_no_match "ggshield"
+}
+
+@test "ggshield exit 1 (secret found) blocks the commit" {
     export MOCK_GGSHIELD_EXIT=1
     run bash "${REPO_ROOT}/scripts/pre-commit"
     [ "$status" -ne 0 ]
+}
+
+@test "ggshield exit 2 (usage error) blocks the commit" {
+    export MOCK_GGSHIELD_EXIT=2
+    run bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"(exit 2)"* ]]
+}
+
+@test "ggshield exit 3 (cannot authenticate) warns and lets the commit through" {
+    export MOCK_GGSHIELD_EXIT=3
+    run bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"(exit 3)"* ]]
+    [[ "$output" == *"SECRET SCAN DID NOT RUN"* ]]
+}
+
+@test "ggshield exit 4 (server unavailable) blocks the commit" {
+    export MOCK_GGSHIELD_EXIT=4
+    run bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"(exit 4)"* ]]
+}
+
+@test "ggshield exit 128 blocks the commit" {
+    export MOCK_GGSHIELD_EXIT=128
+    run bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"(exit 128)"* ]]
+}
+
+@test "ggshield unknown exit code fails closed" {
+    export MOCK_GGSHIELD_EXIT=7
+    run bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"(exit 7)"* ]]
+}
+
+@test "ggshield exit 0 lets the commit through with no warning" {
+    export MOCK_GGSHIELD_EXIT=0
+    run bash "${REPO_ROOT}/scripts/pre-commit"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"SECRET SCAN DID NOT RUN"* ]]
 }
 
 @test "staged file in factorial/factorial-rs/ does NOT also lint sibling factorial/" {

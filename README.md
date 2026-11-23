@@ -428,7 +428,7 @@ Pushes to master or main are also judged by ai-config's shared push-content gate
 `scripts/pre-push` loads it from GitHub and refuses the push when it cannot load; a
 feature push makes no network call.
 
-`install-hooks` symlinks `scripts/pre-commit` into `.git/hooks/pre-commit`. The hook runs `make lint` on staged sub-projects, runs root `make lint-python` once when root-scope Python (`scripts/`, `tests/`, `.claude/scripts/`, `typings/`) is staged, and scans for secrets with `ggshield` (skipped gracefully if not installed). CI secret-scan via gitleaks is a backstop — local scanning catches secrets before they leave the machine.
+`install-hooks` symlinks `scripts/pre-commit` into `.git/hooks/pre-commit`. The hook runs `make lint` on staged sub-projects, runs root `make lint-python` once when root-scope Python (`scripts/`, `tests/`, `.claude/scripts/`, `typings/`) is staged, and scans for secrets with `ggshield`, found on `PATH` or at a known install path. If ggshield cannot be found, or cannot authenticate (exit 3), the hook prints `SECRET SCAN DID NOT RUN` and lets the commit through; every other non-zero exit blocks it. CI secret-scan via gitleaks is a backstop — local scanning catches secrets before they leave the machine.
 
 Install ggshield: `brew install gitguardian/tap/ggshield && ggshield auth login`.
 

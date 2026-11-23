@@ -42,6 +42,104 @@ if printf '%s\n' "${staged_files}" | grep -qE '^(scripts|tests|\.claude/scripts|
     make -C "${REPO_ROOT}" lint-python
 fi
 
-if command -v ggshield &>/dev/null; then
-    ggshield secret scan pre-commit
-fi
+# Secret scan (audit 2026-11-16 F9). Ported from ai-devops scripts/pre-commit
+# (resolve_ggshield_bin, run_secret_scan). This hook runs under `set -e`. The
+# call site `run_secret_scan || exit 1` suspends it inside the function, so a
+# plain `$?` would work there; the statuses are still captured with
+# `cmd && rc=0 || rc=$?` so a bare call would not abort before reading them.
+#
+# Binary resolution order: an explicit GGSHIELD_BIN override, then
+# `command -v`, then a short list of absolute fallback paths. A hook inherits
+# whoever invoked git, and a non-interactive PATH (cron, editor-spawned git,
+# ssh) can miss a ggshield that is installed under a package-manager prefix.
+# GGSHIELD_FALLBACK_PATHS overrides the fallback list and exists for test
+# isolation only: the real default paths are installed on dev machines, so a
+# test cannot express "absent everywhere" through PATH alone.
+readonly GGSHIELD_DEFAULT_FALLBACKS='/opt/homebrew/bin/ggshield /home/linuxbrew/.linuxbrew/bin/ggshield /usr/local/bin/ggshield'
+
+resolve_ggshield_bin() {
+    if [[ -n "${GGSHIELD_BIN:-}" ]]; then
+        if [[ ! -x "${GGSHIELD_BIN}" ]]; then
+            printf 'pre-commit: GGSHIELD_BIN=%s is set but not executable\n' "${GGSHIELD_BIN}" >&2
+            return 2
+        fi
+        printf '%s\n' "${GGSHIELD_BIN}"
+        return 0
+    fi
+
+    local found
+    found="$(command -v ggshield 2>/dev/null)" || found=""
+    if [[ -n "${found}" ]]; then
+        printf '%s\n' "${found}"
+        return 0
+    fi
+
+    local candidates candidate
+    candidates="${GGSHIELD_FALLBACK_PATHS-${GGSHIELD_DEFAULT_FALLBACKS}}"
+    # shellcheck disable=SC2086 # candidates is a deliberately space-separated path list
+    for candidate in ${candidates}; do
+        if [[ -x "${candidate}" ]]; then
+            printf '%s\n' "${candidate}"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# ggshield exit codes: 0 clean, 1 secret found, 2 usage error (also a 401
+# mid-scan), 3 could not authenticate, 4 server unavailable, 128 unexpected.
+# Only 3 warns: blocking on an expired token would push people to
+# `--no-verify`, which also skips lint. 4 blocks because a partial scan can
+# drop findings. --fail-on-server-error (ggshield >= 1.50.0) stops a local
+# `fail_on_server_error: false` from turning that 4 into a silent 0. Unknown
+# codes fail closed.
+run_secret_scan() {
+    local bin_path resolve_rc
+    bin_path="$(resolve_ggshield_bin)" && resolve_rc=0 || resolve_rc=$?
+
+    if [[ "${resolve_rc}" -eq 2 ]]; then
+        return 1
+    fi
+
+    if [[ "${resolve_rc}" -ne 0 ]]; then
+        printf 'pre-commit: ggshield not found on PATH or in any known install location\n' >&2
+        printf 'pre-commit: install with: brew install gitguardian/tap/ggshield\n' >&2
+        printf 'pre-commit: SECRET SCAN DID NOT RUN\n' >&2
+        return 0
+    fi
+
+    local scan_rc
+    "${bin_path}" secret scan pre-commit --fail-on-server-error && scan_rc=0 || scan_rc=$?
+
+    case "${scan_rc}" in
+        0)
+            return 0
+            ;;
+        1)
+            return 1
+            ;;
+        3)
+            printf 'pre-commit: ggshield could not authenticate (exit 3) — expired/invalid credential\n' >&2
+            printf 'pre-commit: run: ggshield auth login\n' >&2
+            printf 'pre-commit: SECRET SCAN DID NOT RUN\n' >&2
+            return 0
+            ;;
+        4)
+            printf 'pre-commit: GitGuardian unreachable (exit 4) — blocking: a partial scan can discard findings\n' >&2
+            printf 'pre-commit: retry the commit when the network is back\n' >&2
+            return 1
+            ;;
+        2)
+            printf 'pre-commit: ggshield failed (exit 2) — usage error or a 401 during the scan, blocking\n' >&2
+            printf 'pre-commit: if ggshield is older than 1.50.0, upgrade it (--fail-on-server-error needs 1.50.0)\n' >&2
+            return 1
+            ;;
+        *)
+            printf 'pre-commit: ggshield failed (exit %s) — unexpected exit code, blocking\n' "${scan_rc}" >&2
+            return 1
+            ;;
+    esac
+}
+
+run_secret_scan || exit 1
