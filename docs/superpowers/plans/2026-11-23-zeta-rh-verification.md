@@ -180,7 +180,7 @@ requirements: [R6, R7]
 - [ ] Tests, first: Z at the first zeros' neighbours has the sign Odlyzko's table implies; Z near Lehmer's pair (zeros 7005.062866175, 7005.100564674) is positive at 7005.0817 (the peak); each of the five self-check conditions fails on an injected `ZSource`; dispatch uses the lower bound (an interval straddling 200 goes to Euler–Maclaurin).
 - [ ] Bench `z(t)` at t = 10⁴ and t = 10⁶.
 
-**Interfaces:** Produces `zeta::zfun::{z, riemann_siegel, euler_maclaurin, self_check}` and `trait ZSource { fn z(&self, t: f64, prec: u32) -> Interval; }` with the real implementation `RealZ`.
+**Interfaces:** Produces `zeta::zfun::{ZEvaluator, RealZ, ZSource, ZPaths, ZError, ZFault, SelfCheckFailure, self_check, gabcke_bound, SELF_CHECK_PREC}`. `trait ZSource { fn z(&self, t: f64, prec: u32) -> Result<Option<Interval>, ZFault>; }`: a refusal (height out of range, ambiguous N, singular C₀, precision rung not held) is `Ok(None)`; a fault (imaginary part of e^{iθ}ζ excludes 0, θ or interval error, NaN height) is `Err` and maps to exit 6. `RealZ::new(&VerifyConfig)` holds one `ZEvaluator` per rung 64/128/256/512 up to the precision cap; `ZEvaluator` tabulates ln k and 1/√k up to its max height (default 1e8). The self-check takes paths built with `VerifyConfig::default()` at `SELF_CHECK_PREC`.
 
 ### Task 6: CLI front end for PR 1
 
