@@ -10,10 +10,21 @@ struct Cli {
     exponent: Option<u32>,
 }
 
+/// The stub never claims verification: it always reports that and exits 3.
+fn run<W: std::io::Write>(_cli: &Cli, err: &mut W) -> std::io::Result<i32> {
+    writeln!(err, "RH NOT verified: zeta is under construction")?;
+    Ok(3)
+}
+
+/// Maps a `run` outcome to a process exit code; a failed stderr write is exit 1.
+fn exit_code(result: std::io::Result<i32>) -> i32 {
+    result.unwrap_or(1)
+}
+
 #[cfg(not(tarpaulin_include))]
 fn main() {
     let cli = Cli::parse();
-    let _ = cli.exponent;
+    std::process::exit(exit_code(run(&cli, &mut std::io::stderr())));
 }
 
 #[cfg(test)]
@@ -36,6 +47,76 @@ mod tests {
     fn exponent_is_optional_and_parsed() {
         assert_eq!(Cli::try_parse_from(["zeta"]).unwrap().exponent, None);
         assert_eq!(Cli::try_parse_from(["zeta", "3"]).unwrap().exponent, Some(3));
+    }
+
+    struct FailingWriter;
+
+    impl std::io::Write for FailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("stderr closed"))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Err(std::io::Error::other("stderr closed"))
+        }
+    }
+
+    #[test]
+    fn stub_exits_with_code_and_exact_stderr_line() {
+        for args in [vec!["zeta"], vec!["zeta", "3"], vec!["zeta", "99"]] {
+            let cli = Cli::try_parse_from(&args).unwrap();
+            let mut err = Vec::new();
+            let code = run(&cli, &mut err).unwrap();
+            assert_eq!(code, 3, "{args:?}");
+            assert_eq!(
+                String::from_utf8(err).unwrap(),
+                "RH NOT verified: zeta is under construction\n",
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn failing_stderr_is_an_error_and_maps_to_exit_1() {
+        let cli = Cli::try_parse_from(["zeta"]).unwrap();
+        let result = run(&cli, &mut FailingWriter);
+        assert!(result.is_err());
+        assert_eq!(exit_code(result), 1);
+    }
+
+    const CHILD_ENV: &str = "ZETA_TEST_RUN_MAIN";
+
+    /// Runs the real `main` in a child process (it calls `process::exit`).
+    /// Outside the child this test is a no-op; `main_exits_with_stub_code` drives it.
+    /// The child is started with the single argument `3`: libtest reads it as a
+    /// name filter and `Cli::parse` reads it as the exponent, so this is the only
+    /// test name that may contain a `3`.
+    #[cfg(not(tarpaulin_include))]
+    #[test]
+    fn child_runs_main_3() {
+        if std::env::var_os(CHILD_ENV).is_some() {
+            main();
+        }
+    }
+
+    #[cfg(not(tarpaulin_include))]
+    #[test]
+    fn main_exits_with_stub_code() {
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("3")
+            .env(CHILD_ENV, "1")
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(3));
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("RH NOT verified: zeta is under construction\n"), "{stderr}");
+        assert!(!String::from_utf8_lossy(&out.stdout).contains("RH NOT verified"));
+    }
+
+    #[test]
+    fn exit_code_passes_through_success_codes() {
+        assert_eq!(exit_code(Ok(3)), 3);
+        assert_eq!(exit_code(Ok(0)), 0);
     }
 
     #[test]
