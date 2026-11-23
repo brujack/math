@@ -104,7 +104,7 @@ requirements: [R5, R18]
 - [ ] `cos`/`sin`: argument wider than π returns [−1, 1]; otherwise m = midpoint, r = max(hi − m, m − lo) rounded up, f(m) evaluated rounded down and rounded up, result widened by r.
 - [ ] Tests, written first: proptest over random intervals with magnitudes up to 10⁹, each operation's enclosure contains the value computed at 4× precision with outward rounding; zero-width `cos`/`sin` inputs; width shrinks as precision grows; `excludes_zero()` false for NaN and infinite bounds; error paths for `div` and `ln`.
 
-**Interfaces:** Produces `zeta::interval::{Interval, Sign}`.
+**Interfaces:** Produces `zeta::interval::{Interval, Sign, IntervalError}`; `new`, `div`, `ln` and `sqrt` return `Result<_, IntervalError>` (`sqrt` errors when lo < 0); a NaN from an indeterminate form widens that bound to its infinity.
 
 ### Task 3: Widen-only configuration
 
