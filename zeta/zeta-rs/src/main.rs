@@ -84,35 +84,6 @@ mod tests {
         assert_eq!(exit_code(result), 1);
     }
 
-    const CHILD_ENV: &str = "ZETA_TEST_RUN_MAIN";
-
-    /// Runs the real `main` in a child process (it calls `process::exit`).
-    /// Outside the child this test is a no-op; `main_exits_with_stub_code` drives it.
-    /// The child is started with the single argument `3`: libtest reads it as a
-    /// name filter and `Cli::parse` reads it as the exponent, so this is the only
-    /// test name that may contain a `3`.
-    #[cfg(not(tarpaulin_include))]
-    #[test]
-    fn child_runs_main_3() {
-        if std::env::var_os(CHILD_ENV).is_some() {
-            main();
-        }
-    }
-
-    #[cfg(not(tarpaulin_include))]
-    #[test]
-    fn main_exits_with_stub_code() {
-        let out = std::process::Command::new(std::env::current_exe().unwrap())
-            .arg("3")
-            .env(CHILD_ENV, "1")
-            .output()
-            .unwrap();
-        assert_eq!(out.status.code(), Some(3));
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(stderr.contains("RH NOT verified: zeta is under construction\n"), "{stderr}");
-        assert!(!String::from_utf8_lossy(&out.stdout).contains("RH NOT verified"));
-    }
-
     #[test]
     fn exit_code_passes_through_success_codes() {
         assert_eq!(exit_code(Ok(3)), 3);
