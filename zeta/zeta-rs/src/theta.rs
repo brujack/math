@@ -100,21 +100,6 @@ fn series_coefficient(k: usize, prec: u32) -> Result<Interval, ThetaError> {
     Ok(integer_interval(num, prec)?.div(&divisor)?)
 }
 
-/// Upper bound of the Stirling remainder |R_n(w)| for w with |w| = `modulus`
-/// (an interval) and ph w in (0, pi/2), where sec^{2n}(ph/2) <= 2^n.
-fn remainder_bound(modulus: &Interval, prec: u32) -> Result<Float, ThetaError> {
-    let n = SERIES_ORDER;
-    let mut power = modulus.clone();
-    for _ in 1..2 * n - 1 {
-        power = power.mul(modulus);
-    }
-    let (num, den) = BERNOULLI[n - 1];
-    let two_pow = integer_interval(1i128 << n, prec)?;
-    let numerator = integer_interval(num.abs(), prec)?.mul(&two_pow);
-    let scale = integer_interval(i128::from(den) * (2 * n as i128) * (2 * n as i128 - 1), prec)?;
-    Ok(numerator.div(&scale.mul(&power))?.hi().clone())
-}
-
 /// Complex interval, just enough for powers of conj(w).
 struct Complex {
     re: Interval,
@@ -130,54 +115,115 @@ impl Complex {
     }
 }
 
-/// Im Ln Gamma(w) for w = x + iy, x > 0: the Stirling series with remainder.
-fn im_ln_gamma_stirling(x: &Interval, y: &Interval, prec: u32) -> Result<Interval, ThetaError> {
-    let half = Interval::point(0.5, prec);
-    let q = x.mul(x).add(&y.mul(y));
-    let ln_modulus = q.ln()?.mul(&half);
-    // Im[(w - 1/2) Ln w - w]
-    let lead = x.sub(&half).mul(&y.div(x)?.atan()).add(&y.mul(&ln_modulus)).sub(y);
-    // conj(w)^j / |w|^(2j) for j = 1, 3, 5, ...
-    let zero = Interval::point(0.0, prec);
-    let conj = Complex { re: x.clone(), im: zero.sub(y) };
-    let step = conj.mul(&conj);
-    let q_step = q.mul(&q);
-    let mut power = conj;
-    let mut q_power = q.clone();
-    let mut series = zero.clone();
-    for k in 1..SERIES_ORDER {
-        let term = power.im.div(&q_power)?.mul(&series_coefficient(k, prec)?);
-        series = series.add(&term);
-        power = power.mul(&step);
-        q_power = q_power.mul(&q_step);
-    }
-    let remainder = remainder_bound(&q.sqrt()?, prec)?;
-    Ok(lead.add(&series).widen(&remainder))
+fn validate_height(t: f64) -> Result<(), ThetaError> {
+    if t.is_finite() && t > 0.0 { Ok(()) } else { Err(ThetaError::HeightNotPositive) }
 }
 
-/// Certified enclosure of theta(t) at `prec` bits.
+/// Everything about theta that depends on the precision only: build it once and
+/// evaluate many heights. It holds no caches that change after construction, so a
+/// shared reference may be used from several threads.
+#[derive(Debug, Clone)]
+pub struct ThetaContext {
+    prec: u32,
+    half: Interval,
+    /// Re(z + SHIFT) = 10.25.
+    shifted_re: Interval,
+    /// 0.25 + k for k = 0..SHIFT, the poles of the recurrence.
+    recurrence_re: Vec<Interval>,
+    /// B_2k / (2k (2k - 1)) for k = 1..SERIES_ORDER.
+    coefficients: Vec<Interval>,
+    /// 2^n |B_2n| / (2n (2n - 1)), the numerator of the remainder bound.
+    remainder_scale: Interval,
+    ln_pi: Interval,
+}
+
+impl ThetaContext {
+    /// Precompute the t-independent constants at `prec` bits; a precision outside
+    /// `prec_min()..=MAX_PREC` gives `PrecisionOutOfRange`.
+    pub fn new(prec: u32) -> Result<ThetaContext, ThetaError> {
+        if !(rug::float::prec_min()..=MAX_PREC).contains(&prec) {
+            return Err(ThetaError::PrecisionOutOfRange);
+        }
+        let n = SERIES_ORDER;
+        let mut coefficients = Vec::with_capacity(n - 1);
+        for k in 1..n {
+            coefficients.push(series_coefficient(k, prec)?);
+        }
+        let (num, den) = BERNOULLI[n - 1];
+        let denominator = i128::from(den) * (2 * n as i128) * (2 * n as i128 - 1);
+        let remainder_scale = integer_interval(num.abs(), prec)?
+            .mul(&integer_interval(1i128 << n, prec)?)
+            .div(&integer_interval(denominator, prec)?)?;
+        Ok(ThetaContext {
+            prec,
+            half: Interval::point(0.5, prec),
+            shifted_re: Interval::point(f64::from(SHIFT) + 0.25, prec),
+            recurrence_re: (0..SHIFT).map(|k| Interval::point(f64::from(k) + 0.25, prec)).collect(),
+            coefficients,
+            remainder_scale,
+            ln_pi: pi_interval(prec)?.ln()?,
+        })
+    }
+
+    /// Upper bound of the Stirling remainder 2^n |B_2n| / (2n(2n-1) |w|^(2n-1)),
+    /// given an enclosure of q^(2n-1) where q = |w|^2. |w|^(2n-1) = sqrt(q^(2n-1)),
+    /// rounded down in its lower end, and the quotient's upper end is the bound.
+    fn remainder_bound(&self, q_odd_power: &Interval) -> Result<Float, ThetaError> {
+        let modulus_power = q_odd_power.sqrt()?;
+        Ok(self.remainder_scale.div(&modulus_power)?.hi().clone())
+    }
+
+    /// Im Ln Gamma(w) for w = shifted_re + iy: the Stirling series with remainder.
+    fn im_ln_gamma_stirling(&self, y: &Interval) -> Result<Interval, ThetaError> {
+        let x = &self.shifted_re;
+        let q = x.mul(x).add(&y.mul(y));
+        let ln_modulus = q.ln()?.mul(&self.half);
+        // Im[(w - 1/2) Ln w - w]
+        let lead = x.sub(&self.half).mul(&y.div(x)?.atan()).add(&y.mul(&ln_modulus)).sub(y);
+        // conj(w)^j / |w|^(2j) for j = 1, 3, 5, ...
+        let zero = Interval::point(0.0, self.prec);
+        let conj = Complex { re: x.clone(), im: zero.sub(y) };
+        let step = conj.mul(&conj);
+        let q_step = q.mul(&q);
+        let mut power = conj;
+        let mut q_power = q;
+        let mut series = zero;
+        for coefficient in &self.coefficients {
+            let term = power.im.div(&q_power)?.mul(coefficient);
+            series = series.add(&term);
+            power = power.mul(&step);
+            q_power = q_power.mul(&q_step);
+        }
+        // After the loop q_power = q^(2n-1).
+        let remainder = self.remainder_bound(&q_power)?;
+        Ok(lead.add(&series).widen(&remainder))
+    }
+
+    /// Certified enclosure of theta(t).
+    ///
+    /// `t` is taken as the exact binary value of the f64. Heights that are zero,
+    /// negative or not finite give `HeightNotPositive`. The result is valid for
+    /// every t > 0 but is meant for t >= 2*pi.
+    pub fn theta(&self, t: f64) -> Result<Interval, ThetaError> {
+        validate_height(t)?;
+        // t * 0.5 is exact in MPFR, unlike t / 2.0 on f64 subnormals.
+        let y = Interval::point(t, self.prec).mul(&self.half);
+        let mut value = self.im_ln_gamma_stirling(&y)?;
+        for xk in &self.recurrence_re {
+            value = value.sub(&y.div(xk)?.atan());
+        }
+        Ok(value.sub(&y.mul(&self.ln_pi)))
+    }
+}
+
+/// Certified enclosure of theta(t) at `prec` bits: a context built for one call.
+/// Use `ThetaContext` to evaluate many heights at one precision.
 ///
-/// `t` is taken as the exact binary value of the f64. Heights that are zero,
-/// negative or not finite give `HeightNotPositive`; a precision outside the MPFR
-/// range gives `PrecisionOutOfRange`. The result is valid for every t > 0 but is
-/// meant for t >= 2*pi.
+/// Heights that are zero, negative or not finite give `HeightNotPositive`; a
+/// precision outside `prec_min()..=MAX_PREC` gives `PrecisionOutOfRange`.
 pub fn theta(t: f64, prec: u32) -> Result<Interval, ThetaError> {
-    if !(t.is_finite() && t > 0.0) {
-        return Err(ThetaError::HeightNotPositive);
-    }
-    if !(rug::float::prec_min()..=MAX_PREC).contains(&prec) {
-        return Err(ThetaError::PrecisionOutOfRange);
-    }
-    // t * 0.5 is exact in MPFR, unlike t / 2.0 on f64 subnormals.
-    let y = Interval::point(t, prec).mul(&Interval::point(0.5, prec));
-    let x = Interval::point(f64::from(SHIFT) + 0.25, prec);
-    let mut value = im_ln_gamma_stirling(&x, &y, prec)?;
-    for k in 0..SHIFT {
-        let xk = Interval::point(f64::from(k) + 0.25, prec);
-        value = value.sub(&y.div(&xk)?.atan());
-    }
-    let ln_pi = pi_interval(prec)?.ln()?;
-    Ok(value.sub(&y.mul(&ln_pi)))
+    validate_height(t)?;
+    ThetaContext::new(prec)?.theta(t)
 }
 
 /// Certification precisions tried in order: 64, 128, 256, then `cap` itself.
@@ -195,6 +241,9 @@ const RUNGS: u32 = 40;
 /// Newton steps on the closed-form asymptotic theta and on the real enclosure.
 const ASYMPTOTIC_STEPS: usize = 40;
 const EXACT_STEPS: usize = 4;
+
+/// Precision of the f64 estimate's theta evaluations.
+const ESTIMATE_PREC: u32 = 64;
 
 /// Brent's asymptotic form of theta for t >= 10 (error below 1e-9 at 14).
 fn asymptotic_theta(t: f64) -> f64 {
@@ -227,9 +276,9 @@ fn asymptotic_start(n: i64) -> f64 {
 /// function is convex and increasing, then a few steps on the real theta. Only
 /// the starting point of the certified search, so a poor value costs rungs, not
 /// soundness.
-fn estimate_gram_point<F>(n: i64, f: &F) -> Option<f64>
+fn estimate_gram_point<G>(n: i64, f: &G) -> Option<f64>
 where
-    F: Fn(f64, u32) -> Result<Interval, ThetaError>,
+    G: Fn(f64) -> Result<Interval, ThetaError>,
 {
     let target = n as f64 * std::f64::consts::PI;
     let mut t = asymptotic_start(n);
@@ -237,7 +286,7 @@ where
         t -= (asymptotic_theta(t) - target) / asymptotic_slope(t);
     }
     for _ in 0..EXACT_STEPS {
-        let mid = midpoint_f64(&f(t, 64).ok()?);
+        let mid = midpoint_f64(&f(t).ok()?);
         t -= (mid - target) / asymptotic_slope(t);
     }
     t.is_finite().then_some(t)
@@ -247,9 +296,9 @@ where
 /// of `want`: below for a negative theta - n*pi, above for a positive one) at
 /// which `f - target` has a certified sign `want`. `None` when the search
 /// leaves (2*pi, f64::MAX] or runs out of rungs.
-fn certified_end<F>(f: &F, target: &Interval, prec: u32, estimate: f64, want: Sign) -> Option<f64>
+fn certified_end<G>(f: &G, target: &Interval, estimate: f64, want: Sign) -> Option<f64>
 where
-    F: Fn(f64, u32) -> Result<Interval, ThetaError>,
+    G: Fn(f64) -> Result<Interval, ThetaError>,
 {
     let bits = estimate.to_bits();
     for j in 0..RUNGS {
@@ -262,7 +311,7 @@ where
         if !t.is_finite() || t <= std::f64::consts::TAU {
             return None;
         }
-        if f(t, prec).ok()?.sub(target).sign() == Some(want) {
+        if f(t).ok()?.sub(target).sign() == Some(want) {
             return Some(t);
         }
     }
@@ -270,33 +319,40 @@ where
 }
 
 /// Bracket of g_n around `estimate` certified at exactly `prec` bits.
-fn bracket_around<F>(n: i64, estimate: f64, prec: u32, f: &F) -> Option<(f64, f64)>
+fn bracket_around<G>(n: i64, estimate: f64, prec: u32, f: &G) -> Option<(f64, f64)>
 where
-    F: Fn(f64, u32) -> Result<Interval, ThetaError>,
+    G: Fn(f64) -> Result<Interval, ThetaError>,
 {
     let target = integer_interval(i128::from(n), prec).ok()?.mul(&pi_interval(prec).ok()?);
-    let left = certified_end(f, &target, prec, estimate, Sign::Negative);
-    let right = certified_end(f, &target, prec, estimate, Sign::Positive);
+    let left = certified_end(f, &target, estimate, Sign::Negative);
+    let right = certified_end(f, &target, estimate, Sign::Positive);
     Some((left?, right?))
 }
 
-/// `bracket_around` over the precision ladder up to `cap`.
-fn bracket_with_estimate<F>(n: i64, cap: u32, estimate: f64, f: &F) -> Option<(f64, f64)>
+/// `bracket_around` over the precision ladder up to `cap`; `make(p)` builds the
+/// theta evaluator for precision p once per rung.
+fn bracket_with_estimate<M, G>(n: i64, cap: u32, estimate: f64, make: &M) -> Option<(f64, f64)>
 where
-    F: Fn(f64, u32) -> Result<Interval, ThetaError>,
+    M: Fn(u32) -> Result<G, ThetaError>,
+    G: Fn(f64) -> Result<Interval, ThetaError>,
 {
-    precision_ladder(cap).into_iter().find_map(|p| bracket_around(n, estimate, p, f))
+    precision_ladder(cap).into_iter().find_map(|p| {
+        let theta_at = make(p).ok()?;
+        bracket_around(n, estimate, p, &theta_at)
+    })
 }
 
-/// `gram_bracket` with an injectable theta enclosure.
-fn bracket_with<F>(n: i64, cap: u32, f: &F) -> Option<(f64, f64)>
+/// `gram_bracket` with an injectable theta evaluator factory.
+fn bracket_with<M, G>(n: i64, cap: u32, make: &M) -> Option<(f64, f64)>
 where
-    F: Fn(f64, u32) -> Result<Interval, ThetaError>,
+    M: Fn(u32) -> Result<G, ThetaError>,
+    G: Fn(f64) -> Result<Interval, ThetaError>,
 {
     if n < -1 || !(rug::float::prec_min()..=MAX_PREC).contains(&cap) {
         return None;
     }
-    bracket_with_estimate(n, cap, estimate_gram_point(n, f)?, f)
+    let estimate = estimate_gram_point(n, &make(ESTIMATE_PREC).ok()?)?;
+    bracket_with_estimate(n, cap, estimate, make)
 }
 
 /// Certified bracket of the Gram point g_n, the t > 2*pi solution of
@@ -310,7 +366,7 @@ where
 /// 256 up to `prec`; `None` when n < -1, `prec` is outside
 /// `prec_min()..=MAX_PREC`, or nothing is certified within the cap.
 pub fn gram_bracket(n: i64, prec: u32) -> Option<(f64, f64)> {
-    bracket_with(n, prec, &theta)
+    bracket_with(n, prec, &|p| ThetaContext::new(p).map(|ctx| move |t| ctx.theta(t)))
 }
 
 #[cfg(test)]
@@ -391,6 +447,42 @@ mod tests {
             assert_eq!(got.num, want.num, "B_{} numerator", 2 * (k + 1));
             assert_eq!(got.den, want.den, "B_{} denominator", 2 * (k + 1));
         }
+    }
+
+    fn same_bits(a: &Interval, b: &Interval) -> bool {
+        a.lo() == b.lo() && a.hi() == b.hi() && a.prec() == b.prec()
+    }
+
+    #[test]
+    fn a_context_gives_exactly_the_one_shot_enclosures() {
+        for p in [64, 128, 512] {
+            let ctx = ThetaContext::new(p).unwrap();
+            for t in [6.3, 9.667, 14.134725141734693, 100.0, 1000.0, 1.0e7] {
+                let (a, b) = (ctx.theta(t).unwrap(), theta(t, p).unwrap());
+                assert!(same_bits(&a, &b), "t={t} p={p}");
+                // Reusing the context changes nothing.
+                assert!(same_bits(&a, &ctx.theta(t).unwrap()), "t={t} p={p} reuse");
+            }
+        }
+    }
+
+    #[test]
+    fn a_context_rejects_bad_precision_and_bad_heights() {
+        for p in [0, MAX_PREC + 1, u32::MAX] {
+            assert_eq!(ThetaContext::new(p).unwrap_err(), ThetaError::PrecisionOutOfRange);
+        }
+        assert!(ThetaContext::new(MAX_PREC).is_ok());
+        let ctx = ThetaContext::new(64).unwrap();
+        for t in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(ctx.theta(t).unwrap_err(), ThetaError::HeightNotPositive);
+        }
+        assert!(format!("{ctx:?}").starts_with("ThetaContext"));
+    }
+
+    #[test]
+    fn the_one_shot_reports_a_bad_height_before_a_bad_precision() {
+        assert_eq!(theta(-1.0, 0).unwrap_err(), ThetaError::HeightNotPositive);
+        assert_eq!(theta(1.0, 0).unwrap_err(), ThetaError::PrecisionOutOfRange);
     }
 
     #[test]
@@ -482,6 +574,16 @@ mod tests {
         Float::with_val(256, x)
     }
 
+    type ThetaAt<'a> = Box<dyn Fn(f64) -> Result<Interval, ThetaError> + 'a>;
+
+    /// Lift a `(t, prec)` fake into the per-precision factory the search takes.
+    fn at_prec<'a, F>(f: F) -> impl Fn(u32) -> Result<ThetaAt<'a>, ThetaError> + 'a
+    where
+        F: Fn(f64, u32) -> Result<Interval, ThetaError> + Copy + 'a,
+    {
+        move |p| Ok(Box::new(move |t| f(t, p)) as ThetaAt<'a>)
+    }
+
     fn point(x: f64) -> Result<Interval, ThetaError> {
         Ok(Interval::point(x, 64))
     }
@@ -527,7 +629,7 @@ mod tests {
     #[test]
     fn estimate_lands_near_the_gram_point() {
         for (n, g) in fixture_rows() {
-            let est = estimate_gram_point(n, &theta).unwrap();
+            let est = estimate_gram_point(n, &|t| theta(t, 64)).unwrap();
             let err = (exact(est) - &g).abs();
             assert!(err < 1e-11, "n={n}: estimate {est} off by {err}");
         }
@@ -578,7 +680,10 @@ mod tests {
         want = want.abs() * Float::with_val(800, Integer::from(1) << n);
         want /= Float::with_val(800, 2 * n * (2 * n - 1));
         want /= Float::with_val(800, rug::ops::Pow::pow(&m, 2 * n - 1));
-        let got = remainder_bound(&Interval::point(10.75, 256), 256).unwrap();
+        let ctx = ThetaContext::new(256).unwrap();
+        let q = Interval::point(10.75 * 10.75, 256);
+        let q_odd_power = (1..2 * n - 1).fold(q.clone(), |acc, _| acc.mul(&q));
+        let got = ctx.remainder_bound(&q_odd_power).unwrap();
         assert!(got >= want, "bound {got} below exact {want}");
         let ceiling = Float::with_val(800, &want * (Float::with_val(800, 1) + 1e-20));
         assert!(got <= ceiling, "bound {got} too loose against {want}");
@@ -599,7 +704,7 @@ mod tests {
     fn a_wide_enclosure_is_not_a_certificate_near_the_crossing() {
         let wide = |t: f64, p: u32| theta(t, p).map(|i| i.widen(&Float::with_val(64, 1e-6)));
         for (n, g) in fixture_rows() {
-            let (b, c) = bracket_with(n, 128, &wide).unwrap();
+            let (b, c) = bracket_with(n, 128, &at_prec(wide)).unwrap();
             let pi = Float::with_val(256, rug::float::Constant::Pi);
             let target = Float::with_val(256, &pi * n);
             let (tb, tc) = (theta(b, 256).unwrap(), theta(c, 256).unwrap());
@@ -616,7 +721,7 @@ mod tests {
     fn the_certificate_follows_whatever_theta_it_is_given() {
         let shifted = |t: f64, p: u32| theta(t, p).map(|i| i.add(&Interval::point(1e-6, p)));
         let (_, g) = fixture_rows().into_iter().find(|(n, _)| *n == 100).unwrap();
-        let (_, c) = bracket_with(100, 128, &shifted).unwrap();
+        let (_, c) = bracket_with(100, 128, &at_prec(shifted)).unwrap();
         assert!(exact(c) < g, "c = {c} should fall short of g");
     }
 
@@ -637,11 +742,11 @@ mod tests {
         .unwrap();
         let n_pi = Float::with_val(256, rug::float::Constant::Pi) * n;
         assert!(*hull.lo() < n_pi && n_pi < *hull.hi(), "hull must contain n*pi");
-        let fake = |_t: f64, _p: u32| Ok(hull.clone());
+        let fake = |_t: f64| Ok(hull.clone());
         assert_eq!(bracket_around(n, centre, 128, &fake), None);
         let target = integer_interval(100, 128).unwrap().mul(&pi_interval(128).unwrap());
-        assert_eq!(certified_end(&fake, &target, 128, centre, Sign::Negative), None);
-        assert_eq!(certified_end(&fake, &target, 128, centre, Sign::Positive), None);
+        assert_eq!(certified_end(&fake, &target, centre, Sign::Negative), None);
+        assert_eq!(certified_end(&fake, &target, centre, Sign::Positive), None);
     }
 
     #[test]
@@ -667,16 +772,16 @@ mod tests {
 
     #[test]
     fn touching_zero_is_not_a_certificate() {
-        let touching = |t: f64, _p: u32| if t < 10.0 { span(-1.0, 0.0) } else { span(0.0, 1.0) };
+        let touching = |t: f64| if t < 10.0 { span(-1.0, 0.0) } else { span(0.0, 1.0) };
         assert_eq!(bracket_around(0, 10.0, 64, &touching), None);
-        let firm = |t: f64, _p: u32| if t < 10.0 { span(-1.0, -0.5) } else { span(0.5, 1.0) };
+        let firm = |t: f64| if t < 10.0 { span(-1.0, -0.5) } else { span(0.5, 1.0) };
         let (b, c) = bracket_around(0, 10.0, 64, &firm).unwrap();
         assert!(b < 10.0 && 10.0 <= c);
     }
 
     #[test]
     fn the_bracket_ends_straddle_the_estimate_by_whole_ulps() {
-        let firm = |t: f64, _p: u32| if t < 10.0 { point(-1.0) } else { point(1.0) };
+        let firm = |t: f64| if t < 10.0 { point(-1.0) } else { point(1.0) };
         let (b, c) = bracket_around(0, 10.0, 64, &firm).unwrap();
         assert_eq!(b.to_bits(), 10.0f64.to_bits() - 1);
         assert_eq!(c.to_bits(), 10.0f64.to_bits() + 1);
@@ -687,7 +792,7 @@ mod tests {
         let tau = std::f64::consts::TAU;
         let est = f64::from_bits(tau.to_bits() + 4);
         // Only t <= 2*pi certifies on the left; the rungs before it straddle.
-        let fake = |t: f64, _p: u32| {
+        let fake = |t: f64| {
             if t <= tau {
                 point(-1.0)
             } else if t < est {
@@ -700,7 +805,7 @@ mod tests {
         // Eight ulps up, the fourth rung lands four ulps above 2*pi and is accepted.
         let est = f64::from_bits(tau.to_bits() + 8);
         let ok_below = f64::from_bits(tau.to_bits() + 4);
-        let fake = |t: f64, _p: u32| {
+        let fake = |t: f64| {
             if t <= ok_below {
                 point(-1.0)
             } else if t < est {
@@ -716,7 +821,7 @@ mod tests {
     #[test]
     fn the_search_never_evaluates_infinite_or_nan_heights() {
         let seen = std::cell::RefCell::new(Vec::new());
-        let never = |t: f64, _p: u32| {
+        let never = |t: f64| {
             seen.borrow_mut().push(t);
             span(-1.0, 1.0)
         };
@@ -737,12 +842,12 @@ mod tests {
                 (false, _) => span(-1.0, 1.0),
             }
         };
-        assert!(bracket_with_estimate(0, 512, 10.0, &needs_256).is_some());
+        assert!(bracket_with_estimate(0, 512, 10.0, &at_prec(needs_256)).is_some());
         let mut ps = seen.borrow().clone();
         ps.dedup();
         assert_eq!(ps, vec![64, 128, 256]);
         seen.borrow_mut().clear();
-        assert_eq!(bracket_with_estimate(0, 100, 10.0, &needs_256), None);
+        assert_eq!(bracket_with_estimate(0, 100, 10.0, &at_prec(needs_256)), None);
         let mut ps = seen.borrow().clone();
         ps.dedup();
         assert_eq!(ps, vec![64, 100]);
@@ -750,16 +855,19 @@ mod tests {
 
     #[test]
     fn a_bracket_needs_both_ends() {
-        let only_left = |t: f64, _p: u32| if t < 10.0 { point(-1.0) } else { span(-1.0, 1.0) };
+        let only_left = |t: f64| if t < 10.0 { point(-1.0) } else { span(-1.0, 1.0) };
         assert_eq!(bracket_around(0, 10.0, 64, &only_left), None);
-        let only_right = |t: f64, _p: u32| if t < 10.0 { span(-1.0, 1.0) } else { point(1.0) };
+        let only_right = |t: f64| if t < 10.0 { span(-1.0, 1.0) } else { point(1.0) };
         assert_eq!(bracket_around(0, 10.0, 64, &only_right), None);
     }
 
     #[test]
     fn a_failing_theta_gives_no_bracket() {
-        let broken = |_t: f64, _p: u32| Err(ThetaError::HeightNotPositive);
-        assert_eq!(bracket_with(5, 128, &broken), None);
+        let broken = |_t: f64| Err(ThetaError::HeightNotPositive);
+        assert_eq!(
+            bracket_with(5, 128, &at_prec(|_t: f64, _p: u32| Err(ThetaError::HeightNotPositive))),
+            None
+        );
         assert_eq!(bracket_around(0, 10.0, 64, &broken), None);
     }
 
