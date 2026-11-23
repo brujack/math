@@ -29,7 +29,7 @@ Reference material lives in `ai-config/docs/knowledge/math-<topic>.md` (ADR-0020
 
 ## Dependency Installation
 
-Each sub-project has its own installer: `<project>/install_deps.sh` for Python, `<project>/<project>-rs/install_deps.sh` for Rust (`goldbach`, `prime` and `twin-primes` have only the nested Rust one). → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
+Each sub-project has its own installer: `<project>/install_deps.sh` for Python, `<project>/<project>-rs/install_deps.sh` for Rust (`goldbach`, `prime`, `twin-primes` and `zeta` have only the nested Rust one). → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
 The Rust installers are identical (rendered from `scripts/crate_templates/install_deps.sh`, tested by `tests/scripts/crate_install_deps.bats`): GMP + MPFR, the rustup toolchain, and `cargo-nextest`, `cargo-machete` and `cargo-tarpaulin` at CI's pinned versions; the Python installers are identical too (from `scripts/crate_templates/python/install_deps.sh`): GMP + MPFR and every pinned package. → ai-config/docs/knowledge/math-dependency-installation.md § Installer table
 
 Root-scope Python has no `install_deps.sh` by design: `requirements-dev.txt` (`defusedxml==0.7.1`, `pyright==1.1.411`, `pyyaml==6.0.3`) is consumed by `make install-deps`. → ai-config/docs/knowledge/math-dependency-installation.md § Root-scope Python

@@ -175,7 +175,7 @@ make coverage  # pytest --cov=pi --cov-report=term-missing
 ### All Rust crates
 
 ```bash
-make test-rust   # make test in all 12 crates concurrently (JOBS=N, default 8); prints ok/FAIL per crate
+make test-rust   # make test in every crate concurrently (JOBS=N, default 8); prints ok/FAIL per crate
 ```
 
 ### Rust (`pi/pi-rs/`)
