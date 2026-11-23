@@ -623,7 +623,7 @@ mod tests {
         }
         assert!(bracket_with(-1, 128, &counting).is_some());
         assert!(calls.get() > 0, "control: n=-1 must reach the factory");
-        // The public entry point applies the same guard.
+        // The public entry point returns None for n < -1.
         assert_eq!(gram_bracket(-2, 128), None);
         assert_eq!(gram_bracket(i64::MIN, 128), None);
     }

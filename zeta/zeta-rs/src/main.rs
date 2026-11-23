@@ -351,9 +351,31 @@ mod tests {
         assert_eq!(exit_with(&["3"], &mut FailingWriter, &mut Vec::new()), (4, 1));
     }
 
+    /// Fails every write, accepts every flush.
+    struct WriteFailingWriter;
+
+    impl Write for WriteFailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(io::Error::other("write failed"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
     fn prompt_write_failure_exits_4_before_the_self_check() {
-        assert_eq!(exit_with(&[], &mut FailingWriter, &mut Vec::new()), (4, 0));
+        // Flush succeeds and the input is a valid N, so neither the flush nor the EOF
+        // path can fail: only the prompt write stops the run before the self-check.
+        let cli = Cli::try_parse_from(["zeta"]).unwrap();
+        let calls = std::cell::Cell::new(0u32);
+        let result =
+            run_with(&cli, &mut "3\n".as_bytes(), &mut WriteFailingWriter, &mut Vec::new(), || {
+                calls.set(calls.get() + 1);
+                Ok(())
+            });
+        assert_eq!((exit_code(result), calls.get()), (4, 0));
     }
 
     #[test]

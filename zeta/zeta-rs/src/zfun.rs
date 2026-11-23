@@ -743,6 +743,25 @@ mod tests {
     }
 
     #[test]
+    fn euler_maclaurin_range_boundaries_are_inclusive_and_exact() {
+        let ev = evaluator();
+        assert!(ev.euler_maclaurin(EM_MAX_HEIGHT).is_ok());
+        assert!(ev.euler_maclaurin(f64::MIN_POSITIVE).is_ok());
+        let above = f64::from_bits(EM_MAX_HEIGHT.to_bits() + 1);
+        assert_eq!(ev.euler_maclaurin(above).unwrap_err(), ZError::HeightOutOfRange);
+        let below = f64::from_bits(f64::MIN_POSITIVE.to_bits() - 1);
+        assert_eq!(ev.euler_maclaurin(below).unwrap_err(), ZError::HeightOutOfRange);
+    }
+
+    #[test]
+    fn gabcke_bound_rejects_non_positive_and_nan_heights() {
+        for t in [0.0, -1.0, f64::NAN] {
+            let err = gabcke_bound(t, PREC, 1.0).unwrap_err();
+            assert_eq!(err, ZError::Interval(IntervalError::LogOfNonPositive), "t = {t}");
+        }
+    }
+
+    #[test]
     fn hardy_z_takes_the_real_part_when_the_imaginary_part_vanishes() {
         // theta = 0: Z = Re(zeta); a zeta of 3 + [-1, 1] i has Im containing 0.
         let zeta = Complex::new(
