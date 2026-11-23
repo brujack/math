@@ -71,9 +71,12 @@ nothing on 2026-11-23, so this design was not previously proposed or rejected.
 
    The point b_n, with that sign, is then inserted into every vector that counts sign changes
    across the boundary. A Gram point whose bracket cannot be certified is not a usable
-   boundary; its block merges with the next one.
+   boundary; below b_M its block merges with the next one, and in Turing's region it fails the
+   current g_M candidate (amended 2026-11-23, see Amendments).
 
-3. **Choose M.** M is the smallest index such that g_M ≥ max(T, 168π), g_M has a certified
+3. **Choose M.** (Amended 2026-11-23, see Amendments: b_M > 168π strictly, and Turing's
+   block count and merge rule as in amended R19.) M is the smallest index such that
+   g_M ≥ max(T, 168π), g_M has a certified
    bracket, g_M is good, and Turing's method establishes N(g_M) ≤ M + 1 at that g_M. Up to 11
    candidates are tried (the first and 10 retries) before the run exits 3 with
    `Turing bound not established`. For N = 2 this means M sits just above 168π, not just above
@@ -352,7 +355,8 @@ Ground truth comes from outside the crate:
   mpmath at 30 digits (source and command in its header), not from the crate's own θ. b_n is
   strictly increasing in n. A fake whose Z sign over [b_n, c_n] is uncertain makes that Gram
   point unusable and its block merges with the next, both below g_M (L still correct) and in
-  Turing's region (credit computed over the merged block).
+  Turing's region, where it fails the current g_M candidate rather than merging (amended
+  2026-11-23).
 - **Turing.** `turing.rs` refuses g_M < 168π (tested against b_M), a bad g_M and a g_M
   without a certified bracket. A sign change whose left point is a shared boundary b_k is
   credited to block k only. Known-answer tests, built from the inequality pinned in V2: at a
@@ -460,6 +464,14 @@ re-verifies the signs at each listed interval's endpoints is also left for later
 - **N5.** No `--check` re-verification mode in this spec.
 - **N6.** No partial output file on any failed run.
 - **N7.** No `#[ignore]` test tier, and no change to the shared crate templates or `scripts/rust-check.sh`.
+
+## Amendments
+
+- R19 -> M is the smallest index such that b_M > 168π, g_M ≥ T, g_M has a certified bracket, g_M is good, and Turing's method succeeds at g_M, trying at most 11 candidates; Turing's region is K consecutive Gram blocks after g_M, each with at least as many located sign changes as Gram intervals, where K satisfies Trudgian 2011 Theorem 2.1 (eq. 2.1, a = 2.067, b = 0.059) evaluated at c of the last block, adding blocks until it holds; a Gram point in Turing's region without a certified bracket fails that candidate rather than merging blocks; `turing.rs` refuses b_M ≤ 168π, a bad g_M and a g_M without a certified bracket; Turing's vector includes every certified boundary point in its range; Turing block j is the closed range [b_j, b_k] with each b_k shared by both neighbours; a sign change is credited to block j exactly when both of its points lie in [b_j, b_k], and an adjacent pair lying in no single block exits 6; known-answer tests at a fixed g_M cover one just-establishing and one just-failing block-count pattern. — V2 pinned Trudgian 2011 Theorems 2.1 and 2.2, which need t₁ > 168π strictly, and Brent 1979's Gram block definition, under which a block merged across an unverified Gram point is outside the theorem.
+- R22 -> A Gram point is a usable boundary only when θ(b_n) − nπ < 0, θ(c_n) − nπ > 0 and Z's sign over [b_n, c_n] are all certified for `f64` values 2π < b_n < c_n; b_n is then inserted, with that sign, into every vector that counts sign changes across it; below b_M an unusable Gram point merges its block with the next, and in Turing's region it fails the current g_M candidate. — V2: merging is sound for L but outside Brent's Gram-block hypotheses for Turing's count.
+- V1 reviewed: measured 2026-11-23 over all 21,136,123 consecutive zero pairs below 10⁷ (f64 C Riemann–Siegel with C₀–C₂ scan, every candidate confirmed with mpmath `siegelz` at 30 digits; decade counts 29, 649, 10,142, 138,069, 1,747,146 and 21,136,125 reproduced; the first Rosser failure at g_13999525 and Lehmer's pair reproduced): minimum ratio 12.05 at the pair 4316832.467101349 and 4316832.469424753 (peak |Z| 1.6163·10⁻⁵ against 1.3410·10⁻⁶); next smallest 18.83; C₀ only stands, with a 1.2× margin over the threshold.
+- V2 reviewed: pinned 2026-11-23: Gabcke 1979 Satz 3.2.2(b) gives |R₀| < 0.127·t^(−3/4) for t ≥ 200 in t (numerically near-tight at 0.1205 on [200, 260]), with C₁–C₄ bounds 0.053·t^(−5/4), 0.011·t^(−7/4), 0.031·t^(−9/4), 0.017·t^(−11/4); Euler–Maclaurin remainder per Johansson 2015 Theorem 1 and Brent 1979 p. 1363; θ via DLMF 5.11 Stirling with a shift of 10, since Gabcke's θ bound needs t ≥ 10 and g₋₁ ≈ 9.667; the first Rosser failure is the block [g_13999525, g_13999527); Lehmer's pair is zeros 6709 and 6710 at 7005.062866175 and 7005.100564674.
+- V8 reviewed: measured 2026-11-23 on a 209-line `rug` prototype: warm debug `cargo test` baseline 4.4 s, real cargo-mutants 27.1.0 at about 4.6 s per mutant; projected first-PR `mutation-rs` time for about 500 mutants is 53–110 minutes, so the fallback applies: zeta's `.cargo/mutants.toml` skips the end-to-end tests by name and their lines are covered by unit tests; the plan also splits the crate across several PRs so no PR mutates the whole crate.
 
 ## Multi-Lens Review
 
