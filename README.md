@@ -454,7 +454,7 @@ See [`descartes/README.md`](descartes/README.md) for full details.
 
 Certified verification of the Riemann Hypothesis up to height 10^N: every nontrivial zero of ζ with 0 < Im ρ ≤ 10^N lies on the critical line and is simple. Every quantity the proof uses is an MPFR interval with directed rounding, so the claim is a theorem for that range. It is evidence for RH, never a proof of it.
 
-- Rust implementation (`zeta/zeta-rs/`) — **under construction**: the CLI is a stub that prints `RH NOT verified: zeta is under construction` and exits 3; the library has certified interval arithmetic, the verification config and certified Riemann–Siegel θ(t) with Gram brackets
+- Rust implementation (`zeta/zeta-rs/`) — **under construction**: the CLI checks N (2–7), runs a self-check of its Hardy Z evaluator, then prints `RH NOT verified up to <T>: zero isolation is not implemented yet` and exits 3; the library has certified interval arithmetic, the verification config, certified Riemann–Siegel θ(t) with Gram brackets, and certified Hardy Z(t) by Riemann–Siegel and Euler–Maclaurin
 
 See [`zeta/README.md`](zeta/README.md) for full details.
 

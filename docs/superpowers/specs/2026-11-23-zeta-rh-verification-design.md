@@ -514,6 +514,44 @@ re-verifies the signs at each listed interval's endpoints is also left for later
 - R24 reviewed: VerifyConfig and its validation are built here (Task 3); run() defaults and run_with are Tasks 6 and 10 in PR 2 (feat/zeta-core) and PR 3 (feat/zeta-verify)
 - finding R25 (2026-11-23, reviewer both): NOT-BUILT — Looked for an isolate() test on the Gram block near t ≈ 7005.06 (Lehmer's pair); no isolate() exists.
 - R25 reviewed: not in PR 1 by plan — built by Task 7 in PR 3 (feat/zeta-verify)
+- finding R1 (2026-11-23, reviewer B): DIFFERS — parse_n accepts 2..=7 and run_core exits 1 otherwise (main.rs:110-115), but a valid N does not compute with T = 10^N: T appears only in the printed 'RH NOT verified up to <T>: zero isolation is not implemented yet' line and the run exits 3 (main.rs:133-134).
+- R1 reviewed: deliberate interim per the plan's PR structure — PR 2 (feat/zeta-core) adds the 2..=7 range check with exit 1 (Task 6) and, for a valid N, runs the self-check then prints `RH NOT verified up to <T>: zero isolation is not implemented yet` with exit 3 so no build implies success; the computation up to T = 10^N is Task 10 in PR 3 (feat/zeta-verify)
+- finding R2 (2026-11-23, reviewer both): NOT-BUILT — Looked for a verified path printing 'RH verified: all <count> nontrivial zeros ...' with exit 0; every valid N ends at main.rs:133 with 'RH NOT verified up to <T>: zero isolation is not implemented yet' and exit 3.
+- R2 reviewed: not in PR 2 by plan — built by Task 10 in PR 3 (feat/zeta-verify)
+- finding R4 (2026-11-23, reviewer both): NOT-BUILT — No sample-point certification, block isolation, sorting/dedup of certified points, L counting, Turing M comparison, or exits 3/6 from L appear in the diff.
+- R4 reviewed: not in PR 2 by plan — built by Task 9 in PR 3 (feat/zeta-verify)
+- finding R8 (2026-11-23, reviewer both): NOT-BUILT — No zeta_1eN.txt writer, '# n a b' header, 30-digit rounding, --refine flag or bisection appears in the diff.
+- R8 reviewed: not in PR 2 by plan — built by Task 10 in PR 3 (feat/zeta-verify) and Task 11 (--refine columns) in PR 4 (feat/zeta-refine-cli)
+- finding R9 (2026-11-23, reviewer both): NOT-BUILT — No output-file creation, zeta_1eN.tmp.txt handling, rename, or exit 4 on file write failure appears; exit 4 exists only for stdout/stderr write failures (main.rs exit_code).
+- R9 reviewed: not in PR 2 by plan — built by Task 10 in PR 3 (feat/zeta-verify); exit 4 on stdout/stderr write failure here is the CLI half only
+- finding R10 (2026-11-23, reviewer both): NOT-BUILT — No rayon ThreadPoolBuilder, serial fallback message, or worker-panic exit 6 appears in the diff.
+- R10 reviewed: not in PR 2 by plan — built by Task 9 in PR 3 (feat/zeta-verify)
+- finding R11 (2026-11-23, reviewer both): NOT-BUILT — The diff contains no rayon code at all, so the prohibition holds only vacuously; the parallel isolation it constrains is not built.
+- R11 reviewed: not in PR 2 by plan — the parallel isolation it constrains is Task 9 in PR 3 (feat/zeta-verify)
+- finding R12 (2026-11-23, reviewer both): NOT-BUILT — No --refine flag, spacing histogram, Wigner surmise, largest w_n or KS distance appears in the diff.
+- R12 reviewed: not in PR 2 by plan — built by Task 11 in PR 4 (feat/zeta-refine-cli)
+- finding R15 (2026-11-23, reviewer A): NOT-BUILT — The diff touches no crate template, rendered file or tests/test_crate_uniformity.py, so nothing in it shows rendering without template change or the 13-crate uniformity pass (only a README context line says Rust only).
+- R15 reviewed: built by Task 1 in PR 1 (feat/zeta-foundation), already merged; this diff touches no template or rendered crate file, so there is nothing for it to show
+- finding R16 (2026-11-23, reviewer both): NOT-BUILT — No tests/fixtures/odlyzko_1e3.txt and no N=2/N=3 tests asserting exit 0, counts 29/649 or zero containment appear; tests assert exit 3 for N=2 and N=3.
+- R16 reviewed: not in PR 2 by plan — built by Task 10 in PR 3 (feat/zeta-verify); the exit-3 assertions for N=2 and N=3 pin PR 2's interim behaviour
+- finding R17 (2026-11-23, reviewer both): NOT-BUILT — ZSource trait exists (zfun.rs:365) but no verifier fakes for double root, missing sign change, sign conflict, NaN t, panicking worker, or L-counting tests appear.
+- R17 reviewed: the ZSource trait is built here (Task 5); the verifier, its fakes and their exit 3/6 verdicts are Task 9 in PR 3 (feat/zeta-verify)
+- finding R18 (2026-11-23, reviewer both): NOT-BUILT — No proptest of Interval operations at 4x precision, nor cos/sin radius code, appears in the diff (interval.rs is unchanged here).
+- R18 reviewed: built by Task 2 in PR 1 (feat/zeta-foundation), already merged; interval.rs is unchanged by PR 2
+- finding R19 (2026-11-23, reviewer both): NOT-BUILT — No turing.rs, Trudgian bound, Gram-block/Turing-region logic or known-answer tests appear in the diff.
+- R19 reviewed: not in PR 2 by plan — built by Task 8 in PR 3 (feat/zeta-verify)
+- finding R20 (2026-11-23, reviewer both): NOT-BUILT — run_with exists in main.rs under cfg(test) but only injects a self-check closure; no depth-cap/point-moving control at N=3 or Gabcke x10^6 control at N=2 yielding exit 3 with a measured reason appears.
+- R20 reviewed: run_with here injects only the self-check (Task 6); the depth-cap and Gabcke ×10⁶ negative controls are Task 10 in PR 3 (feat/zeta-verify)
+- finding R21 (2026-11-23, reviewer both): NOT-BUILT — No 'progress: <done>/<total> Gram blocks, t = <t>' output or throttle appears in the diff.
+- R21 reviewed: not in PR 2 by plan — built by Task 12 in PR 4 (feat/zeta-refine-cli)
+- finding R22 (2026-11-23, reviewer both): NOT-BUILT — gram_bracket is pre-existing; no code certifying Z's sign over [b_n, c_n], inserting b_n into sign-change vectors, or merging/failing blocks on unusable Gram points appears.
+- R22 reviewed: the θ-sign certificate was built in PR 1 (Task 4); Z's sign over [b_n, c_n], inserting b_n and block merging are Tasks 7 and 8 in PR 3 (feat/zeta-verify)
+- finding R23 (2026-11-23, reviewer both): NOT-BUILT — No bisection of the sign-change interval containing T (max 60) or exit 3 on an uncertain side appears.
+- R23 reviewed: not in PR 2 by plan — built by Task 7 in PR 3 (feat/zeta-verify)
+- finding R24 (2026-11-23, reviewer both): NOT-BUILT — run() takes no configuration and uses VerifyConfig::default() and run_with is cfg(test) in main.rs (main.rs:65, :75), but config.rs validation is not in the diff and run() has no real writer, throttle or pool to use, so the requirement as stated is not built.
+- R24 reviewed: VerifyConfig and its validation were built in PR 1 (Task 3); run() using the defaults with run_with under cfg(test) is built here (Task 6); the writer, pool and throttle wiring are Tasks 9, 10 and 12 in PR 3 (feat/zeta-verify) and PR 4 (feat/zeta-refine-cli)
+- finding R25 (2026-11-23, reviewer both): NOT-BUILT — No isolate() function or Lehmer-pair block test exists; only a single Z sign at t = 7005.0817 is tested.
+- R25 reviewed: not in PR 2 by plan — built by Task 7 in PR 3 (feat/zeta-verify)
 
 ## Multi-Lens Review
 
@@ -621,27 +659,25 @@ Stopped: reviewer recommended stopping in round 1
 
 | ID | Reviewer | Verdict | Reason | Amendment |
 | --- | --- | --- | --- | --- |
-| R1 | both | DIFFERS | The CLI accepts any u32 exponent and run() returns 3 for every input with no range check and no T = 10^N; tests/cli.rs:9-12 asserts that N=99 exits 3 where the requirement demands exit 1. | - R1 reviewed: deliberate interim stub — the plan's PR structure has PR 1 print `RH NOT verified: zeta is under construction` and exit 3 for every input so no build implies success; plan Task 6 (PR 2 (feat/zeta-core)) adds the 2..=7 range check with exit 1 |
-| R2 | both | NOT-BUILT | Looked for the `RH verified: all <count> nontrivial zeros ...` stdout line and an exit-0 path; main.rs only writes the stub stderr line and always exits 3. | - R2 reviewed: not in PR 1 by plan — built by Task 10 in PR 3 (feat/zeta-verify) |
-| R4 | both | NOT-BUILT | Looked for sample-point sign certification of Z, the post-block sort/dedup/count of L, M, and exits 3/6 on L vs M+1; none exist (no Z, block or counting module in the diff). | - R4 reviewed: not in PR 1 by plan — built by Task 9 in PR 3 (feat/zeta-verify) |
-| R5 | both | NOT-BUILT | Interval (interval.rs) rounds lo Down/hi Up and excludes_zero requires finite bounds (interval.rs:263-265), and θ and Gram brackets are intervals (theta.rs), but Z and its truncation bounds, which the requirement names, are not in the diff. | - R5 reviewed: interval and θ halves built here (Tasks 2, 4); the Z and truncation-bound half is Task 5 in PR 2 (feat/zeta-core) |
-| R6 | both | NOT-BUILT | Looked for Riemann-Siegel with Gabcke's bound, Euler-Maclaurin, and the t >= 200 switch; neither Z path exists in the diff. | - R6 reviewed: not in PR 1 by plan — built by Task 5 in PR 2 (feat/zeta-core) |
-| R7 | both | NOT-BUILT | Looked for a 128-bit self-check at 8 points in [200, 300], `self-check failed`, and exit 5; not present. | - R7 reviewed: not in PR 1 by plan — built by Task 5 (self-check) and Task 6 (exit 5) in PR 2 (feat/zeta-core) |
-| R8 | both | NOT-BUILT | Looked for writing `zeta_1eN.txt` with the `# n a b` header and --refine columns; no output-file code or --refine flag exists. | - R8 reviewed: not in PR 1 by plan — built by Task 10 in PR 3 (feat/zeta-verify) and Task 11 (--refine columns) in PR 4 (feat/zeta-refine-cli) |
-| R9 | both | NOT-BUILT | Looked for the tmp-file write, rename, stale tmp removal and exit 4; no file output code exists. | - R9 reviewed: not in PR 1 by plan — built by Task 10 in PR 3 (feat/zeta-verify) |
-| R10 | both | NOT-BUILT | Looked for ThreadPoolBuilder::build, the serial fallback message, and `internal error: worker panicked`; rayon is not a dependency (Cargo.toml:16-18) and appears only transitively in Cargo.lock. | - R10 reviewed: not in PR 1 by plan — built by Task 9 in PR 3 (feat/zeta-verify) |
-| R12 | both | NOT-BUILT | Looked for a spacing histogram, Wigner surmise, largest w_n and KS distance; no --refine statistics code exists. | - R12 reviewed: not in PR 1 by plan — built by Task 11 in PR 4 (feat/zeta-refine-cli) |
-| R13 | both | NOT-BUILT | Looked for an N prompt reading stdin with the `Error: no input; pass SIZE ...` message; with no argument the stub exits 3 without prompting (main.rs:11-14). | - R13 reviewed: not in PR 1 by plan — built by Task 6 in PR 2 (feat/zeta-core) |
-| R14 | both | NOT-BUILT | Looked for the N=7 `Warning: N=7 writes about 1.5 GB ...` stderr line; not present. | - R14 reviewed: not in PR 1 by plan — built by Task 6 in PR 2 (feat/zeta-core) |
-| R16 | both | NOT-BUILT | Looked for zeta/zeta-rs/tests/fixtures/odlyzko_1e3.txt and N=2/N=3 end-to-end tests; only gram_points.txt and stub CLI tests exist. | - R16 reviewed: not in PR 1 by plan — built by Task 10 in PR 3 (feat/zeta-verify) |
-| R17 | both | NOT-BUILT | Looked for a ZSource trait and fakes for the listed failure modes; none exist. | - R17 reviewed: not in PR 1 by plan — ZSource is Task 5 in PR 2 (feat/zeta-core), the fakes and verdicts Task 9 in PR 3 (feat/zeta-verify) |
-| R19 | both | NOT-BUILT | Looked for turing.rs, the M selection with 168π and Trudgian bound, and block crediting; not present. | - R19 reviewed: not in PR 1 by plan — built by Task 8 in PR 3 (feat/zeta-verify) |
-| R20 | both | NOT-BUILT | Looked for run_with negative controls (depth cap 1 at N=3, Gabcke x1e6 at N=2); run_with does not exist. | - R20 reviewed: not in PR 1 by plan — built by Task 10 in PR 3 (feat/zeta-verify) |
-| R21 | both | NOT-BUILT | Looked for `progress: <done>/<total> Gram blocks, t = <t>` stderr lines and throttling; not present. | - R21 reviewed: not in PR 1 by plan — built by Task 12 in PR 4 (feat/zeta-refine-cli) |
-| R22 | both | NOT-BUILT | gram_bracket (theta.rs:371) certifies θ−nπ signs at f64 2π < b < c, but Z's sign over [b_n, c_n], insertion of b_n into sign vectors, and block merging are absent. | - R22 reviewed: the θ-sign certificate is built here (Task 4); Z's sign over the bracket, inserting b_n and block merging are Tasks 7 and 8 in PR 3 (feat/zeta-verify) |
-| R23 | both | NOT-BUILT | Looked for bisection of the interval containing T (cap 60) and exit 3; not present. | - R23 reviewed: not in PR 1 by plan — built by Task 7 in PR 3 (feat/zeta-verify) |
-| R24 | both | NOT-BUILT | VerifyConfig has private fields, new() rejects non-finite/below-1 multiplier, precision cap outside 64..=512 and depth cap above 40, and default() passes (config.rs:60-107, test default_passes_validation_and_has_documented_values), but run() (main.rs:11) is a stub not wired to the real Z, writer, throttle or pool, and run_with and the self-check skip do not exist. | - R24 reviewed: VerifyConfig and its validation are built here (Task 3); run() defaults and run_with are Tasks 6 and 10 in PR 2 (feat/zeta-core) and PR 3 (feat/zeta-verify) |
-| R25 | both | NOT-BUILT | Looked for an isolate() test on the Gram block near t ≈ 7005.06 (Lehmer's pair); no isolate() exists. | - R25 reviewed: not in PR 1 by plan — built by Task 7 in PR 3 (feat/zeta-verify) |
+| R1 | B | DIFFERS | parse_n accepts 2..=7 and run_core exits 1 otherwise (main.rs:110-115), but a valid N does not compute with T = 10^N: T appears only in the printed 'RH NOT verified up to <T>: zero isolation is not implemented yet' line and the run exits 3 (main.rs:133-134). | - R1 reviewed: deliberate interim per the plan's PR structure — PR 2 (feat/zeta-core) adds the 2..=7 range check with exit 1 (Task 6) and, for a valid N, runs the self-check then prints `RH NOT verified up to <T>: zero isolation is not implemented yet` with exit 3 so no build implies success; the computation up to T = 10^N is Task 10 in PR 3 (feat/zeta-verify) |
+| R2 | both | NOT-BUILT | Looked for a verified path printing 'RH verified: all <count> nontrivial zeros ...' with exit 0; every valid N ends at main.rs:133 with 'RH NOT verified up to <T>: zero isolation is not implemented yet' and exit 3. | - R2 reviewed: not in PR 2 by plan — built by Task 10 in PR 3 (feat/zeta-verify) |
+| R4 | both | NOT-BUILT | No sample-point certification, block isolation, sorting/dedup of certified points, L counting, Turing M comparison, or exits 3/6 from L appear in the diff. | - R4 reviewed: not in PR 2 by plan — built by Task 9 in PR 3 (feat/zeta-verify) |
+| R8 | both | NOT-BUILT | No zeta_1eN.txt writer, '# n a b' header, 30-digit rounding, --refine flag or bisection appears in the diff. | - R8 reviewed: not in PR 2 by plan — built by Task 10 in PR 3 (feat/zeta-verify) and Task 11 (--refine columns) in PR 4 (feat/zeta-refine-cli) |
+| R9 | both | NOT-BUILT | No output-file creation, zeta_1eN.tmp.txt handling, rename, or exit 4 on file write failure appears; exit 4 exists only for stdout/stderr write failures (main.rs exit_code). | - R9 reviewed: not in PR 2 by plan — built by Task 10 in PR 3 (feat/zeta-verify); exit 4 on stdout/stderr write failure here is the CLI half only |
+| R10 | both | NOT-BUILT | No rayon ThreadPoolBuilder, serial fallback message, or worker-panic exit 6 appears in the diff. | - R10 reviewed: not in PR 2 by plan — built by Task 9 in PR 3 (feat/zeta-verify) |
+| R11 | both | NOT-BUILT | The diff contains no rayon code at all, so the prohibition holds only vacuously; the parallel isolation it constrains is not built. | - R11 reviewed: not in PR 2 by plan — the parallel isolation it constrains is Task 9 in PR 3 (feat/zeta-verify) |
+| R12 | both | NOT-BUILT | No --refine flag, spacing histogram, Wigner surmise, largest w_n or KS distance appears in the diff. | - R12 reviewed: not in PR 2 by plan — built by Task 11 in PR 4 (feat/zeta-refine-cli) |
+| R15 | A | NOT-BUILT | The diff touches no crate template, rendered file or tests/test_crate_uniformity.py, so nothing in it shows rendering without template change or the 13-crate uniformity pass (only a README context line says Rust only). | - R15 reviewed: built by Task 1 in PR 1 (feat/zeta-foundation), already merged; this diff touches no template or rendered crate file, so there is nothing for it to show |
+| R16 | both | NOT-BUILT | No tests/fixtures/odlyzko_1e3.txt and no N=2/N=3 tests asserting exit 0, counts 29/649 or zero containment appear; tests assert exit 3 for N=2 and N=3. | - R16 reviewed: not in PR 2 by plan — built by Task 10 in PR 3 (feat/zeta-verify); the exit-3 assertions for N=2 and N=3 pin PR 2's interim behaviour |
+| R17 | both | NOT-BUILT | ZSource trait exists (zfun.rs:365) but no verifier fakes for double root, missing sign change, sign conflict, NaN t, panicking worker, or L-counting tests appear. | - R17 reviewed: the ZSource trait is built here (Task 5); the verifier, its fakes and their exit 3/6 verdicts are Task 9 in PR 3 (feat/zeta-verify) |
+| R18 | both | NOT-BUILT | No proptest of Interval operations at 4x precision, nor cos/sin radius code, appears in the diff (interval.rs is unchanged here). | - R18 reviewed: built by Task 2 in PR 1 (feat/zeta-foundation), already merged; interval.rs is unchanged by PR 2 |
+| R19 | both | NOT-BUILT | No turing.rs, Trudgian bound, Gram-block/Turing-region logic or known-answer tests appear in the diff. | - R19 reviewed: not in PR 2 by plan — built by Task 8 in PR 3 (feat/zeta-verify) |
+| R20 | both | NOT-BUILT | run_with exists in main.rs under cfg(test) but only injects a self-check closure; no depth-cap/point-moving control at N=3 or Gabcke x10^6 control at N=2 yielding exit 3 with a measured reason appears. | - R20 reviewed: run_with here injects only the self-check (Task 6); the depth-cap and Gabcke ×10⁶ negative controls are Task 10 in PR 3 (feat/zeta-verify) |
+| R21 | both | NOT-BUILT | No 'progress: <done>/<total> Gram blocks, t = <t>' output or throttle appears in the diff. | - R21 reviewed: not in PR 2 by plan — built by Task 12 in PR 4 (feat/zeta-refine-cli) |
+| R22 | both | NOT-BUILT | gram_bracket is pre-existing; no code certifying Z's sign over [b_n, c_n], inserting b_n into sign-change vectors, or merging/failing blocks on unusable Gram points appears. | - R22 reviewed: the θ-sign certificate was built in PR 1 (Task 4); Z's sign over [b_n, c_n], inserting b_n and block merging are Tasks 7 and 8 in PR 3 (feat/zeta-verify) |
+| R23 | both | NOT-BUILT | No bisection of the sign-change interval containing T (max 60) or exit 3 on an uncertain side appears. | - R23 reviewed: not in PR 2 by plan — built by Task 7 in PR 3 (feat/zeta-verify) |
+| R24 | both | NOT-BUILT | run() takes no configuration and uses VerifyConfig::default() and run_with is cfg(test) in main.rs (main.rs:65, :75), but config.rs validation is not in the diff and run() has no real writer, throttle or pool to use, so the requirement as stated is not built. | - R24 reviewed: VerifyConfig and its validation were built in PR 1 (Task 3); run() using the defaults with run_with under cfg(test) is built here (Task 6); the writer, pool and throttle wiring are Tasks 9, 10 and 12 in PR 3 (feat/zeta-verify) and PR 4 (feat/zeta-refine-cli) |
+| R25 | both | NOT-BUILT | No isolate() function or Lehmer-pair block test exists; only a single Z sign at t = 7005.0817 is tested. | - R25 reviewed: not in PR 2 by plan — built by Task 7 in PR 3 (feat/zeta-verify) |
 
 ### Reviewed
 
@@ -669,6 +705,25 @@ Stopped: reviewer recommended stopping in round 1
 - R23 reviewed: not in PR 1 by plan — built by Task 7 in PR 3 (feat/zeta-verify)
 - R24 reviewed: VerifyConfig and its validation are built here (Task 3); run() defaults and run_with are Tasks 6 and 10 in PR 2 (feat/zeta-core) and PR 3 (feat/zeta-verify)
 - R25 reviewed: not in PR 1 by plan — built by Task 7 in PR 3 (feat/zeta-verify)
+- R1 reviewed: deliberate interim per the plan's PR structure — PR 2 (feat/zeta-core) adds the 2..=7 range check with exit 1 (Task 6) and, for a valid N, runs the self-check then prints `RH NOT verified up to <T>: zero isolation is not implemented yet` with exit 3 so no build implies success; the computation up to T = 10^N is Task 10 in PR 3 (feat/zeta-verify)
+- R2 reviewed: not in PR 2 by plan — built by Task 10 in PR 3 (feat/zeta-verify)
+- R4 reviewed: not in PR 2 by plan — built by Task 9 in PR 3 (feat/zeta-verify)
+- R8 reviewed: not in PR 2 by plan — built by Task 10 in PR 3 (feat/zeta-verify) and Task 11 (--refine columns) in PR 4 (feat/zeta-refine-cli)
+- R9 reviewed: not in PR 2 by plan — built by Task 10 in PR 3 (feat/zeta-verify); exit 4 on stdout/stderr write failure here is the CLI half only
+- R10 reviewed: not in PR 2 by plan — built by Task 9 in PR 3 (feat/zeta-verify)
+- R11 reviewed: not in PR 2 by plan — the parallel isolation it constrains is Task 9 in PR 3 (feat/zeta-verify)
+- R12 reviewed: not in PR 2 by plan — built by Task 11 in PR 4 (feat/zeta-refine-cli)
+- R15 reviewed: built by Task 1 in PR 1 (feat/zeta-foundation), already merged; this diff touches no template or rendered crate file, so there is nothing for it to show
+- R16 reviewed: not in PR 2 by plan — built by Task 10 in PR 3 (feat/zeta-verify); the exit-3 assertions for N=2 and N=3 pin PR 2's interim behaviour
+- R17 reviewed: the ZSource trait is built here (Task 5); the verifier, its fakes and their exit 3/6 verdicts are Task 9 in PR 3 (feat/zeta-verify)
+- R18 reviewed: built by Task 2 in PR 1 (feat/zeta-foundation), already merged; interval.rs is unchanged by PR 2
+- R19 reviewed: not in PR 2 by plan — built by Task 8 in PR 3 (feat/zeta-verify)
+- R20 reviewed: run_with here injects only the self-check (Task 6); the depth-cap and Gabcke ×10⁶ negative controls are Task 10 in PR 3 (feat/zeta-verify)
+- R21 reviewed: not in PR 2 by plan — built by Task 12 in PR 4 (feat/zeta-refine-cli)
+- R22 reviewed: the θ-sign certificate was built in PR 1 (Task 4); Z's sign over [b_n, c_n], inserting b_n and block merging are Tasks 7 and 8 in PR 3 (feat/zeta-verify)
+- R23 reviewed: not in PR 2 by plan — built by Task 7 in PR 3 (feat/zeta-verify)
+- R24 reviewed: VerifyConfig and its validation were built in PR 1 (Task 3); run() using the defaults with run_with under cfg(test) is built here (Task 6); the writer, pool and throttle wiring are Tasks 9, 10 and 12 in PR 3 (feat/zeta-verify) and PR 4 (feat/zeta-refine-cli)
+- R25 reviewed: not in PR 2 by plan — built by Task 7 in PR 3 (feat/zeta-verify)
 
 ### Verifications
 

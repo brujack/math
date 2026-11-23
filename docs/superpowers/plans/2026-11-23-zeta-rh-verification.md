@@ -167,11 +167,12 @@ acceptance:
   - cmd: make -C zeta/zeta-rs test
     exit_code: 0
 max_retries: 3
-files_touched: [zeta/zeta-rs/src/zfun.rs, zeta/zeta-rs/src/lib.rs, zeta/zeta-rs/benches/zeta.rs]
+files_touched: [zeta/zeta-rs/src/zfun.rs, zeta/zeta-rs/src/complex.rs, zeta/zeta-rs/src/theta.rs, zeta/zeta-rs/src/lib.rs, zeta/zeta-rs/benches/zeta.rs]
 depends_on: [3, 4]
 requirements: [R6, R7]
 ```
 
+- [ ] Move theta.rs's private complex-interval type to `src/complex.rs` (`pub(crate)`), shared by θ and Euler–Maclaurin; θ's behaviour and tests unchanged.
 - [ ] `riemann_siegel(t, prec, &VerifyConfig)` per appendix §1 (C₀ only), widened by `multiplier × 0.127·t^(−3/4)`; refuses (returns `None`) when the t enclosure's lower bound is below 200.
 - [ ] `euler_maclaurin(t, prec)` per appendix §2 (Johansson 2015 Theorem 1), returning Z(t) as an `Interval`.
 - [ ] `z(t, prec, cfg)` dispatches on the lower bound of t: ≥ 200 Riemann–Siegel, otherwise Euler–Maclaurin.
@@ -179,7 +180,7 @@ requirements: [R6, R7]
 - [ ] Tests, first: Z at the first zeros' neighbours has the sign Odlyzko's table implies; Z near Lehmer's pair (zeros 7005.062866175, 7005.100564674) is positive at 7005.0817 (the peak); each of the five self-check conditions fails on an injected `ZSource`; dispatch uses the lower bound (an interval straddling 200 goes to Euler–Maclaurin).
 - [ ] Bench `z(t)` at t = 10⁴ and t = 10⁶.
 
-**Interfaces:** Produces `zeta::zfun::{z, riemann_siegel, euler_maclaurin, self_check}` and `trait ZSource { fn z(&self, t: f64, prec: u32) -> Interval; }` with the real implementation `RealZ`.
+**Interfaces:** Produces `zeta::zfun::{ZEvaluator, RealZ, ZSource, ZPaths, ZError, ZFault, SelfCheckFailure, self_check, gabcke_bound, SELF_CHECK_PREC}`. `trait ZSource { fn z(&self, t: f64, prec: u32) -> Result<Option<Interval>, ZFault>; }`: a refusal (height out of range, ambiguous N, singular C₀, precision rung not held) is `Ok(None)`; a fault (imaginary part of e^{iθ}ζ excludes 0, θ or interval error, NaN height) is `Err` and maps to exit 6 in the verifier (inside the self-check any Z-path error is exit 5). `RealZ::new(&VerifyConfig)` holds one `ZEvaluator` per rung 64/128/256/512 up to the precision cap; `ZEvaluator` tabulates ln k and 1/√k up to its max height (default 1e8). The self-check takes paths built with `VerifyConfig::default()` at `SELF_CHECK_PREC`.
 
 ### Task 6: CLI front end for PR 1
 
@@ -195,16 +196,17 @@ acceptance:
   - cmd: make test
     exit_code: 0
 max_retries: 3
-files_touched: [zeta/zeta-rs/src/main.rs, tests/scripts/zeta.bats]
+files_touched: [zeta/zeta-rs/src/main.rs, zeta/zeta-rs/tests/cli.rs, zeta/zeta-rs/src/theta.rs, tests/scripts/zeta.bats]
 depends_on: [5]
 requirements: [R1, R3, R13, R14]
 ```
 
+- [ ] Replace PR 1's interim stub (`RH NOT verified: zeta is under construction`, exit 3) and update `tests/cli.rs` to the new behaviour. Carried from PR 1 review: re-add public-API asserts that `gram_bracket(-2, 128)` and `gram_bracket(i64::MIN, 128)` return None in theta.rs's guard test. The self-check uses `ZEvaluator::new(SELF_CHECK_PREC, &VerifyConfig::default())` (the `ZPaths` implementor).
 - [ ] `run<R, W, E>(cli, reader, out, err) -> io::Result<i32>` and `prompt_n` in goldbach's shape: N 2–7 else exit 1; end of input prints a newline to stdout and `Error: no input; pass SIZE as an argument (e.g. zeta 3).` to stderr, exit 1; N = 7 prints `Warning: N=7 writes about 1.5 GB (about 2.2 GB with --refine) and may take many hours.` to stderr.
 - [ ] Runs `self_check(RealZ)`; on failure `self-check failed` to stderr, exit 5. Then prints `RH NOT verified up to <T>: zero isolation is not implemented yet` and exits 3.
 - [ ] Tests, first: each branch above; a test that no output of any path contains `RH holds`. BATS `tests/scripts/zeta.bats`: missing/invalid/too large N exit 1, with `[[ -x "$RUST_BIN" ]] || skip`.
 
-**Interfaces:** Produces `run`, `prompt_n`. PR 1 ends here.
+**Interfaces:** Produces `run(cli, reader, out, err)` (always the real self-check), `#[cfg(test)] run_with(..., self_check)`, `prompt_n`, `exit_code` (an output write or flush failure exits 4; a read error at the prompt exits 1). PR 2 ends here.
 
 ### Task 7: Block isolation and the straddle rule
 
@@ -302,7 +304,7 @@ requirements: [R2, R8, R9, R16, R20]
 - [ ] Tests, first: N = 2 and N = 3 exit 0 with the verified line (29, 649), that many non-`#` lines, each fixture zero in its interval (test names start `e2e_`); exits 3–6 through `run_with`; controls: depth cap 1 with point moving off at N = 3, Gabcke × 10⁶ with self-check skipped at N = 2, each exit 3 with the reason measured first and then asserted (if one verifies, stop and report it as a blocker so the spec can be amended).
 - [ ] `.cargo/mutants.toml`: skip tests named `e2e_` (cargo-mutants `additional_cargo_test_args`), with a comment citing spec V8.
 
-**Interfaces:** Produces the complete verifying CLI. PR 2 ends here.
+**Interfaces:** Produces the complete verifying CLI. PR 3 ends here.
 
 ### Task 11: `--refine` and the spacing histogram
 
@@ -352,7 +354,7 @@ requirements: [R21]
 - [ ] Docs: README CLI and Coverage rows and badge; root `CLAUDE.md` sub-project and crate-count lines (stay under 30,000 bytes); `zeta-rs/CLAUDE.md` with layout, exit codes 0–6 as zeta's convention, and the V8 mutants note.
 - [ ] BATS: binary present → `zeta 2` exits 0 and prints the verified line.
 
-**Interfaces:** PR 3 ends here; the orchestrator then runs V3–V7.
+**Interfaces:** PR 4 ends here; the orchestrator then runs V3–V7.
 
 ---
 
