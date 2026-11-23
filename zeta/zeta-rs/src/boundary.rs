@@ -6,6 +6,7 @@
 //! no zero. An unusable Gram point is `Ok(None)`, never a guess.
 
 use crate::config::VerifyConfig;
+use crate::interval::Sign;
 use crate::isolate::Point;
 use crate::theta::gram_bracket;
 use crate::zfun::{ZFault, ZSource, certified_sign_ladder};
@@ -53,6 +54,11 @@ impl Boundary {
     }
 }
 
+/// Good means (-1)^n Z(g_n) > 0.
+pub(crate) fn is_good(n: i64, sign: Sign) -> bool {
+    sign == if n.rem_euclid(2) == 0 { Sign::Positive } else { Sign::Negative }
+}
+
 /// The boundary at Gram point g_n (n >= -1): `Ok(None)` when theta cannot be
 /// certified around g_n or Z's sign over the bracket stays uncertain (an unusable
 /// Gram point), `Err` only for a Z fault.
@@ -75,6 +81,14 @@ mod tests {
     use crate::zfun::{RealZ, ZError, ZEvaluator};
     use proptest::prelude::*;
     use std::cell::RefCell;
+
+    #[test]
+    fn goodness_follows_the_parity_of_the_index() {
+        assert!(is_good(4, Sign::Positive));
+        assert!(!is_good(4, Sign::Negative));
+        assert!(is_good(5, Sign::Negative));
+        assert!(!is_good(5, Sign::Positive));
+    }
 
     fn cfg() -> VerifyConfig {
         VerifyConfig::default()

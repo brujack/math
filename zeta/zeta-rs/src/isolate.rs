@@ -100,9 +100,49 @@ pub enum Straddle {
     Uncertain,
 }
 
+/// The adjacent pairs of `points` (sorted by height) with different signs.
+pub(crate) fn sign_changes(points: &[Point]) -> impl Iterator<Item = (Point, Point)> + '_ {
+    points.windows(2).filter(|w| w[0].sign != w[1].sign).map(|w| (w[0], w[1]))
+}
+
 /// The number of adjacent pairs with different signs.
 pub fn alternations(points: &[Point]) -> usize {
-    points.windows(2).filter(|w| w[0].sign != w[1].sign).count()
+    sign_changes(points).count()
+}
+
+/// A defect in the collected points: a fault, never a refusal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PointsFault {
+    /// A point's height is NaN.
+    NanHeight,
+    /// One height carries two different certified signs.
+    SignConflict,
+}
+
+impl std::fmt::Display for PointsFault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NanHeight => f.write_str("a point height is NaN"),
+            Self::SignConflict => f.write_str("one height carries two different certified signs"),
+        }
+    }
+}
+
+/// The one merge rule for certified points (shared by verify and Turing): sort by
+/// height, keep one copy of an identical (t, sign), reject a NaN height or one
+/// height with two signs.
+pub(crate) fn merge_points(mut points: Vec<Point>) -> Result<Vec<Point>, PointsFault> {
+    if points.iter().any(|p| p.t.is_nan()) {
+        return Err(PointsFault::NanHeight);
+    }
+    points.sort_by(|a, b| a.t.total_cmp(&b.t));
+    let mut conflict = false;
+    points.dedup_by(|current, kept| {
+        let same = current.t == kept.t;
+        conflict |= same && current.sign != kept.sign;
+        same
+    });
+    if conflict { Err(PointsFault::SignConflict) } else { Ok(points) }
 }
 
 /// Z's sign at exactly `t`, by the shared precision ladder (`certified_sign_ladder`).
@@ -469,6 +509,35 @@ mod tests {
         let z = fake(|_, prec| if prec == 128 { Err(ZFault::NanHeight) } else { Ok(None) });
         assert_eq!(certified_sign(&z, 1.0, &cfg_prec(512)), Err(ZFault::NanHeight));
         assert_eq!(z.count(), 2, "no rung after the fault is tried");
+    }
+
+    // ---- merge rule ----
+
+    #[test]
+    fn merge_sorts_and_keeps_an_identical_point_once() {
+        let merged = merge_points(vec![pt(2.0, neg()), pt(1.0, pos()), pt(2.0, neg())]).unwrap();
+        assert_eq!(merged, vec![pt(1.0, pos()), pt(2.0, neg())]);
+    }
+
+    #[test]
+    fn merge_refuses_a_sign_conflict_and_a_nan() {
+        assert_eq!(
+            merge_points(vec![pt(1.0, pos()), pt(1.0, neg())]),
+            Err(PointsFault::SignConflict)
+        );
+        assert_eq!(
+            merge_points(vec![pt(1.0, pos()), pt(f64::NAN, neg())]),
+            Err(PointsFault::NanHeight)
+        );
+        assert_eq!(merge_points(vec![]), Ok(vec![]));
+    }
+
+    #[test]
+    fn sign_changes_lists_the_pairs_alternations_counts() {
+        let pts = [pt(0.0, pos()), pt(1.0, neg()), pt(2.0, neg()), pt(3.0, pos())];
+        let pairs: Vec<(Point, Point)> = sign_changes(&pts).collect();
+        assert_eq!(pairs, vec![(pts[0], pts[1]), (pts[2], pts[3])]);
+        assert_eq!(alternations(&pts), pairs.len());
     }
 
     // ---- alternations ----

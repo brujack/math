@@ -18,12 +18,12 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use rayon::prelude::*;
 use rayon::{ThreadPool, ThreadPoolBuildError, ThreadPoolBuilder};
 
-use crate::boundary::{Boundary, ZeroFreeBracket, certify_boundary};
+use crate::boundary::{Boundary, ZeroFreeBracket, certify_boundary, is_good};
 use crate::config::VerifyConfig;
-use crate::interval::{Interval, Sign};
+use crate::interval::Interval;
 use crate::isolate::{
-    BlockPoints, GramBlock, IsolateError, Point, Straddle, alternations, isolate_block,
-    resolve_straddle,
+    BlockPoints, GramBlock, IsolateError, Point, PointsFault, Straddle, alternations,
+    isolate_block, merge_points, resolve_straddle, sign_changes,
 };
 use crate::turing::{TuringBound, TuringFailure, choose_m};
 use crate::zfun::{ZFault, ZSource};
@@ -68,24 +68,6 @@ impl std::fmt::Display for NotVerifiedReason {
             Self::UnresolvedBlocks => f.write_str(
                 "every zero isolated, but some Gram blocks stayed short of Rosser's count",
             ),
-        }
-    }
-}
-
-/// A defect in the collected points: a fault, never a refusal.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PointsFault {
-    /// A point's height is NaN.
-    NanHeight,
-    /// One height carries two different certified signs.
-    SignConflict,
-}
-
-impl std::fmt::Display for PointsFault {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NanHeight => f.write_str("a point height is NaN"),
-            Self::SignConflict => f.write_str("one height carries two different certified signs"),
         }
     }
 }
@@ -144,6 +126,13 @@ pub struct RunStats {
 struct PrecisionProbe<'a, Z> {
     inner: &'a Z,
     max: AtomicU32,
+}
+
+impl<Z> PrecisionProbe<'_, Z> {
+    /// The highest precision at which a call so far produced an enclosure.
+    fn highest(&self) -> u32 {
+        self.max.load(Ordering::Relaxed)
+    }
 }
 
 impl<Z: ZSource> ZSource for PrecisionProbe<'_, Z> {
@@ -257,11 +246,6 @@ impl Runner {
     }
 }
 
-/// Good means (-1)^n Z(g_n) > 0.
-fn is_good(n: i64, sign: Sign) -> bool {
-    sign == if n.rem_euclid(2) == 0 { Sign::Positive } else { Sign::Negative }
-}
-
 /// A Brent block ready to isolate: ends at good Gram points, `between` holds the
 /// certified bad Gram points inside it.
 #[derive(Debug, Clone, PartialEq)]
@@ -303,32 +287,11 @@ fn plan_blocks(usable: &[(i64, Boundary)]) -> Vec<PlannedBlock> {
     planned
 }
 
-/// Sorts certified points by height in place, keeps one copy of an identical
-/// (t, sign), and rejects a NaN height or one height with two signs.
-fn sort_and_merge(mut points: Vec<Point>) -> Result<Vec<Point>, PointsFault> {
-    if points.iter().any(|p| p.t.is_nan()) {
-        return Err(PointsFault::NanHeight);
-    }
-    points.sort_by(|a, b| a.t.total_cmp(&b.t));
-    let mut conflict = false;
-    points.dedup_by(|current, kept| {
-        let same = current.t == kept.t;
-        conflict |= same && current.sign != kept.sign;
-        same
-    });
-    if conflict { Err(PointsFault::SignConflict) } else { Ok(points) }
-}
-
 /// The merged points whose height lies in `[lo, hi]` (R4: L counts only [b_-1, b_M]).
 fn points_in_range(points: Vec<Point>, lo: f64, hi: f64) -> Result<Vec<Point>, PointsFault> {
-    let mut merged = sort_and_merge(points)?;
+    let mut merged = merge_points(points)?;
     merged.retain(|p| lo <= p.t && p.t <= hi);
     Ok(merged)
-}
-
-/// The adjacent pairs of `points` (sorted) with different signs: L is their number.
-fn sign_changes(points: &[Point]) -> impl Iterator<Item = (Point, Point)> + '_ {
-    points.windows(2).filter(|w| w[0].sign != w[1].sign).map(|w| (w[0], w[1]))
 }
 
 /// Every point found, and the blocks still short of Rosser's count after the neighbour search.
@@ -362,7 +325,7 @@ fn search_neighbours<Z: ZSource>(
         .flat_map(|r| r.points.iter().copied())
         .chain(fresh.points.iter().copied())
         .collect();
-    let merged = sort_and_merge(known).map_err(Fault::Points)?;
+    let merged = merge_points(known).map_err(Fault::Points)?;
     Ok((fresh.points, alternations(&merged) >= union.expected))
 }
 
@@ -454,10 +417,11 @@ fn not_verified(reason: NotVerifiedReason, blocks: Vec<GramSpan>) -> Verdict {
 fn verify_with_bound<Z: ZSource + Sync>(
     t: f64,
     bound: &TuringBound,
-    z: &Z,
+    probe: &PrecisionProbe<'_, Z>,
     cfg: &VerifyConfig,
     runner: &Runner,
 ) -> Result<Verdict, Fault> {
+    let z = probe;
     let usable = certify_gram_points(bound.m, bound.boundary, z, cfg, runner)?;
     let (first_n, left) = usable[0];
     if first_n != -1 {
@@ -495,7 +459,7 @@ fn verify_with_bound<Z: ZSource + Sync>(
         g_m: (bracket.lo(), bracket.hi()),
         gram_blocks,
         rosser_exceptions: isolated.exceptions,
-        max_precision: 0,
+        max_precision: probe.highest(),
         threads: runner.threads(),
     };
     Ok(Verdict::Verified { count: intervals.len(), intervals, stats })
@@ -513,11 +477,7 @@ fn run<Z: ZSource + Sync>(
         Err(failure) if failure.is_fault() => return Err(Fault::Turing(failure)),
         Err(failure) => return Ok(not_verified(NotVerifiedReason::Turing(failure), Vec::new())),
     };
-    let mut verdict = verify_with_bound(t, &bound, &probe, cfg, runner)?;
-    if let Verdict::Verified { stats, .. } = &mut verdict {
-        stats.max_precision = probe.max.load(Ordering::Relaxed);
-    }
-    Ok(verdict)
+    verify_with_bound(t, &bound, &probe, cfg, runner)
 }
 
 /// Verifies the Riemann Hypothesis up to `t`: the one verdict a run reports.
@@ -539,7 +499,7 @@ pub fn verify<Z: ZSource + Sync, E: Write>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interval::Interval;
+    use crate::interval::{Interval, Sign};
     use crate::theta::gram_bracket;
     use crate::turing::choose_m;
     use rug::Float;
@@ -829,7 +789,8 @@ mod tests {
         let boundary = certify_boundary(-1, &z, &cfg()).unwrap().unwrap();
         let bound = TuringBound { m: -1, blocks: 1, last_index: 0, upper: 20.0, boundary };
         let runner = Runner::new(PoolPolicy::Serial, &mut Vec::new()).unwrap();
-        let verdict = verify_with_bound(5.0, &bound, &z, &cfg(), &runner).unwrap();
+        let probe = PrecisionProbe { inner: &z, max: AtomicU32::new(0) };
+        let verdict = verify_with_bound(5.0, &bound, &probe, &cfg(), &runner).unwrap();
         assert_eq!(
             verdict,
             Verdict::NotVerified { reason: NotVerifiedReason::NoBlocks, blocks: vec![] }

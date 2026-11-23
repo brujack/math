@@ -11,11 +11,11 @@
 
 use std::f64::consts::PI;
 
-use crate::boundary::{Boundary, certify_boundary};
+use crate::boundary::{Boundary, certify_boundary, is_good};
 use crate::config::VerifyConfig;
-use crate::interval::{Interval, Sign};
-use crate::isolate::{GramBlock, IsolateError, Point, isolate_block};
-use crate::theta::theta;
+use crate::interval::Interval;
+use crate::isolate::{GramBlock, IsolateError, Point, PointsFault, isolate_block, merge_points};
+use crate::theta::{pi_interval, theta};
 use crate::zfun::{MAX_HEIGHT, ZFault, ZSource};
 use rug::Float;
 use rug::float::{Constant, Round};
@@ -33,13 +33,13 @@ const MAX_BLOCK_LEN: i64 = 16;
 /// `f64` above this constant is above 168*pi itself.
 const RANGE_START: f64 = 168.0 * PI;
 
-/// Trudgian 2011 Theorem 2.2: |integral of S| <= A + B ln t.
-const TRUDGIAN_A: f64 = 2.067;
-const TRUDGIAN_B: f64 = 0.059;
+/// Trudgian 2011 Theorem 2.2: |integral of S| <= A + B ln t, with A = 2067/1000 and
+/// B = 59/1000 held as exact ratios (the nearest `f64`s are not those decimals).
+const TRUDGIAN_A_MILLIS: f64 = 2067.0;
+const TRUDGIAN_B_MILLIS: f64 = 59.0;
 
-/// Added before rounding the right side of eq. 2.1 up, so an `f64` error cannot
-/// turn an exact integer bound into one block too few.
-const ROUNDING_MARGIN: f64 = 1e-9;
+/// Working precision of the eq. 2.1 enclosure: far more than a block count needs.
+const RHS_PRECISION: u32 = 128;
 
 /// What `establish` proved: N(g_m) <= m + 1.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -62,10 +62,8 @@ pub struct TuringBound {
 pub enum InternalFault {
     /// An adjacent pair of points lies in no single Gram block.
     PairInNoBlock,
-    /// One height carries two different certified signs.
-    SignConflict,
-    /// A point's height is NaN.
-    NanHeight,
+    /// The merged points carried a NaN height or one height with two signs.
+    Points(PointsFault),
     /// T is NaN or infinite.
     NonFiniteHeight,
     /// T is above `zfun::MAX_HEIGHT`, the largest height Z is evaluated at.
@@ -84,8 +82,7 @@ impl std::fmt::Display for InternalFault {
             Self::PairInNoBlock => {
                 f.write_str("an adjacent pair of points lies in no single Gram block")
             }
-            Self::SignConflict => f.write_str("one height carries two different certified signs"),
-            Self::NanHeight => f.write_str("a point height is NaN"),
+            Self::Points(e) => write!(f, "{e}"),
             Self::NonFiniteHeight => f.write_str("T is not finite"),
             Self::HeightAboveRange => f.write_str("T is above the largest height Z supports"),
             Self::IndexOverflow => f.write_str("a Gram index overflowed"),
@@ -165,33 +162,38 @@ fn from_isolate(error: IsolateError) -> TuringFailure {
     }
 }
 
-/// The right side of Trudgian's eq. 2.1 at `g_p`:
-/// (b / 6pi) ln^2 g_p + ((a - b ln 2pi) / 6pi) ln g_p.
-fn trudgian_rhs(g_p: f64) -> f64 {
-    let ln = g_p.ln();
-    let six_pi = 6.0 * PI;
-    (TRUDGIAN_B / six_pi) * ln * ln + ((TRUDGIAN_A - TRUDGIAN_B * (2.0 * PI).ln()) / six_pi) * ln
+/// Outward-rounded enclosure of the right side of Trudgian's eq. 2.1 at `g_p`:
+/// (b / 6pi) ln^2 g_p + ((a - b ln 2pi) / 6pi) ln g_p. `None` when `g_p` is not
+/// finite and positive or a step has no enclosure.
+fn trudgian_rhs(g_p: f64) -> Option<Interval> {
+    if !g_p.is_finite() || g_p <= 0.0 {
+        return None;
+    }
+    let prec = RHS_PRECISION;
+    let thousand = Interval::point(1000.0, prec);
+    let a = Interval::point(TRUDGIAN_A_MILLIS, prec).div(&thousand).ok()?;
+    let b = Interval::point(TRUDGIAN_B_MILLIS, prec).div(&thousand).ok()?;
+    let pi = pi_interval(prec).ok()?;
+    let six_pi = Interval::point(6.0, prec).mul(&pi);
+    let ln_two_pi = Interval::point(2.0, prec).mul(&pi).ln().ok()?;
+    let ln = Interval::point(g_p, prec).ln().ok()?;
+    let quadratic = b.div(&six_pi).ok()?.mul(&ln).mul(&ln);
+    let linear = a.sub(&b.mul(&ln_two_pi)).div(&six_pi).ok()?.mul(&ln);
+    Some(quadratic.add(&linear))
 }
 
-/// `x` rounded up to a block count, with `ROUNDING_MARGIN` so an exact integer rounds up.
-fn ceil_with_margin(x: f64) -> usize {
-    (x + ROUNDING_MARGIN).ceil() as usize
-}
-
-/// Blocks eq. 2.1 asks for when the last block's upper height is `g_p`; a bound that
-/// is not finite and positive (which a NaN, infinite or non-positive height gives
-/// through its logarithm) is an internal fault, never zero blocks.
+/// Blocks eq. 2.1 asks for when the last block's upper height is `g_p`: the smallest
+/// integer strictly above the enclosure's upper end, so no rounding can leave one
+/// block too few. A bound that is not finite and positive (which a NaN, infinite or
+/// non-positive height gives) is an internal fault, never zero blocks.
 fn blocks_needed(g_p: f64) -> Result<usize, InternalFault> {
-    let rhs = trudgian_rhs(g_p);
-    if !rhs.is_finite() || rhs <= 0.0 {
+    let rhs = trudgian_rhs(g_p).ok_or(InternalFault::BadBlockBound)?;
+    if !rhs.hi().is_finite() || *rhs.hi() <= 0.0 {
         return Err(InternalFault::BadBlockBound);
     }
-    Ok(ceil_with_margin(rhs))
-}
-
-/// Good means (-1)^n Z(g_n) > 0.
-fn is_good(n: i64, sign: Sign) -> bool {
-    sign == if n.rem_euclid(2) == 0 { Sign::Positive } else { Sign::Negative }
+    let (floor, _) = rhs.hi().to_integer_round(Round::Down).ok_or(InternalFault::BadBlockBound)?;
+    let floor = floor.to_usize().ok_or(InternalFault::BadBlockBound)?;
+    Ok(floor + 1)
 }
 
 /// One Turing block: the closed range [lo, hi] of heights, from g_`start`, `len` Gram intervals long.
@@ -201,27 +203,6 @@ struct BlockRange {
     hi: f64,
     start: i64,
     len: usize,
-}
-
-/// Sort certified points by height, keep one copy of an identical (t, sign), and
-/// reject a NaN height or one height with two signs.
-fn merge_points(mut points: Vec<Point>) -> Result<Vec<Point>, InternalFault> {
-    if points.iter().any(|p| p.t.is_nan()) {
-        return Err(InternalFault::NanHeight);
-    }
-    points.sort_by(|a, b| a.t.total_cmp(&b.t));
-    let mut merged: Vec<Point> = Vec::with_capacity(points.len());
-    for p in points {
-        match merged.last() {
-            Some(last) if last.t == p.t => {
-                if last.sign != p.sign {
-                    return Err(InternalFault::SignConflict);
-                }
-            }
-            _ => merged.push(p),
-        }
-    }
-    Ok(merged)
 }
 
 /// Sign changes credited to each block: an adjacent pair counts for the block
@@ -321,7 +302,8 @@ fn establish_with<Z: ZSource>(
         points.extend(isolate_block(&block, z, cfg).map_err(from_isolate)?.points);
         points.extend(between);
         blocks.push(BlockRange { lo: start.point().t, hi: end.point().t, start: start_n, len });
-        let verdict = check_rosser(&merge_points(points.clone())?, &blocks);
+        let verdict =
+            check_rosser(&merge_points(points.clone()).map_err(InternalFault::Points)?, &blocks);
         if let Err(failure @ TuringFailure::RosserFailed { .. }) = &verdict {
             *known = Some(failure.clone());
         }
@@ -413,6 +395,7 @@ pub fn choose_m<Z: ZSource>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::interval::Sign;
     use crate::theta::gram_bracket;
     use crate::zfun::RealZ;
     use rug::Float;
@@ -514,7 +497,10 @@ mod tests {
             (1e6, 2.032_929_087_485),
             (1e7, 2.487_916_941_938),
         ] {
-            assert!((trudgian_rhs(g) - want).abs() < 1e-9, "g = {g}: {}", trudgian_rhs(g));
+            let rhs = trudgian_rhs(g).unwrap();
+            let (lo, hi) = (rhs.lo().to_f64(), rhs.hi().to_f64());
+            assert!(lo <= hi && hi - lo < 1e-30, "g = {g}: [{lo}, {hi}] is not tight");
+            assert!((lo - want).abs() < 1e-9, "g = {g}: {lo}");
         }
     }
 
@@ -539,33 +525,21 @@ mod tests {
         assert_eq!(blocks_needed(1.5), Ok(1));
     }
 
+    /// Eq. 2.1 reaches 1 near g = 2426.3888: the block count steps from 1 to 2
+    /// between two adjacent `f64`s, found by bisection on the certified upper end.
     #[test]
-    fn an_exact_integer_bound_rounds_up_one_block() {
-        assert_eq!(ceil_with_margin(2.0), 3);
-        assert_eq!(ceil_with_margin(2.0 - 5e-9), 2);
-        assert_eq!(ceil_with_margin(1.5), 2);
+    fn the_block_count_steps_between_adjacent_floats_at_an_integer_bound() {
+        let (mut below, mut above) = (2426.0_f64, 2427.0_f64);
+        while f64::from_bits(below.to_bits() + 1) < above {
+            let mid = below + (above - below) / 2.0;
+            if blocks_needed(mid).unwrap() == 1 { below = mid } else { above = mid }
+        }
+        assert_eq!(blocks_needed(below), Ok(1));
+        assert_eq!(blocks_needed(above), Ok(2));
+        assert_eq!(f64::from_bits(below.to_bits() + 1), above);
     }
 
     // ---- point merging and crediting ----
-
-    #[test]
-    fn merge_sorts_and_keeps_an_identical_point_once() {
-        let merged = merge_points(vec![pt(2.0, neg()), pt(1.0, pos()), pt(2.0, neg())]).unwrap();
-        assert_eq!(merged, vec![pt(1.0, pos()), pt(2.0, neg())]);
-    }
-
-    #[test]
-    fn merge_refuses_a_sign_conflict_and_a_nan() {
-        assert_eq!(
-            merge_points(vec![pt(1.0, pos()), pt(1.0, neg())]),
-            Err(InternalFault::SignConflict)
-        );
-        assert_eq!(
-            merge_points(vec![pt(1.0, pos()), pt(f64::NAN, neg())]),
-            Err(InternalFault::NanHeight)
-        );
-        assert_eq!(merge_points(vec![]), Ok(vec![]));
-    }
 
     fn two_blocks() -> Vec<BlockRange> {
         vec![
@@ -618,17 +592,11 @@ mod tests {
     }
 
     #[test]
-    fn goodness_follows_the_parity_of_the_index() {
-        assert!(is_good(4, pos()));
-        assert!(!is_good(4, neg()));
-        assert!(is_good(5, neg()));
-        assert!(!is_good(5, pos()));
-    }
-
-    #[test]
     fn faults_are_told_apart_from_candidate_failures() {
         assert!(TuringFailure::Fault(ZFault::NanHeight).is_fault());
-        assert!(TuringFailure::Internal(InternalFault::SignConflict).is_fault());
+        assert!(
+            TuringFailure::Internal(InternalFault::Points(PointsFault::SignConflict)).is_fault()
+        );
         for failure in [
             TuringFailure::BelowRange,
             TuringFailure::BadGramPoint,
@@ -667,7 +635,7 @@ mod tests {
         shows(TuringFailure::Exhausted { tried: 11 }, "no candidate of 11 established the bound");
         shows(TuringFailure::Fault(ZFault::NanHeight), "Z fault: height is NaN");
         shows(
-            TuringFailure::Internal(InternalFault::SignConflict),
+            TuringFailure::Internal(InternalFault::Points(PointsFault::SignConflict)),
             "internal fault: one height carries two different certified signs",
         );
     }
@@ -679,8 +647,11 @@ mod tests {
             InternalFault::PairInNoBlock,
             "an adjacent pair of points lies in no single Gram block",
         );
-        shows(InternalFault::SignConflict, "one height carries two different certified signs");
-        shows(InternalFault::NanHeight, "a point height is NaN");
+        shows(
+            InternalFault::Points(PointsFault::SignConflict),
+            "one height carries two different certified signs",
+        );
+        shows(InternalFault::Points(PointsFault::NanHeight), "a point height is NaN");
         shows(InternalFault::NonFiniteHeight, "T is not finite");
         shows(InternalFault::HeightAboveRange, "T is above the largest height Z supports");
         shows(InternalFault::IndexOverflow, "a Gram index overflowed");
