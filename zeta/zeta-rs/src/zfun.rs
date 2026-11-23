@@ -809,6 +809,22 @@ mod tests {
         assert_eq!(self_check(&passing()), Ok(()));
     }
 
+    /// An Euler-Maclaurin path whose enclosure is [lo, lo + 1e-11] (remainder 1e-12).
+    fn em_from(lo: f64) -> EmFn {
+        Box::new(move |_| {
+            Ok(EmEnclosure { z: iv(&f(lo), &(f(lo) + f(1e-11))), remainder: f(1e-12) })
+        })
+    }
+
+    #[test]
+    fn self_check_handles_euler_maclaurin_above_riemann_siegel() {
+        // rs = [-floor, 0]; em touching at 0 passes, em just above 0 is disjoint.
+        let rs_below = || -> RsFn { Box::new(|t| Ok(iv(&-rs_floor(t), &f(0.0)))) };
+        assert_eq!(self_check(&fake(rs_below(), em_from(0.0))), Ok(()));
+        let apart = fake(rs_below(), em_from(1e-11));
+        assert!(matches!(self_check(&apart), Err(SelfCheckFailure::NoIntersection { .. })));
+    }
+
     #[test]
     fn self_check_fails_when_euler_maclaurin_is_too_wide() {
         let fake = fake(rs_width(rs_floor), em_width(f(2e-10), 1e-12));
