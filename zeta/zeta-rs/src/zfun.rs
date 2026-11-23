@@ -284,17 +284,89 @@ impl ZEvaluator {
     }
 }
 
-/// A source of certified Z enclosures at one fixed precision; later stages take
-/// this so tests can inject fakes. `None` means the height is not certified.
-pub trait ZSource {
-    fn z(&self, t: f64) -> Option<Interval>;
+/// An implementation fault in a Z evaluation, as opposed to a refusal: it must
+/// surface as an internal error (exit 6), never as a merely uncertified height.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ZFault {
+    /// The imaginary part of e^(i theta) zeta(1/2 + it) does not contain 0.
+    ImaginaryPartNonzero,
+    /// The height was NaN.
+    NanHeight,
+    /// The theta enclosure failed.
+    Theta(ThetaError),
+    /// An interval operation refused its operands.
+    Interval(IntervalError),
 }
 
-impl ZSource for ZEvaluator {
-    /// Any `ZError` (a refusal, or a fault such as `ImaginaryPartNonzero`) gives
-    /// `None`, so a fault can never certify a sign; use `try_z` to see which.
-    fn z(&self, t: f64) -> Option<Interval> {
-        self.try_z(t).ok()
+impl std::fmt::Display for ZFault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ImaginaryPartNonzero => {
+                f.write_str("imaginary part of e^(i theta) zeta does not contain 0")
+            }
+            Self::NanHeight => f.write_str("height is NaN"),
+            Self::Theta(e) => write!(f, "theta failed: {e}"),
+            Self::Interval(e) => write!(f, "interval arithmetic failed: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for ZFault {}
+
+/// A source of certified Z enclosures. `Ok(None)` is a refusal (the height
+/// cannot be certified at this precision, so a caller may retry higher or give
+/// up); `Err` is an implementation fault. Later stages take this trait so tests
+/// can inject fakes.
+pub trait ZSource {
+    fn z(&self, t: f64, prec: u32) -> Result<Option<Interval>, ZFault>;
+}
+
+/// Split a Z result into a refusal (`Ok(None)`) and a fault (`Err`).
+fn refusal_or_fault(result: Result<Interval, ZError>) -> Result<Option<Interval>, ZFault> {
+    match result {
+        Ok(z) => Ok(Some(z)),
+        Err(ZError::HeightOutOfRange | ZError::AmbiguousSplit | ZError::SingularCorrection) => {
+            Ok(None)
+        }
+        Err(ZError::ImaginaryPartNonzero) => Err(ZFault::ImaginaryPartNonzero),
+        Err(ZError::Theta(e)) => Err(ZFault::Theta(e)),
+        Err(ZError::Interval(e)) => Err(ZFault::Interval(e)),
+    }
+}
+
+/// Precisions of the certification ladder; `RealZ` holds those up to the cap.
+const PRECISION_RUNGS: [u32; 4] = [64, 128, 256, 512];
+
+/// The real `ZSource`: one `ZEvaluator` per precision rung, built once.
+#[derive(Debug, Clone)]
+pub struct RealZ {
+    evaluators: Vec<ZEvaluator>,
+}
+
+impl RealZ {
+    /// Build an evaluator for each of 64, 128, 256, 512 bits not above
+    /// `cfg.precision_cap()`.
+    pub fn new(cfg: &VerifyConfig) -> Result<RealZ, ZError> {
+        let evaluators = PRECISION_RUNGS
+            .into_iter()
+            .filter(|&prec| prec <= cfg.precision_cap())
+            .map(|prec| ZEvaluator::new(prec, cfg))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(RealZ { evaluators })
+    }
+}
+
+impl ZSource for RealZ {
+    /// NaN is a fault; a precision that is not a held rung, or a height that is
+    /// out of range or not certifiable at that rung, is a refusal.
+    fn z(&self, t: f64, prec: u32) -> Result<Option<Interval>, ZFault> {
+        if t.is_nan() {
+            return Err(ZFault::NanHeight);
+        }
+        match self.evaluators.iter().find(|ev| ev.prec == prec) {
+            Some(evaluator) => refusal_or_fault(evaluator.try_z(t)),
+            None => Ok(None),
+        }
     }
 }
 
@@ -407,6 +479,10 @@ fn self_check_point<P: ZPaths>(paths: &P, t: f64) -> Result<(), SelfCheckFailure
 /// remainder, and Riemann-Siegel must lie within [2 b, 2 b + 1e-10] wide for
 /// b = 0.127 t^(-3/4). The floors catch an implementation that drops a
 /// truncation bound. Both paths share `theta`, so a theta error is invisible.
+///
+/// Callers must pass paths built with `VerifyConfig::default()` (multiplier 1) at
+/// `SELF_CHECK_PREC`: the limits use the unscaled constant, so a multiplier above
+/// 1 always fails with `RiemannSiegelTooWide` (exit 5).
 pub fn self_check<P: ZPaths>(paths: &P) -> Result<(), SelfCheckFailure> {
     SELF_CHECK_POINTS.iter().try_for_each(|&t| self_check_point(paths, t))
 }
@@ -669,14 +745,6 @@ mod tests {
     }
 
     #[test]
-    fn z_source_maps_refusals_to_none() {
-        let ev = evaluator();
-        let source: &dyn ZSource = &ev;
-        assert!(source.z(250.0).is_some());
-        assert!(source.z(0.0).is_none());
-    }
-
-    #[test]
     fn refusals_are_distinguished_from_faults() {
         assert!(ZError::HeightOutOfRange.is_refusal());
         assert!(ZError::AmbiguousSplit.is_refusal());
@@ -925,5 +993,106 @@ mod tests {
             }
         }
         assert!(texts[5].contains("height") || texts[5].contains("floor"));
+    }
+
+    // ---- RealZ and the fault/refusal split -----------------------------
+
+    /// t = f64 nearest 2 pi 917^2: a = sqrt(t / 2 pi) sits 3.4e-21 (relative) from the
+    /// integer 917, inside a 64-bit enclosure of a but outside a 128-bit one.
+    const T_AMBIGUOUS_AT_64: f64 = 5283461.409768935;
+
+    fn real_z(cap: u32) -> RealZ {
+        RealZ::new(&VerifyConfig::new(1.0, cap, 40, true).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn each_z_error_maps_to_a_refusal_or_a_fault() {
+        let interval = Interval::point(1.0, PREC);
+        assert!(refusal_or_fault(Ok(interval)).unwrap().is_some());
+        for refusal in
+            [ZError::HeightOutOfRange, ZError::AmbiguousSplit, ZError::SingularCorrection]
+        {
+            assert!(refusal_or_fault(Err(refusal)).unwrap().is_none());
+        }
+        let theta = ThetaError::HeightNotPositive;
+        let interval = IntervalError::NotANumber;
+        let faults = [
+            (ZError::ImaginaryPartNonzero, ZFault::ImaginaryPartNonzero),
+            (ZError::Theta(theta.clone()), ZFault::Theta(theta)),
+            (ZError::Interval(interval.clone()), ZFault::Interval(interval)),
+        ];
+        for (error, fault) in faults {
+            assert_eq!(refusal_or_fault(Err(error)).unwrap_err(), fault);
+        }
+    }
+
+    #[test]
+    fn zfault_displays_distinct_messages() {
+        let faults = [
+            ZFault::ImaginaryPartNonzero,
+            ZFault::NanHeight,
+            ZFault::Theta(ThetaError::HeightNotPositive),
+            ZFault::Interval(IntervalError::NotANumber),
+        ];
+        let texts: Vec<String> = faults.iter().map(ToString::to_string).collect();
+        for (i, a) in texts.iter().enumerate() {
+            assert!(!a.is_empty());
+            for b in &texts[i + 1..] {
+                assert_ne!(a, b);
+            }
+        }
+        assert!(texts[2].contains("theta") && texts[3].contains("interval"));
+    }
+
+    #[test]
+    fn real_z_certifies_through_the_source_trait() {
+        let real = real_z(512);
+        let source: &dyn ZSource = &real;
+        let sign = |t, prec| source.z(t, prec).unwrap().unwrap().sign();
+        assert_eq!(sign(7005.0817, 128), Some(Sign::Positive));
+        assert_eq!(sign(14.0, 64), Some(Sign::Negative));
+        assert_eq!(sign(14.3, 512), Some(Sign::Positive));
+    }
+
+    #[test]
+    fn real_z_reports_a_nan_height_as_a_fault() {
+        let real = real_z(512);
+        assert_eq!(real.z(f64::NAN, 128).unwrap_err(), ZFault::NanHeight);
+        // Checked before the rung lookup: a held-nowhere precision still faults.
+        assert_eq!(real.z(f64::NAN, 77).unwrap_err(), ZFault::NanHeight);
+    }
+
+    #[test]
+    fn real_z_refuses_unusable_heights_without_a_fault() {
+        let real = real_z(512);
+        for t in [0.0, -5.0, f64::INFINITY, f64::NEG_INFINITY, MAX_HEIGHT * 1.0000001] {
+            assert!(real.z(t, 128).unwrap().is_none(), "t = {t}");
+        }
+    }
+
+    #[test]
+    fn real_z_picks_the_evaluator_of_the_requested_rung() {
+        let real = real_z(512);
+        // Ambiguous floor at 64 bits (refusal, not a fault), certified at 128 and up.
+        assert!(real.z(T_AMBIGUOUS_AT_64, 64).unwrap().is_none());
+        assert!(real.z(T_AMBIGUOUS_AT_64, 128).unwrap().is_some());
+        assert!(real.z(T_AMBIGUOUS_AT_64, 512).unwrap().is_some());
+    }
+
+    #[test]
+    fn real_z_holds_exactly_the_rungs_up_to_the_cap() {
+        let capped = real_z(128);
+        assert!(capped.z(250.0, 64).unwrap().is_some());
+        assert!(capped.z(250.0, 128).unwrap().is_some());
+        assert!(capped.z(250.0, 256).unwrap().is_none());
+        assert!(capped.z(250.0, 512).unwrap().is_none());
+        // A precision that is not a rung is not held.
+        assert!(capped.z(250.0, 100).unwrap().is_none());
+        let floor = real_z(64);
+        assert!(floor.z(250.0, 64).unwrap().is_some());
+        assert!(floor.z(250.0, 128).unwrap().is_none());
+        let full = real_z(512);
+        assert!(full.z(250.0, 256).unwrap().is_some());
+        assert!(full.z(250.0, 512).unwrap().is_some());
     }
 }
