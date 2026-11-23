@@ -8,7 +8,7 @@
 //! at 2*pi and far better above it; the accuracy floor is therefore about 1e-22
 //! however many bits are requested.
 
-use crate::interval::{Interval, IntervalError};
+use crate::interval::{Interval, IntervalError, Sign};
 use rug::Float;
 use rug::float::Round;
 
@@ -180,6 +180,130 @@ pub fn theta(t: f64, prec: u32) -> Result<Interval, ThetaError> {
     Ok(value.sub(&y.mul(&ln_pi)))
 }
 
+/// Certification precisions tried in order: 64, 128, 256, then `cap` itself.
+/// Rungs at or above the cap are dropped so the cap is the last precision used.
+fn precision_ladder(cap: u32) -> Vec<u32> {
+    let mut ladder: Vec<u32> = [64, 128, 256].into_iter().filter(|&p| p < cap).collect();
+    ladder.push(cap);
+    ladder
+}
+
+/// Number of doubling steps, in units of one f64 ulp, searched on each side
+/// of the estimate: the farthest endpoint is 2^(RUNGS-1) ulps away.
+const RUNGS: u32 = 40;
+
+/// Newton steps on the closed-form asymptotic theta and on the real enclosure.
+const ASYMPTOTIC_STEPS: usize = 40;
+const EXACT_STEPS: usize = 4;
+
+/// Brent's asymptotic form of theta for t >= 10 (error below 1e-9 at 14).
+fn asymptotic_theta(t: f64) -> f64 {
+    let t2 = t * t;
+    0.5 * t * (t / std::f64::consts::TAU).ln() - 0.5 * t - std::f64::consts::PI / 8.0
+        + 1.0 / (48.0 * t)
+        + 7.0 / (5760.0 * t2 * t)
+        + 31.0 / (80640.0 * t2 * t2 * t)
+}
+
+/// d/dt of `asymptotic_theta`.
+fn asymptotic_slope(t: f64) -> f64 {
+    let t2 = t * t;
+    0.5 * (t / std::f64::consts::TAU).ln() - 1.0 / (48.0 * t2) - 7.0 / (1920.0 * t2 * t2)
+}
+
+fn midpoint_f64(i: &Interval) -> f64 {
+    let sum = Float::with_val(i.prec(), i.lo() + i.hi());
+    (sum / 2u32).to_f64()
+}
+
+/// Uncertified f64 estimate of the Gram point g_n (theta(g_n) = n*pi, n >= -1):
+/// Newton on the asymptotic theta from the right of the root, where that
+/// function is convex and increasing, then a few steps on the real theta. Only
+/// the starting point of the certified search, so a poor value costs rungs, not
+/// soundness.
+fn estimate_gram_point<F>(n: i64, f: &F) -> Option<f64>
+where
+    F: Fn(f64, u32) -> Result<Interval, ThetaError>,
+{
+    let target = n as f64 * std::f64::consts::PI;
+    let mut t = std::f64::consts::TAU * (n as f64 + 3.0);
+    for _ in 0..ASYMPTOTIC_STEPS {
+        t -= (asymptotic_theta(t) - target) / asymptotic_slope(t);
+    }
+    for _ in 0..EXACT_STEPS {
+        let mid = midpoint_f64(&f(t, 64).ok()?);
+        t -= (mid - target) / asymptotic_slope(t);
+    }
+    t.is_finite().then_some(t)
+}
+
+/// The first height 2^j ulps from `estimate` (j = 0, 1, ..., in the direction
+/// of `want`: below for a negative theta - n*pi, above for a positive one) at
+/// which `f - target` has a certified sign `want`. `None` when the search
+/// leaves (2*pi, f64::MAX] or runs out of rungs.
+fn certified_end<F>(f: &F, target: &Interval, prec: u32, estimate: f64, want: Sign) -> Option<f64>
+where
+    F: Fn(f64, u32) -> Result<Interval, ThetaError>,
+{
+    let bits = estimate.to_bits();
+    for j in 0..RUNGS {
+        let step = 1u64 << j;
+        let moved = match want {
+            Sign::Negative => bits.checked_sub(step)?,
+            Sign::Positive => bits.checked_add(step)?,
+        };
+        let t = f64::from_bits(moved);
+        if !t.is_finite() || t <= std::f64::consts::TAU {
+            return None;
+        }
+        if f(t, prec).ok()?.sub(target).sign() == Some(want) {
+            return Some(t);
+        }
+    }
+    None
+}
+
+/// Bracket of g_n around `estimate` certified at exactly `prec` bits.
+fn bracket_around<F>(n: i64, estimate: f64, prec: u32, f: &F) -> Option<(f64, f64)>
+where
+    F: Fn(f64, u32) -> Result<Interval, ThetaError>,
+{
+    let target = integer_interval(i128::from(n), prec).ok()?.mul(&pi_interval(prec).ok()?);
+    let left = certified_end(f, &target, prec, estimate, Sign::Negative);
+    let right = certified_end(f, &target, prec, estimate, Sign::Positive);
+    Some((left?, right?))
+}
+
+/// `bracket_around` over the precision ladder up to `cap`.
+fn bracket_with_estimate<F>(n: i64, cap: u32, estimate: f64, f: &F) -> Option<(f64, f64)>
+where
+    F: Fn(f64, u32) -> Result<Interval, ThetaError>,
+{
+    precision_ladder(cap).into_iter().find_map(|p| bracket_around(n, estimate, p, f))
+}
+
+/// `gram_bracket` with an injectable theta enclosure.
+fn bracket_with<F>(n: i64, cap: u32, f: &F) -> Option<(f64, f64)>
+where
+    F: Fn(f64, u32) -> Result<Interval, ThetaError>,
+{
+    if n < -1 {
+        return None;
+    }
+    bracket_with_estimate(n, cap, estimate_gram_point(n, f)?, f)
+}
+
+/// Certified bracket of the Gram point g_n, the t > 2*pi solution of
+/// theta(t) = n*pi, for n >= -1.
+///
+/// Returns f64 heights 2*pi < b < c with theta(b) - n*pi certified negative and
+/// theta(c) - n*pi certified positive, so g_n lies in (b, c) as theta is
+/// increasing there. Precision rises 64, 128, 256 up to `prec`; `None` when
+/// n < -1 or nothing is certified within the cap.
+pub fn gram_bracket(n: i64, prec: u32) -> Option<(f64, f64)> {
+    bracket_with(n, prec, &theta)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -328,6 +452,230 @@ mod tests {
     fn fixture_lists_four_gram_points() {
         let rows: Vec<&str> = FIXTURE.lines().filter(|l| !l.starts_with('#')).collect();
         assert_eq!(rows.len(), 4);
+    }
+
+    fn fixture_rows() -> Vec<(i64, Float)> {
+        FIXTURE
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .map(|l| {
+                let (n, g) = l.split_once(' ').unwrap();
+                (n.parse().unwrap(), big(g))
+            })
+            .collect()
+    }
+
+    fn exact(x: f64) -> Float {
+        Float::with_val(256, x)
+    }
+
+    fn point(x: f64) -> Result<Interval, ThetaError> {
+        Ok(Interval::point(x, 64))
+    }
+
+    fn span(lo: f64, hi: f64) -> Result<Interval, ThetaError> {
+        Ok(Interval::new(Float::with_val(64, lo), Float::with_val(64, hi)).unwrap())
+    }
+
+    #[test]
+    fn brackets_hold_the_mpmath_gram_points() {
+        for (n, g) in fixture_rows() {
+            let (b, c) = gram_bracket(n, 128).unwrap();
+            assert!(exact(b) < g && g < exact(c), "n={n}: [{b}, {c}]");
+            assert!(c - b < 1e-9, "n={n}: width {}", c - b);
+        }
+    }
+
+    #[test]
+    fn brackets_strictly_increase_with_n() {
+        let mut prev = f64::NEG_INFINITY;
+        for n in -1..=1000 {
+            let (b, c) = gram_bracket(n, 64).unwrap();
+            assert!(b < c, "n={n}");
+            assert!(b > prev, "n={n}: {b} after {prev}");
+            assert!(b > std::f64::consts::TAU);
+            prev = b;
+        }
+    }
+
+    #[test]
+    fn brackets_exist_at_both_precision_limits() {
+        assert!(gram_bracket(-1, 64).is_some());
+        assert!(gram_bracket(-1, 512).is_some());
+    }
+
+    #[test]
+    fn gram_index_below_minus_one_has_no_bracket() {
+        assert_eq!(gram_bracket(-2, 128), None);
+        assert_eq!(gram_bracket(i64::MIN, 128), None);
+        assert!(gram_bracket(-1, 128).is_some());
+    }
+
+    #[test]
+    fn estimate_lands_near_the_gram_point() {
+        for (n, g) in fixture_rows() {
+            let est = estimate_gram_point(n, &theta).unwrap();
+            let err = (exact(est) - &g).abs();
+            assert!(err < 1e-9, "n={n}: estimate {est} off by {err}");
+        }
+    }
+
+    #[test]
+    fn asymptotic_theta_matches_mpmath_to_its_truncation_error() {
+        // The first omitted term is about 4e-11 at t = 14.13; each kept term is larger.
+        for (t, r) in REFS.iter().filter(|(t, _)| *t > 14.0) {
+            let want = big(r).to_f64();
+            assert!((asymptotic_theta(*t) - want).abs() < 1e-9, "t={t}");
+        }
+    }
+
+    #[test]
+    fn asymptotic_slope_is_the_derivative_of_asymptotic_theta() {
+        let h = 1e-3;
+        for t in [10.0, 14.134725141734693, 100.0] {
+            let fd = (asymptotic_theta(t + h) - asymptotic_theta(t - h)) / (2.0 * h);
+            assert!((asymptotic_slope(t) - fd).abs() < 1e-7, "t={t}");
+        }
+    }
+
+    #[test]
+    fn midpoint_is_the_centre_of_the_interval() {
+        let i = Interval::new(Float::with_val(64, 1.0), Float::with_val(64, 4.0)).unwrap();
+        assert_eq!(midpoint_f64(&i), 2.5);
+    }
+
+    #[test]
+    fn precision_ladder_climbs_to_the_cap() {
+        assert_eq!(precision_ladder(512), vec![64, 128, 256, 512]);
+        assert_eq!(precision_ladder(256), vec![64, 128, 256]);
+        assert_eq!(precision_ladder(100), vec![64, 100]);
+        assert_eq!(precision_ladder(64), vec![64]);
+        assert_eq!(precision_ladder(40), vec![40]);
+    }
+
+    /// A shifted fake whose enclosure straddles n*pi near g_n: endpoints only
+    /// certify where the whole enclosure is on one side.
+    #[test]
+    fn a_wide_enclosure_is_not_a_certificate_near_the_crossing() {
+        let wide = |t: f64, p: u32| theta(t, p).map(|i| i.widen(&Float::with_val(64, 1e-6)));
+        for (n, g) in fixture_rows() {
+            let (b, c) = bracket_with(n, 128, &wide).unwrap();
+            let pi = Float::with_val(256, rug::float::Constant::Pi);
+            let target = Float::with_val(256, &pi * n);
+            let (tb, tc) = (theta(b, 256).unwrap(), theta(c, 256).unwrap());
+            assert!(*tb.hi() < Float::with_val(256, &target - 9e-7), "n={n}");
+            assert!(*tc.lo() > Float::with_val(256, &target + 9e-7), "n={n}");
+            assert!(exact(b) < g && g < exact(c));
+        }
+    }
+
+    /// A fake enclosure offset above the truth certifies c only past n*pi's
+    /// real crossing too early: the bracket then misses g_n, showing the
+    /// certificate follows the enclosure it is given and nothing else.
+    #[test]
+    fn a_shifted_enclosure_moves_the_certified_bracket() {
+        let shifted = |t: f64, p: u32| theta(t, p).map(|i| i.add(&Interval::point(1e-6, p)));
+        let (_, g) = fixture_rows().into_iter().find(|(n, _)| *n == 100).unwrap();
+        let (_, c) = bracket_with(100, 128, &shifted).unwrap();
+        assert!(exact(c) < g, "c = {c} should fall short of g");
+    }
+
+    #[test]
+    fn touching_zero_is_not_a_certificate() {
+        let touching = |t: f64, _p: u32| if t < 10.0 { span(-1.0, 0.0) } else { span(0.0, 1.0) };
+        assert_eq!(bracket_around(0, 10.0, 64, &touching), None);
+        let firm = |t: f64, _p: u32| if t < 10.0 { span(-1.0, -0.5) } else { span(0.5, 1.0) };
+        let (b, c) = bracket_around(0, 10.0, 64, &firm).unwrap();
+        assert!(b < 10.0 && 10.0 <= c);
+    }
+
+    #[test]
+    fn the_bracket_ends_straddle_the_estimate_by_whole_ulps() {
+        let firm = |t: f64, _p: u32| if t < 10.0 { point(-1.0) } else { point(1.0) };
+        let (b, c) = bracket_around(0, 10.0, 64, &firm).unwrap();
+        assert_eq!(b.to_bits(), 10.0f64.to_bits() - 1);
+        assert_eq!(c.to_bits(), 10.0f64.to_bits() + 1);
+    }
+
+    #[test]
+    fn a_left_end_at_or_below_two_pi_is_refused() {
+        let tau = std::f64::consts::TAU;
+        let est = f64::from_bits(tau.to_bits() + 4);
+        // Only t <= 2*pi certifies on the left; the rungs before it straddle.
+        let fake = |t: f64, _p: u32| {
+            if t <= tau {
+                point(-1.0)
+            } else if t < est {
+                span(-1.0, 1.0)
+            } else {
+                point(1.0)
+            }
+        };
+        assert_eq!(bracket_around(0, est, 64, &fake), None);
+        // Eight ulps up, the fourth rung lands four ulps above 2*pi and is accepted.
+        let est = f64::from_bits(tau.to_bits() + 8);
+        let ok_below = f64::from_bits(tau.to_bits() + 4);
+        let fake = |t: f64, _p: u32| {
+            if t <= ok_below {
+                point(-1.0)
+            } else if t < est {
+                span(-1.0, 1.0)
+            } else {
+                point(1.0)
+            }
+        };
+        let (b, _) = bracket_around(0, est, 64, &fake).unwrap();
+        assert_eq!(b, ok_below);
+    }
+
+    #[test]
+    fn the_search_never_evaluates_infinite_or_nan_heights() {
+        let seen = std::cell::RefCell::new(Vec::new());
+        let never = |t: f64, _p: u32| {
+            seen.borrow_mut().push(t);
+            span(-1.0, 1.0)
+        };
+        let near_max = f64::from_bits(f64::MAX.to_bits() - 2);
+        assert_eq!(bracket_around(0, near_max, 64, &never), None);
+        assert_eq!(bracket_around(0, f64::NAN, 64, &never), None);
+        assert!(seen.borrow().iter().all(|t| t.is_finite() && *t > std::f64::consts::TAU));
+    }
+
+    #[test]
+    fn uncertified_pairs_raise_precision_up_to_the_cap() {
+        let seen = std::cell::RefCell::new(Vec::new());
+        let needs_256 = |t: f64, p: u32| {
+            seen.borrow_mut().push(p);
+            match (p >= 256, t < 10.0) {
+                (true, true) => point(-1.0),
+                (true, false) => point(1.0),
+                (false, _) => span(-1.0, 1.0),
+            }
+        };
+        assert!(bracket_with_estimate(0, 512, 10.0, &needs_256).is_some());
+        let mut ps = seen.borrow().clone();
+        ps.dedup();
+        assert_eq!(ps, vec![64, 128, 256]);
+        seen.borrow_mut().clear();
+        assert_eq!(bracket_with_estimate(0, 100, 10.0, &needs_256), None);
+        let mut ps = seen.borrow().clone();
+        ps.dedup();
+        assert_eq!(ps, vec![64, 100]);
+    }
+
+    #[test]
+    fn a_bracket_needs_both_ends() {
+        let only_left = |t: f64, _p: u32| if t < 10.0 { point(-1.0) } else { span(-1.0, 1.0) };
+        assert_eq!(bracket_around(0, 10.0, 64, &only_left), None);
+        let only_right = |t: f64, _p: u32| if t < 10.0 { span(-1.0, 1.0) } else { point(1.0) };
+        assert_eq!(bracket_around(0, 10.0, 64, &only_right), None);
+    }
+
+    #[test]
+    fn a_failing_theta_gives_no_bracket() {
+        let broken = |_t: f64, _p: u32| Err(ThetaError::HeightNotPositive);
+        assert_eq!(bracket_with(5, 128, &broken), None);
+        assert_eq!(bracket_around(0, 10.0, 64, &broken), None);
     }
 
     proptest! {
