@@ -816,6 +816,34 @@ mod tests {
         assert_eq!(establish(1912, &z, &cfg()), Err(TuringFailure::BlockTooLong { from: 1912 }));
     }
 
+    /// Block [g_1912, g_1916) with bad g_1913..g_1915 (signs + - +) needs 4 sign changes.
+    /// Sampling (depth 2, no moved points) finds only a dip at the quarter point and one at
+    /// the midpoint (the other quarter point is blind), which alone give 2; the bad Gram
+    /// points between them supply the other 2, so dropping them from the merged points
+    /// must fail the block.
+    #[test]
+    fn a_bad_gram_point_inside_a_block_supplies_its_alternations() {
+        let cfg = VerifyConfig::new(1.0, 512, 2, false).unwrap();
+        let brackets: Vec<(f64, f64)> = (1912..=1916).map(bracket).collect();
+        let (lo, hi) = (boundary_of(1912).point().t, boundary_of(1916).point().t);
+        let mid = lo + (hi - lo) / 2.0;
+        let quarter = lo + (mid - lo) / 2.0;
+        let signs = [1.0, 1.0, -1.0, 1.0, 1.0];
+        let z = fake(move |t| {
+            if t > brackets[4].1 {
+                return wave(t);
+            }
+            let in_bracket = brackets.iter().zip(signs).find(|((b, c), _)| (*b..=*c).contains(&t));
+            match in_bracket {
+                Some((_, sign)) => sign,
+                None if t == quarter || t == mid => -1.0,
+                None => 0.0,
+            }
+        });
+        let bound = establish(1912, &z, &cfg).unwrap();
+        assert_eq!((bound.m, bound.last_index >= 1916), (1912, true));
+    }
+
     /// A block of exactly MAX_BLOCK_LEN Gram intervals is accepted: Z = -cos theta
     /// on (c_1912, c_1927] makes g_1913..g_1927 bad and g_1928 good again, and its
     /// 16 sign changes satisfy Rosser's rule. Eq. 2.1 at c_1928 asks for a second

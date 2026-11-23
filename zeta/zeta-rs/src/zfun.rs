@@ -107,6 +107,12 @@ pub fn gabcke_bound(t: f64, prec: u32, multiplier: f64) -> Result<Interval, ZErr
     Ok(t_pow.mul(&constant).mul(&Interval::point(multiplier, prec)))
 }
 
+/// Height at which Gabcke's bound is evaluated over `[lo, hi]`: the bound
+/// decreases in t, so its largest value on the interval is at the lowest height.
+fn bound_height(lo: f64, _hi: f64) -> f64 {
+    lo
+}
+
 /// Z(t) by Euler-Maclaurin together with the remainder bound added to the real
 /// and imaginary parts of zeta before the rotation (the self-check needs it).
 #[derive(Debug, Clone)]
@@ -292,7 +298,7 @@ impl ZEvaluator {
         // (-1)^(N-1): the correction is added for odd N and subtracted for even N.
         let correction =
             if n % 2 == 0 { Interval::point(0.0, prec).sub(&correction) } else { correction };
-        let bound = gabcke_bound(lo, prec, self.multiplier)?;
+        let bound = gabcke_bound(bound_height(lo, hi), prec, self.multiplier)?;
         Ok(main.add(&correction).widen(bound.hi()))
     }
 
@@ -696,6 +702,15 @@ mod tests {
             let enclosure = ev.riemann_siegel(t).unwrap();
             assert!(contains(&enclosure, &reference(z)), "RS at {t}: {enclosure:?}");
         }
+    }
+
+    #[test]
+    fn bound_height_is_the_lowest_height_where_the_bound_is_largest() {
+        let (lo, hi) = (200.0, 300.0);
+        assert_eq!(bound_height(lo, hi), lo);
+        let at_lo = gabcke_bound(bound_height(lo, hi), PREC, 1.0).unwrap();
+        let at_hi = gabcke_bound(hi, PREC, 1.0).unwrap();
+        assert!(at_lo.lo() >= at_hi.hi(), "bound must decrease in t");
     }
 
     #[test]

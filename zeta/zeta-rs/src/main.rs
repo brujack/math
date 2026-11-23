@@ -987,6 +987,18 @@ mod tests {
     }
 
     #[test]
+    fn write_table_rounds_a_down_and_b_up_for_a_non_exact_interval() {
+        // 1.1 and 1.2 are not exact in binary: the interval must only ever widen.
+        let mut buf = Vec::new();
+        write_table(&mut buf, &[(1.1, 1.2)]).unwrap();
+        let text = String::from_utf8(buf).unwrap();
+        assert_eq!(
+            text,
+            "# n a b\n1 1.10000000000000008881784197001 1.19999999999999995559107901500\n"
+        );
+    }
+
+    #[test]
     fn write_table_of_no_zeros_is_just_the_header() {
         let mut buf = Vec::new();
         write_table(&mut buf, &[]).unwrap();
@@ -997,6 +1009,17 @@ mod tests {
     fn write_table_reports_a_failing_writer() {
         assert!(write_table(WriteFailingWriter, &[(1.0, 2.0)]).is_err());
         assert!(write_table(FlushFailingWriter, &[]).is_err());
+    }
+
+    #[test]
+    fn dir_store_create_refuses_an_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("zeta_1e2.tmp.txt");
+        fs::write(&path, b"another run's data").unwrap();
+        let store = DirStore(dir.path().to_path_buf());
+        let err = store.create("zeta_1e2.tmp.txt").unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read(&path).unwrap(), b"another run's data");
     }
 
     #[test]
