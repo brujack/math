@@ -83,7 +83,7 @@ pub enum Fault {
     Points(PointsFault),
     /// L > M + 1, which a correct implementation cannot produce.
     TooManySignChanges { found: usize, bound: usize },
-    /// A worker thread panicked.
+    /// A panic in a worker, in choosing M or in the straddle step (spec text: "worker panicked").
     WorkerPanicked,
 }
 
@@ -414,7 +414,9 @@ fn verify_with_bound<Z: ZSource + Sync>(
     if !isolated.unresolved.is_empty() {
         return Ok(not_verified(NotVerifiedReason::UnresolvedBlocks, isolated.unresolved));
     }
-    let Some(intervals) = intervals_up_to(t, &points, &bound.boundary.bracket(), z, cfg)? else {
+    // The straddle step calls Z on this thread, outside the pool, so it needs its own guard.
+    let bracket = bound.boundary.bracket();
+    let Some(intervals) = Runner::guard(|| intervals_up_to(t, &points, &bracket, z, cfg))?? else {
         return Ok(not_verified(NotVerifiedReason::ZeroSideUncertain, Vec::new()));
     };
     Ok(Verdict::Verified { count: intervals.len(), intervals })
@@ -786,6 +788,19 @@ mod tests {
         });
         for policy in [PoolPolicy::Serial, PoolPolicy::Threads(2)] {
             assert_eq!(fault(go(&z, 100.0, &cfg(), policy).0), Fault::WorkerPanicked);
+        }
+    }
+
+    #[test]
+    fn a_panic_in_the_straddle_step_is_a_fault_not_an_unwound_panic() {
+        // T sits inside one sign-change interval; Z is evaluated at T only by the straddle rule.
+        let t = wave_zero(10) + 0.01;
+        let z = fake(move |x| {
+            assert!(x != t, "boom");
+            wave(x)
+        });
+        for policy in [PoolPolicy::Serial, PoolPolicy::Threads(2)] {
+            assert_eq!(fault(go(&z, t, &cfg(), policy).0), Fault::WorkerPanicked);
         }
     }
 
