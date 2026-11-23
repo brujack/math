@@ -16,6 +16,8 @@ pub enum IntervalError {
     NotANumber,
     /// The lower bound exceeded the upper bound.
     Inverted,
+    /// Both bounds are the same infinity, so no real number lies inside.
+    NoRealPoint,
     /// The divisor interval contains zero.
     DivisorContainsZero,
     /// `ln` of an interval whose lower bound is not strictly positive.
@@ -58,7 +60,15 @@ fn upper_or_unbounded(f: Float) -> Float {
 impl Interval {
     /// The interval enclosing the single value `x` at precision `prec`.
     /// NaN yields the whole line.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `prec` is outside `rug::float::prec_min()..=rug::float::prec_max()`.
     pub fn point(x: f64, prec: u32) -> Interval {
+        assert!(
+            (rug::float::prec_min()..=rug::float::prec_max()).contains(&prec),
+            "Interval::point: precision {prec} outside the MPFR range"
+        );
         if x.is_nan() {
             return Interval {
                 lo: Float::with_val(prec, f64::NEG_INFINITY),
@@ -75,6 +85,9 @@ impl Interval {
         }
         if lo > hi {
             return Err(IntervalError::Inverted);
+        }
+        if lo.is_infinite() && lo == hi {
+            return Err(IntervalError::NoRealPoint);
         }
         Ok(Interval { lo, hi })
     }
@@ -263,6 +276,12 @@ mod tests {
         Interval::new(fl(prec, lo), fl(prec, hi)).unwrap()
     }
 
+    /// Exact f64 bounds of an interval whose endpoints are at most 53 bits wide
+    /// or came from f64 values.
+    fn bounds_f64(i: &Interval) -> (f64, f64) {
+        (i.lo().to_f64(), i.hi().to_f64())
+    }
+
     /// An f64 inside [lo, hi] chosen by fraction `t` in [0, 1].
     fn pick(lo: f64, hi: f64, t: f64) -> f64 {
         (lo + t * (hi - lo)).clamp(lo, hi)
@@ -272,85 +291,275 @@ mod tests {
         i.lo() <= v && v <= i.hi()
     }
 
+    /// R18 reference: the value computed at `hp` bits with outward rounding is a
+    /// subset of the enclosure.
+    fn encloses<F: Fn(Round) -> Float>(i: &Interval, f: F) -> bool {
+        contains(i, &f(Round::Down)) && contains(i, &f(Round::Up))
+    }
+
+    /// `inner` is a subset of `outer`.
+    fn nested(inner: &Interval, outer: &Interval) -> bool {
+        inner.lo() >= outer.lo() && inner.hi() <= outer.hi()
+    }
+
+    fn at_prec(i: &Interval, prec: u32) -> Interval {
+        Interval::new(Float::with_val(prec, i.lo()), Float::with_val(prec, i.hi())).unwrap()
+    }
+
     /// Point fraction, biased towards the endpoints where outward rounding bites.
     fn fraction() -> impl Strategy<Value = f64> {
         prop_oneof![Just(0.0), Just(1.0), 0.0f64..=1.0]
     }
 
-    /// Interval strategy: ordered endpoints up to 1e9 in magnitude plus a point
-    /// fraction.
-    fn span() -> impl Strategy<Value = (f64, f64, f64)> {
-        (-1e9f64..1e9, -1e9f64..1e9, fraction()).prop_map(|(a, b, t)| {
-            let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
-            (lo, hi, t)
-        })
+    /// Signed f64 with a log-uniform magnitude 2^e, e in [lo_exp, hi_exp], or zero.
+    fn endpoint(lo_exp: i32, hi_exp: i32) -> impl Strategy<Value = f64> {
+        prop_oneof![
+            1 => Just(0.0),
+            9 => (any::<bool>(), 1.0f64..2.0, lo_exp..=hi_exp).prop_map(|(neg, m, e)| {
+                let v = m * 2f64.powi(e);
+                if neg { -v } else { v }
+            }),
+        ]
     }
 
-    fn positive_span() -> impl Strategy<Value = (f64, f64, f64)> {
-        (1e-9f64..1e9, 1e-9f64..1e9, fraction()).prop_map(|(a, b, t)| {
-            let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
-            (lo, hi, t)
-        })
+    fn positive(lo_exp: i32, hi_exp: i32) -> impl Strategy<Value = f64> {
+        (1.0f64..2.0, lo_exp..=hi_exp).prop_map(|(m, e)| m * 2f64.powi(e))
+    }
+
+    fn sorted(a: f64, b: f64) -> (f64, f64) {
+        if a <= b { (a, b) } else { (b, a) }
+    }
+
+    /// Interval at precision `p` from two f64 endpoints (rounded to `p` bits,
+    /// which preserves order), plus its exact f64 bounds.
+    fn make(p: u32, a: f64, b: f64) -> (Interval, f64, f64) {
+        let (lo, hi) = sorted(a, b);
+        let i = iv(p, lo, hi);
+        let (l, h) = bounds_f64(&i);
+        (i, l, h)
+    }
+
+    /// Centre and width, as R18 prescribes for cos/sin, with widths past pi.
+    fn centred() -> impl Strategy<Value = (f64, f64)> {
+        (
+            prop_oneof![-1e9f64..1e9, endpoint(-60, 30)],
+            prop_oneof![Just(0.0), 0.0f64..4.0, endpoint(-60, -1).prop_map(f64::abs)],
+        )
+    }
+
+    fn exact_midpoint_and_radius(i: &Interval, p: u32) -> (Float, Float) {
+        let mut m = rounded(p, i.lo() + i.hi(), Round::Nearest);
+        m /= 2u32;
+        let r_hi = Float::with_val(2000, i.hi() - &m);
+        let r_lo = Float::with_val(2000, &m - i.lo());
+        (m, if r_hi > r_lo { r_hi } else { r_lo })
     }
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(256))]
 
         #[test]
-        fn add_sub_mul_enclose((alo, ahi, at) in span(), (blo, bhi, bt) in span(), p in 64u32..200) {
-            let a = iv(p, alo, ahi);
-            let b = iv(p, blo, bhi);
-            let (x, y) = (pick(alo, ahi, at), pick(blo, bhi, bt));
-            let hp = 4 * p;
+        fn add_sub_mul_enclose(
+            a in (endpoint(-60, 30), endpoint(-60, 30)),
+            b in (endpoint(-60, 30), endpoint(-60, 30)),
+            (ta, tb) in (fraction(), fraction()),
+            p in 2u32..200,
+        ) {
+            let (ia, alo, ahi) = make(p, a.0, a.1);
+            let (ib, blo, bhi) = make(p, b.0, b.1);
+            let (x, y) = (pick(alo, ahi, ta), pick(blo, bhi, tb));
+            let hp = 4 * p + 100;
             let (fx, fy) = (fl(hp, x), fl(hp, y));
-            prop_assert!(contains(&a.add(&b), &Float::with_val(hp, &fx + &fy)));
-            prop_assert!(contains(&a.sub(&b), &Float::with_val(hp, &fx - &fy)));
-            prop_assert!(contains(&a.mul(&b), &Float::with_val(hp, &fx * &fy)));
+            prop_assert!(encloses(&ia.add(&ib), |r| rounded(hp, &fx + &fy, r)));
+            prop_assert!(encloses(&ia.sub(&ib), |r| rounded(hp, &fx - &fy, r)));
+            prop_assert!(encloses(&ia.mul(&ib), |r| rounded(hp, &fx * &fy, r)));
         }
 
         #[test]
-        fn div_encloses((alo, ahi, at) in span(), (blo, bhi, bt) in positive_span(), neg in any::<bool>(), p in 64u32..200) {
+        fn div_encloses(
+            a in (endpoint(-60, 30), endpoint(-60, 30)),
+            b in (positive(-60, 30), positive(-60, 30)),
+            neg in any::<bool>(),
+            (ta, tb) in (fraction(), fraction()),
+            p in 2u32..200,
+        ) {
+            let (blo, bhi) = sorted(b.0, b.1);
             let (blo, bhi) = if neg { (-bhi, -blo) } else { (blo, bhi) };
-            let a = iv(p, alo, ahi);
-            let b = iv(p, blo, bhi);
-            let x = pick(alo, ahi, at);
-            let y = pick(blo, bhi, bt);
-            let hp = 4 * p;
-            let q = Float::with_val(hp, fl(hp, x) / fl(hp, y));
-            prop_assert!(contains(&a.div(&b).unwrap(), &q));
+            let (ia, alo, ahi) = make(p, a.0, a.1);
+            let (ib, blo, bhi) = make(p, blo, bhi);
+            let (x, y) = (pick(alo, ahi, ta), pick(blo, bhi, tb));
+            let hp = 4 * p + 100;
+            let (fx, fy) = (fl(hp, x), fl(hp, y));
+            let q = ia.div(&ib).unwrap();
+            prop_assert!(encloses(&q, |r| rounded(hp, &fx / &fy, r)));
         }
 
         #[test]
-        fn sqrt_ln_enclose((lo, hi, t) in positive_span(), p in 64u32..200) {
-            let a = iv(p, lo, hi);
-            let x = fl(4 * p, pick(lo, hi, t));
-            prop_assert!(contains(&a.sqrt().unwrap(), &Float::with_val(4 * p, x.sqrt_ref())));
-            prop_assert!(contains(&a.ln().unwrap(), &Float::with_val(4 * p, x.ln_ref())));
+        fn sqrt_ln_enclose(a in (positive(-60, 30), positive(-60, 30)), t in fraction(), p in 2u32..200) {
+            let (i, lo, hi) = make(p, a.0, a.1);
+            let hp = 4 * p + 100;
+            let x = fl(hp, pick(lo, hi, t));
+            prop_assert!(encloses(&i.sqrt().unwrap(), |r| rounded(hp, x.sqrt_ref(), r)));
+            // ln of an interval whose lower bound rounds to 1 can straddle zero; fine.
+            prop_assert!(encloses(&i.ln().unwrap(), |r| rounded(hp, x.ln_ref(), r)));
         }
 
         #[test]
-        fn exp_encloses((lo, hi, t) in (-50.0f64..50.0, -50.0f64..50.0, fraction()), p in 64u32..200) {
-            let (lo, hi) = if lo <= hi { (lo, hi) } else { (hi, lo) };
-            let a = iv(p, lo, hi);
-            let x = fl(4 * p, pick(lo, hi, t));
-            prop_assert!(contains(&a.exp(), &Float::with_val(4 * p, x.exp_ref())));
+        fn exp_encloses(a in -50.0f64..50.0, b in -50.0f64..50.0, t in fraction(), p in 2u32..200) {
+            let (i, lo, hi) = make(p, a, b);
+            let hp = 4 * p + 100;
+            let x = fl(hp, pick(lo, hi, t));
+            prop_assert!(encloses(&i.exp(), |r| rounded(hp, x.exp_ref(), r)));
         }
 
         #[test]
-        fn cos_sin_enclose((lo, hi, t) in span(), p in 64u32..200) {
-            let a = iv(p, lo, hi);
-            let x = fl(4 * p, pick(lo, hi, t));
-            prop_assert!(contains(&a.cos(), &Float::with_val(4 * p, x.cos_ref())));
-            prop_assert!(contains(&a.sin(), &Float::with_val(4 * p, x.sin_ref())));
+        fn cos_sin_enclose((c, w) in centred(), t in fraction(), p in 2u32..200) {
+            let (i, lo, hi) = make(p, c, c + w);
+            let hp = 4 * p + 100;
+            let x = fl(hp, pick(lo, hi, t));
+            prop_assert!(encloses(&i.cos(), |r| rounded(hp, x.cos_ref(), r)));
+            prop_assert!(encloses(&i.sin(), |r| rounded(hp, x.sin_ref(), r)));
         }
 
         #[test]
-        fn narrow_cos_sin_enclose(c in -1e6f64..1e6, w in 0.0f64..3.0, t in fraction(), p in 64u32..200) {
-            let (lo, hi) = (c, c + w);
-            let a = iv(p, lo, hi);
-            let x = fl(4 * p, pick(lo, hi, t));
-            prop_assert!(contains(&a.cos(), &Float::with_val(4 * p, x.cos_ref())));
-            prop_assert!(contains(&a.sin(), &Float::with_val(4 * p, x.sin_ref())));
+        fn narrow_cos_sin_enclose(c in -1e9f64..1e9, w in 0.0f64..3.0, t in fraction(), p in 2u32..200) {
+            let (i, lo, hi) = make(p, c, c + w);
+            let hp = 4 * p + 100;
+            let x = fl(hp, pick(lo, hi, t));
+            prop_assert!(encloses(&i.cos(), |r| rounded(hp, x.cos_ref(), r)));
+            prop_assert!(encloses(&i.sin(), |r| rounded(hp, x.sin_ref(), r)));
+        }
+
+        #[test]
+        fn zero_width_cos_sin_near_1e9_enclose(c in 9e8f64..1.1e9, p in 2u32..200) {
+            let i = Interval::point(c, p);
+            let hp = 4 * p + 100;
+            let x = fl(hp, c);
+            prop_assert!(encloses(&i.cos(), |r| rounded(hp, x.cos_ref(), r)));
+            prop_assert!(encloses(&i.sin(), |r| rounded(hp, x.sin_ref(), r)));
+        }
+
+        /// The enclosure is no tighter than f(m) -/+ r computed from the same
+        /// midpoint with an exactly evaluated radius (kills radius rounding bugs).
+        #[test]
+        fn cos_sin_bounds_cover_the_midpoint_formula((c, w) in centred(), p in 2u32..120) {
+            let (i, _, _) = make(p, c, c + w);
+            let width = Float::with_val(2000, i.hi() - i.lo());
+            prop_assume!(width <= 3 && i.lo().is_finite());
+            let (m, r) = exact_midpoint_and_radius(&i, p);
+            for (res, f) in [(i.cos(), Float::with_val(2000, m.cos_ref())), (i.sin(), Float::with_val(2000, m.sin_ref()))] {
+                let want_lo = Float::with_val(2000, &f - &r).max(&Float::with_val(2000, -1));
+                let want_hi = Float::with_val(2000, &f + &r).min(&Float::with_val(2000, 1));
+                prop_assert!(*res.lo() <= want_lo, "lo {} > {}", res.lo(), want_lo);
+                prop_assert!(*res.hi() >= want_hi, "hi {} < {}", res.hi(), want_hi);
+            }
+        }
+
+        /// Raising the precision on identical inputs only tightens the result.
+        #[test]
+        fn higher_precision_nests_inside_lower(
+            a in (endpoint(-200, 200), endpoint(-200, 200)),
+            b in (endpoint(-200, 200), endpoint(-200, 200)),
+            pa in (positive(-200, 200), positive(-200, 200)),
+            pb in (positive(-200, 200), positive(-200, 200)),
+            e in (-20.0f64..20.0, -20.0f64..20.0),
+            (c, w) in centred(),
+            r in endpoint(-200, 200),
+            p in 2u32..=200,
+        ) {
+            let (ia, ..) = make(p, a.0, a.1);
+            let (ib, ..) = make(p, b.0, b.1);
+            let (qa, ..) = make(p, pa.0, pa.1);
+            let (qb, ..) = make(p, pb.0, pb.1);
+            let (ie, ..) = make(p, e.0, e.1);
+            let (ic, ..) = make(p, c, c + w);
+            let q = 4 * p;
+            let up = |i: &Interval| at_prec(i, q);
+            prop_assert!(nested(&up(&ia).add(&up(&ib)), &ia.add(&ib)));
+            prop_assert!(nested(&up(&ia).sub(&up(&ib)), &ia.sub(&ib)));
+            prop_assert!(nested(&up(&ia).mul(&up(&ib)), &ia.mul(&ib)));
+            prop_assert!(nested(&up(&qa).div(&up(&qb)).unwrap(), &qa.div(&qb).unwrap()));
+            prop_assert!(nested(&up(&qa).sqrt().unwrap(), &qa.sqrt().unwrap()));
+            prop_assert!(nested(&up(&qa).ln().unwrap(), &qa.ln().unwrap()));
+            prop_assert!(nested(&up(&ie).exp(), &ie.exp()));
+            prop_assert!(nested(&up(&ic).cos(), &ic.cos()));
+            prop_assert!(nested(&up(&ic).sin(), &ic.sin()));
+            let rr = fl(p, r);
+            prop_assert!(nested(&up(&ia).widen(&Float::with_val(q, &rr)), &ia.widen(&rr)));
+            let exact = Float::with_val(2000, ia.hi() - ia.lo());
+            prop_assert!(ia.width() >= exact);
+            prop_assert!(up(&ia).width() >= exact);
+            prop_assert!(up(&ia).width() <= ia.width());
+        }
+    }
+
+    #[test]
+    fn mixed_precision_operands_give_the_larger_precision() {
+        let narrow = Interval::point(1.5, 53);
+        let wide = iv(200, 2.0, 3.0);
+        assert_eq!(narrow.add(&wide).prec(), 200);
+        assert_eq!(wide.add(&narrow).prec(), 200);
+        assert_eq!(narrow.sub(&wide).prec(), 200);
+        assert_eq!(narrow.mul(&wide).prec(), 200);
+        assert_eq!(narrow.div(&wide).unwrap().prec(), 200);
+        let skew = Interval::new(fl(53, 1.0), fl(200, 2.0)).unwrap();
+        assert_eq!(skew.prec(), 200);
+        assert_eq!(skew.sqrt().unwrap().prec(), 200);
+        assert_eq!(skew.exp().prec(), 200);
+        assert_eq!(skew.cos().prec(), 200);
+    }
+
+    #[test]
+    fn new_rejects_a_pure_infinity() {
+        for x in [f64::INFINITY, f64::NEG_INFINITY] {
+            assert_eq!(
+                Interval::new(fl(PREC, x), fl(PREC, x)).unwrap_err(),
+                IntervalError::NoRealPoint
+            );
+        }
+        assert!(Interval::new(fl(PREC, f64::NEG_INFINITY), fl(PREC, f64::INFINITY)).is_ok());
+        assert!(Interval::new(fl(PREC, 1.0), fl(PREC, f64::INFINITY)).is_ok());
+    }
+
+    #[test]
+    #[should_panic(expected = "outside the MPFR range")]
+    fn point_panics_clearly_on_zero_precision() {
+        let _ = Interval::point(1.0, 0);
+    }
+
+    #[test]
+    fn point_accepts_the_minimum_precision() {
+        let p = Interval::point(0.1, rug::float::prec_min());
+        assert!(*p.lo() <= 0.1 && *p.hi() >= 0.1);
+    }
+
+    #[test]
+    fn clamps_hold_where_the_radius_overshoots_the_unit_range() {
+        let pi = std::f64::consts::PI;
+        let half = std::f64::consts::FRAC_PI_2;
+        let around_pi = iv(PREC, pi - 0.1, pi + 0.1).cos();
+        assert_eq!(*around_pi.lo(), -1.0);
+        assert!(*around_pi.hi() < -0.8);
+        let around_zero = iv(PREC, -0.1, 0.1).cos();
+        assert_eq!(*around_zero.hi(), 1.0);
+        let sin_top = iv(PREC, half - 0.1, half + 0.1).sin();
+        assert_eq!(*sin_top.hi(), 1.0);
+        let sin_bottom = iv(PREC, -half - 0.1, -half + 0.1).sin();
+        assert_eq!(*sin_bottom.lo(), -1.0);
+    }
+
+    #[test]
+    fn narrow_edge_cases_enclose() {
+        for (c, w, p) in
+            [(0.0, 0.0, 2), (1e-300, 1e-300, 30), (0.0, 3.0, 40), (1e9, 1.0, 52), (-1e9, 2.0, 10)]
+        {
+            let (i, lo, hi) = make(p, c, c + w);
+            let hp = 4 * p + 100;
+            for t in [0.0, 0.5, 1.0] {
+                let x = fl(hp, pick(lo, hi, t));
+                assert!(encloses(&i.cos(), |r| rounded(hp, x.cos_ref(), r)));
+                assert!(encloses(&i.sin(), |r| rounded(hp, x.sin_ref(), r)));
+            }
         }
     }
 
