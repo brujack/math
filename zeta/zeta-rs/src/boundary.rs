@@ -71,7 +71,7 @@ pub fn certify_boundary<Z: ZSource>(
         return Ok(None);
     };
     Ok(certified_sign_over(z, lo, hi, cfg)?
-        .map(|sign| Boundary { point: (lo, sign), bracket: ZeroFreeBracket { lo, hi } }))
+        .map(|sign| Boundary { point: Point { t: lo, sign }, bracket: ZeroFreeBracket { lo, hi } }))
 }
 
 #[cfg(test)]
@@ -122,8 +122,8 @@ mod tests {
         let z = real();
         for (n, want) in [(-1, Sign::Negative), (0, Sign::Positive), (1000, Sign::Positive)] {
             let b = certify_boundary(n, &z, &cfg()).unwrap().expect("certifies");
-            assert_eq!(b.point.1, want, "n = {n}");
-            assert_eq!(b.point.0, b.bracket.lo());
+            assert_eq!(b.point.sign, want, "n = {n}");
+            assert_eq!(b.point.t, b.bracket.lo());
             assert!(b.bracket.lo() < b.bracket.hi(), "n = {n}");
         }
     }
@@ -143,7 +143,7 @@ mod tests {
     #[test]
     fn sign_matches_gram_s_law_at_good_points_and_flips_at_the_first_bad_one() {
         let z = real();
-        let sign_of = |n: i64| certify_boundary(n, &z, &cfg()).unwrap().unwrap().point.1;
+        let sign_of = |n: i64| certify_boundary(n, &z, &cfg()).unwrap().unwrap().point.sign;
         let law = |n: i64| if n % 2 == 0 { Sign::Positive } else { Sign::Negative };
         for n in [2, 3, 50, 100, 125, 127] {
             assert_eq!(sign_of(n), law(n), "good Gram point n = {n}");
@@ -185,7 +185,7 @@ mod tests {
         let z =
             Scripted::new(|prec| Ok(if prec >= 256 { span(2.0, 3.0) } else { span(-1.0, 1.0) }));
         let b = certify_boundary(10, &z, &cfg()).unwrap().unwrap();
-        assert_eq!(b.point.1, Sign::Positive);
+        assert_eq!(b.point.sign, Sign::Positive);
         let precs: Vec<u32> = z.calls.borrow().iter().map(|c| c.2).collect();
         assert_eq!(precs, vec![64, 128, 256]);
     }
@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn the_sign_is_taken_from_the_enclosure() {
         let z = Scripted::new(|_| Ok(span(-3.0, -2.0)));
-        assert_eq!(certify_boundary(10, &z, &cfg()).unwrap().unwrap().point.1, Sign::Negative);
+        assert_eq!(certify_boundary(10, &z, &cfg()).unwrap().unwrap().point.sign, Sign::Negative);
     }
 
     #[test]
