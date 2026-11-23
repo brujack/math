@@ -203,6 +203,15 @@ impl Interval {
         }
     }
 
+    /// `atan` is increasing, so the endpoint images bound the image.
+    pub fn atan(&self) -> Interval {
+        let p = self.prec();
+        Interval {
+            lo: rounded(p, self.lo.atan_ref(), Round::Down),
+            hi: rounded(p, self.hi.atan_ref(), Round::Up),
+        }
+    }
+
     /// Shared body of `cos` and `sin`: `eval` is the correctly rounded
     /// function on a point. Wide arguments give [-1, 1]; otherwise the
     /// midpoint value is widened by the radius (the functions are 1-Lipschitz).
@@ -430,6 +439,14 @@ mod tests {
         }
 
         #[test]
+        fn atan_encloses(a in (endpoint(-60, 30), endpoint(-60, 30)), t in fraction(), p in 2u32..200) {
+            let (i, lo, hi) = make(p, a.0, a.1);
+            let hp = 4 * p + 100;
+            let x = fl(hp, pick(lo, hi, t));
+            prop_assert!(encloses(&i.atan(), |r| rounded(hp, x.atan_ref(), r)));
+        }
+
+        #[test]
         fn exp_encloses(a in -50.0f64..50.0, b in -50.0f64..50.0, t in fraction(), p in 2u32..200) {
             let (i, lo, hi) = make(p, a, b);
             let hp = 4 * p + 100;
@@ -513,6 +530,7 @@ mod tests {
             prop_assert!(nested(&up(&qa).sqrt().unwrap(), &qa.sqrt().unwrap()));
             prop_assert!(nested(&up(&qa).ln().unwrap(), &qa.ln().unwrap()));
             prop_assert!(nested(&up(&ie).exp(), &ie.exp()));
+            prop_assert!(nested(&up(&ia).atan(), &ia.atan()));
             // cos/sin are excluded: the midpoint form recentres per precision, so
             // nesting across precisions is not implied (see the formula tests).
             let rr = fl(p, r);
@@ -783,6 +801,21 @@ mod tests {
     fn width_is_hi_minus_lo() {
         assert_eq!(iv(PREC, 1.0, 3.5).width(), 2.5);
         assert_eq!(Interval::point(1.0, PREC).width(), 0.0);
+    }
+
+    #[test]
+    fn atan_rounds_outward_and_handles_infinite_bounds() {
+        let one = Interval::point(1.0, 53);
+        let r = one.atan();
+        let quarter_pi = Float::with_val(300, rug::float::Constant::Pi) / 4u32;
+        assert!(*r.lo() < quarter_pi && quarter_pi < *r.hi());
+        let wide = Interval::new(fl(PREC, f64::NEG_INFINITY), fl(PREC, f64::INFINITY)).unwrap();
+        let w = wide.atan();
+        let half_pi = Float::with_val(300, rug::float::Constant::Pi) / 2u32;
+        assert!(*w.lo() <= -half_pi.clone() && *w.hi() >= half_pi);
+        assert!(w.lo().is_finite() && w.hi().is_finite());
+        let m = iv(PREC, -2.0, 3.0).atan();
+        assert!(*m.lo() < 0 && *m.hi() > 0);
     }
 
     #[test]
