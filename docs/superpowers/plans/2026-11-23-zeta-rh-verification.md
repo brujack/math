@@ -35,10 +35,11 @@ spec: docs/superpowers/specs/2026-11-23-zeta-rh-verification-design.md
 
 ## PR structure (orchestrator)
 
-- **PR 1** `feat/zeta-core`: Tasks 1–6. Open with `gh pr create --draft`; `gh pr ready` only after Phase 3 passes.
-- **PR 2** `feat/zeta-verify`: Tasks 7–10, branched from master after PR 1 merges.
-- **PR 3** `feat/zeta-refine-cli`: Tasks 11–12, branched from master after PR 2 merges.
-- After PR 1, `zeta N` runs the self-check and prints `RH NOT verified up to <T>: zero isolation is not implemented yet` with exit 3; Task 10 replaces this. It never claims verification (R3).
+- **PR 1** `feat/zeta-foundation`: Tasks 1–4 (crate, interval, config, θ and Gram brackets). Split from the original Tasks 1–6 on 2026-11-23 because mutation of `interval.rs` and `theta.rs` alone took about 14 minutes locally and `mutation-rs` is one 60-minute CI job. Open with `gh pr create --draft`; `gh pr ready` only after Phase 3 passes. In this PR `zeta N` prints `RH NOT verified: zeta is under construction` to stderr and exits 3.
+- **PR 2** `feat/zeta-core`: Tasks 5–6, rebased onto master after PR 1 merges (`git rebase --onto origin/master <PR 1 tip> feat/zeta-core`). After PR 2, `zeta N` runs the self-check and prints `RH NOT verified up to <T>: zero isolation is not implemented yet` with exit 3; Task 10 replaces this.
+- **PR 3** `feat/zeta-verify`: Tasks 7–10, branched from master after PR 2 merges.
+- **PR 4** `feat/zeta-refine-cli`: Tasks 11–12, branched from master after PR 3 merges.
+- No PR's binary ever claims verification before Task 10 (R3).
 
 ---
 
