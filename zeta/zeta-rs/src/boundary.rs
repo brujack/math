@@ -240,6 +240,8 @@ mod tests {
         let z = real();
         assert!(matches!(z.z_over(3.0, 4.0, 128), Ok(None)));
         assert!(z.z_over(3.0, 3.0, 128).unwrap().is_some());
+        // The threshold itself is usable: 7 is the first height an interval may start at.
+        assert!(z.z_over(7.0, 7.001, 128).unwrap().is_some());
     }
 
     #[test]
