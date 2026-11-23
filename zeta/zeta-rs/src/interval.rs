@@ -26,6 +26,22 @@ pub enum IntervalError {
     SqrtOfNegative,
 }
 
+impl std::fmt::Display for IntervalError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let msg = match self {
+            Self::NotANumber => "interval bound is NaN",
+            Self::Inverted => "interval lower bound exceeds upper bound",
+            Self::NoRealPoint => "interval has both bounds at the same infinity",
+            Self::DivisorContainsZero => "division by an interval containing zero",
+            Self::LogOfNonPositive => "ln of an interval not strictly positive",
+            Self::SqrtOfNegative => "sqrt of an interval containing negative values",
+        };
+        f.write_str(msg)
+    }
+}
+
+impl std::error::Error for IntervalError {}
+
 /// Definite sign of an interval that excludes zero.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sign {
@@ -780,5 +796,22 @@ mod tests {
         let e = Float::with_val(300, 1).exp();
         assert!(*r.lo() <= e && e <= *r.hi());
         assert!(r.lo() < r.hi());
+    }
+
+    #[test]
+    fn interval_error_display_names_each_failure() {
+        let cases = [
+            (IntervalError::NotANumber, "interval bound is NaN"),
+            (IntervalError::Inverted, "interval lower bound exceeds upper bound"),
+            (IntervalError::NoRealPoint, "interval has both bounds at the same infinity"),
+            (IntervalError::DivisorContainsZero, "division by an interval containing zero"),
+            (IntervalError::LogOfNonPositive, "ln of an interval not strictly positive"),
+            (IntervalError::SqrtOfNegative, "sqrt of an interval containing negative values"),
+        ];
+        for (e, want) in cases {
+            assert_eq!(format!("{e}"), want);
+        }
+        let boxed: Box<dyn std::error::Error> = Box::new(IntervalError::NotANumber);
+        assert_eq!(boxed.to_string(), "interval bound is NaN");
     }
 }
