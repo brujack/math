@@ -114,6 +114,15 @@ pub struct EmEnclosure {
     pub remainder: Float,
 }
 
+/// Theta is increasing from about 6.29; an interval of heights uses its end
+/// values only from here (7 leaves a margin).
+const THETA_MONOTONE_FROM: f64 = 7.0;
+
+/// Enclosure of the heights `[lo, hi]`: the lower end rounded down, the upper up.
+fn height_interval(lo: f64, hi: f64, prec: u32) -> Result<Interval, IntervalError> {
+    Interval::new(Interval::point(lo, prec).lo().clone(), Interval::point(hi, prec).hi().clone())
+}
+
 /// Interval enclosing the integer `v`, each bound rounded outward.
 fn integer_interval(v: &Integer, prec: u32) -> Result<Interval, IntervalError> {
     let round = |r| Float::with_val_round(prec, v, r).0;
@@ -220,19 +229,44 @@ impl ZEvaluator {
         lo.to_integer().and_then(|n| n.to_u64()).ok_or(ZError::AmbiguousSplit)
     }
 
+    /// Theta over the heights `[lo, hi]`: the point value when `lo == hi`, else
+    /// the hull of the end values, valid because theta is increasing from
+    /// `THETA_MONOTONE_FROM`; a lower end below it is `HeightOutOfRange`.
+    fn theta_over(&self, lo: f64, hi: f64) -> Result<Interval, ZError> {
+        if lo == hi {
+            return Ok(self.theta.theta(lo)?);
+        }
+        if lo < THETA_MONOTONE_FROM {
+            return Err(ZError::HeightOutOfRange);
+        }
+        let (at_lo, at_hi) = (self.theta.theta(lo)?, self.theta.theta(hi)?);
+        Ok(Interval::new(at_lo.lo().clone(), at_hi.hi().clone())?)
+    }
+
     /// Z(t) by the Riemann-Siegel formula with C_0 and Gabcke's remainder bound.
     ///
     /// `t` must lie in `MIN_RS_HEIGHT..=max_height`, else `HeightOutOfRange`.
     pub fn riemann_siegel(&self, t: f64) -> Result<Interval, ZError> {
-        if !(MIN_RS_HEIGHT..=self.max_height).contains(&t) {
+        self.riemann_siegel_over(t, t)
+    }
+
+    /// An enclosure of Z(t) for every t in `[lo, hi]` by Riemann-Siegel.
+    ///
+    /// `MIN_RS_HEIGHT <= lo <= hi <= max_height` is required, else
+    /// `HeightOutOfRange`. The split N = floor(sqrt(t / 2 pi)) must be one value
+    /// over the whole interval, else `AmbiguousSplit`; Gabcke's bound is
+    /// decreasing in t, so its value at `lo` bounds every height.
+    pub fn riemann_siegel_over(&self, lo: f64, hi: f64) -> Result<Interval, ZError> {
+        if !(MIN_RS_HEIGHT..=self.max_height).contains(&lo) || !(lo..=self.max_height).contains(&hi)
+        {
             return Err(ZError::HeightOutOfRange);
         }
         let prec = self.prec;
-        let height = Interval::point(t, prec);
+        let height = height_interval(lo, hi, prec)?;
         let a = height.div(&self.two_pi)?.sqrt()?;
         let n = Self::certified_floor(&a)?;
         let p = a.sub(&Interval::point(n as f64, prec));
-        let theta = self.theta.theta(t)?;
+        let theta = self.theta_over(lo, hi)?;
         let terms = n as usize;
         let (Some(ln_k), Some(inv_sqrt_k)) = (self.ln_k.get(..terms), self.inv_sqrt_k.get(..terms))
         else {
@@ -257,7 +291,7 @@ impl ZEvaluator {
         // (-1)^(N-1): the correction is added for odd N and subtracted for even N.
         let correction =
             if n % 2 == 0 { Interval::point(0.0, prec).sub(&correction) } else { correction };
-        let bound = gabcke_bound(t, prec, self.multiplier)?;
+        let bound = gabcke_bound(lo, prec, self.multiplier)?;
         Ok(main.add(&correction).widen(bound.hi()))
     }
 
@@ -290,14 +324,24 @@ impl ZEvaluator {
     /// bound is added to both parts of zeta; a rotated imaginary part that excludes
     /// 0 is `ImaginaryPartNonzero`.
     pub fn euler_maclaurin(&self, t: f64) -> Result<EmEnclosure, ZError> {
-        if !(f64::MIN_POSITIVE..=EM_MAX_HEIGHT).contains(&t) {
+        self.euler_maclaurin_over(t, t)
+    }
+
+    /// An enclosure of Z(t) for every t in `[lo, hi]` by Euler-Maclaurin, with N
+    /// taken from `hi` (any N is valid; the remainder bound grows with t).
+    ///
+    /// `MIN_POSITIVE <= lo <= hi <= EM_MAX_HEIGHT` is required, else
+    /// `HeightOutOfRange`; so is `lo < hi` with `lo` below `THETA_MONOTONE_FROM`.
+    pub fn euler_maclaurin_over(&self, lo: f64, hi: f64) -> Result<EmEnclosure, ZError> {
+        if !(f64::MIN_POSITIVE..=EM_MAX_HEIGHT).contains(&lo) || !(lo..=EM_MAX_HEIGHT).contains(&hi)
+        {
             return Err(ZError::HeightOutOfRange);
         }
         let prec = self.prec;
-        let height = Interval::point(t, prec);
+        let height = height_interval(lo, hi, prec)?;
         let zero = Interval::point(0.0, prec);
         let half = Interval::point(0.5, prec);
-        let n = t.ceil() as u64 + 2 * EM_TERMS as u64;
+        let n = hi.ceil() as u64 + 2 * EM_TERMS as u64;
         let n1 = n + 1;
         let s = Complex::new(half.clone(), height.clone());
         let mut direct = Complex::new(zero.clone(), zero.clone());
@@ -327,14 +371,23 @@ impl ZEvaluator {
         }
         let remainder = self.em_remainder(&height, n1)?;
         let zeta = direct.add(&pole).add(&n1_neg_s.mul(&bracket)).widen(&remainder);
-        let z = hardy_z(&self.theta.theta(t)?, &zeta)?;
+        let z = hardy_z(&self.theta_over(lo, hi)?, &zeta)?;
         Ok(EmEnclosure { z, remainder })
     }
 
     /// Z(t): Riemann-Siegel from `MIN_RS_HEIGHT` (the exact `f64` height is its
     /// own lower bound), Euler-Maclaurin below it.
     pub fn try_z(&self, t: f64) -> Result<Interval, ZError> {
-        if t >= MIN_RS_HEIGHT { self.riemann_siegel(t) } else { Ok(self.euler_maclaurin(t)?.z) }
+        self.try_z_over(t, t)
+    }
+
+    /// Z over `[lo, hi]`, dispatching on the lower end as `try_z` does on the height.
+    pub fn try_z_over(&self, lo: f64, hi: f64) -> Result<Interval, ZError> {
+        if lo >= MIN_RS_HEIGHT {
+            self.riemann_siegel_over(lo, hi)
+        } else {
+            Ok(self.euler_maclaurin_over(lo, hi)?.z)
+        }
     }
 }
 
@@ -376,6 +429,13 @@ impl std::error::Error for ZFault {}
 /// can inject fakes.
 pub trait ZSource {
     fn z(&self, t: f64, prec: u32) -> Result<Option<Interval>, ZFault>;
+
+    /// An enclosure of Z(t) for every t in `[lo, hi]`, with the same refusal and
+    /// fault convention as `z`. The default refuses (never a made-up enclosure), so
+    /// a source that cannot bound Z over an interval certifies no boundary.
+    fn z_over(&self, _lo: f64, _hi: f64, _prec: u32) -> Result<Option<Interval>, ZFault> {
+        Ok(None)
+    }
 }
 
 /// Split a Z result into a refusal (`Ok(None)`) and a fault (`Err`).
@@ -387,7 +447,7 @@ fn refusal_or_fault(result: Result<Interval, ZError>) -> Result<Option<Interval>
 }
 
 /// Precisions of the certification ladder; `RealZ` holds those up to the cap.
-const PRECISION_RUNGS: [u32; 4] = [64, 128, 256, 512];
+pub(crate) const PRECISION_RUNGS: [u32; 4] = [64, 128, 256, 512];
 
 /// The real `ZSource`: one `ZEvaluator` per precision rung, built once.
 #[derive(Debug, Clone)]
@@ -417,6 +477,17 @@ impl ZSource for RealZ {
         }
         match self.evaluators.iter().find(|ev| ev.prec == prec) {
             Some(evaluator) => refusal_or_fault(evaluator.try_z(t)),
+            None => Ok(None),
+        }
+    }
+
+    /// NaN at either end is a fault; otherwise as `z`, with `lo > hi` a refusal.
+    fn z_over(&self, lo: f64, hi: f64, prec: u32) -> Result<Option<Interval>, ZFault> {
+        if lo.is_nan() || hi.is_nan() {
+            return Err(ZFault::NanHeight);
+        }
+        match self.evaluators.iter().find(|ev| ev.prec == prec) {
+            Some(evaluator) => refusal_or_fault(evaluator.try_z_over(lo, hi)),
             None => Ok(None),
         }
     }
