@@ -166,6 +166,7 @@ Add a new row to the group that matches its priority.
 
 | Feature                     | Notes                                                                                                                                                                     |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Crate template installer comment says 12 | `scripts/crate_templates/install_deps.sh` lines 4 and 8 say "all 12 crates" and render into every crate's installer; zeta made it 13. Make it count-free in its own PR (zeta spec N7 forbids template edits in the zeta PRs). |
 | zeta `--check` re-verification | Re-certify each `(a, b)` listed in `zeta_1eN.txt` by the signs at its endpoints, so the file is a proof witness checkable after the run. Deferred by the operator at Step 9; spec `specs/2026-11-23-zeta-rh-verification-design.md` N5. |
 | Prime counts from zeta zeros | Rebuild π(x) from Riemann's explicit formula using `zeta N --refine` zeros, with `prime/` exact counts as ground truth, so the staircase sharpens as zeros are added. Spec `specs/2026-11-23-zeta-rh-verification-design.md` N4. |
 | Descartes graphical output | A Desmos-style window outside the terminal (macOS first) for `descartes` circles and packings. v1 draws braille only; `render` reads a plain `(k, x, y)` circle list so a new back end needs no math changes. Spec `specs/2026-11-15-descartes-design.md` N1. |

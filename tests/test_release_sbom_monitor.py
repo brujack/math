@@ -193,7 +193,7 @@ class TestResolveLatestRelease(unittest.TestCase):
         self.assertNotEqual(result.outputs.get("found"), "false")
 
     def test_lists_more_than_fifty_releases(self):
-        # 12 crates outgrow a 50-release window after a few versions each, and the
+        # 13 crates outgrow a 50-release window after a few versions each, and the
         # oldest crate's latest release would then read as "no release".
         tags = [f"pi-v0.{n}.0" for n in range(60, 0, -1)] + ["sq-v0.1.0"]
         result = run_step(

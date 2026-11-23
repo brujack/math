@@ -1,10 +1,10 @@
-"""All 13 math crates are treated identically (operator rule, 2026-10-24).
+"""All math crates are treated identically (operator rule, 2026-10-24).
 
 Every per-crate file listed in scripts/render_crate_files.py is rendered from one
 template in scripts/crate_templates/ with only the crate's name substituted, and
 must match the rendered text exactly. Drift between crates is how the ~/Downloads
 copy hid in 7 of 11 Makefiles (math#166): no single file looked wrong, they only
-differed. To change one crate's file, change the template and re-render all 13:
+differed. To change one crate's file, change the template and re-render them all:
 
     python3 scripts/render_crate_files.py --write
 """

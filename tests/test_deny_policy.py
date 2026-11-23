@@ -103,7 +103,7 @@ class TestDenyPolicy(unittest.TestCase):
             set(self._deny()), {"licenses", "advisories", "bans", "sources"}
         )
 
-    def test_tracked_crate_manifests_are_exactly_the_twelve_crates(self):
+    def test_tracked_crate_manifests_are_exactly_the_thirteen_crates(self):
         env = {
             k: v
             for k, v in os.environ.items()
