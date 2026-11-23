@@ -15,6 +15,7 @@ path = "src/lib.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+rug = { version = "1.30", features = ["integer", "float"] }
 
 [dev-dependencies]
 tempfile = "3"
