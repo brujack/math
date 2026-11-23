@@ -90,10 +90,10 @@ where
     Ok(3)
 }
 
-/// The production self-check: both Z paths at `SELF_CHECK_PREC` with default settings.
-fn real_self_check() -> Result<(), String> {
-    let z =
-        ZEvaluator::new(SELF_CHECK_PREC, &VerifyConfig::default()).map_err(|e| e.to_string())?;
+/// The self-check of both Z paths at `SELF_CHECK_PREC`; production passes default
+/// settings (a Gabcke multiplier above 1 always fails it).
+fn self_check_with(cfg: &VerifyConfig) -> Result<(), String> {
+    let z = ZEvaluator::new(SELF_CHECK_PREC, cfg).map_err(|e| e.to_string())?;
     self_check(&z).map_err(|e| e.to_string())
 }
 
@@ -106,8 +106,9 @@ fn exit_code(result: std::io::Result<i32>) -> i32 {
 fn main() {
     let cli = Cli::parse();
     let (stdin, stdout, stderr) = (io::stdin(), io::stdout(), io::stderr());
-    let result =
-        run(&cli, &mut stdin.lock(), &mut stdout.lock(), &mut stderr.lock(), real_self_check);
+    let result = run(&cli, &mut stdin.lock(), &mut stdout.lock(), &mut stderr.lock(), || {
+        self_check_with(&VerifyConfig::default())
+    });
     std::process::exit(exit_code(result));
 }
 
@@ -305,8 +306,11 @@ mod tests {
     }
 
     #[test]
-    fn real_self_check_passes_on_the_real_paths() {
-        assert_eq!(real_self_check(), Ok(()));
+    fn real_self_check_passes_by_default_and_fails_with_a_widened_bound() {
+        assert_eq!(self_check_with(&VerifyConfig::default()), Ok(()));
+        let widened = VerifyConfig::new(2.0, 512, 40, true).unwrap();
+        let err = self_check_with(&widened).unwrap_err();
+        assert!(err.contains("Riemann-Siegel enclosure wider"), "{err}");
     }
 
     #[test]
