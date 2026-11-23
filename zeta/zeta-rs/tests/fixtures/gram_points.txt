@@ -1,5 +1,5 @@
 # Gram points g_n: siegeltheta(g_n) = n*pi, 30 significant digits.
-# generated with: python3 -c 'mp.dps = 40; findroot(lambda t: siegeltheta(t) - n*pi, guess)' (mpmath 1.4.1)
+# generated with: python3 -c "from mpmath import mp, findroot, siegeltheta, pi, nstr; mp.dps = 40; [print(n, nstr(findroot(lambda t: siegeltheta(t) - n*pi, g), 30, strip_zeros=False)) for n, g in [(-1, 9.6), (0, 17.8), (100, 236.5), (1000, 1419.4)]]" (mpmath 1.4.1)
 # format: n g_n
 -1 9.66690805613019214126153552310
 0 17.8455995404108608168263384125

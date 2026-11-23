@@ -293,7 +293,7 @@ fn bracket_with<F>(n: i64, cap: u32, f: &F) -> Option<(f64, f64)>
 where
     F: Fn(f64, u32) -> Result<Interval, ThetaError>,
 {
-    if n < -1 {
+    if n < -1 || !(rug::float::prec_min()..=MAX_PREC).contains(&cap) {
         return None;
     }
     bracket_with_estimate(n, cap, estimate_gram_point(n, f)?, f)
@@ -303,9 +303,12 @@ where
 /// theta(t) = n*pi, for n >= -1.
 ///
 /// Returns f64 heights 2*pi < b < c with theta(b) - n*pi certified negative and
-/// theta(c) - n*pi certified positive, so g_n lies in (b, c) as theta is
-/// increasing there. Precision rises 64, 128, 256 up to `prec`; `None` when
-/// n < -1 or nothing is certified within the cap.
+/// theta(c) - n*pi certified positive. theta is not increasing on
+/// (2*pi, about 6.2898), but it stays below -pi there (its minimum is about
+/// -3.529), so for n >= -1 no solution lies on that stretch; beyond it theta is
+/// increasing, hence g_n is unique and lies in (b, c). Precision rises 64, 128,
+/// 256 up to `prec`; `None` when n < -1, `prec` is outside
+/// `prec_min()..=MAX_PREC`, or nothing is certified within the cap.
 pub fn gram_bracket(n: i64, prec: u32) -> Option<(f64, f64)> {
     bracket_with(n, prec, &theta)
 }
@@ -471,6 +474,10 @@ mod tests {
             .collect()
     }
 
+    fn big80(s: &str) -> Float {
+        Float::with_val(512, Float::parse(s).unwrap())
+    }
+
     fn exact(x: f64) -> Float {
         Float::with_val(256, x)
     }
@@ -602,15 +609,60 @@ mod tests {
         }
     }
 
-    /// A fake enclosure offset above the truth certifies c only past n*pi's
-    /// real crossing too early: the bracket then misses g_n, showing the
-    /// certificate follows the enclosure it is given and nothing else.
+    /// A fake enclosure offset above the truth certifies c too early: the
+    /// bracket then misses g_n, showing the certificate follows the theta it is
+    /// given and nothing else (the soundness burden sits on `theta`).
     #[test]
-    fn a_shifted_enclosure_moves_the_certified_bracket() {
+    fn the_certificate_follows_whatever_theta_it_is_given() {
         let shifted = |t: f64, p: u32| theta(t, p).map(|i| i.add(&Interval::point(1e-6, p)));
         let (_, g) = fixture_rows().into_iter().find(|(n, _)| *n == 100).unwrap();
         let (_, c) = bracket_with(100, 128, &shifted).unwrap();
         assert!(exact(c) < g, "c = {c} should fall short of g");
+    }
+
+    /// A window centred above g_n whose enclosure is widened until its hull holds
+    /// n*pi although the window itself excludes g_n: neither end earns a sign.
+    #[test]
+    fn an_offset_window_whose_hull_contains_the_target_certifies_nothing() {
+        let (n, g) = fixture_rows().into_iter().find(|(n, _)| *n == 100).unwrap();
+        let centre = g.to_f64() + 1e-3;
+        let (win_lo, win_hi) = (centre - 1e-4, centre + 1e-4);
+        assert!(exact(win_lo) > g, "window must exclude g_n");
+        let (lo_end, hi_end) = (theta(win_lo, 128).unwrap(), theta(win_hi, 128).unwrap());
+        let slack = Float::with_val(128, 0.01);
+        let hull = Interval::new(
+            Float::with_val(128, lo_end.lo() - &slack),
+            Float::with_val(128, hi_end.hi() + &slack),
+        )
+        .unwrap();
+        let n_pi = Float::with_val(256, rug::float::Constant::Pi) * n;
+        assert!(*hull.lo() < n_pi && n_pi < *hull.hi(), "hull must contain n*pi");
+        let fake = |_t: f64, _p: u32| Ok(hull.clone());
+        assert_eq!(bracket_around(n, centre, 128, &fake), None);
+        let target = integer_interval(100, 128).unwrap().mul(&pi_interval(128).unwrap());
+        assert_eq!(certified_end(&fake, &target, 128, centre, Sign::Negative), None);
+        assert_eq!(certified_end(&fake, &target, 128, centre, Sign::Positive), None);
+    }
+
+    #[test]
+    fn a_precision_cap_outside_the_supported_range_gives_no_bracket() {
+        assert_eq!(gram_bracket(5, 0), None);
+        assert_eq!(gram_bracket(5, MAX_PREC + 1), None);
+        assert_eq!(gram_bracket(5, u32::MAX), None);
+        assert!(gram_bracket(5, MAX_PREC).is_some());
+        assert!(gram_bracket(5, 64).is_some());
+    }
+
+    #[test]
+    fn theta_agrees_with_an_80_digit_mpmath_reference() {
+        // mpmath 1.4.1: mp.dps = 100; nstr(siegeltheta(mpf(1000)), 80)
+        let want = big80(
+            "2034.5464280380316087033451512075987668293250759094135131801544824944960254832591",
+        );
+        let e = theta(1000.0, 512).unwrap();
+        let slack = Float::with_val(512, 1e-70);
+        let wide = e.widen(&slack);
+        assert!(*wide.lo() <= want && want <= *wide.hi(), "[{}, {}]", e.lo(), e.hi());
     }
 
     #[test]
