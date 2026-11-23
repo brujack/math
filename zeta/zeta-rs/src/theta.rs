@@ -216,6 +216,12 @@ fn midpoint_f64(i: &Interval) -> f64 {
     (sum / 2u32).to_f64()
 }
 
+/// A height right of g_n where the asymptotic theta exceeds n*pi: Newton
+/// started there climbs down to the root monotonically.
+fn asymptotic_start(n: i64) -> f64 {
+    std::f64::consts::TAU * (n as f64 + 3.0)
+}
+
 /// Uncertified f64 estimate of the Gram point g_n (theta(g_n) = n*pi, n >= -1):
 /// Newton on the asymptotic theta from the right of the root, where that
 /// function is convex and increasing, then a few steps on the real theta. Only
@@ -226,7 +232,7 @@ where
     F: Fn(f64, u32) -> Result<Interval, ThetaError>,
 {
     let target = n as f64 * std::f64::consts::PI;
-    let mut t = std::f64::consts::TAU * (n as f64 + 3.0);
+    let mut t = asymptotic_start(n);
     for _ in 0..ASYMPTOTIC_STEPS {
         t -= (asymptotic_theta(t) - target) / asymptotic_slope(t);
     }
@@ -516,7 +522,7 @@ mod tests {
         for (n, g) in fixture_rows() {
             let est = estimate_gram_point(n, &theta).unwrap();
             let err = (exact(est) - &g).abs();
-            assert!(err < 1e-9, "n={n}: estimate {est} off by {err}");
+            assert!(err < 1e-11, "n={n}: estimate {est} off by {err}");
         }
     }
 
@@ -542,6 +548,33 @@ mod tests {
     fn midpoint_is_the_centre_of_the_interval() {
         let i = Interval::new(Float::with_val(64, 1.0), Float::with_val(64, 4.0)).unwrap();
         assert_eq!(midpoint_f64(&i), 2.5);
+    }
+
+    #[test]
+    fn newton_starts_right_of_the_root_where_theta_is_above_target() {
+        for n in [-1, 0, 1, 2, 100, 1000, 1_000_000] {
+            let t = asymptotic_start(n);
+            let target = n as f64 * std::f64::consts::PI;
+            assert!(asymptotic_theta(t) > target, "n={n}: start {t}");
+            assert!(asymptotic_slope(t) > 0.0, "n={n}");
+        }
+    }
+
+    #[test]
+    fn remainder_bound_is_the_pinned_formula_rounded_up() {
+        // 2^n |B_2n| / (2n (2n-1) m^(2n-1)) at m = 10.75 (exact in binary), from the
+        // independent exact Bernoulli generator at 800 bits.
+        let n = SERIES_ORDER as u32;
+        let b = bernoulli_exact(2 * n);
+        let m = Float::with_val(800, 10.75);
+        let mut want = Float::with_val(800, &b.num) / Float::with_val(800, &b.den);
+        want = want.abs() * Float::with_val(800, Integer::from(1) << n);
+        want /= Float::with_val(800, 2 * n * (2 * n - 1));
+        want /= Float::with_val(800, rug::ops::Pow::pow(&m, 2 * n - 1));
+        let got = remainder_bound(&Interval::point(10.75, 256), 256).unwrap();
+        assert!(got >= want, "bound {got} below exact {want}");
+        let ceiling = Float::with_val(800, &want * (Float::with_val(800, 1) + 1e-20));
+        assert!(got <= ceiling, "bound {got} too loose against {want}");
     }
 
     #[test]
