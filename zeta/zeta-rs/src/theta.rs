@@ -128,7 +128,7 @@ pub struct ThetaContext {
     half: Interval,
     /// Re(z + SHIFT) = 10.25.
     shifted_re: Interval,
-    /// 0.25 + k for k = 0..SHIFT, the poles of the recurrence.
+    /// 0.25 + k for k = 0..SHIFT, the real parts of z + k (the atan arguments).
     recurrence_re: Vec<Interval>,
     /// B_2k / (2k (2k - 1)) for k = 1..SERIES_ORDER.
     coefficients: Vec<Interval>,
