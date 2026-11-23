@@ -2,4 +2,5 @@
 //!
 //! The `interval` module provides MPFR interval arithmetic with directed rounding.
 
+pub mod config;
 pub mod interval;
