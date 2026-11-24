@@ -5,7 +5,8 @@ name: mutation-testing
 # whether tests catch behavior changes.
 #
 # Triggered manually (workflow_dispatch) or monthly on schedule. Not on every PR
-# because mutant runs can take 10+ minutes per crate. One job per crate.
+# because mutant runs can take 10+ minutes per crate. One job per shard of at
+# most 75 mutants (scripts/mutation-rs-plan.sh --whole).
 
 on:
   workflow_dispatch:
@@ -32,6 +33,14 @@ jobs:
       units: ${{ steps.plan.outputs.units }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # The planner lists mutants with cargo-mutants but builds nothing, so
+      # this job needs no toolchain step (mutation-pr.yml's plan job does the same).
+      - name: Install cargo-mutants
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-mutants@27.1.0
+          fallback: none
 
       - name: List crates and build matrix
         id: plan
@@ -67,16 +76,24 @@ jobs:
             exit 1
           fi
 
-          # The one slug function: the directory with / replaced by -. Artifact
-          # names cannot contain /, and expressions have no string replace, so
-          # the slug travels in the matrix and units is read back from it.
-          matrix=$(jq -n -c '{include: [$ARGS.positional[] | {crate: ., slug: gsub("/"; "-")}]}' --args "${dirs[@]}")
-          units=$(jq -r '[.include[].slug] | join(" ")' <<< "${matrix}")
+          # The planner prints units on stdout only (its plan:/red: lines go to
+          # stderr, so never 2>&1 here) and exits 1 on a bad crate dir or more
+          # than 256 units, which fails this step under bash -e before any
+          # output is written. A crate whose listing faults arrives as a unit
+          # with a "fault" field, so its leg reports red instead of vanishing.
+          plan=$(scripts/mutation-rs-plan.sh --whole "${dirs[@]}")
+          matrix=$(jq -c '{include: .}' <<< "${plan}")
+          units=$(jq -r '[.[].slug] | join(" ")' <<< "${plan}")
+          # An empty plan would build an empty matrix and report green.
+          if [[ -z "${units}" ]]; then
+            printf "error: empty mutation plan — refusing to report green\n" >&2
+            exit 1
+          fi
           printf 'matrix=%s\n' "${matrix}" >> "${GITHUB_OUTPUT}"
           printf 'units=%s\n' "${units}" >> "${GITHUB_OUTPUT}"
 
   mutants:
-    name: Mutation ${{ matrix.crate }}
+    name: Mutation ${{ matrix.slug }}
     needs: setup
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -94,26 +111,67 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
       - name: Install cargo-mutants
-        run: cargo install cargo-mutants --locked --version 27.1.0
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-mutants@27.1.0
+          fallback: none
+
+      - name: GMP cache key
+        id: gmpkey
+        working-directory: ${{ github.workspace }}
+        run: |
+          printf 'GMP_MPFR_SYS_CACHE=%s\n' "${RUNNER_TEMP}/gmp-mpfr-sys" >> "$GITHUB_ENV"
+          scripts/gmp-cache-key.sh >> "$GITHUB_OUTPUT"
+
+      - name: Restore GMP/MPFR build cache
+        if: steps.gmpkey.outputs.enabled == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/gmp-mpfr-sys
+          key: ${{ steps.gmpkey.outputs.key }}
+          restore-keys: ${{ steps.gmpkey.outputs.prefix }}
 
       - name: Run mutants
         env:
           CRATE_DIR: ${{ matrix.crate }}
           SLUG: ${{ matrix.slug }}
+          K: ${{ matrix.k }}
+          N: ${{ matrix.n }}
+          COUNT: ${{ matrix.count }}
+          FAULT: ${{ matrix.fault }}
         run: |
           mkdir -p "${GITHUB_WORKSPACE}/status"
+          # A crate whose mutant listing faulted has no shard to run: report it
+          # red under its own slug so the notify job names it.
+          if [[ -n "${FAULT}" ]]; then
+            printf 'red: %s - plan fault: %s\n' "${SLUG}" "${FAULT}" \
+              | tee -a "${GITHUB_STEP_SUMMARY}" "${GITHUB_WORKSPACE}/status/${SLUG}"
+            exit 1
+          fi
           # make exits 2 for ANY failed recipe, which the classifier would
           # read as cargo-mutants' survivors code. The recipe records
           # cargo-mutants' own exit code in mutants.out/exit-code; classify
           # on that, and fail closed when it is missing (the recipe died
           # before cargo-mutants ran).
-          make -C "${CRATE_DIR}" mutants || true
+          make -C "${CRATE_DIR}" mutants MUTANT_SHARD="${K}/${N}" || true
           # scripts/mutation-exit-code.sh owns the missing-file and plain-integer
           # rules (the classifier's `-eq` reads '' or text as 0, i.e. green).
           # Its red line arrives on stderr; 2>&1 puts it in rc so it reaches
           # the summary and status/<slug> like every other verdict.
           if ! rc=$(bash scripts/mutation-exit-code.sh "${CRATE_DIR}" 2>&1); then
             printf '%s\n' "${rc}" \
+              | tee -a "${GITHUB_STEP_SUMMARY}" "${GITHUB_WORKSPACE}/status/${SLUG}"
+            exit 1
+          fi
+          # The shard must have tested exactly the mutants the plan counted: a
+          # short count means mutants went unrun. The helper prints its red line
+          # on stdout; an empty line with a failure is a usage error, still red.
+          count_rc=0
+          count_line=$(bash scripts/mutation-shard-count.sh \
+            "${CRATE_DIR}/mutants.out/outcomes.json" "${SLUG}" "${COUNT}") || count_rc=$?
+          if [[ "${count_rc}" -ne 0 ]]; then
+            [[ -n "${count_line}" ]] || count_line="red: ${SLUG} - shard count check failed (exit ${count_rc})"
+            printf '%s\n' "${count_line}" \
               | tee -a "${GITHUB_STEP_SUMMARY}" "${GITHUB_WORKSPACE}/status/${SLUG}"
             exit 1
           fi

@@ -180,7 +180,13 @@ class TestInstallActionPins(unittest.TestCase):
         self.assertEqual(
             names,
             crate_workflows
-            | {"scripts.yml", "cargo-deny.yml", "auto-merge.yml", "mutation-pr.yml"},
+            | {
+                "scripts.yml",
+                "cargo-deny.yml",
+                "auto-merge.yml",
+                "mutation-pr.yml",
+                "mutation-testing.yml",
+            },
             sorted(names),
         )
 
@@ -287,21 +293,17 @@ class TestInstallActionPins(unittest.TestCase):
             with self.subTest(tool=tool):
                 self.assertEqual(len(versions), 1, versions)
 
-    def test_taiki_cargo_mutants_matches_mutation_workflow_install(self):
-        """The scripts.yml prebuilt cargo-mutants and mutation-testing.yml's source build agree."""
-        taiki = {
-            _version_of(entry)
-            for _, step in install_action_steps()
-            for entry in action_tools(step)
-            if entry.startswith(MUTANTS + "@")
-        }
-        source = {
-            version
-            for name, crate, version, _ in cargo_installs()
-            if crate == MUTANTS and name == ".github/workflows/mutation-testing.yml"
-        }
-        self.assertEqual(len(source), 1, source)
-        self.assertEqual(taiki, source)
+    def test_taiki_cargo_mutants_is_one_version_in_both_mutation_workflows(self):
+        """Every workflow installs cargo-mutants prebuilt at one version; both mutation workflows do."""
+        versions = {}
+        for name, step in install_action_steps():
+            for entry in action_tools(step):
+                if entry.startswith(MUTANTS + "@"):
+                    versions.setdefault(name, set()).add(_version_of(entry))
+        for workflow in ("mutation-testing.yml", "mutation-pr.yml"):
+            self.assertIn(workflow, versions, sorted(versions))
+        merged = set().union(*versions.values())
+        self.assertEqual(len(merged), 1, versions)
 
 
 class TestPyrightPins(unittest.TestCase):

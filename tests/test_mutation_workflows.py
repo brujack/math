@@ -759,21 +759,69 @@ def rs_step(job, name):
     return found[0]
 
 
+DEFAULT_MANIFESTS = ("a/a-rs/Cargo.toml", "b/b-rs/Cargo.toml")
+DEFAULT_PLAN = [
+    {"crate": "a/a-rs", "slug": "a-a-rs-1of2", "k": 1, "n": 2, "count": 4},
+    {"crate": "a/a-rs", "slug": "a-a-rs-2of2", "k": 2, "n": 2, "count": 3},
+    {"crate": "b/b-rs", "slug": "b-b-rs-1of1", "k": 1, "n": 1, "count": 5},
+    {
+        "crate": "b/b-rs",
+        "slug": "b-rs-plan",
+        "k": 0,
+        "n": 0,
+        "count": 0,
+        "fault": "listing failed",
+    },
+]
+
+
 class SetupRun(NamedTuple):
     proc: "subprocess.CompletedProcess[str]"
     outputs: dict[str, str]
     lines: list[str]
+    planner_args: list[str]
 
 
-def run_rs_setup(crate="", path=None):
-    """Execute the setup job's `plan` step; return a `SetupRun` (proc, outputs dict, raw lines)."""
+def run_rs_setup(
+    crate="",
+    manifests=DEFAULT_MANIFESTS,
+    plan=DEFAULT_PLAN,
+    plan_rc=0,
+):
+    """Execute the setup job's `plan` step against a stub git and planner.
+
+    The stub `git ls-files` prints `manifests`; the stub planner records its
+    argv, prints `plan` as JSON on stdout and a `plan:` line on stderr, and exits
+    `plan_rc`. Returns a `SetupRun` (proc, outputs dict, raw lines, planner argv).
+    """
     with tempfile.TemporaryDirectory() as tmp:
-        out = pathlib.Path(tmp) / "out"
+        root = pathlib.Path(tmp)
+        bindir = root / "bin"
+        bindir.mkdir()
+        listing = root / "manifests"
+        listing.write_text("".join(f"{m}\n" for m in manifests))
+        git = bindir / "git"
+        git.write_text(f'#!/bin/sh\ncat "{listing}"\n')
+        git.chmod(0o755)
+        ws = root / "ws"
+        (ws / "scripts").mkdir(parents=True)
+        planner = ws / "scripts" / "mutation-rs-plan.sh"
+        planner.write_text(
+            "#!/bin/sh\n"
+            f'printf \'%s\\n\' "$@" > "{root / "planner-args"}"\n'
+            "printf 'plan: stub\\n' >&2\n"
+            f'cat "{root / "plan.json"}"\n'
+            'exit "$PLAN_RC"\n'
+        )
+        planner.chmod(0o755)
+        (root / "plan.json").write_text(json.dumps(plan))
+        out = root / "out"
         out.touch()
         env = {
-            "PATH": path if path is not None else os.environ["PATH"],
+            "PATH": f"{bindir}:{os.environ['PATH']}",
             "GITHUB_OUTPUT": str(out),
             "CRATE": crate,
+            "PLAN_RC": str(plan_rc),
         }
         proc = subprocess.run(
             [
@@ -786,7 +834,7 @@ def run_rs_setup(crate="", path=None):
                 rs_step("setup", "plan")["run"],
             ],
             env=env,
-            cwd=REPO_ROOT,
+            cwd=ws,
             capture_output=True,
             text=True,
             stdin=subprocess.DEVNULL,
@@ -802,7 +850,9 @@ def run_rs_setup(crate="", path=None):
                 raise AssertionError(f"malformed GITHUB_OUTPUT line: {line!r}")
             key, _, value = line.partition("=")
             outputs[key] = value
-        return SetupRun(proc, outputs, raw_lines)
+        args_file = root / "planner-args"
+        args = args_file.read_text().splitlines() if args_file.exists() else []
+        return SetupRun(proc, outputs, raw_lines, args)
 
 
 def tracked_crate_dirs():
@@ -819,26 +869,38 @@ def tracked_crate_dirs():
 
 
 class RustSetupJobTests(unittest.TestCase):
-    def test_empty_crate_lists_tracked_crates_only(self):
-        proc, outputs, lines = run_rs_setup("")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(len(lines), 2, lines)
-        self.assertTrue(lines[0].startswith("matrix="), lines)
-        self.assertTrue(lines[1].startswith("units="), lines)
-        units = outputs["units"].split()
-        dirs = tracked_crate_dirs()
-        self.assertEqual(len(units), 13)
-        self.assertEqual(units, [d.replace("/", "-") for d in dirs])
-        self.assertFalse([u for u in units if u.startswith("tests-")])
+    def test_empty_crate_plans_every_tracked_crate_whole(self):
+        run = run_rs_setup("")
+        self.assertEqual(run.proc.returncode, 0, run.proc.stderr)
+        self.assertEqual(run.planner_args, ["--whole", "a/a-rs", "b/b-rs"])
 
-    def test_matrix_crates_and_slugs_match_units(self):
-        proc, outputs, _lines = run_rs_setup("")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        include = json.loads(outputs["matrix"])["include"]
-        self.assertEqual([i["crate"] for i in include], tracked_crate_dirs())
-        self.assertEqual([i["slug"] for i in include], outputs["units"].split())
-        for item in include:
-            self.assertEqual(item["slug"], item["crate"].replace("/", "-"))
+    def test_matrix_is_the_plan_and_units_are_its_slugs(self):
+        run = run_rs_setup("")
+        self.assertEqual(run.proc.returncode, 0, run.proc.stderr)
+        self.assertEqual(len(run.lines), 2, run.lines)
+        self.assertTrue(run.lines[0].startswith("matrix="), run.lines)
+        self.assertTrue(run.lines[1].startswith("units="), run.lines)
+        self.assertEqual(json.loads(run.outputs["matrix"]), {"include": DEFAULT_PLAN})
+        self.assertEqual(
+            run.outputs["units"].split(),
+            ["a-a-rs-1of2", "a-a-rs-2of2", "b-b-rs-1of1", "b-rs-plan"],
+        )
+
+    def test_planner_stderr_stays_out_of_the_outputs(self):
+        run = run_rs_setup("")
+        self.assertIn("plan: stub", run.proc.stderr)
+        self.assertNotIn("plan: stub", "".join(run.lines))
+
+    def test_planner_failure_fails_setup_with_no_outputs(self):
+        run = run_rs_setup("", plan_rc=1)
+        self.assertEqual(run.proc.returncode, 1)
+        self.assertEqual(run.lines, [])
+
+    def test_empty_plan_refuses_green(self):
+        run = run_rs_setup("", plan=[])
+        self.assertEqual(run.proc.returncode, 1)
+        self.assertIn("refusing to report green", run.proc.stderr)
+        self.assertEqual(run.lines, [])
 
     def test_fixture_cargo_tomls_exist_as_positive_control(self):
         proc = subprocess.run(
@@ -852,38 +914,37 @@ class RustSetupJobTests(unittest.TestCase):
         )
         self.assertTrue(proc.stdout.strip())
 
-    def test_known_crate_gives_single_entry_matrix(self):
-        proc, outputs, _lines = run_rs_setup("sq/sq-rs")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(outputs["units"], "sq-sq-rs")
-        self.assertEqual(
-            json.loads(outputs["matrix"])["include"],
-            [{"crate": "sq/sq-rs", "slug": "sq-sq-rs"}],
-        )
+    def test_known_crate_is_the_only_planner_argument(self):
+        run = run_rs_setup("b/b-rs")
+        self.assertEqual(run.proc.returncode, 0, run.proc.stderr)
+        self.assertEqual(run.planner_args, ["--whole", "b/b-rs"])
 
-    def test_unknown_crate_refused_naming_it(self):
-        proc, outputs, lines = run_rs_setup("nope/nope-rs")
-        self.assertEqual(proc.returncode, 1)
-        self.assertIn("nope/nope-rs", proc.stderr)
-        self.assertEqual(lines, [])
-        self.assertEqual(outputs, {})
+    def test_unknown_crate_refused_before_the_planner_runs(self):
+        run = run_rs_setup("nope/nope-rs")
+        self.assertEqual(run.proc.returncode, 1)
+        self.assertIn("nope/nope-rs", run.proc.stderr)
+        self.assertEqual(run.lines, [])
+        self.assertEqual(run.planner_args, [])
 
     def test_newline_injection_refused(self):
-        proc, outputs, lines = run_rs_setup("sq/sq-rs\nevil=1")
-        self.assertEqual(proc.returncode, 1)
-        self.assertIn("evil=1", proc.stderr)
-        self.assertNotIn("evil", outputs)
-        self.assertEqual(lines, [])
+        run = run_rs_setup("a/a-rs\nevil=1")
+        self.assertEqual(run.proc.returncode, 1)
+        self.assertIn("evil=1", run.proc.stderr)
+        self.assertNotIn("evil", run.outputs)
+        self.assertEqual(run.lines, [])
+        self.assertEqual(run.planner_args, [])
 
-    def test_empty_list_refuses_green(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            stub = pathlib.Path(tmp) / "git"
-            stub.write_text("#!/bin/sh\nexit 0\n")
-            stub.chmod(0o755)
-            proc, _outputs, lines = run_rs_setup("", path=f"{tmp}:{os.environ['PATH']}")
-        self.assertEqual(proc.returncode, 1)
-        self.assertIn("refusing to report green", proc.stderr)
-        self.assertEqual(lines, [])
+    def test_no_tracked_crates_refuses_green(self):
+        run = run_rs_setup("", manifests=())
+        self.assertEqual(run.proc.returncode, 1)
+        self.assertIn("refusing to report green", run.proc.stderr)
+        self.assertEqual(run.lines, [])
+        self.assertEqual(run.planner_args, [])
+
+    def test_real_tracked_crates_all_pass_the_input_check(self):
+        dirs = tracked_crate_dirs()
+        self.assertEqual(len(dirs), 13)
+        self.assertFalse([d for d in dirs if d.startswith("tests/")])
 
     def test_crate_env_reads_dispatch_input(self):
         self.assertEqual(
@@ -898,21 +959,32 @@ class RustSetupJobTests(unittest.TestCase):
     def test_no_expression_syntax_in_run_block(self):
         self.assertNotIn("${{", rs_step("setup", "plan")["run"])
 
+    def test_setup_installs_pinned_cargo_mutants_before_planning(self):
+        steps = rs_job("setup")["steps"]
+        names = [s.get("name") for s in steps]
+        install = names.index("Install cargo-mutants")
+        self.assertLess(install, names.index("List crates and build matrix"))
+        self.assertEqual(steps[install]["with"]["tool"], "cargo-mutants@27.1.0")
+        self.assertEqual(steps[install]["with"]["fallback"], "none")
+
 
 class JobResult(tuple):  # type: ignore[type-arg]
     """The (proc, make calls, statuses, summary) tuple plus classifier records.
 
     `classifier_argc` lists the argument count of each mutation-classify.sh call;
-    `classifier_args` lists its fourth and fifth arguments, one string per call.
+    `classifier_args` lists its fourth and fifth arguments, one string per call;
+    `shards` lists the MUTANT_SHARD argument of each make call.
     """
 
     classifier_argc: list[str]
     classifier_args: list[str]
+    shards: list[str]
 
-    def __new__(cls, fields, classifier_argc, classifier_args):
+    def __new__(cls, fields, classifier_argc, classifier_args, shards):
         self = super().__new__(cls, fields)
         self.classifier_argc = classifier_argc
         self.classifier_args = classifier_args
+        self.shards = shards
         return self
 
 
@@ -933,6 +1005,10 @@ def run_crate_job(
     stub: CrateStub | None = None,
     pre_status=None,
     step="Run mutants",
+    shard=("1", "2"),
+    count=3,
+    total=None,
+    fault="",
 ):
     """Execute a `mutants` job step against stub make/classifier.
 
@@ -942,7 +1018,10 @@ def run_crate_job(
     holding `stub.exit_code` (default: `make_rc`; None writes no file, as when the
     recipe died before cargo-mutants ran). The classifier stub echoes the exit code
     and outcomes path it was given, and reports red (exit 1) when `stub.red`, green
-    otherwise. `pre_status` seeds status/<slug> before the step runs.
+    otherwise. `pre_status` seeds status/<slug> before the step runs. The make
+    stub writes `<crate>/mutants.out/outcomes.json` with `total` mutants (default
+    `count`, the plan's figure) and records its MUTANT_SHARD argument; `shard` is
+    the plan's (k, n) and `fault` its fault text (empty for a normal unit).
     """
     red, make_rc, exit_code = stub or CrateStub()
     with tempfile.TemporaryDirectory() as tmp:
@@ -953,6 +1032,9 @@ def run_crate_job(
         make = bindir / "make"
         make.write_text(
             f'#!/bin/sh\nprintf \'%s\\n\' "$2" >> "{calls}"\n'
+            f'printf \'%s\\n\' "$4" >> "{root / "shards"}"\n'
+            'mkdir -p "$2/mutants.out"\n'
+            'printf \'{"total_mutants": %s}\\n\' "$OUTCOMES_TOTAL" > "$2/mutants.out/outcomes.json"\n'
             'if [ -n "${EXIT_CODE_FILE_VALUE+x}" ]; then\n'
             '  mkdir -p "$2/mutants.out"\n'
             '  printf \'%s\\n\' "$EXIT_CODE_FILE_VALUE" > "$2/mutants.out/exit-code"\n'
@@ -962,10 +1044,8 @@ def run_crate_job(
         make.chmod(0o755)
         workspace = root / "ws"
         (workspace / "scripts").mkdir(parents=True)
-        shutil.copy(
-            REPO_ROOT / "scripts" / "mutation-exit-code.sh",
-            workspace / "scripts" / "mutation-exit-code.sh",
-        )
+        for helper in ("mutation-exit-code.sh", "mutation-shard-count.sh"):
+            shutil.copy(REPO_ROOT / "scripts" / helper, workspace / "scripts" / helper)
         classify = workspace / "scripts" / "mutation-classify.sh"
         classify.write_text(
             "#!/bin/sh\n"
@@ -986,6 +1066,11 @@ def run_crate_job(
             "GITHUB_STEP_SUMMARY": str(summary),
             "CRATE_DIR": crate,
             "SLUG": slug,
+            "K": shard[0],
+            "N": shard[1],
+            "COUNT": str(count),
+            "FAULT": fault,
+            "OUTCOMES_TOTAL": str(count if total is None else total),
             "RED": "1" if red else "0",
             "MAKE_RC": str(make_rc),
         }
@@ -1016,7 +1101,11 @@ def run_crate_job(
         argc = argc_file.read_text().split() if argc_file.exists() else []
         args_file = root / "classify-args"
         args = args_file.read_text().splitlines() if args_file.exists() else []
-        return JobResult((proc, made, statuses, summary.read_text()), argc, args)
+        shards_file = root / "shards"
+        shards = shards_file.read_text().splitlines() if shards_file.exists() else []
+        return JobResult(
+            (proc, made, statuses, summary.read_text()), argc, args, shards
+        )
 
 
 class RustMutantsJobTests(unittest.TestCase):
@@ -1127,6 +1216,14 @@ class RustMutantsJobTests(unittest.TestCase):
             job["strategy"]["matrix"], "${{ fromJSON(needs.setup.outputs.matrix) }}"
         )
         self.assertEqual(job["needs"], "setup")
+        taiki = rs_step("mutants", "Install cargo-mutants")
+        self.assertEqual(taiki["uses"].split("@")[0], "taiki-e/install-action")
+        self.assertEqual(taiki["with"]["tool"], "cargo-mutants@27.1.0")
+        self.assertEqual(taiki["with"]["fallback"], "none")
+        self.assertNotIn("run", taiki)
+        restore = rs_step("mutants", "Restore GMP/MPFR build cache")
+        self.assertEqual(restore["uses"].split("@")[0], "actions/cache/restore")
+        self.assertEqual(restore["if"], "steps.gmpkey.outputs.enabled == 'true'")
         self.assertEqual(
             rs_step("mutants", "Record unfinished crate")["if"], "cancelled()"
         )
@@ -1135,6 +1232,49 @@ class RustMutantsJobTests(unittest.TestCase):
         env = rs_step("mutants", "Run mutants")["env"]
         self.assertEqual(env["CRATE_DIR"], "${{ matrix.crate }}")
         self.assertEqual(env["SLUG"], "${{ matrix.slug }}")
+        self.assertEqual(env["K"], "${{ matrix.k }}")
+        self.assertEqual(env["N"], "${{ matrix.n }}")
+        self.assertEqual(env["COUNT"], "${{ matrix.count }}")
+        self.assertEqual(env["FAULT"], "${{ matrix.fault }}")
+
+    def test_job_name_is_the_slug(self):
+        self.assertEqual(rs_job("mutants")["name"], "Mutation ${{ matrix.slug }}")
+
+    def test_shard_reaches_make(self):
+        result = run_crate_job("a/a-rs", "a-a-rs-2of4", shard=("2", "4"))
+        self.assertEqual(result[0].returncode, 0, result[0].stderr)
+        self.assertEqual(result.shards, ["MUTANT_SHARD=2/4"])
+
+    def test_count_mismatch_is_red_never_classified(self):
+        result = run_crate_job("a/a-rs", "a-a-rs-1of2", count=3, total=2)
+        proc, made, statuses, summary = result
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(made, ["a/a-rs"])
+        line = "red: a-a-rs-1of2 tested 2 mutants, plan expected 3\n"
+        self.assertEqual(statuses, {"a-a-rs-1of2": line})
+        self.assertEqual(summary, line)
+        self.assertEqual(result.classifier_argc, [])
+
+    def test_count_match_goes_on_to_the_classifier(self):
+        result = run_crate_job("a/a-rs", "a-a-rs-1of2", count=3, total=3)
+        self.assertEqual(result[0].returncode, 0, result[0].stderr)
+        self.assertEqual(result.classifier_argc, ["5"])
+
+    def test_fault_unit_is_red_and_never_runs_make(self):
+        result = run_crate_job(
+            "a/a-rs",
+            "a-rs-plan",
+            shard=("0", "0"),
+            count=0,
+            fault="listing failed",
+        )
+        proc, made, statuses, summary = result
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(made, [])
+        line = "red: a-rs-plan - plan fault: listing failed\n"
+        self.assertEqual(statuses, {"a-rs-plan": line})
+        self.assertEqual(summary, line)
+        self.assertEqual(result.classifier_argc, [])
 
     def test_uploads_are_per_crate_and_always(self):
         status = rs_step("mutants", "Upload crate status")
