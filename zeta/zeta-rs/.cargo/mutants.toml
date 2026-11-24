@@ -1,0 +1,6 @@
+# The end-to-end tests (names start `e2e_`) run a full verification each, and cargo-mutants
+# re-runs the test suite for every mutant, so they are skipped here (spec V8): the
+# mutation run exercises the unit tests. What only an `e2e_` or binary test reaches (the
+# production `run` wiring of DirStore("."), PoolPolicy::Parallel and
+# VerifyConfig::default()) is not mutation-tested. `make test` and CI still run them.
+additional_cargo_test_args = ["--", "--skip", "e2e_"]

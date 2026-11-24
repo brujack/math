@@ -1082,6 +1082,7 @@ dependencies = [
  "clap",
  "criterion",
  "proptest",
+ "rayon",
  "rug",
  "tempfile",
 ]

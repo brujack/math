@@ -58,6 +58,7 @@ impl Complex {
 mod tests {
     use super::*;
     use crate::interval::{Interval, IntervalError};
+    use proptest::prelude::*;
     use rug::Float;
 
     const PREC: u32 = 64;
@@ -138,5 +139,82 @@ mod tests {
         assert_eq!(z.re.hi().to_f64(), 1.5);
         assert_eq!(z.im.lo().to_f64(), 1.5);
         assert_eq!(z.im.hi().to_f64(), 2.5);
+    }
+
+    /// Precision of the reference values: far above `PREC`, and enough to hold a
+    /// product of two `f64` exactly.
+    const REF_PREC: u32 = 1000;
+
+    fn rf(x: f64) -> Float {
+        Float::with_val(REF_PREC, x)
+    }
+
+    fn holds(i: &Interval, v: &Float) -> bool {
+        i.lo() <= v && v <= i.hi()
+    }
+
+    fn encloses(z: &Complex, re: &Float, im: &Float) -> bool {
+        holds(&z.re, re) && holds(&z.im, im)
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn add_and_mul_enclose_the_exact_result(
+            (ar, ai, br, bi) in (-1e6f64..1e6, -1e6f64..1e6, -1e6f64..1e6, -1e6f64..1e6),
+        ) {
+            let (a, b) = (c(ar, ai), c(br, bi));
+            let (xr, xi, yr, yi) = (rf(ar), rf(ai), rf(br), rf(bi));
+            prop_assert!(encloses(&a.add(&b), &Float::with_val(REF_PREC, &xr + &yr),
+                &Float::with_val(REF_PREC, &xi + &yi)));
+            let re = Float::with_val(REF_PREC, &xr * &yr) - Float::with_val(REF_PREC, &xi * &yi);
+            let im = Float::with_val(REF_PREC, &xr * &yi) + Float::with_val(REF_PREC, &xi * &yr);
+            prop_assert!(encloses(&a.mul(&b), &re, &im));
+        }
+
+        #[test]
+        fn mul_real_encloses_the_exact_result(
+            (ar, ai, k) in (-1e6f64..1e6, -1e6f64..1e6, -1e6f64..1e6),
+        ) {
+            let z = c(ar, ai).mul_real(&pt(k));
+            prop_assert!(encloses(&z, &Float::with_val(REF_PREC, rf(ar) * rf(k)),
+                &Float::with_val(REF_PREC, rf(ai) * rf(k))));
+        }
+
+        #[test]
+        fn div_encloses_the_exact_quotient(
+            (ar, ai, br, bi) in (-1e6f64..1e6, -1e6f64..1e6, -1e6f64..1e6, -1e6f64..1e6),
+        ) {
+            // A point divisor is nonzero unless both parts are exactly 0.
+            prop_assume!(br != 0.0 || bi != 0.0);
+            let q = c(ar, ai).div(&c(br, bi)).unwrap();
+            let (xr, xi, yr, yi) = (rf(ar), rf(ai), rf(br), rf(bi));
+            let den = Float::with_val(REF_PREC, &yr * &yr) + Float::with_val(REF_PREC, &yi * &yi);
+            let re = (Float::with_val(REF_PREC, &xr * &yr) + Float::with_val(REF_PREC, &xi * &yi))
+                / &den;
+            let im = (Float::with_val(REF_PREC, &xi * &yr) - Float::with_val(REF_PREC, &xr * &yi))
+                / &den;
+            prop_assert!(encloses(&q, &Float::with_val(REF_PREC, re), &Float::with_val(REF_PREC, im)));
+        }
+
+        #[test]
+        fn div_by_a_divisor_whose_modulus_may_be_zero_is_refused(
+            (lo, hi, h) in (0.001f64..1e6, 0.001f64..1e6, 0.001f64..1e6),
+        ) {
+            // The real part straddles 0 and so does the imaginary part: |den|^2 contains 0.
+            let den = Complex::new(
+                Interval::new(Float::with_val(PREC, -lo), Float::with_val(PREC, hi)).unwrap(),
+                Interval::new(Float::with_val(PREC, -h), Float::with_val(PREC, h)).unwrap(),
+            );
+            prop_assert_eq!(c(1.0, 1.0).div(&den).unwrap_err(), IntervalError::DivisorContainsZero);
+        }
+
+        #[test]
+        fn cis_encloses_cosine_and_sine(phase in -100.0f64..100.0) {
+            let z = Complex::cis(&pt(phase));
+            let p = rf(phase);
+            prop_assert!(encloses(&z, &p.clone().cos(), &p.sin()));
+        }
     }
 }

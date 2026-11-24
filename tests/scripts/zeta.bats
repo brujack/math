@@ -42,11 +42,20 @@ setup() {
     [ -z "$(ls -A "${WORK_DIR}")" ]
 }
 
-@test "a valid N is never reported as verified" {
+@test "N = 2 verifies 29 zeros, saves the table and leaves no temporary file" {
     run --separate-stderr bash -c "cd '${WORK_DIR}' && '${RUST_BIN}' 2 </dev/null"
-    [ "${status}" -eq 3 ]
-    [[ "${output}" == "RH NOT verified up to 100: zero isolation is not implemented yet" ]]
-    [[ "${output}${stderr}" != *"RH verified"* ]]
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"RH verified: all 29 nontrivial zeros with 0 < Im s <= 100 lie on Re s = 1/2 and are simple"* ]]
     [[ "${output}${stderr}" != *"RH holds"* ]]
-    [ -z "$(ls -A "${WORK_DIR}")" ]
+    [ "$(ls -A "${WORK_DIR}")" = "zeta_1e2.txt" ]
+    [ "$(head -n 1 "${WORK_DIR}/zeta_1e2.txt")" = "# n a b" ]
+    [ "$(grep -vc '^#' "${WORK_DIR}/zeta_1e2.txt")" -eq 29 ]
+}
+
+@test "a stale temporary file that cannot be removed exits 4 without a verified claim" {
+    mkdir "${WORK_DIR}/zeta_1e2.tmp.txt"
+    run --separate-stderr bash -c "cd '${WORK_DIR}' && '${RUST_BIN}' 2 </dev/null"
+    [ "${status}" -eq 4 ]
+    [[ "${output}${stderr}" != *"RH verified"* ]]
+    [ ! -e "${WORK_DIR}/zeta_1e2.txt" ]
 }
