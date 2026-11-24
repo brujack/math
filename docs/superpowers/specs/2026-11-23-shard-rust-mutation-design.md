@@ -321,6 +321,11 @@ plan to one unit with a count of at least 1 and must catch at least one mutant.
 - **N3.** The required status check stays the job id `mutation-pr`; branch protection is not edited.
 - **N4.** No per-crate shard-size override: one formula for every crate.
 
+
+## Amendments
+
+- R3 -> `scripts/mutation-rs-plan.sh <base-ref> <crate-dir>...` prints to stdout a JSON array with one object `{"crate", "slug", "k", "n", "count"}` per shard of each crate with K > 0, where `n = max(1, ceil(K/75))`, K is the length of the JSON array `cargo mutants --list --json --in-diff <crate diff>` prints (empty stdout with exit 0 counts as K = 0), k runs 0..n-1, `count` is `ceil((K-k)/n)`, and slug is the crate dir's basename followed by `-<k>`; per crate it prints `plan: <crate> K=<K> n=<n> per-shard=<ceil(K/n)>` to stderr, or `plan: <crate> K=0 (no mutants on changed lines)` and no unit when K = 0; it prints `[]` when no crate has K > 0; it exits 1 for a crate whose diff is empty, whose `--list` exits non-zero, whose `--list` stdout is non-empty and not a JSON array, and it exits 1 printing `error: plan needs <T> shards, over the 256-job matrix limit (ADR-0046)` when it would emit more than 256 units, fault units included (T is the unit count); with `--whole` first, K is the length of `cargo mutants --list --json` on the whole crate, a crate that is empty-listed or failing to list emits instead one unit `{"crate", "slug": "<basename>-plan", "k": 0, "n": 0, "count": 0, "fault": "<message>"}` and the script exits 0. — every unit, a `--whole` fault unit too, is one matrix job, so the limit counts units; summing n missed fault units (n = 0). Diff mode emits no fault units, so its result is unchanged.
+
 ## Multi-Lens Review
 
 Round 1 reviewed `bfedc33`, round 2 `6523648`, round 3 `130d640`. All rounds' findings are history; the body above is the revision that answers them.
