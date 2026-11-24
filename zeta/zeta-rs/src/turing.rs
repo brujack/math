@@ -859,6 +859,18 @@ mod tests {
         );
     }
 
+    /// One bad Gram point past the longest block fails the candidate even though
+    /// a good point follows: Z = -cos theta on (c_1912, c_1928] makes g_1913..g_1928
+    /// bad (16 points, a block of 17 intervals) and g_1929 good again. The search
+    /// for the next good point must stop at g_(from + MAX_BLOCK_LEN), not run on.
+    #[test]
+    fn a_block_one_past_the_longest_length_fails_even_with_a_good_point_after() {
+        let (_, c0) = bracket(1912);
+        let (_, c16) = bracket(1928);
+        let z = fake(move |t| if t > c0 && t <= c16 { -wave(t) } else { wave(t) });
+        assert_eq!(establish(1912, &z, &cfg()), Err(TuringFailure::BlockTooLong { from: 1912 }));
+    }
+
     // ---- candidate search ----
 
     #[test]
