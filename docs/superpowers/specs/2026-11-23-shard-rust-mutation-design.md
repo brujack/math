@@ -227,19 +227,19 @@ findings are history; the body above is the revision that answers them.
 
 Finding: Worth building; simpler paths (trimming zeta's slow tests, `--jobs`) fall short. Load-bearing framing flaw: the cost driver is the crate's baseline test time (zeta's unit suite rose about 6x in PR 3), not its mutant count, so B = 75 is tuned to one diff's suite speed and later suite growth eats the headroom silently. Factual error: run 45309470730 skipped the canary; the 117.6 min were zeta alone. Verdict count: a PR shard that tests zero mutants passes. Reads-it: the `plan:` line is cheap decoration; the live log fixes the stated pain.
 Assumption: a zeta PR 3 shard of 68 mutants fits under 60 min on CI (true CI cost 21–30 s per mutant, not 45 s or more); confirmed or refuted by the baseline line and `N mutants tested in Mm` of one sharded CI run (V2).
-Disposition:
+Disposition: Addressed (operator, 2026-11-24: "Addressed"): cost driver reframed as baseline test time with a per-shard baseline line (R4); canary fact corrected; every PR shard classifies with `--min-caught 1` (R4, R7). Assumption carried as V2.
 
 ### Ergonomics
 
 Finding: A red shard had no repro path and no readable leg name (matrix tuple as name); the CLAUDE.md repro line reruns the whole diff (4553 s for zeta). A PR shard that ran nothing classified green (4-argument classify). cargo-mutants would build from source twice on the critical path; the pinned `taiki-e/install-action` prebuilt is the repo's pattern. Caveat: a local shard index can select different mutants than CI when master moved.
 Assumption: zeta on CI costs no more than about 40 s per mutant, so 75 mutants plus setup fit in 60 min; settle with one timed CI shard.
-Disposition:
+Disposition: Addressed (operator, 2026-11-24: "Addressed"): per-shard leg names (R5), one-shard repro line (R4, R11), `--min-caught 1` per shard, pinned `taiki-e/install-action` prebuilt (R5), local-k caveat in CLAUDE.md (R11). Assumption carried as V2.
 
 ### Risk
 
 Finding: K = 0 red would turn routine test-only and comment-only `src/` PRs red with no fix (today they are green: `no mutants to test`); the spec's claim that `mutation-pr-run.sh` already rules K = 0 red was false. `--list --json` prints nothing, not `[]`, at K = 0. Under `pipefail`, `| tee ... || true; rc=${PIPESTATUS[0]}` gives a false green (measured); only `&& rc=0 || rc=${PIPESTATUS[0]}` keeps the status. Shard mechanics verified: sharding applies after `--in-diff`, and whole-crate shards partition the list exactly.
 Assumption: CI's real zeta cost per mutant is at most about 40 s; one 75-mutant zeta shard on CI (or V2) settles it.
-Disposition:
+Disposition: Addressed (operator, 2026-11-24: "Addressed"): K = 0 adds no unit and stays green (R3, R7); empty `--list` stdout read as K = 0, a failed listing red; live-log form pinned as `&& rc=0 || rc=${PIPESTATUS[0]}` (R6). Assumption carried as V2.
 
 ### Adversarial Spec Review (comparison/judge designs only)
 
