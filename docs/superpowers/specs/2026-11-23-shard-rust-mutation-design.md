@@ -29,11 +29,15 @@ test time, not its mutant count.
 | 11 crates, full sweep, run 42328612206 (sha 9313b1a) | 20–166 each, 947 total | not recorded                         | 1.5–5.0, mean 2.9 | `Run mutants` step timestamps; counts from `cargo mutants --list --json` on that sha |
 | zeta-rs, earlier PR runs 45126222244 and 45232851299 | 309 and 132            | 2 s                                  | 3.3 and 2.7       | `N mutants tested in Mm` and `Unmutated baseline` log lines                          |
 | zeta-rs PR 3 diff, CI, run 45309470730               | 339 listed             | not printed (cancelled)              | more than 20.8    | step ran 117.6 min and was cancelled                                                 |
-| zeta-rs PR 3 diff, `claude` pinned to 4 CPUs         | 313 with outcomes      | 12.1 s (`cargo test -- --skip e2e_`) | 14.5              | 4553 s; 234 caught, 55 unviable, 24 timeouts at about 61 s, 0 missed                 |
+| zeta-rs earlier PR 3 diff, `claude`, 4 CPUs          | 313 with outcomes      | 12.1 s (`cargo test -- --skip e2e_`) | 14.5              | 4553 s; 234 caught, 55 unviable, 24 timeouts at about 61 s, 0 missed                 |
 
 PR 3 raised zeta's unit-suite time about 6x (2 s to 12–15 s; CI nextest ran all 400 tests in
 15.1 s, run 45309470687), and the per-mutant cost rose with it. The CI figure for PR 3 is a lower
-bound from a cancelled job. zeta-rs has 748 mutants as a whole crate at PR 3, so its first
+bound from a cancelled job. The local row is an earlier state of the PR 3 branch (313 mutants
+against the final 339); its 14.5 s per mutant is the only full-run figure for the PR 3 suite. At
+26dde61 the 13 crates hold 2537 mutants as whole crates, the largest being descartes-rs (831,
+suite about 3 s on 4 CPUs) and zeta-rs (748); the 947-mutant sweep row predates descartes-rs
+and zeta-rs. zeta-rs has 748 mutants as a whole crate at PR 3, so its first
 monthly sweep after PR 3 will also exceed a 60-minute job.
 
 Trimming zeta's slowest tests does not avoid sharding: its twelve slowest unit tests sum to
@@ -56,25 +60,30 @@ new ADR records it.
 
 ### 1. Shard size
 
-`n = min(16, max(1, ceil(K / 75)))`, where K is the crate's mutant count from
+`n = max(1, ceil(K / 75))`, where K is the crate's mutant count from
 `cargo mutants --list --json` (for the PR gate, with `--in-diff <crate diff>`). Listing does not
 build: 0.23 s for zeta's 339 diff mutants.
 
 75 is set by the slowest measured case, the zeta PR 3 diff. At 21–30 s per mutant, 68–75
-mutants take 24–38 minutes. Add about 4 minutes of install, GMP cache restore and baseline
-build, and a shard fits a 60-minute job. That B is tuned to a baseline test time of about 15 s, and 30 s per mutant is
+mutants take 24–38 minutes. Add about 4 minutes of prebuilt install, GMP cache restore and
+baseline build (both runs' shard jobs restore the GMP cache and install cargo-mutants prebuilt;
+a cold zeta `cargo build --tests` took 108.6 s on 4 CPUs), and a shard fits a 60-minute job.
+The sweep, not the PR, is the binding case: zeta's 748 whole-crate mutants make shards of 75
+and 74, against 68 for the PR 3 diff, so V1 measures it first. That B is tuned to a baseline test time of about 15 s, and 30 s per mutant is
 an estimate, not a measurement: the CI figure is a lower bound from a cancelled job. Above about
 42 s per mutant a 75-mutant shard cancels at 60 minutes. That failure is loud (a cancelled leg
 is red), and V2 is the first CI measurement. One value serves every
 crate, per the operator's rule that all crates are treated identically. The cost is extra
-shards for fast crates: pi-rs, 166 mutants at 3.1 s, becomes 3 jobs of about 3 minutes. Runner
+shards for fast crates: descartes-rs, 831 mutants with a 3 s suite, becomes 12 jobs of a few
+minutes each. Runner
 minutes on this public repository are free.
 
-The cap 16 is per crate: 13 crates x 16 = 208 jobs, under GitHub's 256-job matrix limit.
-zeta-rs's 748 whole-crate mutants need 10. A crate with `ceil(K/16) > 75` (K > 1200) cannot fit
-the budget, so the plan reports
-`error: <crate> K=<K> needs more than 16 shards of 75 (ADR-0046)` rather than emit shards that
-would run past 60 minutes.
+There is no per-crate cap. A cap on n is a mutant count, while the budget is time, and a
+per-crate cap of 16 x B would fault a large fast crate (descartes-rs) and shrink whenever B is
+lowered. The only limit is GitHub's 256-job matrix: the plan fails when the sum of n over all
+emitted units exceeds 256, printing
+`error: plan needs <T> shards, over the 256-job matrix limit (ADR-0046)`. At 26dde61 the whole
+sweep plans 41 shards.
 
 Shards are assigned round-robin (`--sharding round-robin`): mutant i goes to shard i mod n, so
 shard k holds `ceil((K - k) / n)` mutants. cargo-mutants' default, `slice`, gives each shard a
@@ -121,7 +130,7 @@ Jobs after the change:
     `mutants.out`, classified `green: no mutants to test`. `--list --json` prints nothing on
     stdout when there are no mutants, so empty stdout with exit 0 is K = 0. A non-zero exit,
     or stdout that is not a JSON array, is red.
-  - A crate with K > 1200 is red (Design 1).
+  - A plan whose shards sum past 256 is red (Design 1).
   - No crate, or every crate at K = 0, prints `[]`.
 
   Outputs: `units`, `rs_canary`.
@@ -140,7 +149,9 @@ Jobs after the change:
   ```
 
   It then appends to `GITHUB_STEP_SUMMARY` a fenced block holding only the log lines that match
-  `^(red|green|repro):|MISSED|TIMEOUT|^error:`, and exits `rc`. The full per-mutant stream stays
+  `^(red|green|repro):|MISSED|TIMEOUT|^error:`, written as
+  `{ grep -E '<pattern>' "${RUNNER_TEMP}/rs.log" || [ $? -eq 1 ]; }` so a no-match filter cannot
+  fail the step while a grep error (exit 2) still does, and exits `rc`. The full per-mutant stream stays
   in the live log. A fenced summary keeps a `MISSED` line from being folded into 70 `caught`
   lines. GitHub runs a step with no
   `shell:` as `bash -e {0}`, without pipefail. Measured there:
@@ -153,7 +164,8 @@ Jobs after the change:
   `scripts/mutation-rs-plan.sh HEAD~1 amicable/amicable-rs` must print exactly one unit. That
   unit runs with `scripts/mutation-pr-run.sh HEAD~1 --shard <k>/<n> --expect <count> --min-caught 1 amicable/amicable-rs`.
   A plan defect that zeroes K therefore turns the canary red. `scripts/mutation-rs-plan.sh` and
-  `scripts/mutation-exit-code.sh` join `RS_CANARY_PATHS` in `scripts/mutation-pr-detect.sh`.
+  `scripts/mutation-exit-code.sh` and `scripts/mutation-shard-count.sh` join `RS_CANARY_PATHS` in
+`scripts/mutation-pr-detect.sh`.
   The second was missing before this change.
 - **`mutation-py-baseline`** (`needs: mutation-py-plan`, `if: has_py == 'true'`,
   `timeout-minutes: 30`). The existing Python baseline step, moved out of `mutation-rs`
@@ -205,11 +217,11 @@ The required check is the aggregator, so this is cosmetic.
   `scripts/mutation-rs-plan.sh --whole <crate>...`, using the runner's preinstalled cargo
   (listing parses source and needs no particular rustc). `--whole` counts K with
   `cargo mutants --list --json` on the whole crate and emits the same units as the PR mode. A
-  crate-level fault (K = 0, which for a whole crate means the listing failed; K > 1200; a
-  failing or non-JSON listing) does not fail `setup`: it emits one unit
+  crate-level fault (K = 0, which for a whole crate means the listing failed; a failing or
+  non-JSON listing) does not fail `setup`: it emits one unit
   `{"crate", "slug": "<basename>-plan", "k": 0, "n": 0, "count": 0, "fault": "<message>"}`, so
   the other crates are still tested that month. `units` is the space-joined list of slugs. An
-  unknown `crate` input and an empty crate list still fail `setup`.
+  unknown `crate` input, an empty crate list and a plan over 256 shards still fail `setup`.
 - **`mutants`** (`name: Mutation ${{ matrix.slug }}`). A fault unit prints its `fault` and is
   red without running cargo-mutants, so `notify` names it. Every other unit runs
   `make -C <crate> mutants MUTANT_SHARD=<k>/<n>`, checks `total_mutants` in `outcomes.json`
@@ -234,8 +246,14 @@ and the longest shard time.
 
 PR math#246 then reverts its `mutation-rs` 60 -> 120 commit (26dde61), rebases, and re-runs
 under the sharded gate. That run is V2, the first CI measurement of a PR 3 shard. If a shard
-there runs past about 50 minutes, B is lowered in a follow-up PR before #246 merges. The CI PR
-deletes the Backlog row "zeta monthly mutation sweep budget".
+there runs past about 50 minutes, B is lowered in a follow-up PR before #246 merges. V1 has the
+same rule: a sweep shard past about 50 minutes lowers B before the CI PR merges. The Backlog row
+"zeta monthly mutation sweep budget" exists only on #246's branch, so #246's rebase deletes it;
+the CI PR adds only the plan-index row.
+
+V1 dispatches the sweep from the CI branch with no `crate` input, so `notify` runs with
+`FULL_SWEEP=true` and closes, comments on or opens the real tracking issue. That is intended:
+the run is a full sweep of master's crates under the new workflow.
 
 ### 6. Testing
 
@@ -251,8 +269,8 @@ BATS covers:
 
 - `mutation-rs-plan.sh`:
   - units for 0, 1 and several crates;
-  - K = 1, 75, 76 and 1200 give n = 1, 1, 2 and 16;
-  - K = 1201 is red;
+  - K = 1, 75, 76 and 1201 give n = 1, 1, 2 and 17;
+  - units summing to 257 shards are red, 256 are not;
   - K = 339 gives counts 68, 68, 68, 68, 67 summing to K;
   - K = 0 (empty `--list` stdout) gives no unit and exit 0;
   - an empty diff is red;
@@ -268,7 +286,8 @@ BATS covers:
   - no flag behaves as before;
   - the repro line with and without the shard;
 - `mutation-shard-count.sh`: equal, unequal and missing-file cases.
-- The live-log form: a stub script exiting 3 through the R6 lines yields `rc=3` under `bash -e`
+- The live-log form: the four R6 lines extracted from `mutation-pr.yml` (not retyped), with the
+  script replaced by a stub exiting 3, yield `rc=3` under `bash -e`
   and under `bash -eo pipefail`.
 - `tests/scripts/makefile.bats`: the `MUTANT_SHARD` validation and flag mapping, and
   `--caught --unviable` on both targets.
@@ -280,19 +299,19 @@ plan to one unit with a count of at least 1 and must catch at least one mutant.
 
 - **R1.** `scripts/crate_templates/Makefile`'s `mutants` and `mutants-diff` recipes pass `--caught --unviable` to `cargo mutants` and accept an optional `MUTANT_SHARD`: unset or empty runs `cargo mutants` with no `--shard`; a value of two decimal integers `k/n` with `0 <= k < n` adds `--shard k/n --sharding round-robin`; any other value prints `error: MUTANT_SHARD must be k/n with 0 <= k < n, got <value>` to stderr and exits 2 without running `cargo mutants`.
 - **R2.** Every tracked `*/*-rs/Makefile` equals its render from `scripts/crate_templates/Makefile` after R1 (`tests/test_crate_uniformity.py` passes).
-- **R3.** `scripts/mutation-rs-plan.sh <base-ref> <crate-dir>...` prints to stdout a JSON array with one object `{"crate", "slug", "k", "n", "count"}` per shard of each crate with K > 0, where `n = min(16, max(1, ceil(K/75)))`, K is the length of the JSON array `cargo mutants --list --json --in-diff <crate diff>` prints (empty stdout with exit 0 counts as K = 0), k runs 0..n-1, `count` is `ceil((K-k)/n)`, and slug is the crate dir's basename followed by `-<k>`; per crate it prints `plan: <crate> K=<K> n=<n> per-shard=<ceil(K/n)>` to stderr, or `plan: <crate> K=0 (no mutants on changed lines)` and no unit when K = 0; it prints `[]` when no crate has K > 0; it exits 1 for a crate whose diff is empty, whose `--list` exits non-zero, whose `--list` stdout is non-empty and not a JSON array, or whose K exceeds 1200 (printing `error: <crate> K=<K> needs more than 16 shards of 75 (ADR-0046)`); with `--whole` first, K is the length of `cargo mutants --list --json` on the whole crate, a crate that is empty-listed, over 1200 or failing to list emits instead one unit `{"crate", "slug": "<basename>-plan", "k": 0, "n": 0, "count": 0, "fault": "<message>"}` and the script exits 0.
+- **R3.** `scripts/mutation-rs-plan.sh <base-ref> <crate-dir>...` prints to stdout a JSON array with one object `{"crate", "slug", "k", "n", "count"}` per shard of each crate with K > 0, where `n = max(1, ceil(K/75))`, K is the length of the JSON array `cargo mutants --list --json --in-diff <crate diff>` prints (empty stdout with exit 0 counts as K = 0), k runs 0..n-1, `count` is `ceil((K-k)/n)`, and slug is the crate dir's basename followed by `-<k>`; per crate it prints `plan: <crate> K=<K> n=<n> per-shard=<ceil(K/n)>` to stderr, or `plan: <crate> K=0 (no mutants on changed lines)` and no unit when K = 0; it prints `[]` when no crate has K > 0; it exits 1 for a crate whose diff is empty, whose `--list` exits non-zero, whose `--list` stdout is non-empty and not a JSON array, and it exits 1 printing `error: plan needs <T> shards, over the 256-job matrix limit (ADR-0046)` when the units' n sum past 256; with `--whole` first, K is the length of `cargo mutants --list --json` on the whole crate, a crate that is empty-listed or failing to list emits instead one unit `{"crate", "slug": "<basename>-plan", "k": 0, "n": 0, "count": 0, "fault": "<message>"}` and the script exits 0.
 - **R4.** `scripts/mutation-pr-run.sh` accepts `--shard k/n` (validated as in R1, exit 2 otherwise), passed to `make mutants-diff` as `MUTANT_SHARD`, and `--expect N` (exit 2 without `--shard` or when N is not a positive integer), which after the run and before classifying calls `scripts/mutation-shard-count.sh <crate>/mutants.out/outcomes.json <crate> N`; `mutation-shard-count.sh` reads `total_mutants` (a missing file is 0) and exits 1 printing `red: <label> tested <M> mutants, plan expected <N>` when M differs from N; with neither flag `mutation-pr-run.sh` passes no `MUTANT_SHARD` and checks no count; for each crate it prints `repro: scripts/mutation-pr-run.sh <base-ref> <crate>` (with ` --shard k/n --expect N` before the crate when sharded) before running.
-- **R5.** `mutation-pr.yml` has jobs `mutation-rs-plan` (no `if:`, `timeout-minutes: 30`, outputs `units`, `rs_canary`), `mutation-rs` (`if: needs.mutation-rs-plan.outputs.units != '[]'`, `name: mutation-rs ${{ matrix.slug }}`, matrix `include` from `units`, `fail-fast: false`, `timeout-minutes: 60`), `mutation-rs-canary` (`if:` on `rs_canary == 'true'`, `timeout-minutes: 30`) and `mutation-py-baseline` (`needs: mutation-py-plan`, `if:` on `needs.mutation-py-plan.outputs.has_py == 'true'`, `timeout-minutes: 30`); `mutation-py-plan` gains outputs `has_py` and `py_dirs`; `mutation-rs-plan`, `mutation-rs` and `mutation-rs-canary` install cargo-mutants with `taiki-e/install-action` pinned to a 40-hex SHA, `tool: cargo-mutants@27.1.0`, `fallback: none`.
+- **R5.** `mutation-pr.yml` has jobs `mutation-rs-plan` (no `if:`, `timeout-minutes: 30`, outputs `units`, `rs_canary`), `mutation-rs` (`if: needs.mutation-rs-plan.outputs.units != '[]'`, `name: mutation-rs ${{ matrix.slug }}`, matrix `include` from `units`, `fail-fast: false`, `timeout-minutes: 60`), `mutation-rs-canary` (`if:` on `rs_canary == 'true'`, `timeout-minutes: 30`) and `mutation-py-baseline` (`needs: mutation-py-plan`, `if:` on `needs.mutation-py-plan.outputs.has_py == 'true'`, `timeout-minutes: 30`); `mutation-py-plan` gains outputs `has_py` and `py_dirs`; `mutation-rs-plan`, `mutation-rs` and `mutation-rs-canary` install cargo-mutants with `taiki-e/install-action` pinned to a 40-hex SHA, `tool: cargo-mutants@27.1.0`, `fallback: none`, and `mutation-rs` and `mutation-rs-canary` keep today's Rust toolchain step and read-only GMP cache restore (`scripts/gmp-cache-key.sh`).
 - **R6.** The `mutation-rs` run step is the four lines `set +e`, `scripts/mutation-pr-run.sh "origin/${GITHUB_BASE_REF}" --shard "<k>/<n>" --expect "<count>" "<crate>" 2>&1 | tee "${RUNNER_TEMP}/rs.log"`, `rc=${PIPESTATUS[0]}`, `set -e`, followed by appending to `GITHUB_STEP_SUMMARY` a fenced block of the log lines matching `^(red|green|repro):|MISSED|TIMEOUT|^error:` and `exit "${rc}"`; it passes no `--min-caught`.
 - **R7.** The `mutation-pr` aggregator keeps its job id and `if: always()`, needs every Python and Rust job, and is red unless `mutation-rs-plan` is `success`; `mutation-rs` is `success` or (`skipped` and units is `[]`); `mutation-rs-canary` is `success` or (`skipped` and `rs_canary` is not `true`); `mutation-py-baseline` is `success` or (`skipped` and `has_py` is not `true`); `cancelled` and `failure` of any needed job are red.
-- **R8.** `mutation-testing.yml` `setup` installs cargo-mutants as in R5, builds its matrix from the units of `scripts/mutation-rs-plan.sh --whole <crate>...` (R3), sets `units` to the space-joined unit slugs, and exits 1 only on an unknown `crate` input or an empty crate list.
-- **R9.** `mutation-testing.yml` `mutants` has `name: Mutation ${{ matrix.slug }}`; for a unit with `fault` it prints the fault and writes a red status without running cargo-mutants; otherwise it runs `make -C <crate> mutants MUTANT_SHARD=<k>/<n>`, is red when `scripts/mutation-shard-count.sh <crate>/mutants.out/outcomes.json <slug> <count>` exits 1, classifies with `mutation-classify.sh <rc> <crate>/mutants.out/outcomes.json <crate> 0 1`, and names its artifacts `mutants-status-<slug>` and `mutants-output-<slug>` with the shard slug.
+- **R8.** `mutation-testing.yml` `setup` installs cargo-mutants as in R5, builds its matrix from the units of `scripts/mutation-rs-plan.sh --whole <crate>...` (R3), sets `units` to the space-joined unit slugs, and exits 1 only on an unknown `crate` input, an empty crate list, or a plan over 256 shards.
+- **R9.** `mutation-testing.yml` `mutants` has `name: Mutation ${{ matrix.slug }}`, installs cargo-mutants as in R5 (no `cargo install cargo-mutants`), restores the GMP cache read-only as `mutation-rs` does; for a unit with `fault` it prints the fault and writes a red status without running cargo-mutants; otherwise it runs `make -C <crate> mutants MUTANT_SHARD=<k>/<n>`, is red when `scripts/mutation-shard-count.sh <crate>/mutants.out/outcomes.json <slug> <count>` exits 1, classifies with `mutation-classify.sh <rc> <crate>/mutants.out/outcomes.json <crate> 0 1`, and names its artifacts `mutants-status-<slug>` and `mutants-output-<slug>` with the shard slug.
 - **R10.** `docs/adr/0046-shard-the-rust-mutation-runs.md` records the shard formula and cap, round-robin assignment, the post-run count check, baseline test time as the cost driver, the measurements in this spec, a measurements table for V1 and V2, and the job graphs of R5 and R8, and `docs/adr/README.md` lists it.
-- **R11.** Root `CLAUDE.md`'s Rust mutation lines describe the sharded `mutation-rs` (plan job, shard matrix, `--expect` per shard, `--min-caught 1` on the canary only) and the sweep's one job per shard, and its repro line reads `scripts/mutation-pr-run.sh origin/master [--shard <k>/<n> --expect <count>] <crate>`, with `cargo mutants --in-diff <diff> -F '<regex>'` from the crate directory for one mutant.
-- **R12.** The `docs/superpowers/README.md` Backlog row named `zeta monthly mutation sweep budget` is removed and the plan index carries this spec's plan.
-- **R13.** The `mutation-rs-canary` job runs `scripts/mutation-rs-plan.sh HEAD~1 amicable/amicable-rs` after its one-line commit, is red unless that prints exactly one unit, and runs that unit with `scripts/mutation-pr-run.sh HEAD~1 --shard <k>/<n> --expect <count> --min-caught 1 amicable/amicable-rs`; `RS_CANARY_PATHS` in `scripts/mutation-pr-detect.sh` contains `scripts/mutation-rs-plan.sh` and `scripts/mutation-exit-code.sh`.
+- **R11.** Root `CLAUDE.md` stays at or under its 30000-byte ceiling with no net byte growth (29991 bytes at b091030): its Rust mutation lines are rewritten to point at `docs/adr/0046-shard-the-rust-mutation-runs.md` for detail, and describe the sharded `mutation-rs` (plan job, shard matrix, `--expect` per shard, `--min-caught 1` on the canary only) and the sweep's one job per shard, and its repro line reads `scripts/mutation-pr-run.sh origin/master [--shard <k>/<n> --expect <count>] <crate>`, with `cargo mutants --in-diff <diff> -F '<regex>'` from the crate directory for one mutant.
+- **R12.** `[#246]` The `docs/superpowers/README.md` Backlog row named `zeta monthly mutation sweep budget` is removed in math#246's rebase onto the merged CI PR; the CI PR's `docs/superpowers/README.md` plan index carries this spec's plan.
+- **R13.** The `mutation-rs-canary` job runs `scripts/mutation-rs-plan.sh HEAD~1 amicable/amicable-rs` after its one-line commit, is red unless that prints exactly one unit, and runs that unit with `scripts/mutation-pr-run.sh HEAD~1 --shard <k>/<n> --expect <count> --min-caught 1 amicable/amicable-rs`; `RS_CANARY_PATHS` in `scripts/mutation-pr-detect.sh` contains `scripts/mutation-rs-plan.sh`, `scripts/mutation-exit-code.sh` and `scripts/mutation-shard-count.sh`.
 
-- **V1.** Dispatch `mutation-testing.yml` on the CI branch with no `crate` input: every shard job finishes under 60 minutes and the run's `notify` closes or does not open the tracking issue; record per-crate shard counts, each zeta shard's baseline test time, and the longest shard time in ADR-0046's measurements table; from the downloaded `mutants-output-<slug>` artifacts, each crate's shard `total_mutants` sum to its K and its shards' mutant names are disjoint.
+- **V1.** Dispatch `mutation-testing.yml` on the CI branch with no `crate` input (its `notify` acts on the real tracking issue, intended): every shard job finishes under 60 minutes, and any shard past about 50 minutes lowers B before the CI PR merges and the run's `notify` closes or does not open the tracking issue; record per-crate shard counts, each zeta shard's baseline test time, and the longest shard time in ADR-0046's measurements table; from the downloaded `mutants-output-<slug>` artifacts, each crate's shard `total_mutants` sum to its K and its shards' mutant names are disjoint.
 - **V2.** After the CI PR merges, re-run math#246 (with 26dde61 reverted): `mutation-pr` is green and every `mutation-rs` shard finishes under 60 minutes; record shard count, cargo-mutants' `Unmutated baseline` line, mutants tested per shard, and the longest shard time in ADR-0046's measurements table.
 - **V3.** A `mutation-rs` shard log is visible in the job's live log while the step runs: open the running job in the Actions UI and see at least one caught or unviable mutant line before the step ends.
 
@@ -368,3 +387,27 @@ Disposition:
 ### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+## External Review
+
+### Round 1 (reviewed at `b091030`)
+
+Report: [round1.md](2026-11-23-shard-rust-mutation-design.external-review/round1.md)
+
+#### Author response
+
+| finding | disposition | evidence | reviewer verdict | operator (Step 9) |
+| ------- | ----------- | -------- | ---------------- | ----------------- |
+| F1.1 | Fixed | Per-crate cap and K > 1200 rule removed; `n = max(1, ceil(K/75))`; the plan is red only when its shards sum past 256 (Design 1, R3, R8, Testing). | unjudged | |
+| F1.2 | Fixed | V1 gains the 50-minute lower-B rule; R9 gives sweep shards the prebuilt install and the GMP cache restore; Design 1 names the sweep as the binding case. | unjudged | |
+| F1.3 | Fixed | Confirmed: `git show origin/master:docs/superpowers/README.md \| grep -c 'mutation sweep budget'` is 0. The row's deletion moves to #246's rebase (Design 5, R12). | unjudged | |
+| F1.4 | Fixed | Confirmed: `git show origin/master:CLAUDE.md \| wc -c` is 29991. R11 requires no net byte growth, with detail behind an in-repo pointer to ADR-0046, so no ai-config change is needed. | unjudged | |
+| F1.5 | Fixed | The local row is labelled an earlier PR 3 state (313 against 339) in the table and the text below it. | unjudged | |
+| F1.6 | Fixed | Context states 2537 mutants across 13 crates at 26dde61; the fast-crate example is descartes-rs (12 shards). | unjudged | |
+| F1.7 | Fixed | R5 requires the Rust toolchain step and read-only GMP cache restore in `mutation-rs` and `mutation-rs-canary`. | unjudged | |
+| F1.8 | Fixed | `scripts/mutation-shard-count.sh` joins `RS_CANARY_PATHS` (Design 3, R13). | unjudged | |
+| F1.9 | Fixed | The live-log BATS case extracts the R6 lines from `mutation-pr.yml` (Testing). | unjudged | |
+| F1.10 | Fixed | The summary filter is `{ grep -E ... \|\| [ $? -eq 1 ]; }`: no match passes, a grep error still fails (Design 3). | unjudged | |
+| F1.11 | Fixed | Design 5 and V1 state that V1's dispatch acts on the real tracking issue, intended. | unjudged | |
+
+Stopped: reviewer recommended stopping in round 1
