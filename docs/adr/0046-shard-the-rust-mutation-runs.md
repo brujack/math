@@ -54,9 +54,11 @@ Pending results, one row per crate for V1 (the sweep, shard counts from the 37-s
 | V1 (sweep) | sq-rs | 1 | 32 | 0.9 s | 2.3 min | run 45479226540 (branch, cargo-mutants 27.1.0) |
 | V1 (sweep) | twin-primes-rs | 2 | 61, 60 | 0.5–0.6 s | 2.7 min | run 45479226540 (branch, cargo-mutants 27.1.0) |
 | V1 (sweep) | zeta-rs | 6 | 72×6 | 2.5–3.5 s | 6.1 min | run 45479226540 (branch, cargo-mutants 27.1.0) |
-| V2 (math#246) | zeta-rs | pending | pending | pending | pending | pending |
+| V2 (math#246) | zeta-rs | 5 | 68×4, 67 | 15–23 s | 33.8 min | run 45485279204 (math#246 at de9d972) |
 
 V1 (2026-11-24, run 45479226540, master's 13 crates at the branch): all 37 shard jobs green, longest 7.4 min (descartes-rs), so B = 75 stands for the sweep. From the downloaded `mutants-output-<slug>` artifacts, each crate's shard `total_mutants` sum to its K and its shards' mutant names are disjoint; 0 missed. Baseline test time is the per-shard Test phase of the Baseline scenario in `outcomes.json`. This zeta-rs is master's (432 mutants, 2.5–3.5 s suite); math#246's zeta (12–15 s suite) is V2.
+
+V2 (2026-11-24, run 45485279204, math#246's 339 changed-line zeta mutants): all 5 shards finished under 60 minutes, longest 33.8 min (zeta-rs-1, about 29.6 s per mutant with a 15–23 s CI baseline test), so a full 75-mutant shard projects to about 37 min and B = 75 stands for the PR gate too. The run was red on one genuinely missed mutant (`turing.rs` `next_good`, `+` to `*` in the search bound), which math#246 then killed with a test; the gate worked as designed.
 
 Rule: a shard past about 50 minutes lowers B before merge.
 
