@@ -7,6 +7,7 @@ use clap::Parser;
 use rug::Float;
 use rug::float::Round;
 use zeta::config::VerifyConfig;
+use zeta::spacing::{midpoint, refine_intervals, width_text, write_report};
 use zeta::verify::{GramSpan, PoolPolicy, RunStats, Verdict, verify};
 use zeta::zfun::{RealZ, SELF_CHECK_PREC, ZError, ZEvaluator, ZSource, self_check};
 
@@ -26,6 +27,10 @@ struct Cli {
     /// N exits 1 (R1), not clap's usage code 2.
     #[arg(allow_negative_numbers = true, value_name = "N")]
     exponent: Option<String>,
+
+    /// Narrow each zero's bracket by certified bisection and print the spacing histogram
+    #[arg(long)]
+    refine: bool,
 }
 
 /// Parses N and checks the 2-7 range.
@@ -231,8 +236,22 @@ where
     let height = 10u64.pow(n);
     // Exact: 10^7 < 2^53.
     let verdict = verify(height as f64, &z, env.cfg, env.policy, err);
-    let elapsed = started.elapsed().as_secs_f64();
-    report(verdict, n, env.store, out, err, self_checked, elapsed)
+    // Refinement runs only on a verified table, before anything is saved: a Z fault
+    // here is an internal error (exit 6) and leaves no table behind.
+    let refined = match (&verdict, cli.refine) {
+        (Verdict::Verified { intervals, .. }, true) => {
+            match refine_intervals(&z, env.cfg, intervals) {
+                Ok(refined) => Some(refined),
+                Err(e) => {
+                    writeln!(err, "internal error: {e}")?;
+                    return Ok(6);
+                }
+            }
+        }
+        _ => None,
+    };
+    let summary = Summary { n, self_checked, elapsed: started.elapsed().as_secs_f64() };
+    report(verdict, &summary, refined.as_deref(), env.store, out, err)
 }
 
 /// Name of the temporary file the table is written to before it is renamed.
@@ -253,22 +272,34 @@ const SELF_CHECK_LINE: &str =
 /// count after the neighbour search are listed.
 const BLOCK_REASON: &str = "Rosser's count not reached after the neighbour search";
 
+/// What a run knows about itself besides the verdict.
+struct Summary {
+    n: u32,
+    self_checked: bool,
+    elapsed: f64,
+}
+
 /// Turns a verdict into the report, the table (only when verified) and the exit code.
 /// The verified block is printed only after the table is saved, so a failed save
-/// never follows a claim.
+/// never follows a claim. `refined` holds the refined brackets under `--refine`: they
+/// replace the unrefined ones in the table and feed the spacing report.
 fn report<W: Write, E: Write, S: OutputStore>(
     verdict: Verdict,
-    n: u32,
+    summary: &Summary,
+    refined: Option<&[(f64, f64)]>,
     store: &S,
     out: &mut W,
     err: &mut E,
-    self_checked: bool,
-    elapsed: f64,
 ) -> io::Result<i32> {
+    let Summary { n, self_checked, elapsed } = *summary;
     let height = 10u64.pow(n);
     match verdict {
         Verdict::Verified { count, intervals, stats } => {
-            if let Err(e) = save_table(store, n, &intervals) {
+            let (brackets, columns) = match refined {
+                Some(r) => (r, true),
+                None => (intervals.as_slice(), false),
+            };
+            if let Err(e) = save_table(store, n, brackets, columns) {
                 writeln!(err, "Error: cannot write {}: {e}", table_name(n))?;
                 return Ok(4);
             }
@@ -276,6 +307,9 @@ fn report<W: Write, E: Write, S: OutputStore>(
                 writeln!(out, "{SELF_CHECK_LINE}")?;
             }
             write_verified(out, n, count, &stats, elapsed)?;
+            if let Some(r) = refined {
+                write_report(out, r)?;
+            }
             Ok(0)
         }
         Verdict::NotVerified { reason, blocks } => {
@@ -343,10 +377,15 @@ fn write_verified<W: Write>(
 /// failure after the file was created removes the temporary file, so no partial table
 /// is left under either name. A failed create removes nothing: the file in the way
 /// is not ours (`AlreadyExists` is another run's temporary file).
-fn save_table<S: OutputStore>(store: &S, n: u32, intervals: &[(f64, f64)]) -> io::Result<()> {
+fn save_table<S: OutputStore>(
+    store: &S,
+    n: u32,
+    intervals: &[(f64, f64)],
+    columns: bool,
+) -> io::Result<()> {
     let (tmp, table) = (tmp_name(n), table_name(n));
     let mut file = store.create(&tmp)?;
-    let written = write_table(&mut file, intervals).and_then(|()| file.sync());
+    let written = write_table(&mut file, intervals, columns).and_then(|()| file.sync());
     drop(file);
     let result = written.and_then(|()| store.rename(&tmp, &table));
     if result.is_err() {
@@ -356,12 +395,18 @@ fn save_table<S: OutputStore>(store: &S, n: u32, intervals: &[(f64, f64)]) -> io
     result
 }
 
-/// Header `# n a b`, then one `n a b` line per zero.
-fn write_table<F: Write>(file: F, intervals: &[(f64, f64)]) -> io::Result<()> {
+/// Header `# n a b`, then one `n a b` line per zero; with `columns` (`--refine`) the
+/// header is `# n a b t_n w_n` and each line adds the bracket's midpoint to 15
+/// significant digits and its width b - a to 3.
+fn write_table<F: Write>(file: F, intervals: &[(f64, f64)], columns: bool) -> io::Result<()> {
     let mut w = BufWriter::new(file);
-    writeln!(w, "# n a b")?;
+    writeln!(w, "{}", if columns { "# n a b t_n w_n" } else { "# n a b" })?;
     for (i, &(a, b)) in intervals.iter().enumerate() {
-        writeln!(w, "{} {} {}", i + 1, digits30(a, Round::Down), digits30(b, Round::Up))?;
+        write!(w, "{} {} {}", i + 1, digits30(a, Round::Down), digits30(b, Round::Up))?;
+        if columns {
+            write!(w, " {} {}", digits(midpoint(a, b), 15, Round::Nearest), width_text(b - a))?;
+        }
+        writeln!(w)?;
     }
     w.flush()
 }
@@ -370,7 +415,12 @@ fn write_table<F: Write>(file: F, intervals: &[(f64, f64)]) -> io::Result<()> {
 /// exponent notation below 1) to 30 significant digits, rounded in the given
 /// direction. The `f64` is exact in 120 bits, so the only rounding is the decimal one.
 fn digits30(x: f64, round: Round) -> String {
-    Float::with_val(120, x).to_string_radix_round(10, Some(30), round)
+    digits(x, 30, round)
+}
+
+/// `x` (finite, at least 1) to `sig` significant digits, rounded in the given direction.
+fn digits(x: f64, sig: usize, round: Round) -> String {
+    Float::with_val(120, x).to_string_radix_round(10, Some(sig), round)
 }
 
 /// The self-check of both Z paths at `SELF_CHECK_PREC`; production passes default
@@ -975,7 +1025,7 @@ mod tests {
     #[test]
     fn write_table_has_the_header_then_numbered_lines() {
         let mut buf = Vec::new();
-        write_table(&mut buf, &[(14.0, 14.5), (21.0, 21.5)]).unwrap();
+        write_table(&mut buf, &[(14.0, 14.5), (21.0, 21.5)], false).unwrap();
         let text = String::from_utf8(buf).unwrap();
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines.len(), 3);
@@ -990,7 +1040,7 @@ mod tests {
     fn write_table_rounds_a_down_and_b_up_for_a_non_exact_interval() {
         // 1.1 and 1.2 are not exact in binary: the interval must only ever widen.
         let mut buf = Vec::new();
-        write_table(&mut buf, &[(1.1, 1.2)]).unwrap();
+        write_table(&mut buf, &[(1.1, 1.2)], false).unwrap();
         let text = String::from_utf8(buf).unwrap();
         assert_eq!(
             text,
@@ -1001,14 +1051,14 @@ mod tests {
     #[test]
     fn write_table_of_no_zeros_is_just_the_header() {
         let mut buf = Vec::new();
-        write_table(&mut buf, &[]).unwrap();
+        write_table(&mut buf, &[], false).unwrap();
         assert_eq!(String::from_utf8(buf).unwrap(), "# n a b\n");
     }
 
     #[test]
     fn write_table_reports_a_failing_writer() {
-        assert!(write_table(WriteFailingWriter, &[(1.0, 2.0)]).is_err());
-        assert!(write_table(FlushFailingWriter, &[]).is_err());
+        assert!(write_table(WriteFailingWriter, &[(1.0, 2.0)], false).is_err());
+        assert!(write_table(FlushFailingWriter, &[], false).is_err());
     }
 
     #[test]
@@ -1025,7 +1075,7 @@ mod tests {
     #[test]
     fn save_table_leaves_only_the_final_file() {
         let store = MemStore::new(Break::Nothing);
-        save_table(&store, 2, &[(14.0, 15.0)]).unwrap();
+        save_table(&store, 2, &[(14.0, 15.0)], false).unwrap();
         assert_eq!(store.names(), vec!["zeta_1e2.txt".to_string()]);
         let data = String::from_utf8(store.files.borrow()["zeta_1e2.txt"].clone()).unwrap();
         assert!(data.starts_with("# n a b\n1 14.0"), "{data:?}");
@@ -1036,7 +1086,7 @@ mod tests {
     fn save_table_failure_at_any_step_leaves_no_file_and_removes_the_temporary() {
         for brk in [Break::Write, Break::Sync, Break::Rename] {
             let store = MemStore::new(brk);
-            assert!(save_table(&store, 3, &[(14.0, 15.0)]).is_err());
+            assert!(save_table(&store, 3, &[(14.0, 15.0)], false).is_err());
             assert!(store.names().is_empty(), "{:?}", store.names());
             assert_eq!(*store.removed.borrow(), vec!["zeta_1e3.tmp.txt".to_string()]);
         }
@@ -1045,14 +1095,14 @@ mod tests {
     #[test]
     fn save_table_syncs_the_temporary_file_before_the_rename() {
         let store = MemStore::new(Break::Nothing);
-        save_table(&store, 3, &[(14.0, 15.0)]).unwrap();
+        save_table(&store, 3, &[(14.0, 15.0)], false).unwrap();
         assert_eq!(*store.synced.borrow(), vec!["zeta_1e3.tmp.txt".to_string()]);
     }
 
     #[test]
     fn a_failed_create_removes_nothing() {
         let store = MemStore::new(Break::Create);
-        assert!(save_table(&store, 3, &[(14.0, 15.0)]).is_err());
+        assert!(save_table(&store, 3, &[(14.0, 15.0)], false).is_err());
         assert!(store.removed.borrow().is_empty());
     }
 
@@ -1060,7 +1110,7 @@ mod tests {
     fn a_temporary_file_that_already_exists_is_left_untouched_and_fails_the_save() {
         let store = MemStore::new(Break::Nothing);
         store.files.borrow_mut().insert("zeta_1e3.tmp.txt".into(), b"other run".to_vec());
-        let error = save_table(&store, 3, &[(14.0, 15.0)]).unwrap_err();
+        let error = save_table(&store, 3, &[(14.0, 15.0)], false).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(store.files.borrow()["zeta_1e3.tmp.txt"], b"other run");
         assert!(store.removed.borrow().is_empty());
@@ -1090,7 +1140,7 @@ mod tests {
         out: &mut W,
         err: &mut E,
     ) -> io::Result<i32> {
-        report(verdict, n, store, out, err, true, 1.25)
+        report(verdict, &Summary { n, self_checked: true, elapsed: 1.25 }, None, store, out, err)
     }
 
     #[test]
@@ -1151,7 +1201,15 @@ mod tests {
             stats.g_m = (1000.4755762, 1000.4755764);
         }
         let mut out = Vec::new();
-        report(verdict, 2, &store, &mut out, &mut Vec::new(), true, 0.0).unwrap();
+        report(
+            verdict,
+            &Summary { n: 2, self_checked: true, elapsed: 0.0 },
+            None,
+            &store,
+            &mut out,
+            &mut Vec::new(),
+        )
+        .unwrap();
         let out = String::from_utf8(out).unwrap();
         assert!(out.contains("established at g_M = 1000.475576\n"), "{out:?}");
     }
@@ -1176,7 +1234,15 @@ mod tests {
     fn the_self_check_line_is_printed_only_when_it_ran() {
         let store = MemStore::new(Break::Nothing);
         let mut out = Vec::new();
-        report(verified(), 2, &store, &mut out, &mut Vec::new(), false, 0.04).unwrap();
+        report(
+            verified(),
+            &Summary { n: 2, self_checked: false, elapsed: 0.04 },
+            None,
+            &store,
+            &mut out,
+            &mut Vec::new(),
+        )
+        .unwrap();
         let out = String::from_utf8(out).unwrap();
         assert!(out.starts_with("Turing bound: "), "{out:?}");
         assert!(!out.contains("Self-check"), "{out:?}");
@@ -1345,5 +1411,189 @@ mod tests {
             "RH NOT verified up to 100: Turing bound not established\n\
              No claim is made for this range.\n"
         );
+    }
+
+    // ---- --refine ----
+
+    #[test]
+    fn cli_parses_refine_as_a_flag_defaulting_to_off() {
+        assert!(!Cli::try_parse_from(["zeta", "3"]).unwrap().refine);
+        let c = Cli::try_parse_from(["zeta", "3", "--refine"]).unwrap();
+        assert!(c.refine);
+        assert_eq!(c.exponent.as_deref(), Some("3"));
+        assert!(Cli::try_parse_from(["zeta", "--refine", "3"]).unwrap().refine);
+    }
+
+    #[test]
+    fn write_table_with_columns_adds_t_n_and_w_n() {
+        let mut buf = Vec::new();
+        write_table(&mut buf, &[(14.0, 14.5), (21.0, 21.001)], true).unwrap();
+        let text = String::from_utf8(buf).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "# n a b t_n w_n");
+        assert_eq!(
+            lines[1],
+            format!(
+                "1 {} {} 14.2500000000000 5.00e-1",
+                digits30(14.0, Round::Down),
+                digits30(14.5, Round::Up)
+            )
+        );
+        let f: Vec<&str> = lines[2].split(' ').collect();
+        assert_eq!(f.len(), 5);
+        assert_eq!(f[3], "21.0005000000000");
+        assert_eq!(f[4], "1.00e-3");
+        assert_eq!(lines.len(), 3);
+    }
+
+    #[test]
+    fn write_table_without_columns_is_the_plain_three_column_table() {
+        let mut buf = Vec::new();
+        write_table(&mut buf, &[(14.0, 14.5)], false).unwrap();
+        let text = String::from_utf8(buf).unwrap();
+        assert!(text.starts_with("# n a b\n1 "), "{text}");
+        assert_eq!(text.lines().nth(1).unwrap().split(' ').count(), 3);
+    }
+
+    #[test]
+    fn report_with_refined_brackets_saves_them_and_prints_the_spacing_block_last() {
+        let store = MemStore::new(Break::Nothing);
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let refined = [(14.1, 14.2), (21.0, 21.001)];
+        let summary = Summary { n: 2, self_checked: false, elapsed: 0.5 };
+        let code =
+            report(verified(), &summary, Some(&refined), &store, &mut out, &mut err).unwrap();
+        assert_eq!(code, 0);
+        let out = String::from_utf8(out).unwrap();
+        let elapsed = out.find("Elapsed: 0.5 s\n").unwrap();
+        let block = out.find("\nSpacing histogram: ").unwrap();
+        assert!(elapsed < block, "{out}");
+        assert!(out.contains("Largest w_n: 1.00e-1\n"), "{out}");
+        let table = String::from_utf8(store.files.borrow()["zeta_1e2.txt"].clone()).unwrap();
+        assert!(table.starts_with("# n a b t_n w_n\n1 14.09"), "{table}");
+    }
+
+    #[test]
+    fn report_without_refined_brackets_prints_no_spacing_block() {
+        let store = MemStore::new(Break::Nothing);
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        report_for(verified(), 2, &store, &mut out, &mut err).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        assert!(!out.contains("Spacing histogram") && out.ends_with("Elapsed: 1.2 s\n"), "{out}");
+        let table = String::from_utf8(store.files.borrow()["zeta_1e2.txt"].clone()).unwrap();
+        assert!(table.starts_with("# n a b\n"), "{table}");
+    }
+
+    #[test]
+    fn a_non_verified_run_with_refine_skips_refinement() {
+        let (code, out, _) = drive(&["3", "--refine"], "");
+        assert_eq!(code, 3, "{out}");
+        assert!(!out.contains("Spacing histogram"), "{out}");
+    }
+
+    const ODLYZKO: &str = include_str!("../tests/fixtures/odlyzko_1e3.txt");
+
+    fn fixture_zeros() -> Vec<f64> {
+        ODLYZKO.lines().filter(|l| !l.starts_with('#')).map(|l| l.trim().parse().unwrap()).collect()
+    }
+
+    fn table_rows(store: &MemStore, name: &str) -> Vec<Vec<String>> {
+        let text = String::from_utf8(store.files.borrow()[name].clone()).unwrap();
+        text.lines().skip(1).map(|l| l.split(' ').map(str::to_string).collect()).collect()
+    }
+
+    #[test]
+    fn e2e_refine_at_n_3_brackets_every_odlyzko_zero_more_tightly() {
+        let cfg = VerifyConfig::default();
+        let (code, out, _, plain) = real_run("3", &cfg, true);
+        assert_eq!(code, 0, "{out}");
+        let store = MemStore::new(Break::Nothing);
+        let env = Env {
+            cfg: &cfg,
+            z: RealZ::new(&cfg),
+            store: &store,
+            policy: PoolPolicy::Parallel,
+            skip_self_check: true,
+        };
+        let (code, out, _) = drive_with(&["3", "--refine"], "", env);
+        assert_eq!(code, 0, "{out}");
+        let text = String::from_utf8(store.files.borrow()["zeta_1e3.txt"].clone()).unwrap();
+        assert_eq!(text.lines().next(), Some("# n a b t_n w_n"));
+        let (rows, plain_rows) =
+            (table_rows(&store, "zeta_1e3.txt"), table_rows(&plain, "zeta_1e3.txt"));
+        let zeros = fixture_zeros();
+        assert_eq!((rows.len(), zeros.len()), (649, 649));
+        // The fixture has 9 decimals, so a zero may sit up to half a unit beyond the bracket.
+        let slack = 5.1e-10;
+        for ((row, plain), z) in rows.iter().zip(&plain_rows).zip(&zeros) {
+            let num = |s: &String| s.parse::<f64>().unwrap();
+            let (a, b, w) = (num(&row[1]), num(&row[2]), num(&row[4]));
+            assert!(a - slack <= *z && *z <= b + slack, "{row:?} vs {z}");
+            assert_eq!(row[4], width_text(b - a), "{row:?}");
+            assert!(w < 1e-2, "{row:?}");
+            assert!(b - a < num(&plain[2]) - num(&plain[1]), "{row:?} vs {plain:?}");
+            assert_eq!(row[3], digits(midpoint(a, b), 15, Round::Nearest), "{row:?}");
+        }
+        assert!(out.contains("Spacing histogram: "), "{out}");
+        let ks: f64 = out
+            .lines()
+            .find_map(|l| l.strip_prefix("KS distance to the Wigner surmise CDF: "))
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(ks < 0.1, "{ks}");
+    }
+
+    #[test]
+    fn e2e_refine_without_the_flag_leaves_the_table_and_output_unchanged() {
+        let (code, out, _, store) = real_run("2", &VerifyConfig::default(), true);
+        assert_eq!(code, 0);
+        assert!(!out.contains("Spacing histogram") && !out.contains("Largest w_n"), "{out}");
+        let text = String::from_utf8(store.files.borrow()["zeta_1e2.txt"].clone()).unwrap();
+        assert_eq!(text.lines().next(), Some("# n a b"));
+        assert!(text.lines().skip(1).all(|l| l.split(' ').count() == 3));
+    }
+
+    /// Real Z that faults once `limit` calls have been made.
+    struct FaultAfter {
+        inner: RealZ,
+        calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        limit: usize,
+    }
+
+    impl ZSource for FaultAfter {
+        fn z(&self, t: f64, prec: u32) -> Result<Option<Interval>, ZFault> {
+            let n = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if n >= self.limit { Err(ZFault::NanHeight) } else { self.inner.z(t, prec) }
+        }
+
+        fn z_over(&self, lo: f64, hi: f64, prec: u32) -> Result<Option<Interval>, ZFault> {
+            self.inner.z_over(lo, hi, prec)
+        }
+    }
+
+    #[test]
+    fn e2e_a_z_fault_during_refinement_exits_6_and_saves_no_table() {
+        let cfg = VerifyConfig::default();
+        let run = |args: &[&str], limit: usize| {
+            let store = MemStore::new(Break::Nothing);
+            let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let z = FaultAfter { inner: RealZ::new(&cfg).unwrap(), calls: calls.clone(), limit };
+            let e = Env {
+                cfg: &cfg,
+                z: Ok(z),
+                store: &store,
+                policy: PoolPolicy::Serial,
+                skip_self_check: true,
+            };
+            let result = drive_with(args, "", e);
+            (result, store.names(), calls.load(std::sync::atomic::Ordering::SeqCst))
+        };
+        let ((code, _, _), _, verify_calls) = run(&["2"], usize::MAX);
+        assert_eq!(code, 0);
+        let ((code, out, err), names, _) = run(&["2", "--refine"], verify_calls);
+        assert_eq!(code, 6, "{out}{err}");
+        assert!(err.starts_with("internal error: "), "{err}");
+        assert!(names.is_empty() && !out.contains("RH verified"), "{out}");
     }
 }
