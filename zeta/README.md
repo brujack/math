@@ -41,11 +41,14 @@ unresolved Gram blocks and `No claim is made for this range.`) and exits 3;
 no claim is made for that range. N = 7 also prints a warning about output size and run time
 to stderr.
 
-Progress goes to stderr, never stdout: `progress: <done>/<total> Gram blocks, t = <t>`,
-where `t` is the highest boundary below which every Gram block has finished (blocks finish
-out of order on the pool, so `t` never passes an unfinished one). A line is printed when
-at least 1% more blocks have finished and at least 2 s have passed since the previous
-line, plus one final line, so a short run prints only the final line.
+Progress goes to stderr, never stdout, in two stages: `progress: <done>/<total> Gram points, t = <t>`
+while the Gram points g_-1 .. g_M are certified (the stage that dominates a large N), then
+`progress: <done>/<total> Gram blocks, t = <t>` while the blocks are isolated. `t` is the
+highest height below which every item of the stage has finished (items finish out of order
+on the pool, so `t` never passes an unfinished one). Each stage prints a line when at least
+1% more of its items have finished and at least 2 s have passed since that stage's previous
+line, plus one final line, so a short run prints only the two final lines. A run that stops
+before a stage (for example a failed Turing step) prints none for it.
 
 | Exit | Meaning |
 | ---- | ------- |

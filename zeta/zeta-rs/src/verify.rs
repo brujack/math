@@ -89,6 +89,9 @@ pub enum Fault {
     TooManySignChanges { found: usize, bound: usize },
     /// A panic in a worker, in choosing M or in the straddle step (spec text: "worker panicked").
     WorkerPanicked,
+    /// A progress line could not be written: stops the pass; `verify` reports it as
+    /// `Verdict::WriteFailed`, so it never reaches the user as a fault.
+    ProgressWrite,
 }
 
 impl std::fmt::Display for Fault {
@@ -102,6 +105,7 @@ impl std::fmt::Display for Fault {
                 write!(f, "L > M+1 (L = {found}, M+1 = {bound})")
             }
             Self::WorkerPanicked => f.write_str("worker panicked"),
+            Self::ProgressWrite => f.write_str("progress write failed"),
         }
     }
 }
@@ -268,21 +272,23 @@ impl Throttle {
     }
 }
 
-/// Progress over the first isolation pass, shared by the pool's workers.
-/// `t` is the highest block end below which every block has finished, so a block
-/// that finishes early never moves it past one that has not.
+/// Progress over one stage (certifying Gram points, or isolating Gram blocks), shared
+/// by the pool's workers. `t` is the height reached by the longest prefix of items that
+/// have all finished, so an item that finishes early never moves it past one that has not.
 struct Progress<'a> {
+    noun: &'static str,
     left: f64,
-    ends: Vec<f64>,
     throttle: Throttle,
     state: Mutex<ProgressState<'a>>,
 }
 
 struct ProgressState<'a> {
     out: &'a mut (dyn Write + Send),
+    /// Item i's height; NaN while unknown or for an item with no height (unusable Gram point).
+    ends: Vec<f64>,
     finished: Vec<bool>,
     done: usize,
-    /// Blocks 0..frontier have all finished.
+    /// Items 0..frontier have all finished.
     frontier: usize,
     printed_done: Option<usize>,
     last_print: Instant,
@@ -291,8 +297,9 @@ struct ProgressState<'a> {
 }
 
 impl<'a> Progress<'a> {
-    /// `left` is the first block's lower end; `ends[i]` is block i's upper end.
+    /// `left` is the height before the first item; `ends[i]` is item i's height.
     fn new(
+        noun: &'static str,
         left: f64,
         ends: Vec<f64>,
         throttle: Throttle,
@@ -301,37 +308,51 @@ impl<'a> Progress<'a> {
         let state = ProgressState {
             out,
             finished: vec![false; ends.len()],
+            ends,
             done: 0,
             frontier: 0,
             printed_done: None,
             last_print: Instant::now(),
             error: None,
         };
-        Progress { left, ends, throttle, state: Mutex::new(state) }
+        Progress { noun, left, throttle, state: Mutex::new(state) }
     }
 
-    /// Records block `i` as finished (once) and prints a line when the throttle allows.
-    fn finished(&self, i: usize) {
-        let mut st = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+    /// Records item `i`'s height, then that it finished.
+    fn finished_at(&self, i: usize, t: f64) -> bool {
+        if let Some(end) = self.lock().ends.get_mut(i) {
+            *end = t;
+        }
+        self.finished(i)
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, ProgressState<'a>> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Records item `i` as finished (once) and prints a line when the throttle allows.
+    /// False once a write has failed, so the caller can stop the pass.
+    fn finished(&self, i: usize) -> bool {
+        let mut st = self.lock();
         match st.finished.get_mut(i) {
             Some(flag) if !*flag => *flag = true,
-            _ => return,
+            _ => return st.error.is_none(),
         }
         st.done += 1;
-        while st.finished.get(st.frontier) == Some(&true) {
-            st.frontier += 1;
-        }
+        let run = st.finished[st.frontier..].iter().take_while(|&&f| f).count();
+        st.frontier += run;
         let gained = st.done - st.printed_done.unwrap_or(0);
-        if self.throttle.allows(gained, self.ends.len(), st.last_print.elapsed()) {
+        if self.throttle.allows(gained, st.ends.len(), st.last_print.elapsed()) {
             self.print(&mut st);
         }
+        st.error.is_none()
     }
 
-    /// Prints the final line unless the last line already shows every finished block;
-    /// returns the first write error. No blocks, no line: there is no height to name.
+    /// Prints the final line unless the last line already shows every finished item;
+    /// returns the first write error. No items, no line: there is no height to name.
     fn finish(&self) -> Option<String> {
-        let mut st = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if !self.ends.is_empty() && st.printed_done != Some(st.done) {
+        let mut st = self.lock();
+        if !st.ends.is_empty() && st.printed_done != Some(st.done) {
             self.print(&mut st);
         }
         st.error.take()
@@ -343,8 +364,14 @@ impl<'a> Progress<'a> {
         if st.error.is_some() {
             return;
         }
-        let t = if st.frontier == 0 { self.left } else { self.ends[st.frontier - 1] };
-        let line = format!("progress: {}/{} Gram blocks, t = {t:.3}", st.done, self.ends.len());
+        let t = st.ends[..st.frontier].iter().rev().find(|t| !t.is_nan()).copied();
+        let line = format!(
+            "progress: {}/{} {}, t = {:.3}",
+            st.done,
+            st.ends.len(),
+            self.noun,
+            t.unwrap_or(self.left)
+        );
         if let Err(e) = writeln!(st.out, "{line}") {
             st.error = Some(e.to_string());
         }
@@ -448,10 +475,17 @@ fn isolate_all<Z: ZSource + Sync>(
 ) -> Result<Isolated, Fault> {
     let first_pass = runner.try_map(planned.len(), |i| {
         let found = isolate_block(&planned[i].block, z, cfg).map_err(Fault::Isolate)?;
-        progress.finished(i);
-        Ok(found)
+        if progress.finished(i) { Ok(found) } else { Err(Fault::ProgressWrite) }
     });
     let write_error = progress.finish();
+    if write_error.is_some() {
+        return Ok(Isolated {
+            points: Vec::new(),
+            unresolved: Vec::new(),
+            exceptions: 0,
+            write_error,
+        });
+    }
     let first_pass = first_pass?;
     let mut results = Vec::with_capacity(planned.len());
     for (block, mut found) in planned.iter().zip(first_pass) {
@@ -479,26 +513,43 @@ fn isolate_all<Z: ZSource + Sync>(
     Ok(Isolated { points, unresolved, exceptions, write_error })
 }
 
+/// The usable Gram points by index, and the first failed progress write if any.
+type Certified = (Vec<(i64, Boundary)>, Option<String>);
+
 /// Certifies g_-1 .. g_(m-1) on the pool; g_m is `last`, the boundary Turing's
-/// method already holds. Unusable Gram points are absent from the result.
+/// method already holds. Unusable Gram points are absent from the result. The
+/// second value is the first failed progress write, which stops the pass.
 fn certify_gram_points<Z: ZSource + Sync>(
     m: i64,
     last: Boundary,
     z: &Z,
     cfg: &VerifyConfig,
     runner: &Runner,
-) -> Result<Vec<(i64, Boundary)>, Fault> {
+    progress: &Progress<'_>,
+) -> Result<Certified, Fault> {
     let count = (m + 1) as usize;
-    let certified =
-        runner.try_map(count, |i| certify_boundary(i as i64 - 1, z, cfg).map_err(Fault::Z))?;
+    // g_m is already certified: it is the last item, finished before the pool starts.
+    progress.finished_at(count, last.point().t);
+    let certified = runner.try_map(count, |i| {
+        let boundary = certify_boundary(i as i64 - 1, z, cfg).map_err(Fault::Z)?;
+        let alive = match &boundary {
+            Some(b) => progress.finished_at(i, b.point().t),
+            None => progress.finished(i),
+        };
+        if alive { Ok(boundary) } else { Err(Fault::ProgressWrite) }
+    });
+    let write_error = progress.finish();
+    if write_error.is_some() {
+        return Ok((Vec::new(), write_error));
+    }
     let mut usable = Vec::with_capacity(count + 1);
-    for (i, boundary) in certified.into_iter().enumerate() {
+    for (i, boundary) in certified?.into_iter().enumerate() {
         if let Some(boundary) = boundary {
             usable.push((i as i64 - 1, boundary));
         }
     }
     usable.push((m, last));
-    Ok(usable)
+    Ok((usable, None))
 }
 
 /// The sign-change intervals whose zero lies at or below `t`; `None` when the
@@ -535,7 +586,20 @@ fn verify_with_bound<Z: ZSource + Sync>(
     sink: (&mut (dyn Write + Send), Throttle),
 ) -> Result<Verdict, Fault> {
     let z = probe;
-    let usable = certify_gram_points(bound.m, bound.boundary, z, cfg, runner)?;
+    let (out, throttle) = sink;
+    let points = Progress::new(
+        "Gram points",
+        0.0,
+        vec![f64::NAN; (bound.m + 2) as usize],
+        throttle,
+        &mut *out,
+    );
+    let (usable, write_error) =
+        certify_gram_points(bound.m, bound.boundary, z, cfg, runner, &points)?;
+    drop(points);
+    if let Some(error) = write_error {
+        return Ok(Verdict::WriteFailed { error });
+    }
     let (first_n, left) = usable[0];
     if first_n != -1 {
         return Ok(not_verified(NotVerifiedReason::NoLeftBoundary, Vec::new()));
@@ -548,7 +612,7 @@ fn verify_with_bound<Z: ZSource + Sync>(
         return Ok(not_verified(NotVerifiedReason::NoBlocks, Vec::new()));
     }
     let ends = planned.iter().map(|p| p.block.hi.t).collect();
-    let progress = Progress::new(left_t, ends, sink.1, sink.0);
+    let progress = Progress::new("Gram blocks", left_t, ends, throttle, out);
     let isolated = isolate_all(planned, z, cfg, runner, &progress)?;
     if let Some(error) = isolated.write_error {
         return Ok(Verdict::WriteFailed { error });
@@ -916,7 +980,9 @@ mod tests {
         let verdict =
             verify_with_bound(5.0, &bound, &probe, &cfg(), &runner, (&mut sink, Throttle::NONE))
                 .unwrap();
-        assert!(sink.is_empty(), "no blocks, no progress line");
+        let text = String::from_utf8(sink).unwrap();
+        assert!(!text.contains("Gram blocks"), "no blocks, no block-stage line: {text}");
+        assert!(text.contains("Gram points"), "{text}");
         assert_eq!(
             verdict,
             Verdict::NotVerified { reason: NotVerifiedReason::NoBlocks, blocks: vec![] }
@@ -1018,6 +1084,7 @@ mod tests {
             "L > M+1 (L = 7, M+1 = 5)"
         );
         assert_eq!(Fault::WorkerPanicked.to_string(), "worker panicked");
+        assert_eq!(Fault::ProgressWrite.to_string(), "progress write failed");
         assert!(Fault::Z(ZFault::NanHeight).to_string().starts_with("Z fault: "));
         assert!(Fault::Points(PointsFault::SignConflict).to_string().contains("two"));
         let turing = Fault::Turing(TuringFailure::BelowRange);
@@ -1138,7 +1205,8 @@ mod tests {
         let planned = plan_blocks(&usable_range(&f, from, to));
         let runner = Runner::new(PoolPolicy::Serial, &mut Vec::new()).unwrap();
         let mut sink = Vec::new();
-        let progress = Progress::new(0.0, vec![0.0; planned.len()], Throttle::NONE, &mut sink);
+        let progress =
+            Progress::new("Gram blocks", 0.0, vec![0.0; planned.len()], Throttle::NONE, &mut sink);
         isolate_all(planned, &fake(&f), &shallow(), &runner, &progress).unwrap()
     }
 
@@ -1526,7 +1594,7 @@ mod tests {
 
     /// Progress over blocks ending at 10, 20, 30, 40 starting from 0.
     fn four_blocks(throttle: Throttle, sink: &mut Vec<u8>) -> Progress<'_> {
-        Progress::new(0.0, vec![10.0, 20.0, 30.0, 40.0], throttle, sink)
+        Progress::new("Gram blocks", 0.0, vec![10.0, 20.0, 30.0, 40.0], throttle, sink)
     }
 
     #[test]
@@ -1610,7 +1678,8 @@ mod tests {
     #[test]
     fn a_one_block_run_prints_exactly_one_final_line() {
         let mut sink = Vec::new();
-        let progress = Progress::new(5.0, vec![9.0], Throttle::PRODUCTION, &mut sink);
+        let progress =
+            Progress::new("Gram blocks", 5.0, vec![9.0], Throttle::PRODUCTION, &mut sink);
         progress.finished(0);
         progress.finish();
         assert_eq!(lines_of(&sink), ["progress: 1/1 Gram blocks, t = 9.000"]);
@@ -1628,7 +1697,7 @@ mod tests {
     #[test]
     fn a_zero_block_run_prints_nothing() {
         let mut sink = Vec::new();
-        let progress = Progress::new(0.0, Vec::new(), Throttle::NONE, &mut sink);
+        let progress = Progress::new("Gram blocks", 0.0, Vec::new(), Throttle::NONE, &mut sink);
         progress.finished(0);
         assert_eq!(progress.finish(), None);
         assert!(sink.is_empty());
@@ -1659,7 +1728,7 @@ mod tests {
             }
         }
         let mut sink = Counting(0);
-        let progress = Progress::new(0.0, vec![1.0, 2.0], Throttle::NONE, &mut sink);
+        let progress = Progress::new("Gram blocks", 0.0, vec![1.0, 2.0], Throttle::NONE, &mut sink);
         progress.finished(0);
         progress.finished(1);
         assert_eq!(progress.finish(), Some("write 1".to_string()));
@@ -1678,7 +1747,7 @@ mod tests {
     fn a_verify_run_prints_one_line_per_block_ending_at_g_m() {
         let (verdict, err) = go(&fake(wave), 100.0, &cfg(), PoolPolicy::Serial);
         let Verdict::Verified { stats, .. } = verdict else { panic!("{verdict:?}") };
-        let lines: Vec<&str> = err.lines().collect();
+        let lines: Vec<&str> = err.lines().filter(|l| l.contains(" Gram blocks, ")).collect();
         assert_eq!(lines.len(), stats.gram_blocks);
         let total = stats.gram_blocks;
         for (k, line) in lines.iter().enumerate() {
@@ -1698,15 +1767,20 @@ mod tests {
         let loud = verify(100.0, &z, &cfg(), PoolPolicy::Serial, Throttle::NONE, &mut a);
         let paced = verify(100.0, &z, &cfg(), PoolPolicy::Serial, quiet, &mut b);
         assert_eq!(loud, paced);
-        assert_eq!(lines_of(&b).len(), 1);
+        assert_eq!(lines_of(&b).len(), 2, "one final line per stage");
     }
 
     #[test]
     fn blocks_finishing_out_of_order_on_the_pool_never_move_t_past_a_gap() {
         let n = 6;
         let mut sink = Vec::new();
-        let progress =
-            Progress::new(0.0, (1..=n).map(|k| k as f64).collect(), Throttle::NONE, &mut sink);
+        let progress = Progress::new(
+            "Gram blocks",
+            0.0,
+            (1..=n).map(|k| k as f64).collect(),
+            Throttle::NONE,
+            &mut sink,
+        );
         let runner = Runner::new(PoolPolicy::Threads(n), &mut Vec::new()).unwrap();
         // Block i sleeps longer the earlier it is, so the pool finishes the last block first.
         runner
@@ -1725,5 +1799,109 @@ mod tests {
         // Only the final line may name a height above block 0's end: block 0 is the slowest.
         assert!(heights[..n - 1].iter().all(|&t| t <= 1.0), "{heights:?}");
         assert_eq!(heights[n - 1], n as f64);
+    }
+    // ---- progress, Gram-point stage and review fixes ----
+
+    #[test]
+    fn the_gram_point_stage_names_points_and_the_height_of_the_certified_prefix() {
+        let mut sink = Vec::new();
+        let p = Progress::new("Gram points", 0.0, vec![f64::NAN; 3], Throttle::NONE, &mut sink);
+        p.finished_at(2, 30.0);
+        p.finished_at(0, 10.0);
+        p.finished_at(1, 20.0);
+        assert_eq!(p.finish(), None);
+        assert_eq!(
+            lines_of(&sink),
+            [
+                "progress: 1/3 Gram points, t = 0.000",
+                "progress: 2/3 Gram points, t = 10.000",
+                "progress: 3/3 Gram points, t = 30.000",
+            ]
+        );
+    }
+
+    #[test]
+    fn an_unusable_gram_point_keeps_the_height_of_the_point_before_it() {
+        let mut sink = Vec::new();
+        let p = Progress::new("Gram points", 1.5, vec![f64::NAN; 3], Throttle::NONE, &mut sink);
+        p.finished(0);
+        p.finished_at(1, 20.0);
+        p.finished(2);
+        p.finish();
+        assert_eq!(
+            lines_of(&sink),
+            [
+                "progress: 1/3 Gram points, t = 1.500",
+                "progress: 2/3 Gram points, t = 20.000",
+                "progress: 3/3 Gram points, t = 20.000",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_run_prints_every_gram_point_line_before_any_gram_block_line() {
+        let (verdict, err) = go(&fake(wave), 100.0, &cfg(), PoolPolicy::Serial);
+        let Verdict::Verified { stats, .. } = verdict else { panic!("{verdict:?}") };
+        let lines: Vec<&str> = err.lines().collect();
+        let points: Vec<&&str> = lines.iter().filter(|l| l.contains(" Gram points, ")).collect();
+        let blocks = lines.len() - points.len();
+        assert_eq!(blocks, stats.gram_blocks);
+        assert!(lines[..points.len()].iter().all(|l| l.contains(" Gram points, ")), "{err}");
+        let total = (stats.m + 2) as usize;
+        assert_eq!(points.len(), total);
+        assert!(points[total - 1].starts_with(&format!("progress: {total}/{total} Gram points")));
+    }
+
+    #[test]
+    fn each_stage_prints_only_its_final_line_under_a_blocking_throttle() {
+        let never = Throttle { min_interval: Duration::from_secs(3600), min_fraction: 0.0 };
+        let mut sink = Vec::new();
+        verify(100.0, &fake(wave), &cfg(), PoolPolicy::Serial, never, &mut sink);
+        let lines = lines_of(&sink);
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(lines[0].contains(" Gram points, ") && lines[1].contains(" Gram blocks, "));
+    }
+
+    #[test]
+    fn a_failed_progress_write_stops_certification_and_never_starts_isolation() {
+        struct Counting(usize);
+        impl Write for Counting {
+            fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+                self.0 += 1;
+                Err(io::Error::other("closed"))
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut sink = Counting(0);
+        let z = fake(wave);
+        let verdict = verify(100.0, &z, &cfg(), PoolPolicy::Serial, Throttle::NONE, &mut sink);
+        assert_eq!(verdict, Verdict::WriteFailed { error: "closed".to_string() });
+        assert_eq!(sink.0, 1, "one failed write, and no later stage started");
+        let calls_failing = z.over_calls.load(Ordering::SeqCst);
+        let z = fake(wave);
+        verify(100.0, &z, &cfg(), PoolPolicy::Serial, Throttle::NONE, &mut Vec::new());
+        assert!(calls_failing < z.over_calls.load(Ordering::SeqCst) / 2, "{calls_failing}");
+    }
+
+    #[test]
+    fn a_failed_progress_write_stops_the_block_pass_early() {
+        let z = fake(wave);
+        let planned = plan_blocks(&usable_range(wave, -1, 20));
+        let n = planned.len();
+        let runner = Runner::new(PoolPolicy::Serial, &mut Vec::new()).unwrap();
+        let mut broken = Broken;
+        let ends = planned.iter().map(|p| p.block.hi.t).collect();
+        let progress = Progress::new("Gram blocks", 0.0, ends, Throttle::NONE, &mut broken);
+        let found = isolate_all(planned, &z, &shallow(), &runner, &progress).unwrap();
+        assert_eq!(found.write_error.as_deref(), Some("stderr is closed"));
+        assert!(found.points.is_empty() && n > 1);
+        assert!(z.over_calls.load(Ordering::SeqCst) < 3 * n, "stopped after the first block");
+    }
+
+    #[test]
+    fn a_progress_write_fault_names_itself() {
+        assert_eq!(Fault::ProgressWrite.to_string(), "progress write failed");
     }
 }

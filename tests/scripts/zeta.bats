@@ -48,10 +48,16 @@ setup() {
     [[ "${output}" == *"RH verified: all 29 nontrivial zeros with 0 < Im s <= 100 lie on Re s = 1/2 and are simple"* ]]
     [[ "${output}${stderr}" != *"RH holds"* ]]
     [[ "${output}" != *"progress:"* ]]
-    local last="${stderr%$'\n'}"
-    last="${last##*$'\n'}"
-    [[ "${last}" =~ ^progress:\ ([0-9]+)/([0-9]+)\ Gram\ blocks,\ t\ =\ [0-9.]+$ ]]
-    [ "${BASH_REMATCH[1]}" = "${BASH_REMATCH[2]}" ]
+    # The production throttle (2 s, 1%) lets a quick run print only each stage's final line.
+    [ "$(printf '%s\n' "${stderr}" | grep -c '^progress:')" -eq 2 ]
+    local re='^progress: ([0-9]+)/([0-9]+) Gram (points|blocks), t = [0-9.]+$'
+    local kind line
+    for kind in points blocks; do
+        line="$(printf '%s\n' "${stderr}" | grep "^progress: .* Gram ${kind}, ")"
+        [ "$(printf '%s\n' "${line}" | wc -l)" -eq 1 ]
+        [[ "${line}" =~ ${re} ]]
+        [ "${BASH_REMATCH[1]}" = "${BASH_REMATCH[2]}" ]
+    done
     [ "$(ls -A "${WORK_DIR}")" = "zeta_1e2.txt" ]
     [ "$(head -n 1 "${WORK_DIR}/zeta_1e2.txt")" = "# n a b" ]
     [ "$(grep -vc '^#' "${WORK_DIR}/zeta_1e2.txt")" -eq 29 ]

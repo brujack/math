@@ -1445,7 +1445,7 @@ mod tests {
         let paced = run_n2_under(quiet, &mut quiet_err);
         assert_eq!(loud, paced);
         assert!(loud_err.len() > quiet_err.len());
-        assert_eq!(String::from_utf8(quiet_err).unwrap().lines().count(), 1);
+        assert_eq!(String::from_utf8(quiet_err).unwrap().lines().count(), 2);
     }
 
     #[test]
