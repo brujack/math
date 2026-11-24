@@ -133,3 +133,38 @@ _outcomes() {
     [ "${status}" -eq 0 ]
     [ "${output}" = "mutation_shard_count" ]
 }
+
+@test "exponent-form total is unreadable, never green" {
+    _outcomes '{"total_mutants": 1e300}'
+    run bash "${SCRIPT}" "${OUTCOMES}" "a-rs 0/1" 5
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == "red: a-rs 0/1 "* ]]
+}
+
+@test "two JSON documents are unreadable" {
+    _outcomes '{"total_mutants":5}{"total_mutants":3}'
+    run bash "${SCRIPT}" "${OUTCOMES}" "a-rs 0/1" 5
+    [ "${status}" -eq 1 ]
+    [ "${output}" = "red: a-rs 0/1 cannot read total_mutants from ${OUTCOMES}" ]
+}
+
+@test "duplicate top-level total_mutants key is unreadable" {
+    _outcomes '{"total_mutants":3,"total_mutants":5}'
+    run bash "${SCRIPT}" "${OUTCOMES}" "a-rs 0/1" 5
+    [ "${status}" -eq 1 ]
+    [ "${output}" = "red: a-rs 0/1 cannot read total_mutants from ${OUTCOMES}" ]
+}
+
+@test "nested key named like a top-level key is not a duplicate" {
+    _outcomes '{"total_mutants":5,"x":{"total_mutants":3}}'
+    run bash "${SCRIPT}" "${OUTCOMES}" "a-rs 0/1" 5
+    [ "${status}" -eq 0 ]
+    [ -z "${output}" ]
+}
+
+@test "count beyond 64 bits does not wrap to a match" {
+    _outcomes '{"total_mutants": 5}'
+    run bash "${SCRIPT}" "${OUTCOMES}" "a-rs 0/1" 18446744073709551621
+    [ "${status}" -eq 1 ]
+    [ "${output}" = "red: a-rs 0/1 tested 5 mutants, plan expected 18446744073709551621" ]
+}
