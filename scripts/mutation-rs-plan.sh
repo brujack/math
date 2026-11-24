@@ -15,7 +15,9 @@
 # `red: <crate> - <reason>` to stderr; the other crates are still planned, no units are
 # printed, and the exit is 1. --whole: the same faults become one unit per crate,
 # {"slug":"<name>-plan","k":0,"n":0,"count":0,"fault":"<cause>"}, so the sweep can
-# report them red without failing the plan; the exit stays 0. Exit 2 on bad usage.
+# report them red without failing the plan; the exit stays 0. In both modes a crate dir
+# that is empty or holds whitespace (a caller bug, not a crate fault) and more than 256
+# units, fault units included, exit 1. Exit 2 on bad usage.
 
 readonly SHARD_SIZE=75
 readonly MATRIX_LIMIT=256
