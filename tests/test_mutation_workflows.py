@@ -761,9 +761,9 @@ def rs_step(job, name):
 
 DEFAULT_MANIFESTS = ("a/a-rs/Cargo.toml", "b/b-rs/Cargo.toml")
 DEFAULT_PLAN = [
-    {"crate": "a/a-rs", "slug": "a-a-rs-1of2", "k": 1, "n": 2, "count": 4},
-    {"crate": "a/a-rs", "slug": "a-a-rs-2of2", "k": 2, "n": 2, "count": 3},
-    {"crate": "b/b-rs", "slug": "b-b-rs-1of1", "k": 1, "n": 1, "count": 5},
+    {"crate": "a/a-rs", "slug": "a-rs-0", "k": 0, "n": 2, "count": 4},
+    {"crate": "a/a-rs", "slug": "a-rs-1", "k": 1, "n": 2, "count": 3},
+    {"crate": "b/b-rs", "slug": "b-rs-0", "k": 0, "n": 1, "count": 5},
     {
         "crate": "b/b-rs",
         "slug": "b-rs-plan",
@@ -828,8 +828,7 @@ def run_rs_setup(
                 "bash",
                 "--noprofile",
                 "--norc",
-                "-eo",
-                "pipefail",
+                "-e",
                 "-c",
                 rs_step("setup", "plan")["run"],
             ],
@@ -883,7 +882,7 @@ class RustSetupJobTests(unittest.TestCase):
         self.assertEqual(json.loads(run.outputs["matrix"]), {"include": DEFAULT_PLAN})
         self.assertEqual(
             run.outputs["units"].split(),
-            ["a-a-rs-1of2", "a-a-rs-2of2", "b-b-rs-1of1", "b-rs-plan"],
+            ["a-rs-0", "a-rs-1", "b-rs-0", "b-rs-plan"],
         )
 
     def test_planner_stderr_stays_out_of_the_outputs(self):
@@ -941,10 +940,16 @@ class RustSetupJobTests(unittest.TestCase):
         self.assertEqual(run.lines, [])
         self.assertEqual(run.planner_args, [])
 
-    def test_real_tracked_crates_all_pass_the_input_check(self):
+    def test_every_real_tracked_crate_passes_the_input_check(self):
         dirs = tracked_crate_dirs()
         self.assertEqual(len(dirs), 13)
         self.assertFalse([d for d in dirs if d.startswith("tests/")])
+        manifests = [f"{d}/Cargo.toml" for d in dirs]
+        for d in dirs:
+            with self.subTest(crate=d):
+                run = run_rs_setup(d, manifests=manifests)
+                self.assertEqual(run.proc.returncode, 0, run.proc.stderr)
+                self.assertEqual(run.planner_args, ["--whole", d])
 
     def test_crate_env_reads_dispatch_input(self):
         self.assertEqual(
@@ -1005,8 +1010,8 @@ def run_crate_job(
     stub: CrateStub | None = None,
     pre_status=None,
     step="Run mutants",
-    shard=("1", "2"),
-    count=3,
+    shard=("0", "2"),
+    count: int | str = 3,
     total=None,
     fault="",
 ):
@@ -1083,8 +1088,7 @@ def run_crate_job(
                 "bash",
                 "--noprofile",
                 "--norc",
-                "-eo",
-                "pipefail",
+                "-e",
                 "-c",
                 rs_step("mutants", step)["run"],
             ],
@@ -1241,22 +1245,33 @@ class RustMutantsJobTests(unittest.TestCase):
         self.assertEqual(rs_job("mutants")["name"], "Mutation ${{ matrix.slug }}")
 
     def test_shard_reaches_make(self):
-        result = run_crate_job("a/a-rs", "a-a-rs-2of4", shard=("2", "4"))
+        result = run_crate_job("a/a-rs", "a-rs-3", shard=("3", "4"))
         self.assertEqual(result[0].returncode, 0, result[0].stderr)
-        self.assertEqual(result.shards, ["MUTANT_SHARD=2/4"])
+        self.assertEqual(result.shards, ["MUTANT_SHARD=3/4"])
 
     def test_count_mismatch_is_red_never_classified(self):
-        result = run_crate_job("a/a-rs", "a-a-rs-1of2", count=3, total=2)
+        result = run_crate_job("a/a-rs", "a-rs-0", count=3, total=2)
         proc, made, statuses, summary = result
         self.assertEqual(proc.returncode, 1)
         self.assertEqual(made, ["a/a-rs"])
-        line = "red: a-a-rs-1of2 tested 2 mutants, plan expected 3\n"
-        self.assertEqual(statuses, {"a-a-rs-1of2": line})
+        line = "red: a-rs-0 tested 2 mutants, plan expected 3\n"
+        self.assertEqual(statuses, {"a-rs-0": line})
+        self.assertEqual(summary, line)
+        self.assertEqual(result.classifier_argc, [])
+
+    def test_count_check_usage_error_is_red_never_classified(self):
+        # An empty COUNT makes the helper exit 2 with nothing on stdout; the
+        # step must still write a red line rather than a blank status.
+        result = run_crate_job("a/a-rs", "a-rs-0", count="", total=0)
+        proc, _made, statuses, summary = result
+        self.assertEqual(proc.returncode, 1)
+        line = "red: a-rs-0 - shard count check failed (exit 2)\n"
+        self.assertEqual(statuses, {"a-rs-0": line})
         self.assertEqual(summary, line)
         self.assertEqual(result.classifier_argc, [])
 
     def test_count_match_goes_on_to_the_classifier(self):
-        result = run_crate_job("a/a-rs", "a-a-rs-1of2", count=3, total=3)
+        result = run_crate_job("a/a-rs", "a-rs-0", count=3, total=3)
         self.assertEqual(result[0].returncode, 0, result[0].stderr)
         self.assertEqual(result.classifier_argc, ["5"])
 
