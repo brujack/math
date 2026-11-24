@@ -179,7 +179,10 @@ jobs:
 
   # Plans the Rust shards. It always runs and always sets `units` (`[]` when no
   # crate changed), so the jobs that need it never see an unset output. It lists
-  # mutants with cargo-mutants but builds nothing, so it has no toolchain step.
+  # mutants with cargo-mutants but builds nothing, so it has no toolchain step:
+  # `cargo mutants --list` runs `cargo metadata` with the runner image's
+  # preinstalled cargo, and the mutant list comes from parsing the source, so a
+  # cargo version other than the shard jobs' toolchain cannot change K.
   mutation-rs-plan:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -212,6 +215,10 @@ jobs:
           GITHUB_BASE_REF: ${{ github.base_ref }}
         run: |
           # RS_DIRS is a space-separated list of crate dirs from git ls-files.
+          # Every Rust job re-resolves origin/${GITHUB_BASE_REF} after its own
+          # fetch. That is safe only because mutation-pr-diff.sh diffs three-dot
+          # against the fixed merge commit: a master that moved between jobs
+          # leaves the merge base, and so K and each shard's count, unchanged.
           # The planner prints units on stdout only; a red plan exits non-zero and
           # fails this step under bash -e before units is written.
           read -ra rs_dirs <<< "${RS_DIRS}"
@@ -348,6 +355,9 @@ jobs:
           shard_k=$(jq -r '.[0].k' "${RUNNER_TEMP}/canary-units.json")
           shard_n=$(jq -r '.[0].n' "${RUNNER_TEMP}/canary-units.json")
           shard_count=$(jq -r '.[0].count' "${RUNNER_TEMP}/canary-units.json")
+          # The run's own repro line names HEAD~1, which exists only in this job.
+          printf 'canary repro: git checkout %s, append a space to the "let mut m = 2 * d;" line in %s, commit it, then scripts/mutation-pr-run.sh HEAD~1 --shard %s/%s --expect %s --min-caught 1 amicable/amicable-rs\n' \
+            "$(git rev-parse HEAD~1)" "${f}" "${shard_k}" "${shard_n}" "${shard_count}" >> "${GITHUB_STEP_SUMMARY}"
           set +e
           scripts/mutation-pr-run.sh HEAD~1 --shard "${shard_k}/${shard_n}" --expect "${shard_count}" --min-caught 1 amicable/amicable-rs 2>&1 | tee "${RUNNER_TEMP}/canary.log"
           rc=${PIPESTATUS[0]}

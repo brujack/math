@@ -572,7 +572,15 @@ class MutationPrTests(unittest.TestCase):
         # itself holds only the canary file (asserted below).
         self.assertEqual(res.diff_at_call, [CANARY_FILE, "other.txt"])
         self.assertEqual(res.committed, [CANARY_FILE])
-        self.assertEqual(res.summary, "```\n```\n")
+        repro, fenced = res.summary.split("\n", 1)
+        self.assertRegex(
+            repro,
+            r"^canary repro: git checkout [0-9a-f]{40}, append a space to the "
+            r'"let mut m = 2 \* d;" line in amicable/amicable-rs/src/lib\.rs, commit it, '
+            r"then scripts/mutation-pr-run\.sh HEAD~1 --shard 0/1 --expect 5 "
+            r"--min-caught 1 amicable/amicable-rs$",
+        )
+        self.assertEqual(fenced, "```\n```\n")
         self.assertIn("let mut m = 2 * d; \n", res.lib)
         self.assertEqual(res.lib.count("let mut m = 2 * d;"), 1)
         self.assertEqual(res.staged_other, ["other.txt"])
@@ -587,7 +595,9 @@ class MutationPrTests(unittest.TestCase):
             for rc in (1, 3):
                 res = run_canary(run_rc=rc, flags=flags, run_out="red: nope\n")
                 self.assertEqual(res.proc.returncode, rc, (flags, rc, res.proc.stderr))
-                self.assertEqual(res.summary, "```\nred: nope\n```\n")
+                self.assertTrue(
+                    res.summary.endswith("```\nred: nope\n```\n"), res.summary
+                )
 
     def test_canary_plan_of_zero_or_two_units_is_red_without_a_run(self):
         two = '[{"k":0,"n":1,"count":5},{"k":0,"n":1,"count":6}]'
