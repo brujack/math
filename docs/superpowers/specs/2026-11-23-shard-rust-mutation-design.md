@@ -1,7 +1,8 @@
 # Shard the Rust mutation runs (per-PR gate and monthly sweep)
 
-- **Status:** Draft
+- **Status:** Approved
 - **Date:** 2026-11-23
+- **Approved:** 2026-11-24
 
 ## Context
 
@@ -350,19 +351,19 @@ Disposition: Addressed (operator, 2026-11-24: "Addressed"): K = 0 adds no unit a
 
 Finding: Worth building; the competing path (a 240–360-minute PR job plus `tee`) loses on the sweep, since zeta's 748 whole-crate mutants at 21–30 s each take 262–374 min. Blocker: the R6 form `| tee ... && rc=0 || rc=${PIPESTATUS[0]}` gives `rc=0` on a failing script under GitHub's default `bash -e {0}`, which has no pipefail (measured), and the spec's own test case contradicts it. `--min-caught 1` on every PR shard adds a no-fix red for timeout-only shards; 4-argument classify already reds nothing evaluated. Without `--caught`, cargo-mutants streams almost nothing on a green shard. The baseline "early warning" has no consumer. Cap 16 silently overruns the budget for K > 1200.
 Assumption: CI's cost per zeta PR 3 mutant is at most about 30 s, so a 68–75-mutant shard plus setup fits 60 min; settled by V2's shard duration and `N mutants tested in Mm`.
-Disposition:
+Disposition: Addressed (operator, 2026-11-24: "Approved"): findings answered by the round-2 and round-3 revisions; open cost assumption carried as V1/V2.
 
 ##### Ergonomics
 
 Finding: Same R6 false green. The `Unmutated baseline` line is never written to `mutants.out/` (measured: 0 hits under `log/`), so R4's baseline print was a silent no-op; the duration is in `outcomes.json`. `--min-caught 1` per shard reds timeout-only small diffs; the direct check is a count match against the plan. The `make mutants-diff` repro ends with cargo's exit code and no classifier verdict; `mutation-pr-run.sh --shard` is shorter and matches CI. Slugs repeated the crate name and read as off-by-one. The cap is per crate, not per PR. `mutation-py-baseline` hung off the Rust plan, so a Rust install failure skipped Python's baseline.
 Assumption: a zeta PR 3 shard of about 68 mutants finishes inside 60 minutes on CI (at most about 40 s per mutant); settled by V2's baseline duration and shard time.
-Disposition:
+Disposition: Addressed (operator, 2026-11-24: "Approved"): findings answered by the round-2 and round-3 revisions; open cost assumption carried as V1/V2.
 
 ##### Risk
 
 Finding: Same R6 false green. `--min-caught 1` changes today's verdict: CI always passes `--shard`, so the "unsharded path keeps today's rule" never applies, and `{caught 0, timeout 1, unviable 2}` goes from green to red; a plan-emitted per-unit count checked by the run is the exact guard. New false-green path: K = 0 adds no unit, so a plan defect that zeroes K turns every Rust PR green, `scripts/mutation-rs-plan.sh` is not in `RS_CANARY_PATHS`, and the unsharded canary bypasses the plan. Minor: sweep `setup` lists with the runner's cargo. Pre-existing: `scripts/mutation-exit-code.sh` is missing from `RS_CANARY_PATHS`.
 Assumption: CI's per-mutant cost for a zeta PR 3 shard is at most about 44 s; settled by `Unmutated baseline in` and `N mutants tested in Mm` from one sharded zeta CI run (V2).
-Disposition:
+Disposition: Addressed (operator, 2026-11-24: "Approved"): findings answered by the round-2 and round-3 revisions; open cost assumption carried as V1/V2.
 
 #### Round 3
 
@@ -370,19 +371,19 @@ Disposition:
 
 Finding: Worth building; the sweep cannot avoid sharding and the PR gate reuses its shape; the `set +e` form plus `--caught --unviable` fixes the live-log pain. The baseline mechanism (R4) is decoration: its line repeats cargo-mutants' own, and the `::warning` changes no verdict, lands on green checks nothing reads, repeats per shard, never appears on a cancelled shard, and never reaches the sweep. R8 widened the sweep's blast radius: one crate's listing fault or K > 1200 fails `setup`, so no crate is tested that month. The `--expect` rationale overstated it: its real catch is a shard that lists 0 while the plan said N.
 Assumption: CI's zeta PR 3 cost per mutant is at most about 44 s; settled by V2's `Unmutated baseline in` and `N mutants tested in Mm` lines per shard.
-Disposition:
+Disposition: Addressed (operator, 2026-11-24: "Approved"): findings answered by the round-2 and round-3 revisions; open cost assumption carried as V1/V2.
 
 ##### Ergonomics
 
 Finding: The printed repro dropped `--expect`, so local drift from CI ran silently on the wrong shard. The `::warning` is likely on every zeta PR from day one (CI baseline plausibly 17–25 s) and fires once per shard. With `--caught --unviable` the step summary floods with about 70 unfenced `caught` lines per shard, burying `MISSED`. No narrow repro for one missed mutant; `cargo mutants -F` belongs in the CLAUDE.md line.
 Assumption: zeta's CI per-mutant cost under the PR 3 suite stays below about 48 s; settled by V2 or one dispatched zeta shard.
-Disposition:
+Disposition: Addressed (operator, 2026-11-24: "Approved"): findings answered by the round-2 and round-3 revisions; open cost assumption carried as V1/V2.
 
 ##### Risk
 
 Finding: The sweep's `setup` re-implemented the shard plan inline with no count and no test, so an off-by-one k range drops 1/n of a crate's mutants with every job green and `notify` closing the issue. `--expect` checked a second listing rather than the run; `outcomes.json`'s `total_mutants` measures the run itself and works unchanged in the sweep. B = 75 rests on a CI lower bound and an unsourced 30 s upper figure; the failure is loud and V2 is the backstop.
 Assumption: every shard of a crate sees the same full listing, so `--shard k/n` partitions; confirmed in V1 by summing shard `total_mutants` to K and checking mutant names are disjoint.
-Disposition:
+Disposition: Addressed (operator, 2026-11-24: "Approved"): findings answered by the round-2 and round-3 revisions; open cost assumption carried as V1/V2.
 
 ### Adversarial Spec Review (comparison/judge designs only)
 
@@ -398,16 +399,16 @@ Report: [round1.md](2026-11-23-shard-rust-mutation-design.external-review/round1
 
 | finding | disposition | evidence | reviewer verdict | operator (Step 9) |
 | ------- | ----------- | -------- | ---------------- | ----------------- |
-| F1.1 | Fixed | Per-crate cap and K > 1200 rule removed; `n = max(1, ceil(K/75))`; the plan is red only when its shards sum past 256 (Design 1, R3, R8, Testing). | unjudged | |
-| F1.2 | Fixed | V1 gains the 50-minute lower-B rule; R9 gives sweep shards the prebuilt install and the GMP cache restore; Design 1 names the sweep as the binding case. | unjudged | |
-| F1.3 | Fixed | Confirmed: `git show origin/master:docs/superpowers/README.md \| grep -c 'mutation sweep budget'` is 0. The row's deletion moves to #246's rebase (Design 5, R12). | unjudged | |
-| F1.4 | Fixed | Confirmed: `git show origin/master:CLAUDE.md \| wc -c` is 29991. R11 requires no net byte growth, with detail behind an in-repo pointer to ADR-0046, so no ai-config change is needed. | unjudged | |
-| F1.5 | Fixed | The local row is labelled an earlier PR 3 state (313 against 339) in the table and the text below it. | unjudged | |
-| F1.6 | Fixed | Context states 2537 mutants across 13 crates at 26dde61; the fast-crate example is descartes-rs (12 shards). | unjudged | |
-| F1.7 | Fixed | R5 requires the Rust toolchain step and read-only GMP cache restore in `mutation-rs` and `mutation-rs-canary`. | unjudged | |
-| F1.8 | Fixed | `scripts/mutation-shard-count.sh` joins `RS_CANARY_PATHS` (Design 3, R13). | unjudged | |
-| F1.9 | Fixed | The live-log BATS case extracts the R6 lines from `mutation-pr.yml` (Testing). | unjudged | |
-| F1.10 | Fixed | The summary filter is `{ grep -E ... \|\| [ $? -eq 1 ]; }`: no match passes, a grep error still fails (Design 3). | unjudged | |
-| F1.11 | Fixed | Design 5 and V1 state that V1's dispatch acts on the real tracking issue, intended. | unjudged | |
+| F1.1 | Fixed | Per-crate cap and K > 1200 rule removed; `n = max(1, ceil(K/75))`; the plan is red only when its shards sum past 256 (Design 1, R3, R8, Testing). | unjudged | approved 2026-11-24 ("Approved") |
+| F1.2 | Fixed | V1 gains the 50-minute lower-B rule; R9 gives sweep shards the prebuilt install and the GMP cache restore; Design 1 names the sweep as the binding case. | unjudged | approved 2026-11-24 ("Approved") |
+| F1.3 | Fixed | Confirmed: `git show origin/master:docs/superpowers/README.md \| grep -c 'mutation sweep budget'` is 0. The row's deletion moves to #246's rebase (Design 5, R12). | unjudged | approved 2026-11-24 ("Approved") |
+| F1.4 | Fixed | Confirmed: `git show origin/master:CLAUDE.md \| wc -c` is 29991. R11 requires no net byte growth, with detail behind an in-repo pointer to ADR-0046, so no ai-config change is needed. | unjudged | approved 2026-11-24 ("Approved") |
+| F1.5 | Fixed | The local row is labelled an earlier PR 3 state (313 against 339) in the table and the text below it. | unjudged | approved 2026-11-24 ("Approved") |
+| F1.6 | Fixed | Context states 2537 mutants across 13 crates at 26dde61; the fast-crate example is descartes-rs (12 shards). | unjudged | approved 2026-11-24 ("Approved") |
+| F1.7 | Fixed | R5 requires the Rust toolchain step and read-only GMP cache restore in `mutation-rs` and `mutation-rs-canary`. | unjudged | approved 2026-11-24 ("Approved") |
+| F1.8 | Fixed | `scripts/mutation-shard-count.sh` joins `RS_CANARY_PATHS` (Design 3, R13). | unjudged | approved 2026-11-24 ("Approved") |
+| F1.9 | Fixed | The live-log BATS case extracts the R6 lines from `mutation-pr.yml` (Testing). | unjudged | approved 2026-11-24 ("Approved") |
+| F1.10 | Fixed | The summary filter is `{ grep -E ... \|\| [ $? -eq 1 ]; }`: no match passes, a grep error still fails (Design 3). | unjudged | approved 2026-11-24 ("Approved") |
+| F1.11 | Fixed | Design 5 and V1 state that V1's dispatch acts on the real tracking issue, intended. | unjudged | approved 2026-11-24 ("Approved") |
 
 Stopped: reviewer recommended stopping in round 1
