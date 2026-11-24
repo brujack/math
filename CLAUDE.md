@@ -138,8 +138,8 @@ Per-PR Python gate (ADR-0044; edit a line, own its mutants): `mutation-py` requi
 ### Mutation testing (Rust)
 
 Rust mutation testing uses `cargo-mutants` (`cargo install cargo-mutants --locked`); run `make mutants` in a crate directory; a kill rate above 80% is good. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
-Mutation CI is `mutation-testing.yml` (monthly, `workflow_dispatch`): `make -C <crate> mutants`, one 60-minute job per crate from `git ls-files '*/*-rs/Cargo.toml'`.
-`mutation-pr.yml` job `mutation-rs` (aggregator `mutation-pr` stays the required check) runs `scripts/mutation-pr-run.sh "origin/${GITHUB_BASE_REF}" <rs_dirs>` per crate whose `src/**/*.rs` the PR changes (`scripts/mutation-pr-detect.sh`): missed limit 0 on changed-line mutants, timeouts green, plus an amicable-rs canary (`--min-caught 1`) on gate-file changes; repro `scripts/mutation-pr-diff.sh origin/master <crate> /tmp/d.diff && make -C <crate> mutants-diff DIFF=/tmp/d.diff`. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
+Mutation CI is `mutation-testing.yml` (monthly, `workflow_dispatch`): `mutation-rs-plan.sh --whole` plans, then one `mutants` job per shard (B=75, round-robin).
+`mutation-pr.yml`: `mutation-rs-plan`, then one `mutation-rs` job per shard (B=75, `--expect` per shard; aggregator `mutation-pr` stays the required check): missed limit 0 on changed-line mutants, timeouts green; `--min-caught 1` only on the amicable-rs canary. Repro `scripts/mutation-pr-run.sh origin/master [--shard <k>/<n> --expect <count>] <crate>`; one mutant: `cargo mutants --in-diff <diff> -F '<regex>'` from the crate dir. → docs/adr/0046-shard-the-rust-mutation-runs.md
 
 Never put a fixed `--timeout` back (#95): keep `--timeout-multiplier 5 --minimum-test-timeout 30` in each crate's `Makefile` `mutants` target, not the workflow (a fixed value capped the baseline and tested zero mutants); `tests/scripts/makefile.bats` pins both halves. → ai-config/docs/knowledge/math-testing-policy.md § Mutation timeout
 
