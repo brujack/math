@@ -425,3 +425,25 @@ Report: [round1.md](2026-11-23-shard-rust-mutation-design.external-review/round1
 | F1.11 | Fixed | Design 5 and V1 state that V1's dispatch acts on the real tracking issue, intended. | unjudged | approved 2026-11-24 ("Approved") |
 
 Stopped: reviewer recommended stopping in round 1
+
+## Spec alignment (2026-11-24)
+
+- spec: docs/superpowers/specs/2026-11-23-shard-rust-mutation-design.md
+- anchor: 66bba32af27f92d0a72bffd89203581cefcd81f1
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+
+### Reviewed
+
+- R10 reviewed: fixed in 215c944
+
+### Verifications
+
+- V1: no evidence recorded
+- V2: no evidence recorded
+- V3: no evidence recorded
