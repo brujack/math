@@ -783,6 +783,20 @@ _shard_run() {
     done
 }
 
+# The make-argument form is covered below; this pins the environment form, which
+# an `unexport MUTANT_SHARD` or `MUTANT_SHARD =` in the template would silently drop.
+@test "a MUTANT_SHARD set in the environment reaches the recipe" {
+    local t
+    for t in mutants mutants-diff; do
+        _rs_stub_setup
+        printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+        run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u MUTANTS_UNCAPPED MUTANT_SHARD=2/4 \
+            make -C "${CRATE}" "${t}" DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+        [ "${status}" -eq 0 ]
+        command grep -qF -e '--shard 2/4 --sharding round-robin' "${CALLS}"
+    done
+}
+
 @test "make mutants and mutants-diff map MUTANT_SHARD=k/n to --shard k/n --sharding round-robin" {
     local t v
     for t in mutants mutants-diff; do
