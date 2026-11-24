@@ -449,6 +449,7 @@ GREEN='{"caught":3,"missed":0,"timeout":0,"unviable":1}'
     _cfg b/b-rs 0 "${GREEN}"
     _run_script main a/a-rs b/b-rs
     [ "${status}" -eq 0 ]
+    [ "$(wc -l < "${STUB_LOG}")" -eq 2 ]
 }
 
 @test "count red line goes to stdout, not stderr" {
