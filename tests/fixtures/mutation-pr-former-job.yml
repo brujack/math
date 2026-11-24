@@ -3,7 +3,7 @@ runs-on: ubuntu-latest
 # gate canary. The Rust loop builds each changed crate from a cold GMP
 # cache in the worst case, so the budget covers a change spanning several
 # crates plus the baselines.
-timeout-minutes: 120
+timeout-minutes: 60
 
 steps:
   - name: Checkout

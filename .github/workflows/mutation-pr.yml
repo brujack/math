@@ -180,9 +180,8 @@ jobs:
     # One job runs the Python baselines, the Rust diff mutation loop and the
     # gate canary. The Rust loop builds each changed crate from a cold GMP
     # cache in the worst case, so the budget covers a change spanning several
-    # crates plus the baselines. 120, not 60: zeta PR 3's 313 diff mutants took
-    # about 70 minutes on 4 CPUs, 24 of them timeouts at about 61 s each.
-    timeout-minutes: 120
+    # crates plus the baselines.
+    timeout-minutes: 60
 
     steps:
       - name: Checkout

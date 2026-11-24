@@ -342,9 +342,9 @@ class MutationPrTests(unittest.TestCase):
         for step in pr_steps():
             self.assertNotIn("Get PR diff", step.get("name", ""))
 
-    def test_job_timeout_is_one_hundred_twenty_minutes(self):
+    def test_job_timeout_is_sixty_minutes(self):
         self.assertEqual(
-            load(PR_WORKFLOW)["jobs"]["mutation-rs"]["timeout-minutes"], 120
+            load(PR_WORKFLOW)["jobs"]["mutation-rs"]["timeout-minutes"], 60
         )
 
     def test_skip_step_waits_for_canary_too(self):
@@ -1171,7 +1171,7 @@ class PrJobGraphTests(unittest.TestCase):
     def test_timeouts(self):
         jobs = pr_jobs()
         self.assertEqual(jobs["mutation-py"]["timeout-minutes"], 30)
-        self.assertEqual(jobs["mutation-rs"]["timeout-minutes"], 120)
+        self.assertEqual(jobs["mutation-rs"]["timeout-minutes"], 60)
         for job in PR_JOB_IDS:
             self.assertIsInstance(jobs[job]["timeout-minutes"], int, job)
 
