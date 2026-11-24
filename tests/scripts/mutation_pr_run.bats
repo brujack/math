@@ -30,7 +30,7 @@ _git() {
     git -C "${FIXTURE}" -c user.name=t -c user.email=t@t "$@"
 }
 
-# Stub make: logs -C dir, DIFF path, the diff's +++ line and MUTANT_SHARD, then writes the
+# Stub make (STUB_MARK=1 also prints MAKE-RAN to stdout; no MUTANT_SHARD arg logs SHARD=<none>): logs -C dir, DIFF path, the diff's +++ line and MUTANT_SHARD, then writes the
 # mutants.out files named by the per-crate config (cfg/<dir with / as _>).
 # A config line `exit=N` writes exit-code; `outcomes=JSON` writes outcomes.json.
 _write_stub_make() {
@@ -38,7 +38,7 @@ _write_stub_make() {
 #!/usr/bin/env bash
 dir=""
 diff=""
-shard=""
+shard="<none>"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -C) dir="$2"; shift 2 ;;
@@ -48,6 +48,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 plus=$(grep -m1 '^+++ ' "${diff}")
+[[ -n "${STUB_MARK-}" ]] && printf 'MAKE-RAN\n'
 printf 'make -C %s DIFF=%s PLUS=%s SHARD=%s\n' "${dir}" "${diff}" "${plus}" "${shard}" >>"${STUB_LOG}"
 cfg="${STUB_CFG}/${dir//\//_}"
 mkdir -p "${dir}/mutants.out"
@@ -343,7 +344,7 @@ GREEN='{"caught":3,"missed":0,"timeout":0,"unviable":1}'
     _run_script main a/a-rs
     [ "${status}" -eq 0 ]
     [[ "${output}" == "${REPRO_A}"$'\n'* ]]
-    [[ "$(cat "${STUB_LOG}")" == *"SHARD=" ]]
+    [[ "$(cat "${STUB_LOG}")" == *"SHARD=<none>" ]]
 }
 
 @test "--shard reaches make as MUTANT_SHARD and shows in repro without --expect" {
@@ -375,7 +376,7 @@ GREEN='{"caught":3,"missed":0,"timeout":0,"unviable":1}'
     [[ "${output}" != *"green:"* ]]
 }
 
-@test "--expect mismatch is red even when the classifier alone would be green" {
+@test "--expect with no total_mutants in outcomes.json is red (cannot read)" {
     _change a/a-rs
     _commit
     _cfg a/a-rs 0 "${GREEN}"
@@ -424,4 +425,48 @@ GREEN='{"caught":3,"missed":0,"timeout":0,"unviable":1}'
     [ "${status}" -eq 0 ]
     _run_script main --shard 9998/9999 a/a-rs
     [ "${status}" -eq 0 ]
+}
+
+@test "sharded run with more than one crate exits 2 and never runs make" {
+    _change a/a-rs
+    _change b/b-rs
+    _commit
+    _cfg a/a-rs 0 "${GREEN}"
+    _cfg b/b-rs 0 "${GREEN}"
+    _run_script main --shard 1/2 a/a-rs b/b-rs
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"Usage"* ]]
+    _run_script main a/a-rs --shard 1/2 --expect 4 b/b-rs
+    [ "${status}" -eq 2 ]
+    [ ! -s "${STUB_LOG}" ]
+}
+
+@test "unsharded run with two crates is still accepted" {
+    _change a/a-rs
+    _change b/b-rs
+    _commit
+    _cfg a/a-rs 0 "${GREEN}"
+    _cfg b/b-rs 0 "${GREEN}"
+    _run_script main a/a-rs b/b-rs
+    [ "${status}" -eq 0 ]
+}
+
+@test "count red line goes to stdout, not stderr" {
+    _change a/a-rs
+    _commit
+    _cfg a/a-rs 0 '{"caught":3,"missed":0,"timeout":0,"unviable":1,"total_mutants":4}'
+    _run_script_sep main --shard 1/2 --expect 5 a/a-rs
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"red: a/a-rs shard 1/2 tested 4 mutants, plan expected 5" ]]
+    [ -z "${stderr}" ]
+}
+
+@test "repro line is printed before make runs" {
+    _change a/a-rs
+    _commit
+    _cfg a/a-rs 0 "${GREEN}"
+    export STUB_MARK=1
+    _run_script main a/a-rs
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == "${REPRO_A}"$'\nMAKE-RAN\n'* ]]
 }

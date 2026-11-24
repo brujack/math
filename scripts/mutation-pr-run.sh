@@ -14,7 +14,9 @@
 # --shard k/n passes MUTANT_SHARD=k/n to mutants-diff (same grammar as the Makefile:
 # k < n, both without leading zeros). --expect N, which needs --shard, compares the
 # shard's outcomes.json total_mutants with the planner's count before classifying; a
-# mismatch is red and the classifier does not run. Each flag may be given once.
+# mismatch is red and the classifier does not run. --shard and --expect may each be
+# given once, and a sharded run takes exactly one crate (the repro line and the count label
+# name one shard of one crate); more than one crate is bad usage.
 # Every crate first prints a `repro:` line with the equivalent command.
 
 readonly COUNT_PATTERN='^(0|[1-9][0-9]{0,8})$'
@@ -146,7 +148,8 @@ main() {
             shift
         fi
     done
-    if [[ "${#dirs[@]}" -eq 0 || ( -n "${expect}" && -z "${shard}" ) ]]; then
+    if [[ "${#dirs[@]}" -eq 0 || ( -n "${expect}" && -z "${shard}" ) \
+        || ( -n "${shard}" && "${#dirs[@]}" -gt 1 ) ]]; then
         _usage
         return 2
     fi
