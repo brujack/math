@@ -586,14 +586,16 @@ class MutationPrTests(unittest.TestCase):
         self.assertEqual(res.staged_other, ["other.txt"])
 
     def test_canary_reads_shard_fields_from_the_plan(self):
-        res = run_canary(plan='[{"k":2,"n":3,"count":41}]')
+        res = run_canary(stub=CanaryStub(plan='[{"k":2,"n":3,"count":41}]'))
         self.assertEqual(res.proc.returncode, 0, res.proc.stderr)
         self.assertEqual(res.calls[1:5], ["--shard", "2/3", "--expect", "41"])
 
     def test_canary_run_failure_propagates_under_both_shells(self):
         for flags in SHELL_FLAGS:
             for rc in (1, 3):
-                res = run_canary(run_rc=rc, flags=flags, run_out="red: nope\n")
+                res = run_canary(
+                    stub=CanaryStub(run_rc=rc, run_out="red: nope\n"), flags=flags
+                )
                 self.assertEqual(res.proc.returncode, rc, (flags, rc, res.proc.stderr))
                 self.assertTrue(
                     res.summary.endswith("```\nred: nope\n```\n"), res.summary
@@ -602,7 +604,7 @@ class MutationPrTests(unittest.TestCase):
     def test_canary_plan_of_zero_or_two_units_is_red_without_a_run(self):
         two = '[{"k":0,"n":1,"count":5},{"k":0,"n":1,"count":6}]'
         for plan, count in (("[]", 0), (two, 2)):
-            res = run_canary(plan=plan)
+            res = run_canary(stub=CanaryStub(plan=plan))
             self.assertEqual(res.proc.returncode, 1, res.proc.stderr)
             self.assertEqual(res.calls, [])
             self.assertIn(
@@ -611,7 +613,7 @@ class MutationPrTests(unittest.TestCase):
             )
 
     def test_canary_planner_failure_is_red_without_a_run(self):
-        res = run_canary(plan_rc=1)
+        res = run_canary(stub=CanaryStub(plan_rc=1))
         self.assertEqual(res.proc.returncode, 1)
         self.assertEqual(res.calls, [])
 
@@ -665,15 +667,20 @@ class CanaryRun(NamedTuple):
     diff_at_call: list[str]
 
 
+class CanaryStub(NamedTuple):
+    """Behaviour of the stubbed runner and planner for one canary step run."""
+
+    run_rc: int = 0
+    run_out: str = "stub verdict\n"
+    plan: str = '[{"k":0,"n":1,"count":5}]'
+    plan_rc: int = 0
+
+
 def run_canary(
-    lib=CANARY_LIB,
-    run_rc=0,
-    plan='[{"k":0,"n":1,"count":5}]',
-    plan_rc=0,
-    flags=("-eo", "pipefail"),
-    run_out="stub verdict\n",
+    lib=CANARY_LIB, stub: CanaryStub | None = None, flags=("-eo", "pipefail")
 ):
     """Run the canary step in a real throwaway git repo with stub planner and runner."""
+    run_rc, run_out, plan, plan_rc = stub or CanaryStub()
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
         repo = root / "repo"
@@ -1002,6 +1009,10 @@ class CrateStub(NamedTuple):
     red: bool = False
     make_rc: int = 0
     exit_code: object = _SAME  # int or str to write, None for no file, _SAME
+    shard: tuple[str, str] = ("0", "2")  # the plan's (k, n)
+    plan_count: int | str = 3  # the plan's mutant count for the unit
+    total: int | None = None  # mutants the make stub reports; None means `plan_count`
+    fault: str = ""  # the plan's fault text, empty for a normal unit
 
 
 def run_crate_job(
@@ -1010,10 +1021,6 @@ def run_crate_job(
     stub: CrateStub | None = None,
     pre_status=None,
     step="Run mutants",
-    shard=("0", "2"),
-    count: int | str = 3,
-    total=None,
-    fault="",
 ):
     """Execute a `mutants` job step against stub make/classifier.
 
@@ -1025,10 +1032,10 @@ def run_crate_job(
     and outcomes path it was given, and reports red (exit 1) when `stub.red`, green
     otherwise. `pre_status` seeds status/<slug> before the step runs. The make
     stub writes `<crate>/mutants.out/outcomes.json` with `total` mutants (default
-    `count`, the plan's figure) and records its MUTANT_SHARD argument; `shard` is
+    `plan_count`, the plan's figure) and records its MUTANT_SHARD argument; `shard` is
     the plan's (k, n) and `fault` its fault text (empty for a normal unit).
     """
-    red, make_rc, exit_code = stub or CrateStub()
+    red, make_rc, exit_code, shard, plan_count, total, fault = stub or CrateStub()
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
         bindir = root / "bin"
@@ -1073,9 +1080,9 @@ def run_crate_job(
             "SLUG": slug,
             "K": shard[0],
             "N": shard[1],
-            "COUNT": str(count),
+            "COUNT": str(plan_count),
             "FAULT": fault,
-            "OUTCOMES_TOTAL": str(count if total is None else total),
+            "OUTCOMES_TOTAL": str(plan_count if total is None else total),
             "RED": "1" if red else "0",
             "MAKE_RC": str(make_rc),
         }
@@ -1245,12 +1252,12 @@ class RustMutantsJobTests(unittest.TestCase):
         self.assertEqual(rs_job("mutants")["name"], "Mutation ${{ matrix.slug }}")
 
     def test_shard_reaches_make(self):
-        result = run_crate_job("a/a-rs", "a-rs-3", shard=("3", "4"))
+        result = run_crate_job("a/a-rs", "a-rs-3", CrateStub(shard=("3", "4")))
         self.assertEqual(result[0].returncode, 0, result[0].stderr)
         self.assertEqual(result.shards, ["MUTANT_SHARD=3/4"])
 
     def test_count_mismatch_is_red_never_classified(self):
-        result = run_crate_job("a/a-rs", "a-rs-0", count=3, total=2)
+        result = run_crate_job("a/a-rs", "a-rs-0", CrateStub(plan_count=3, total=2))
         proc, made, statuses, summary = result
         self.assertEqual(proc.returncode, 1)
         self.assertEqual(made, ["a/a-rs"])
@@ -1262,7 +1269,7 @@ class RustMutantsJobTests(unittest.TestCase):
     def test_count_check_usage_error_is_red_never_classified(self):
         # An empty COUNT makes the helper exit 2 with nothing on stdout; the
         # step must still write a red line rather than a blank status.
-        result = run_crate_job("a/a-rs", "a-rs-0", count="", total=0)
+        result = run_crate_job("a/a-rs", "a-rs-0", CrateStub(plan_count="", total=0))
         proc, _made, statuses, summary = result
         self.assertEqual(proc.returncode, 1)
         line = "red: a-rs-0 - shard count check failed (exit 2)\n"
@@ -1271,7 +1278,7 @@ class RustMutantsJobTests(unittest.TestCase):
         self.assertEqual(result.classifier_argc, [])
 
     def test_count_match_goes_on_to_the_classifier(self):
-        result = run_crate_job("a/a-rs", "a-rs-0", count=3, total=3)
+        result = run_crate_job("a/a-rs", "a-rs-0", CrateStub(plan_count=3, total=3))
         self.assertEqual(result[0].returncode, 0, result[0].stderr)
         self.assertEqual(result.classifier_argc, ["5"])
 
@@ -1279,9 +1286,7 @@ class RustMutantsJobTests(unittest.TestCase):
         result = run_crate_job(
             "a/a-rs",
             "a-rs-plan",
-            shard=("0", "0"),
-            count=0,
-            fault="listing failed",
+            CrateStub(shard=("0", "0"), plan_count=0, fault="listing failed"),
         )
         proc, made, statuses, summary = result
         self.assertEqual(proc.returncode, 1)
