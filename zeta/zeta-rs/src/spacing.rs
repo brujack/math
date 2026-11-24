@@ -10,6 +10,7 @@ use rug::float::Round;
 use crate::config::VerifyConfig;
 use crate::interval::Sign;
 use crate::isolate::candidates;
+pub use crate::isolate::midpoint;
 use crate::verify::{Fault, PoolPolicy, Runner};
 use crate::zfun::{ZFault, ZSource, certified_sign_ladder};
 
@@ -107,11 +108,6 @@ pub fn refine_intervals<Z: ZSource + Sync, E: Write>(
     }))
 }
 
-/// The midpoint of a bracket: the zero's estimate `t_n`.
-pub fn midpoint(a: f64, b: f64) -> f64 {
-    a + (b - a) / 2.0
-}
-
 /// delta_n = (t_{n+1} - t_n) * ln(t_n / 2 pi) / 2 pi for every consecutive pair.
 pub fn normalised_spacings(t: &[f64]) -> Vec<f64> {
     t.windows(2).map(|w| (w[1] - w[0]) * (w[0] / TAU).ln() / TAU).collect()
@@ -182,6 +178,7 @@ pub fn ks_distance(deltas: &[f64]) -> Option<f64> {
 /// A width to 3 significant digits, rounded up so the column never understates it,
 /// in the `{:.2e}` shape (`1.24e-3`).
 pub fn width_text(w: f64) -> String {
+    debug_assert!(w.is_finite(), "width {w} is not finite");
     let (_, digits, exp) = Float::with_val(120, w).to_sign_string_exp_round(10, Some(3), Round::Up);
     let Some(exp) = exp else {
         return "0.00e0".to_string();
@@ -434,14 +431,36 @@ mod tests {
         assert!(refine(&z, &[], PoolPolicy::Serial).unwrap().is_empty());
     }
 
+    /// A Z with a zero at every multiple of pi: positive where sin(t) >= 0.
+    struct SineZ;
+
+    impl ZSource for SineZ {
+        fn z(&self, t: f64, prec: u32) -> Result<Option<Interval>, ZFault> {
+            Ok(Some(Interval::point(if t.sin() >= 0.0 { 1.0 } else { -1.0 }, prec)))
+        }
+
+        fn z_over(&self, _: f64, _: f64, _: u32) -> Result<Option<Interval>, ZFault> {
+            Ok(None)
+        }
+    }
+
     #[test]
-    fn refine_intervals_is_identical_serial_and_on_a_pool() {
-        let z = StepZ(100.3);
+    fn refine_intervals_is_identical_and_in_order_serial_and_on_a_pool() {
         let ivs: Vec<(f64, f64)> =
-            (0..40).map(|i| (100.0 + i as f64 * 0.001, 100.5 + i as f64 * 0.01)).collect();
-        let serial = refine(&z, &ivs, PoolPolicy::Serial).unwrap();
+            (32..72).map(|k| (k as f64 * PI - 0.3, k as f64 * PI + 0.3)).collect();
+        let run = |policy| {
+            refine_intervals(&SineZ, &VerifyConfig::default(), &ivs, policy, &mut Vec::new())
+                .unwrap()
+                .unwrap()
+        };
+        let serial = run(PoolPolicy::Serial);
+        assert_eq!(serial.len(), 40);
+        for (k, &(a, b)) in (32..72).zip(&serial) {
+            let zero = k as f64 * PI;
+            assert!(a < zero + 1e-9 && zero - 1e-9 < b && b - a < 1e-9, "k = {k}: ({a}, {b})");
+        }
         for policy in [PoolPolicy::Threads(3), PoolPolicy::Parallel] {
-            assert_eq!(refine(&z, &ivs, policy).unwrap(), serial, "{policy:?}");
+            assert_eq!(run(policy), serial, "{policy:?}");
         }
     }
 
@@ -524,6 +543,20 @@ mod tests {
     }
 
     // ---- statistics ----
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "is not finite")]
+    fn width_text_refuses_a_nan_width_in_debug_builds() {
+        let _ = width_text(f64::NAN);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "is not finite")]
+    fn width_text_refuses_an_infinite_width_in_debug_builds() {
+        let _ = width_text(f64::INFINITY);
+    }
 
     #[test]
     fn midpoint_and_width_text() {

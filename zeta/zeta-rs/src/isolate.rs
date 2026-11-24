@@ -11,7 +11,6 @@ use std::collections::HashSet;
 use crate::boundary::ZeroFreeBracket;
 use crate::config::VerifyConfig;
 use crate::interval::Sign;
-use crate::spacing::midpoint;
 use crate::zfun::{ZFault, ZSource, certified_sign_ladder};
 
 /// A sample height with its certified Z sign.
@@ -149,6 +148,11 @@ pub(crate) fn merge_points(mut points: Vec<Point>) -> Result<Vec<Point>, PointsF
 /// Z's sign at exactly `t`, by the shared precision ladder (`certified_sign_ladder`).
 fn certified_sign<Z: ZSource>(z: &Z, t: f64, cfg: &VerifyConfig) -> Result<Option<Sign>, ZFault> {
     certified_sign_ladder(cfg, |prec| z.z(t, prec))
+}
+
+/// The midpoint of a bracket.
+pub fn midpoint(a: f64, b: f64) -> f64 {
+    a + (b - a) / 2.0
 }
 
 /// Points strictly inside `(a, b)` in trying order: the midpoint, then for each shift
