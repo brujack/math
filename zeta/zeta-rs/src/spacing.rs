@@ -514,6 +514,13 @@ mod tests {
     }
 
     #[test]
+    fn ks_distance_sees_the_upper_side_of_a_late_jump() {
+        // F jumps from 0 to 1 at the second point: 1 - 1/3 = 2/3 beats every other term.
+        let d = ks_distance(&[0.0, 100.0, 100.0]).unwrap();
+        assert!((d - 2.0 / 3.0).abs() < 1e-8, "{d}");
+    }
+
+    #[test]
     fn ks_distance_reads_both_sides_of_each_step() {
         // F(median) = 0.5: a sample at the median has D = 0.5 from either side.
         let (mut lo, mut hi) = (0.1, 3.0);
@@ -547,6 +554,8 @@ mod tests {
         assert_eq!(lines[2], "  s            count  observed   Wigner p(s)");
         assert!(lines[3].starts_with("  0.00-0.15  "), "{text}");
         assert!(lines[3].ends_with("      1    2.2222        0.0181"), "{lines:?}");
+        assert!(lines[4].ends_with("0.1539"), "{lines:?}");
+        assert!(lines[8].ends_with("0.9277"), "{lines:?}");
         assert!(lines[22].starts_with("  2.85-3.00  "), "{text}");
         assert!(lines[23].starts_with("KS distance to the Wigner surmise CDF: 0."), "{text}");
         assert_eq!(lines[24], "Largest w_n: 2.00e-3");
