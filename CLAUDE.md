@@ -138,14 +138,14 @@ Per-PR Python gate (ADR-0044; edit a line, own its mutants): `mutation-py` requi
 ### Mutation testing (Rust)
 
 Rust mutation testing uses `cargo-mutants` (`cargo install cargo-mutants --locked`); run `make mutants` in a crate directory; a kill rate above 80% is good. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
-Mutation CI is `mutation-testing.yml` (monthly, `workflow_dispatch`): `mutation-rs-plan.sh --whole` plans, then one `mutants` job per shard (B=75, round-robin).
-`mutation-pr.yml`: `mutation-rs-plan`, then one `mutation-rs` job per shard (B=75, `--expect` per shard; aggregator `mutation-pr` stays the required check): missed limit 0 on changed-line mutants, timeouts green; `--min-caught 1` only on the amicable-rs canary. Repro `scripts/mutation-pr-run.sh origin/master [--shard <k>/<n> --expect <count>] <crate>`; one mutant: `cargo mutants --in-diff <diff> -F '<regex>'` from the crate dir. → docs/adr/0046-shard-the-rust-mutation-runs.md
+Mutation CI is `mutation-testing.yml` (monthly, `workflow_dispatch`): `mutation-rs-plan.sh --whole` plans, then one `mutants` job per shard (B=75).
+`mutation-pr.yml`: `mutation-rs-plan` (crates from `mutation-pr-detect.sh`), then a `mutation-rs` job per shard (B=75, `--expect` per shard; aggregator `mutation-pr` stays the required check): missed limit 0 on changed-line mutants, timeouts green; `--min-caught 1` only on the amicable-rs canary. Repro `scripts/mutation-pr-run.sh origin/master [--shard <k>/<n> --expect <count>] <crate>`; one mutant: `cargo mutants --in-diff <diff> -F '<regex>'` from the crate dir. → docs/adr/0046-shard-the-rust-mutation-runs.md
 
 Never put a fixed `--timeout` back (#95): keep `--timeout-multiplier 5 --minimum-test-timeout 30` in each crate's `Makefile` `mutants` target, not the workflow (a fixed value capped the baseline and tested zero mutants); `tests/scripts/makefile.bats` pins both halves. → ai-config/docs/knowledge/math-testing-policy.md § Mutation timeout
 
 Keep `ulimit -v 8388608` in Rust `MUTANTS_SETUP`; both templates set `ulimit -c 0` (no core dumps, ADR-0043); macOS needs `MUTANTS_UNCAPPED=1` set. Both cap files at 256 MiB (`ulimit -f 262144`); `TMPDIR` is `target/mutants-tmp` (Rust) or a per-run `.mutants-tmp/` (Python), removed on exit (else `make mutants-clean`). → ai-config/docs/knowledge/math-testing-policy.md § Mutation memory cap
 
-A sweep leg is red when any mutant is missed, `caught < 1`, `outcomes.json` or `mutants.out/exit-code` is missing, the baseline fails or the runner dies; timeouts are green beside a catch (`scripts/mutation-classify.sh ... 0 1`, ADR-0042). → ai-config/docs/knowledge/math-testing-policy.md § Mutation green/red
+A sweep leg is red when any mutant is missed, `caught < 1`, its count is off-plan, its listing faults, `outcomes.json` or `mutants.out/exit-code` is missing, the baseline fails or the runner dies; timeouts are green beside a catch (`scripts/mutation-classify.sh ... 0 1`, ADR-0042). → ai-config/docs/knowledge/math-testing-policy.md § Mutation green/red
 
 `notify` is separate (`needs: [setup, mutants], if: always()`), label `mutation-failure` (`-python` via `ISSUE_LABEL`); needs `FULL_SWEEP`; only a full sweep closes. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
 Add `mutants` to a new Rust crate's `Makefile` `.PHONY` list and target; every missed mutant on a changed line gets a killing test, glue included; `exclude_re` only for true equivalents. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
