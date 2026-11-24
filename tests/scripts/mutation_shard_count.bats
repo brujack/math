@@ -155,6 +155,20 @@ _outcomes() {
     [ "${output}" = "red: a-rs 0/1 cannot read total_mutants from ${OUTCOMES}" ]
 }
 
+@test "a second document without total_mutants is unreadable" {
+    _outcomes '{"total_mutants":5}{"other":1}'
+    run bash "${SCRIPT}" "${OUTCOMES}" "a-rs 0/1" 5
+    [ "${status}" -eq 1 ]
+    [ "${output}" = "red: a-rs 0/1 cannot read total_mutants from ${OUTCOMES}" ]
+}
+
+@test "a repeated top-level key with a container value is unreadable" {
+    _outcomes '{"a":[1],"a":[],"total_mutants":5}'
+    run bash "${SCRIPT}" "${OUTCOMES}" "a-rs 0/1" 5
+    [ "${status}" -eq 1 ]
+    [ "${output}" = "red: a-rs 0/1 cannot read total_mutants from ${OUTCOMES}" ]
+}
+
 @test "nested key named like a top-level key is not a duplicate" {
     _outcomes '{"total_mutants":5,"x":{"total_mutants":3}}'
     run bash "${SCRIPT}" "${OUTCOMES}" "a-rs 0/1" 5
