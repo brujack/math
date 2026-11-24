@@ -389,7 +389,8 @@ class MutationPrTests(unittest.TestCase):
 
     def test_python_baseline_runs_per_dir_in_its_own_job(self):
         step = named_step(
-            "mutation-py-baseline", "Run Python mutation baseline on changed sub-projects"
+            "mutation-py-baseline",
+            "Run Python mutation baseline on changed sub-projects",
         )
         self.assertIn("for dir in ${PY_DIRS}", step["run"])
         self.assertIn('make -C "${dir}" mutants-baseline || exit 1', step["run"])
@@ -1331,9 +1332,7 @@ class PrJobGraphTests(unittest.TestCase):
         )
 
     def test_rs_units_shape_supplies_every_matrix_key_the_job_uses(self):
-        units = json.loads(
-            '[{"crate":"a/a-rs","slug":"a-0","k":0,"n":1,"count":5}]'
-        )
+        units = json.loads('[{"crate":"a/a-rs","slug":"a-0","k":0,"n":1,"count":5}]')
         text = yaml.safe_dump(pr_jobs()["mutation-rs"])
         used = set(re.findall(r"matrix\.(\w+)", text))
         self.assertEqual(used, {"crate", "slug", "k", "n", "count"})
@@ -1814,9 +1813,7 @@ class PrAggregatorTests(unittest.TestCase):
 
     def test_check_step_env_wiring(self):
         env = self.check["env"]
-        self.assertEqual(
-            env["RS_PLAN_RESULT"], "${{ needs.mutation-rs-plan.result }}"
-        )
+        self.assertEqual(env["RS_PLAN_RESULT"], "${{ needs.mutation-rs-plan.result }}")
         self.assertEqual(env["RS_RESULT"], "${{ needs.mutation-rs.result }}")
         self.assertEqual(env["RS_UNITS"], f"${{{{ {RS_PLAN_OUT}.units }}}}")
         self.assertEqual(

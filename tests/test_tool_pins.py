@@ -179,7 +179,8 @@ class TestInstallActionPins(unittest.TestCase):
         # scripts.yml, cargo-deny.yml and auto-merge.yml install cargo-deny; every other step is a crate workflow.
         self.assertEqual(
             names,
-            crate_workflows | {"scripts.yml", "cargo-deny.yml", "auto-merge.yml"},
+            crate_workflows
+            | {"scripts.yml", "cargo-deny.yml", "auto-merge.yml", "mutation-pr.yml"},
             sorted(names),
         )
 
