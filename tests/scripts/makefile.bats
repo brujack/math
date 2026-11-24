@@ -502,7 +502,7 @@ _assert_cores_disabled() {
 }
 
 _rs_make() {
-    env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u MUTANTS_UNCAPPED make -C "${CRATE}" "$@"
+    env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u MUTANTS_UNCAPPED -u MUTANT_SHARD make -C "${CRATE}" "$@"
 }
 
 # cargo-mutants kills a timed-out test, so its TempDir never drops; /tmp is tmpfs (RAM).
@@ -728,7 +728,7 @@ _tmpdir_run() {
     _rs_stub_setup
     run _rs_make mutants
     [ "${status}" -eq 0 ]
-    grep -qF 'cargo mutants --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle ulimit=8388608' "${CALLS}"
+    grep -qF 'cargo mutants --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle --caught --unviable ulimit=8388608' "${CALLS}"
     ! command grep -q -- '--in-diff' "${CALLS}"
 }
 
@@ -738,7 +738,107 @@ _tmpdir_run() {
     STUB_CARGO_RC=4 run _rs_make mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
     [ "${status}" -ne 0 ]
     [ "$(cat "${CRATE}/mutants.out/exit-code")" = "4" ]
-    grep -qF "cargo mutants --in-diff ${BATS_TEST_TMPDIR}/pr.diff --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle ulimit=8388608" "${CALLS}"
+    grep -qF "cargo mutants --in-diff ${BATS_TEST_TMPDIR}/pr.diff --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle --caught --unviable ulimit=8388608" "${CALLS}"
+}
+
+# MUTANT_SHARD=k/n maps to cargo-mutants' round-robin sharding; a malformed value must stop before anything is cleared or run.
+# _rs_make clears MUTANT_SHARD from the harness environment, so only a value passed here reaches the recipe.
+_shard_run() {
+    local target="$1"; shift
+    _rs_stub_setup
+    : > "${CALLS}.args"
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    local args=("${target}")
+    [ "${target}" = "mutants-diff" ] && args+=("DIFF=${BATS_TEST_TMPDIR}/pr.diff")
+    run _rs_make "${args[@]}" "$@"
+}
+
+@test "make mutants and mutants-diff pass --caught --unviable" {
+    local t
+    for t in mutants mutants-diff; do
+        _shard_run "${t}"
+        [ "${status}" -eq 0 ]
+        grep -qF -e '--no-shuffle --caught --unviable' "${CALLS}"
+    done
+}
+
+@test "make mutants and mutants-diff add no --shard when MUTANT_SHARD is unset or empty" {
+    local t
+    for t in mutants mutants-diff; do
+        _shard_run "${t}"
+        [ "${status}" -eq 0 ]
+        if command grep -q -e '--shard' "${CALLS}"; then return 1; fi
+        _shard_run "${t}" MUTANT_SHARD=
+        [ "${status}" -eq 0 ]
+        if command grep -q -e '--shard' "${CALLS}"; then return 1; fi
+    done
+}
+
+@test "an exported MUTANT_SHARD does not leak into the harness" {
+    local t
+    for t in mutants mutants-diff; do
+        MUTANT_SHARD=1/2 _shard_run "${t}"
+        [ "${status}" -eq 0 ]
+        if command grep -q -e '--shard' "${CALLS}"; then return 1; fi
+    done
+}
+
+# The make-argument form is covered below; this pins the environment form, which
+# an `unexport MUTANT_SHARD` or `MUTANT_SHARD =` in the template would silently drop.
+@test "a MUTANT_SHARD set in the environment reaches the recipe" {
+    local t
+    for t in mutants mutants-diff; do
+        _rs_stub_setup
+        printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+        run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u MUTANTS_UNCAPPED MUTANT_SHARD=2/4 \
+            make -C "${CRATE}" "${t}" DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+        [ "${status}" -eq 0 ]
+        command grep -qF -e '--shard 2/4 --sharding round-robin' "${CALLS}"
+    done
+}
+
+@test "make mutants and mutants-diff map MUTANT_SHARD=k/n to --shard k/n --sharding round-robin" {
+    local t v
+    for t in mutants mutants-diff; do
+        for v in 0/1 3/5 9998/9999; do
+            _shard_run "${t}" MUTANT_SHARD="${v}"
+            [ "${status}" -eq 0 ]
+            grep -qF -e "--caught --unviable --shard ${v} --sharding round-robin ulimit=" "${CALLS}"
+            # Four separate argv elements, not one quoted string.
+            grep -qxF -e 'arg --shard' "${CALLS}.args"
+            grep -qxF -e "arg ${v}" "${CALLS}.args"
+            grep -qxF -e 'arg --sharding' "${CALLS}.args"
+            grep -qxF -e 'arg round-robin' "${CALLS}.args"
+            [ "$(grep -cxF -e 'arg --shard' "${CALLS}.args")" -eq 1 ]
+        done
+    done
+}
+
+@test "make mutants and mutants-diff refuse a malformed MUTANT_SHARD with exit 2 before cargo runs" {
+    local t v
+    for t in mutants mutants-diff; do
+        for v in 5/5 6/5 0/0 a/b 1 -1/2 01/2 1/2/3 10000/10001; do
+            _shard_run "${t}" MUTANT_SHARD="${v}"
+            [ "${status}" -ne 0 ]
+            [[ "${output}" == *"error: MUTANT_SHARD must be k/n with 0 <= k < n, got ${v}"* ]]
+            # make prints the recipe's own status, so this pins exit 2 and not just non-zero.
+            [[ "${output}" == *"Error 2"* ]]
+            [ ! -s "${CALLS}" ]
+        done
+    done
+}
+
+@test "a malformed MUTANT_SHARD leaves an existing mutants.out alone" {
+    local t
+    for t in mutants mutants-diff; do
+        _rs_stub_setup
+        printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+        mkdir -p "${CRATE}/mutants.out"
+        printf 'KEEP\n' > "${CRATE}/mutants.out/outcomes.json"
+        run _rs_make "${t}" DIFF="${BATS_TEST_TMPDIR}/pr.diff" MUTANT_SHARD=5/5
+        [ "${status}" -ne 0 ]
+        [ -e "${CRATE}/mutants.out/outcomes.json" ]
+    done
 }
 
 @test "make mutants-diff with cargo exit 0 writes 0 and succeeds" {

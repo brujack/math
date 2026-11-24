@@ -20,7 +20,7 @@
 
 readonly PYTHON_DIRS="amicable collatz descartes e factorial fib perfect-numbers pi sq triangle"
 
-readonly RS_CANARY_PATHS=".github/workflows/mutation-pr.yml scripts/mutation-pr-detect.sh scripts/mutation-pr-diff.sh scripts/mutation-pr-run.sh scripts/mutation-classify.sh scripts/crate_templates/Makefile amicable/amicable-rs/src/lib.rs"
+readonly RS_CANARY_PATHS=".github/workflows/mutation-pr.yml scripts/mutation-pr-detect.sh scripts/mutation-pr-diff.sh scripts/mutation-pr-run.sh scripts/mutation-classify.sh scripts/crate_templates/Makefile amicable/amicable-rs/src/lib.rs scripts/mutation-rs-plan.sh scripts/mutation-exit-code.sh scripts/mutation-shard-count.sh"
 
 readonly PY_CANARY_PATHS=".github/workflows/mutation-pr.yml scripts/mutation-pr-detect.sh scripts/mutation-pr-diff.sh scripts/mutation-pr-plan-python.sh scripts/mutation-pr-verdict-python.sh scripts/cosmic_ray_prune.py scripts/cosmic_ray_cell_status.py scripts/crate_templates/python/Makefile sq/sq.py sq/mutants-equivalent.toml"
 

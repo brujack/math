@@ -174,6 +174,27 @@ rs_setup() {
     done
 }
 
+@test "mutation-rs-plan.sh sets rs_canary true" {
+    rs_setup
+    export MOCK_GIT_DIFF_NAMES="scripts/mutation-rs-plan.sh"
+    run -0 bash "${SCRIPT}" origin/master
+    [ "${lines[4]}" = "rs_canary=true" ]
+}
+
+@test "mutation-exit-code.sh sets rs_canary true" {
+    rs_setup
+    export MOCK_GIT_DIFF_NAMES="scripts/mutation-exit-code.sh"
+    run -0 bash "${SCRIPT}" origin/master
+    [ "${lines[4]}" = "rs_canary=true" ]
+}
+
+@test "mutation-shard-count.sh sets rs_canary true" {
+    rs_setup
+    export MOCK_GIT_DIFF_NAMES="scripts/mutation-shard-count.sh"
+    run -0 bash "${SCRIPT}" origin/master
+    [ "${lines[4]}" = "rs_canary=true" ]
+}
+
 @test "non-canary path sets rs_canary false" {
     rs_setup
     export MOCK_GIT_DIFF_NAMES="README.md"
