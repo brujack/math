@@ -41,14 +41,19 @@ MUTANTS_SETUP = rm -rf mutants.out; \
 MUTANTS_TAIL = rc=$$?; \
 	  mkdir -p mutants.out && printf "%s\n" "$${rc}" > mutants.out/exit-code; exit "$${rc}"
 
+# MUTANT_SHARD is 0-based k/n (0 <= k < n, as scripts/cosmic_ray_shard.py); SHARD_PARSE turns it into the cargo-mutants flags in `shard`, and a bad value exits 2 before MUTANTS_SETUP clears anything.
+SHARD_PARSE = s="$${MUTANT_SHARD-}"; shard=(); \
+	  if [[ -n "$${s}" ]]; then \
+	    if [[ "$${s}" =~ ^(0|[1-9][0-9]{0,3})/([1-9][0-9]{0,3})$$ ]] && (( $${BASH_REMATCH[1]} < $${BASH_REMATCH[2]} )); then \
+	      shard=(--shard "$${s}" --sharding round-robin); \
+	    else \
+	      printf "error: MUTANT_SHARD must be k/n with 0 <= k < n, got %s\n" "$${s}" >&2; exit 2; \
+	    fi; \
+	  fi
+
 # --caught --unviable: on a non-tty cargo-mutants prints no line per caught mutant without them, so a live log shows nothing.
 mutants:
-	@bash -c 's="$${MUTANT_SHARD-}"; shard=(); \
-	  if [ -n "$${s}" ]; then \
-	    if [[ "$${s}" =~ ^(0|[1-9][0-9]{0,3})/([1-9][0-9]{0,3})$$ ]] && [ "$${BASH_REMATCH[1]}" -lt "$${BASH_REMATCH[2]}" ]; then \
-	      shard=(--shard "$${s}" --sharding round-robin); \
-	    else printf "error: MUTANT_SHARD must be k/n with 0 <= k < n, got %s\n" "$${s}" >&2; exit 2; fi; \
-	  fi; \
+	@bash -c '$(SHARD_PARSE); \
 	  $(MUTANTS_SETUP); \
 	  cargo mutants --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle --caught --unviable "$${shard[@]}"; $(MUTANTS_TAIL)'
 
@@ -58,12 +63,7 @@ mutants-diff:
 	  if [ -z "$${d}" ] || [ ! -f "$${d}" ] || [ ! -r "$${d}" ]; then \
 	    printf "usage: make mutants-diff DIFF=<readable diff file> (DIFF unset or unreadable)\n" >&2; exit 2; \
 	  fi; \
-	  s="$${MUTANT_SHARD-}"; shard=(); \
-	  if [ -n "$${s}" ]; then \
-	    if [[ "$${s}" =~ ^(0|[1-9][0-9]{0,3})/([1-9][0-9]{0,3})$$ ]] && [ "$${BASH_REMATCH[1]}" -lt "$${BASH_REMATCH[2]}" ]; then \
-	      shard=(--shard "$${s}" --sharding round-robin); \
-	    else printf "error: MUTANT_SHARD must be k/n with 0 <= k < n, got %s\n" "$${s}" >&2; exit 2; fi; \
-	  fi; \
+	  $(SHARD_PARSE); \
 	  $(MUTANTS_SETUP); \
 	  cargo mutants --in-diff "$${d}" --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle --caught --unviable "$${shard[@]}"; $(MUTANTS_TAIL)'
 
