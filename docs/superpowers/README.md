@@ -67,7 +67,7 @@ Master status index for all specs and implementation plans in this directory.
 | 2026-11-18 | [descartes-drawn-circle-counts](plans/2026-11-18-descartes-drawn-circle-counts.md) | [spec](specs/2026-11-18-descartes-drawn-circle-counts-design.md) | Done (math#232) |
 | 2026-11-18 | [descartes-parallel-packing](plans/2026-11-18-descartes-parallel-packing.md) | [spec](specs/2026-11-18-descartes-parallel-packing-design.md) | Done |
 | 2026-11-23 | [zeta-rh-verification](plans/2026-11-23-zeta-rh-verification.md) | [spec](specs/2026-11-23-zeta-rh-verification-design.md) | Pending |
-| 2026-11-24 | [shard-rust-mutation](plans/2026-11-24-shard-rust-mutation.md) | [spec](specs/2026-11-23-shard-rust-mutation-design.md) | In Progress |
+| 2026-11-24 | [shard-rust-mutation](plans/2026-11-24-shard-rust-mutation.md) | [spec](specs/2026-11-23-shard-rust-mutation-design.md) | Done (math#247) |
 | 2026-10-31 | [shared-push-content-gate](plans/2026-10-31-shared-push-content-gate.md) | ai-config `2026-10-30-shared-push-content-gate-design.md` (cross-repo) | Done |
 
 ---

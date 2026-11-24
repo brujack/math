@@ -1,5 +1,7 @@
 # Shard the Rust Mutation Runs Implementation Plan
 
+> **Status: DONE** — merged in math#247 (22e7761), 2026-11-24. V1 sweep run 45479226540 green (37 shards, longest 7.4 min); V2 is math#246's re-run under the sharded gate.
+
 spec: docs/superpowers/specs/2026-11-23-shard-rust-mutation-design.md
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
