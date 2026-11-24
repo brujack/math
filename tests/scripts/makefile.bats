@@ -728,7 +728,7 @@ _tmpdir_run() {
     _rs_stub_setup
     run _rs_make mutants
     [ "${status}" -eq 0 ]
-    grep -qF 'cargo mutants --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle ulimit=8388608' "${CALLS}"
+    grep -qF 'cargo mutants --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle --caught --unviable ulimit=8388608' "${CALLS}"
     ! command grep -q -- '--in-diff' "${CALLS}"
 }
 
@@ -738,7 +738,79 @@ _tmpdir_run() {
     STUB_CARGO_RC=4 run _rs_make mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
     [ "${status}" -ne 0 ]
     [ "$(cat "${CRATE}/mutants.out/exit-code")" = "4" ]
-    grep -qF "cargo mutants --in-diff ${BATS_TEST_TMPDIR}/pr.diff --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle ulimit=8388608" "${CALLS}"
+    grep -qF "cargo mutants --in-diff ${BATS_TEST_TMPDIR}/pr.diff --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle --caught --unviable ulimit=8388608" "${CALLS}"
+}
+
+# MUTANT_SHARD=k/n maps to cargo-mutants' round-robin sharding; a malformed value must stop before anything is cleared or run.
+_shard_run() {
+    local target="$1"; shift
+    _rs_stub_setup
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    local args=("${target}")
+    [ "${target}" = "mutants-diff" ] && args+=("DIFF=${BATS_TEST_TMPDIR}/pr.diff")
+    run _rs_make "${args[@]}" "$@"
+}
+
+@test "make mutants and mutants-diff pass --caught --unviable" {
+    local t
+    for t in mutants mutants-diff; do
+        _shard_run "${t}"
+        [ "${status}" -eq 0 ]
+        grep -qF -e '--no-shuffle --caught --unviable' "${CALLS}"
+    done
+}
+
+@test "make mutants and mutants-diff add no --shard when MUTANT_SHARD is unset or empty" {
+    local t
+    for t in mutants mutants-diff; do
+        _shard_run "${t}"
+        [ "${status}" -eq 0 ]
+        ! command grep -q -e '--shard' "${CALLS}"
+        _shard_run "${t}" MUTANT_SHARD=
+        [ "${status}" -eq 0 ]
+        ! command grep -q -e '--shard' "${CALLS}"
+    done
+}
+
+@test "make mutants and mutants-diff map MUTANT_SHARD=k/n to --shard k/n --sharding round-robin" {
+    local t v
+    for t in mutants mutants-diff; do
+        for v in 0/1 3/5 9998/9999; do
+            _shard_run "${t}" MUTANT_SHARD="${v}"
+            [ "${status}" -eq 0 ]
+            grep -qF -e "--caught --unviable --shard ${v} --sharding round-robin ulimit=" "${CALLS}"
+        done
+    done
+}
+
+@test "make mutants and mutants-diff reach the shard through the environment as well as the command line" {
+    local t
+    for t in mutants mutants-diff; do
+        MUTANT_SHARD=2/4 _shard_run "${t}"
+        [ "${status}" -eq 0 ]
+        grep -qF -e '--shard 2/4 --sharding round-robin' "${CALLS}"
+    done
+}
+
+@test "make mutants and mutants-diff refuse a malformed MUTANT_SHARD before cargo runs" {
+    local t v
+    for t in mutants mutants-diff; do
+        for v in 5/5 6/5 0/0 a/b 1 -1/2 01/2 1/2/3 10000/10001; do
+            _shard_run "${t}" MUTANT_SHARD="${v}"
+            [ "${status}" -ne 0 ]
+            [[ "${output}" == *"error: MUTANT_SHARD must be k/n with 0 <= k < n, got ${v}"* ]]
+            [ ! -s "${CALLS}" ]
+        done
+    done
+}
+
+@test "a malformed MUTANT_SHARD leaves an existing mutants.out alone" {
+    _rs_stub_setup
+    mkdir -p "${CRATE}/mutants.out"
+    printf 'KEEP\n' > "${CRATE}/mutants.out/outcomes.json"
+    run _rs_make mutants MUTANT_SHARD=5/5
+    [ "${status}" -ne 0 ]
+    [ -e "${CRATE}/mutants.out/outcomes.json" ]
 }
 
 @test "make mutants-diff with cargo exit 0 writes 0 and succeeds" {

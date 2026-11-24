@@ -41,9 +41,16 @@ MUTANTS_SETUP = rm -rf mutants.out; \
 MUTANTS_TAIL = rc=$$?; \
 	  mkdir -p mutants.out && printf "%s\n" "$${rc}" > mutants.out/exit-code; exit "$${rc}"
 
+# --caught --unviable: on a non-tty cargo-mutants prints no line per caught mutant without them, so a live log shows nothing.
 mutants:
-	@bash -c '$(MUTANTS_SETUP); \
-	  cargo mutants --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle; $(MUTANTS_TAIL)'
+	@bash -c 's="$${MUTANT_SHARD-}"; shard=(); \
+	  if [ -n "$${s}" ]; then \
+	    if [[ "$${s}" =~ ^(0|[1-9][0-9]{0,3})/([1-9][0-9]{0,3})$$ ]] && [ "$${BASH_REMATCH[1]}" -lt "$${BASH_REMATCH[2]}" ]; then \
+	      shard=(--shard "$${s}" --sharding round-robin); \
+	    else printf "error: MUTANT_SHARD must be k/n with 0 <= k < n, got %s\n" "$${s}" >&2; exit 2; fi; \
+	  fi; \
+	  $(MUTANTS_SETUP); \
+	  cargo mutants --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle --caught --unviable "$${shard[@]}"; $(MUTANTS_TAIL)'
 
 # PR-scoped run: only mutants inside DIFF, same memory cap, file cap, TMPDIR handling, signal-safe cleanup and timeout scaling as mutants.
 mutants-diff:
@@ -51,8 +58,14 @@ mutants-diff:
 	  if [ -z "$${d}" ] || [ ! -f "$${d}" ] || [ ! -r "$${d}" ]; then \
 	    printf "usage: make mutants-diff DIFF=<readable diff file> (DIFF unset or unreadable)\n" >&2; exit 2; \
 	  fi; \
+	  s="$${MUTANT_SHARD-}"; shard=(); \
+	  if [ -n "$${s}" ]; then \
+	    if [[ "$${s}" =~ ^(0|[1-9][0-9]{0,3})/([1-9][0-9]{0,3})$$ ]] && [ "$${BASH_REMATCH[1]}" -lt "$${BASH_REMATCH[2]}" ]; then \
+	      shard=(--shard "$${s}" --sharding round-robin); \
+	    else printf "error: MUTANT_SHARD must be k/n with 0 <= k < n, got %s\n" "$${s}" >&2; exit 2; fi; \
+	  fi; \
 	  $(MUTANTS_SETUP); \
-	  cargo mutants --in-diff "$${d}" --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle; $(MUTANTS_TAIL)'
+	  cargo mutants --in-diff "$${d}" --timeout-multiplier 5 --minimum-test-timeout 30 --no-shuffle --caught --unviable "$${shard[@]}"; $(MUTANTS_TAIL)'
 
 clean:
 	cargo clean
