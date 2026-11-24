@@ -8,7 +8,7 @@ use rug::Float;
 use rug::float::Round;
 use zeta::config::VerifyConfig;
 use zeta::spacing::{midpoint, refine_intervals, width_text, write_report};
-use zeta::verify::{GramSpan, PoolPolicy, RunStats, Verdict, verify};
+use zeta::verify::{GramSpan, PoolPolicy, RunStats, Throttle, Verdict, verify};
 use zeta::zfun::{RealZ, SELF_CHECK_PREC, ZError, ZEvaluator, ZSource, self_check};
 
 /// Smallest and largest accepted N (the height is 10^N).
@@ -130,6 +130,8 @@ struct Env<'a, Z, S> {
     z: Result<Z, ZError>,
     store: &'a S,
     policy: PoolPolicy,
+    /// How often progress lines go to stderr (R21): production paces them, tests print every block.
+    throttle: Throttle,
     /// Test-only (R24): production always runs the self-check.
     #[cfg(test)]
     skip_self_check: bool,
@@ -137,7 +139,7 @@ struct Env<'a, Z, S> {
 
 /// Runs the CLI against injectable streams with the real Z, self-check and pool,
 /// writing the table into the current directory.
-fn run<R: BufRead, W: Write, E: Write>(
+fn run<R: BufRead, W: Write, E: Write + Send>(
     cli: &Cli,
     reader: &mut R,
     out: &mut W,
@@ -149,6 +151,7 @@ fn run<R: BufRead, W: Write, E: Write>(
         cfg: &cfg,
         store: &DirStore(PathBuf::from(".")),
         policy: PoolPolicy::Parallel,
+        throttle: Throttle::PRODUCTION,
         #[cfg(test)]
         skip_self_check: false,
     };
@@ -167,7 +170,7 @@ fn run_with<R, W, E, Z, S>(
 where
     R: BufRead,
     W: Write,
-    E: Write,
+    E: Write + Send,
     Z: ZSource + Sync,
     S: OutputStore,
 {
@@ -185,7 +188,7 @@ fn run_core<R, W, E, Z, S>(
 where
     R: BufRead,
     W: Write,
-    E: Write,
+    E: Write + Send,
     Z: ZSource + Sync,
     S: OutputStore,
 {
@@ -235,7 +238,7 @@ where
     let started = Instant::now();
     let height = 10u64.pow(n);
     // Exact: 10^7 < 2^53.
-    let verdict = verify(height as f64, &z, env.cfg, env.policy, err);
+    let verdict = verify(height as f64, &z, env.cfg, env.policy, env.throttle, err);
     // Refinement runs only on a verified table, before anything is saved: a Z fault
     // here is an internal error (exit 6) and leaves no table behind.
     let refined = match (&verdict, cli.refine) {
@@ -442,8 +445,9 @@ fn exit_code(result: std::io::Result<i32>) -> i32 {
 #[cfg(not(tarpaulin_include))]
 fn main() {
     let cli = Cli::parse();
-    let (stdin, stdout, stderr) = (io::stdin(), io::stdout(), io::stderr());
-    let result = run(&cli, &mut stdin.lock(), &mut stdout.lock(), &mut stderr.lock());
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    // `Stderr`, not its lock: the progress lines are written from the pool's workers.
+    let result = run(&cli, &mut stdin.lock(), &mut stdout.lock(), &mut io::stderr());
     std::process::exit(exit_code(result));
 }
 
@@ -659,7 +663,14 @@ mod tests {
     }
 
     fn env<'a, Z, S>(cfg: &'a VerifyConfig, z: Z, store: &'a S) -> Env<'a, Z, S> {
-        Env { cfg, z: Ok(z), store, policy: PoolPolicy::Serial, skip_self_check: true }
+        Env {
+            cfg,
+            z: Ok(z),
+            store,
+            policy: PoolPolicy::Serial,
+            throttle: Throttle::NONE,
+            skip_self_check: true,
+        }
     }
 
     /// Runs with the refusing Z, the default configuration and no self-check.
@@ -828,6 +839,7 @@ mod tests {
             z: Err(ZError::HeightOutOfRange),
             store: &store,
             policy: PoolPolicy::Serial,
+            throttle: Throttle::NONE,
             skip_self_check: true,
         };
         let (code, _, err) = drive_with(&["3"], "", e);
@@ -889,7 +901,7 @@ mod tests {
         assert_eq!(exit_code(result), 4);
     }
 
-    fn exit_with<W: Write, E: Write>(args: &[&str], out: &mut W, err: &mut E) -> i32 {
+    fn exit_with<W: Write, E: Write + Send>(args: &[&str], out: &mut W, err: &mut E) -> i32 {
         let cfg = widened();
         let store = MemStore::new(Break::Nothing);
         let mut e = env(&cfg, RefusingZ, &store);
@@ -1366,6 +1378,7 @@ mod tests {
             z: RealZ::new(cfg),
             store: &store,
             policy: PoolPolicy::Parallel,
+            throttle: Throttle::NONE,
             skip_self_check: skip,
         };
         let (code, out, err) = drive_with(&[n], "", e);
@@ -1383,6 +1396,64 @@ mod tests {
         let seconds = out.lines().last().unwrap().strip_prefix("Elapsed: ").unwrap();
         assert!(seconds.strip_suffix(" s").unwrap().parse::<f64>().unwrap() >= 0.0, "{out}");
         assert_eq!(store.names(), vec!["zeta_1e2.txt".to_string()]);
+    }
+
+    /// `zeta 2` with the real Z under `throttle`: exit code, stdout without its timing line,
+    /// stderr and the saved table.
+    fn run_n2_under(
+        throttle: Throttle,
+        err_writer: &mut (impl Write + Send),
+    ) -> (i32, String, String) {
+        let cfg = VerifyConfig::default();
+        let store = MemStore::new(Break::Nothing);
+        let e = Env {
+            cfg: &cfg,
+            z: RealZ::new(&cfg),
+            store: &store,
+            policy: PoolPolicy::Parallel,
+            throttle,
+            skip_self_check: true,
+        };
+        let mut out = Vec::new();
+        let code = exit_code(run_with(&cli(&["2"]), &mut "".as_bytes(), &mut out, err_writer, e));
+        let out = String::from_utf8(out).unwrap();
+        let stable: Vec<&str> = out.lines().filter(|l| !l.starts_with("Elapsed:")).collect();
+        let table = store.files.borrow().get("zeta_1e2.txt").cloned().unwrap_or_default();
+        (code, stable.join("\n"), String::from_utf8(table).unwrap())
+    }
+
+    #[test]
+    fn e2e_progress_goes_to_stderr_and_ends_with_the_final_line() {
+        let mut err = Vec::new();
+        let (code, out, _) = run_n2_under(Throttle::NONE, &mut err);
+        assert_eq!(code, 0, "{out}");
+        let err = String::from_utf8(err).unwrap();
+        let lines: Vec<&str> = err.lines().collect();
+        assert!(!lines.is_empty() && lines.iter().all(|l| l.starts_with("progress: ")), "{err}");
+        let last = lines[lines.len() - 1];
+        let (done, rest) = last.strip_prefix("progress: ").unwrap().split_once('/').unwrap();
+        assert!(rest.starts_with(&format!("{done} Gram blocks, t = ")), "{last}");
+        assert!(!out.contains("progress"), "{out}");
+    }
+
+    #[test]
+    fn e2e_progress_pacing_changes_neither_stdout_nor_the_table() {
+        let quiet =
+            Throttle { min_interval: std::time::Duration::from_secs(3600), min_fraction: 1.0 };
+        let (mut loud_err, mut quiet_err) = (Vec::new(), Vec::new());
+        let loud = run_n2_under(Throttle::NONE, &mut loud_err);
+        let paced = run_n2_under(quiet, &mut quiet_err);
+        assert_eq!(loud, paced);
+        assert!(loud_err.len() > quiet_err.len());
+        assert_eq!(String::from_utf8(quiet_err).unwrap().lines().count(), 1);
+    }
+
+    #[test]
+    fn e2e_a_progress_line_that_cannot_be_written_exits_4_without_a_claim() {
+        let (code, out, table) = run_n2_under(Throttle::NONE, &mut FailingWriter);
+        assert_eq!(code, 4);
+        assert!(!out.contains("RH verified"), "{out}");
+        assert!(table.is_empty(), "no table is saved after a failed progress write");
     }
 
     #[test]
@@ -1513,6 +1584,7 @@ mod tests {
             z: RealZ::new(&cfg),
             store: &store,
             policy: PoolPolicy::Parallel,
+            throttle: Throttle::NONE,
             skip_self_check: true,
         };
         let (code, out, _) = drive_with(&["3", "--refine"], "", env);
@@ -1584,6 +1656,7 @@ mod tests {
                 z: Ok(z),
                 store: &store,
                 policy: PoolPolicy::Serial,
+                throttle: Throttle::NONE,
                 skip_self_check: true,
             };
             let result = drive_with(args, "", e);
@@ -1593,7 +1666,7 @@ mod tests {
         assert_eq!(code, 0);
         let ((code, out, err), names, _) = run(&["2", "--refine"], verify_calls);
         assert_eq!(code, 6, "{out}{err}");
-        assert!(err.starts_with("internal error: "), "{err}");
+        assert!(err.lines().last().unwrap_or_default().starts_with("internal error: "), "{err}");
         assert!(names.is_empty() && !out.contains("RH verified"), "{out}");
     }
 }

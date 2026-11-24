@@ -181,6 +181,7 @@ fn e2e_create_failure_after_verification_exits_4_without_a_verified_claim() {
     std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
     assert_eq!(code, Some(4), "{out}{err}");
     assert!(!out.contains("RH verified"), "{out}");
-    assert!(err.starts_with("Error: cannot write zeta_1e2.txt: "), "{err}");
+    let last = err.lines().last().unwrap_or_default();
+    assert!(last.starts_with("Error: cannot write zeta_1e2.txt: "), "{err}");
     assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
 }

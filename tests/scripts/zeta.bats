@@ -47,6 +47,11 @@ setup() {
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"RH verified: all 29 nontrivial zeros with 0 < Im s <= 100 lie on Re s = 1/2 and are simple"* ]]
     [[ "${output}${stderr}" != *"RH holds"* ]]
+    [[ "${output}" != *"progress:"* ]]
+    local last="${stderr%$'\n'}"
+    last="${last##*$'\n'}"
+    [[ "${last}" =~ ^progress:\ ([0-9]+)/([0-9]+)\ Gram\ blocks,\ t\ =\ [0-9.]+$ ]]
+    [ "${BASH_REMATCH[1]}" = "${BASH_REMATCH[2]}" ]
     [ "$(ls -A "${WORK_DIR}")" = "zeta_1e2.txt" ]
     [ "$(head -n 1 "${WORK_DIR}/zeta_1e2.txt")" = "# n a b" ]
     [ "$(grep -vc '^#' "${WORK_DIR}/zeta_1e2.txt")" -eq 29 ]
