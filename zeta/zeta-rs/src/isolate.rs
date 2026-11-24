@@ -11,6 +11,7 @@ use std::collections::HashSet;
 use crate::boundary::ZeroFreeBracket;
 use crate::config::VerifyConfig;
 use crate::interval::Sign;
+use crate::spacing::midpoint;
 use crate::zfun::{ZFault, ZSource, certified_sign_ladder};
 
 /// A sample height with its certified Z sign.
@@ -150,6 +151,25 @@ fn certified_sign<Z: ZSource>(z: &Z, t: f64, cfg: &VerifyConfig) -> Result<Optio
     certified_sign_ladder(cfg, |prec| z.z(t, prec))
 }
 
+/// Points strictly inside `(a, b)` in trying order: the midpoint, then for each shift
+/// k the pair mid + (b - a) * 2^-k and mid - (b - a) * 2^-k, each at most once. Empty
+/// when no `f64` lies strictly between the ends (or an end is NaN). Shared by the
+/// isolation of a gap and by `--refine`'s bisection.
+pub(crate) fn candidates(a: f64, b: f64, shifts: &[i32]) -> Vec<f64> {
+    let mid = midpoint(a, b);
+    let moved = shifts.iter().flat_map(|&shift| {
+        let step = (b - a) * 0.5_f64.powi(shift);
+        [mid + step, mid - step]
+    });
+    let mut found: Vec<f64> = Vec::with_capacity(1 + 2 * shifts.len());
+    for c in std::iter::once(mid).chain(moved) {
+        if c > a && c < b && !found.contains(&c) {
+            found.push(c);
+        }
+    }
+    found
+}
+
 /// A certified point strictly inside `(a, b)`: the midpoint, or (when allowed)
 /// the first of a few nearby `f64`s whose sign certifies. `None` discards it.
 /// Candidates equal to one already tried (the shifts collapse on a tiny gap) are skipped.
@@ -159,21 +179,8 @@ fn sample_in_gap<Z: ZSource>(
     b: f64,
     cfg: &VerifyConfig,
 ) -> Result<Option<Point>, ZFault> {
-    const MAX_CANDIDATES: usize = 1 + 2 * MOVE_SHIFTS.len();
-    let mid = a + (b - a) / 2.0;
-    let shifts = MOVE_SHIFTS.into_iter().filter(|_| cfg.move_points());
-    let moved = shifts.flat_map(|shift| {
-        let step = (b - a) * 0.5_f64.powi(shift);
-        [mid + step, mid - step]
-    });
-    let mut tried = [mid; MAX_CANDIDATES];
-    let mut count = 0;
-    for c in std::iter::once(mid).chain(moved) {
-        if !(c > a && c < b) || tried[..count].contains(&c) {
-            continue;
-        }
-        tried[count] = c;
-        count += 1;
+    let shifts: &[i32] = if cfg.move_points() { &MOVE_SHIFTS } else { &[] };
+    for c in candidates(a, b, shifts) {
         if let Some(sign) = certified_sign(z, c, cfg)? {
             return Ok(Some(Point { t: c, sign }));
         }
@@ -366,6 +373,40 @@ mod tests {
         fn count(&self) -> usize {
             self.calls.borrow().len()
         }
+    }
+
+    fn next_up(x: f64) -> f64 {
+        f64::from_bits(x.to_bits() + 1)
+    }
+
+    #[test]
+    fn candidates_start_with_the_midpoint_then_the_distinct_shifted_points() {
+        let c = candidates(100.0, 101.0, &[5, 4, 3, 2]);
+        assert_eq!(c.len(), 9);
+        assert_eq!(c[0], 100.5);
+        assert!(c.iter().all(|&x| x > 100.0 && x < 101.0));
+        for (i, x) in c.iter().enumerate() {
+            assert!(!c[..i].contains(x), "duplicate {x}");
+        }
+        assert_eq!(c[1], 100.5 + 0.5_f64.powi(5));
+        assert_eq!(c[2], 100.5 - 0.5_f64.powi(5));
+        assert_eq!(*c.last().unwrap(), 100.5 - 0.25);
+        assert_eq!(candidates(100.0, 101.0, &[]), vec![100.5]);
+    }
+
+    #[test]
+    fn candidates_are_empty_for_adjacent_floats_equal_ends_and_nan() {
+        let a = 100.0;
+        assert!(candidates(a, next_up(a), &[5, 4]).is_empty());
+        assert!(candidates(a, a, &[5]).is_empty());
+        assert!(candidates(f64::NAN, 1.0, &[5]).is_empty());
+    }
+
+    #[test]
+    fn candidates_for_a_gap_of_two_floats_hold_only_the_one_between() {
+        let a = 100.0;
+        let b = next_up(next_up(a));
+        assert_eq!(candidates(a, b, &[5, 4, 3, 2]), vec![next_up(a)]);
     }
 
     fn pt(t: f64, sign: Sign) -> Point {

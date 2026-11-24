@@ -190,7 +190,7 @@ pub enum PoolPolicy {
 
 /// The private pool, or `None` for serial. The global pool is never used (R11):
 /// every parallel step runs inside `ThreadPool::install` on this pool.
-struct Runner {
+pub(crate) struct Runner {
     pool: Option<ThreadPool>,
 }
 
@@ -208,7 +208,7 @@ fn build_pool(policy: PoolPolicy) -> Result<Option<ThreadPool>, ThreadPoolBuildE
 
 impl Runner {
     /// Builds the pool; when it cannot be built, says so on `stderr` and goes serial.
-    fn new<E: Write>(policy: PoolPolicy, stderr: &mut E) -> io::Result<Runner> {
+    pub(crate) fn new<E: Write>(policy: PoolPolicy, stderr: &mut E) -> io::Result<Runner> {
         match build_pool(policy) {
             Ok(pool) => Ok(Runner { pool }),
             Err(error) => {
@@ -231,7 +231,7 @@ impl Runner {
     /// `f(0..len)` in index order, on the pool when there is one. The first `Err`
     /// stops the remaining work (which `Err` wins among several in parallel is not
     /// defined; any fault is a fault), and a panic is `Fault::WorkerPanicked`.
-    fn try_map<R: Send>(
+    pub(crate) fn try_map<R: Send>(
         &self,
         len: usize,
         f: impl Fn(usize) -> Result<R, Fault> + Sync + Send,

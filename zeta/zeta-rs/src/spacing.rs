@@ -4,8 +4,13 @@
 use std::f64::consts::{PI, TAU};
 use std::io::{self, Write};
 
+use rug::Float;
+use rug::float::Round;
+
 use crate::config::VerifyConfig;
 use crate::interval::Sign;
+use crate::isolate::candidates;
+use crate::verify::{Fault, PoolPolicy, Runner};
 use crate::zfun::{ZFault, ZSource, certified_sign_ladder};
 
 /// Nearby `f64`s tried after the midpoint when the midpoint's sign stays uncertain.
@@ -19,30 +24,12 @@ pub const BIN_COUNT: usize = 20;
 pub const BIN_WIDTH: f64 = 0.15;
 pub const S_MAX: f64 = 3.0;
 
-/// Points strictly inside `(a, b)` in trying order: the midpoint, then the nearby
-/// shifts, each at most once. Empty when no `f64` lies strictly between the ends
-/// (or an end is NaN).
-fn candidates(a: f64, b: f64) -> Vec<f64> {
-    let mid = a + (b - a) / 2.0;
-    let shifted = NEARBY_SHIFTS.into_iter().flat_map(|k| {
-        let step = (b - a) * 0.5_f64.powi(k);
-        [mid + step, mid - step]
-    });
-    let mut found: Vec<f64> = Vec::with_capacity(1 + NEARBY_TRIES);
-    for c in std::iter::once(mid).chain(shifted) {
-        if c > a && c < b && !found.contains(&c) {
-            found.push(c);
-        }
-    }
-    found
-}
-
 /// The first candidate in `(a, b)` whose sign is certified, with that sign.
 fn first_certified<F>(a: f64, b: f64, sign_at: &mut F) -> Result<Option<(f64, Sign)>, ZFault>
 where
     F: FnMut(f64) -> Result<Option<Sign>, ZFault>,
 {
-    for c in candidates(a, b) {
+    for c in candidates(a, b, &NEARBY_SHIFTS) {
         if let Some(sign) = sign_at(c)? {
             return Ok(Some((c, sign)));
         }
@@ -50,15 +37,37 @@ where
     Ok(None)
 }
 
+/// Most bisection steps one bracket gets. Every step keeps at most 3/4 of the width
+/// (the farthest candidate sits a quarter of the width from the midpoint), so 64
+/// halvings of an `f64` bracket need at most log(2^64)/log(4/3), about 154, steps.
+const MAX_BISECT_STEPS: usize = 256;
+
 /// Bisects `(a, b)`, where `a` has certified sign `sign_a` and `b` the opposite one,
 /// moving the end whose sign the new point shares. Both ends keep a certified sign,
 /// so the certified sign change survives every step. Stops when no candidate point
-/// certifies (midpoint plus 8 nearby tries) or no `f64` lies strictly between.
-fn bisect<F>(mut a: f64, mut b: f64, sign_a: Sign, mut sign_at: F) -> Result<(f64, f64), ZFault>
+/// certifies (midpoint plus 8 nearby tries), no `f64` lies strictly between, or the
+/// step bound is reached; the bracket returned is always still certified.
+fn bisect<F>(a: f64, b: f64, sign_a: Sign, sign_at: F) -> Result<(f64, f64), ZFault>
 where
     F: FnMut(f64) -> Result<Option<Sign>, ZFault>,
 {
-    while let Some((c, sign)) = first_certified(a, b, &mut sign_at)? {
+    bisect_bounded(a, b, sign_a, sign_at, MAX_BISECT_STEPS)
+}
+
+fn bisect_bounded<F>(
+    mut a: f64,
+    mut b: f64,
+    sign_a: Sign,
+    mut sign_at: F,
+    max_steps: usize,
+) -> Result<(f64, f64), ZFault>
+where
+    F: FnMut(f64) -> Result<Option<Sign>, ZFault>,
+{
+    for _ in 0..max_steps {
+        let Some((c, sign)) = first_certified(a, b, &mut sign_at)? else {
+            break;
+        };
         if sign == sign_a {
             a = c;
         } else {
@@ -80,16 +89,22 @@ where
     }
 }
 
-/// The narrowest certified bracket found for each `(a, b)`, in the same order.
-pub fn refine_intervals<Z: ZSource>(
+/// The narrowest certified bracket found for each `(a, b)`, in the same order, on
+/// verify's private pool under the same `policy` (a pool that cannot be built is
+/// announced on `stderr` and the work runs serially). The outer `Err` is a failed
+/// write to `stderr`; the inner one a Z fault or a worker panic.
+pub fn refine_intervals<Z: ZSource + Sync, E: Write>(
     z: &Z,
     cfg: &VerifyConfig,
     intervals: &[(f64, f64)],
-) -> Result<Vec<(f64, f64)>, ZFault> {
-    intervals
-        .iter()
-        .map(|&(a, b)| refine_one(a, b, |t| certified_sign_ladder(cfg, |prec| z.z(t, prec))))
-        .collect()
+    policy: PoolPolicy,
+    stderr: &mut E,
+) -> io::Result<Result<Vec<(f64, f64)>, Fault>> {
+    let runner = Runner::new(policy, stderr)?;
+    Ok(runner.try_map(intervals.len(), |i| {
+        let (a, b) = intervals[i];
+        refine_one(a, b, |t| certified_sign_ladder(cfg, |prec| z.z(t, prec))).map_err(Fault::Z)
+    }))
 }
 
 /// The midpoint of a bracket: the zero's estimate `t_n`.
@@ -164,9 +179,14 @@ pub fn ks_distance(deltas: &[f64]) -> Option<f64> {
     Some(distance)
 }
 
-/// A width to 3 significant digits, as in the `w_n` column.
+/// A width to 3 significant digits, rounded up so the column never understates it,
+/// in the `{:.2e}` shape (`1.24e-3`).
 pub fn width_text(w: f64) -> String {
-    format!("{w:.2e}")
+    let (_, digits, exp) = Float::with_val(120, w).to_sign_string_exp_round(10, Some(3), Round::Up);
+    let Some(exp) = exp else {
+        return "0.00e0".to_string();
+    };
+    format!("{}.{}e{}", &digits[..1], &digits[1..], exp - 1)
 }
 
 /// The spacing report for refined brackets: the histogram beside the surmise, the KS
@@ -224,36 +244,6 @@ mod tests {
 
     fn next_up(x: f64) -> f64 {
         f64::from_bits(x.to_bits() + 1)
-    }
-
-    // ---- candidates ----
-
-    #[test]
-    fn candidates_start_with_the_midpoint_then_eight_distinct_nearby_points() {
-        let c = candidates(100.0, 101.0);
-        assert_eq!(c.len(), 1 + NEARBY_TRIES);
-        assert_eq!(c[0], 100.5);
-        assert!(c.iter().all(|&x| x > 100.0 && x < 101.0));
-        for (i, x) in c.iter().enumerate() {
-            assert!(!c[..i].contains(x), "duplicate {x}");
-        }
-        assert_eq!(c[1], 100.5 + 0.5_f64.powi(5));
-        assert_eq!(c[2], 100.5 - 0.5_f64.powi(5));
-    }
-
-    #[test]
-    fn candidates_are_empty_for_adjacent_floats_and_equal_ends() {
-        let a = 100.0;
-        assert!(candidates(a, next_up(a)).is_empty());
-        assert!(candidates(a, a).is_empty());
-        assert!(candidates(f64::NAN, 1.0).is_empty());
-    }
-
-    #[test]
-    fn candidates_for_a_gap_of_two_floats_hold_only_the_one_between() {
-        let a = 100.0;
-        let b = next_up(next_up(a));
-        assert_eq!(candidates(a, b), vec![next_up(a)]);
     }
 
     // ---- bisect ----
@@ -338,6 +328,50 @@ mod tests {
         assert!(step(z0)(r.0).unwrap() == Some(neg()) && step(z0)(r.1).unwrap() == Some(pos()));
     }
 
+    #[test]
+    fn bisect_bounded_stops_after_max_steps_with_a_certified_bracket() {
+        let z0 = 100.3;
+        let calls = Cell::new(0);
+        let r = bisect_bounded(
+            100.0,
+            101.0,
+            neg(),
+            |t| {
+                calls.set(calls.get() + 1);
+                step(z0)(t)
+            },
+            3,
+        )
+        .unwrap();
+        // The midpoint certifies at once, so each step costs one call and halves the width.
+        assert_eq!(calls.get(), 3);
+        assert_eq!(r.1 - r.0, 0.125);
+        assert!(step(z0)(r.0).unwrap() == Some(neg()) && step(z0)(r.1).unwrap() == Some(pos()));
+        assert_eq!(bisect_bounded(100.0, 101.0, neg(), step(z0), 0).unwrap(), (100.0, 101.0));
+    }
+
+    #[test]
+    fn the_worst_case_adversary_stays_under_the_step_bound() {
+        // Certifies only the candidate farthest below the midpoint and always moves `a`
+        // up to it: each step keeps 3/4 of the width, the slowest shrink there is.
+        let (lo, hi) = (Cell::new(1.0e3), Cell::new(1.0e3 + 1.0));
+        let steps = Cell::new(0);
+        let r = bisect(lo.get(), hi.get(), neg(), |t| {
+            let last = *candidates(lo.get(), hi.get(), &NEARBY_SHIFTS).last().unwrap();
+            if t == last {
+                steps.set(steps.get() + 1);
+                lo.set(t);
+                Ok(Some(neg()))
+            } else {
+                Ok(None)
+            }
+        })
+        .unwrap();
+        assert!(steps.get() > 90 && steps.get() <= MAX_BISECT_STEPS, "{}", steps.get());
+        assert_eq!(r, (lo.get(), hi.get()));
+        assert_eq!(r.1, 1.0e3 + 1.0);
+    }
+
     // ---- refine_one / refine_intervals ----
 
     #[test]
@@ -384,24 +418,109 @@ mod tests {
         }
     }
 
+    fn refine(z: &StepZ, ivs: &[(f64, f64)], policy: PoolPolicy) -> Result<Vec<(f64, f64)>, Fault> {
+        refine_intervals(z, &VerifyConfig::default(), ivs, policy, &mut Vec::new()).unwrap()
+    }
+
     #[test]
     fn refine_intervals_narrows_every_bracket_in_order() {
         let z = StepZ(100.3);
-        let cfg = VerifyConfig::default();
-        let out =
-            refine_intervals(&z, &cfg, &[(100.0, 101.0), (100.1, 100.4), (90.0, 91.0)]).unwrap();
+        let ivs = [(100.0, 101.0), (100.1, 100.4), (90.0, 91.0)];
+        let out = refine(&z, &ivs, PoolPolicy::Serial).unwrap();
         assert_eq!(out.len(), 3);
         assert!(out[0].1 - out[0].0 < 1e-12 && out[0].0 < 100.3 && 100.3 <= out[0].1);
         assert!(out[1].1 - out[1].0 < 1e-12);
         assert_eq!(out[2], (90.0, 91.0), "same signs at both ends: unchanged");
-        assert!(refine_intervals(&z, &cfg, &[]).unwrap().is_empty());
+        assert!(refine(&z, &[], PoolPolicy::Serial).unwrap().is_empty());
     }
 
     #[test]
-    fn refine_intervals_reports_a_z_fault() {
+    fn refine_intervals_is_identical_serial_and_on_a_pool() {
         let z = StepZ(100.3);
-        let r = refine_intervals(&z, &VerifyConfig::default(), &[(f64::NAN, 101.0)]);
-        assert!(matches!(r, Err(ZFault::NanHeight)));
+        let ivs: Vec<(f64, f64)> =
+            (0..40).map(|i| (100.0 + i as f64 * 0.001, 100.5 + i as f64 * 0.01)).collect();
+        let serial = refine(&z, &ivs, PoolPolicy::Serial).unwrap();
+        for policy in [PoolPolicy::Threads(3), PoolPolicy::Parallel] {
+            assert_eq!(refine(&z, &ivs, policy).unwrap(), serial, "{policy:?}");
+        }
+    }
+
+    #[test]
+    fn refine_intervals_reports_a_z_fault_serial_and_parallel() {
+        let z = StepZ(100.3);
+        for policy in [PoolPolicy::Serial, PoolPolicy::Threads(2)] {
+            let r = refine(&z, &[(f64::NAN, 101.0)], policy);
+            assert_eq!(r, Err(Fault::Z(ZFault::NanHeight)), "{policy:?}");
+        }
+    }
+
+    /// A Z that panics.
+    struct PanicZ;
+
+    impl ZSource for PanicZ {
+        fn z(&self, _: f64, _: u32) -> Result<Option<Interval>, ZFault> {
+            panic!("boom")
+        }
+
+        fn z_over(&self, _: f64, _: f64, _: u32) -> Result<Option<Interval>, ZFault> {
+            Ok(None)
+        }
+    }
+
+    #[test]
+    fn a_worker_panic_during_refinement_is_a_fault() {
+        for policy in [PoolPolicy::Serial, PoolPolicy::Threads(2)] {
+            let r = refine_intervals(
+                &PanicZ,
+                &VerifyConfig::default(),
+                &[(100.0, 101.0)],
+                policy,
+                &mut Vec::new(),
+            )
+            .unwrap();
+            assert_eq!(r, Err(Fault::WorkerPanicked), "{policy:?}");
+        }
+    }
+
+    #[test]
+    fn an_unbuildable_pool_falls_back_to_serial_with_a_message() {
+        let mut err = Vec::new();
+        let z = StepZ(100.3);
+        let r = refine_intervals(
+            &z,
+            &VerifyConfig::default(),
+            &[(100.0, 101.0)],
+            PoolPolicy::FailBuild,
+            &mut err,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r.len(), 1);
+        let msg = String::from_utf8(err).unwrap();
+        assert!(msg.starts_with("Parallel mode unavailable ("), "{msg}");
+        assert!(msg.ends_with("); falling back to serial.\n"), "{msg}");
+    }
+
+    #[test]
+    fn a_failing_stderr_surfaces_from_the_fallback_message() {
+        struct Failing;
+        impl Write for Failing {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Err(io::Error::other("closed"))
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let z = StepZ(100.3);
+        let r = refine_intervals(
+            &z,
+            &VerifyConfig::default(),
+            &[],
+            PoolPolicy::FailBuild,
+            &mut Failing,
+        );
+        assert!(r.is_err());
     }
 
     // ---- statistics ----
@@ -410,7 +529,13 @@ mod tests {
     fn midpoint_and_width_text() {
         assert_eq!(midpoint(14.0, 15.0), 14.5);
         assert_eq!(midpoint(1e308, 1.7e308), 1e308 + (1.7e308 - 1e308) / 2.0);
-        assert_eq!(width_text(0.001_234_5), "1.23e-3");
+        assert_eq!(width_text(0.001_234_5), "1.24e-3", "rounds up, not to nearest");
+        assert_eq!(width_text(0.001_231), "1.24e-3");
+        assert_eq!(width_text(0.001_23), "1.23e-3");
+        assert_eq!(width_text(0.5), "5.00e-1");
+        assert_eq!(width_text(0.0), "0.00e0");
+        assert_eq!(width_text(9.991), "1.00e1");
+        assert_eq!(width_text(12345.0), "1.24e4");
         assert_eq!(width_text(2.0), "2.00e0");
     }
 
@@ -522,7 +647,7 @@ mod tests {
 
     #[test]
     fn ks_distance_reads_both_sides_of_each_step() {
-        // F(median) = 0.5: a sample at the median has D = 0.5 from either side.
+        // F(lo) = 0.5, F(100) ~ 1: the largest gap is 0.5, both below the first point and just after it.
         let (mut lo, mut hi) = (0.1, 3.0);
         for _ in 0..60 {
             let mid = (lo + hi) / 2.0;
@@ -530,7 +655,6 @@ mod tests {
         }
         let d = ks_distance(&[lo]).unwrap();
         assert!((d - 0.5).abs() < 1e-6, "{d}");
-        // Two points at F = 0.5 and ~1: D = max(1/2 - 0.5... ) = 0.5 (gap below the first).
         let d = ks_distance(&[lo, 100.0]).unwrap();
         assert!((d - 0.5).abs() < 1e-6, "{d}");
     }
@@ -558,7 +682,7 @@ mod tests {
         assert!(lines[8].ends_with("0.9277"), "{lines:?}");
         assert!(lines[22].starts_with("  2.85-3.00  "), "{text}");
         assert!(lines[23].starts_with("KS distance to the Wigner surmise CDF: 0."), "{text}");
-        assert_eq!(lines[24], "Largest w_n: 2.00e-3");
+        assert_eq!(lines[24], "Largest w_n: 2.01e-3");
         assert_eq!(
             lines[25],
             "The Wigner surmise approximates the exact GUE spacing law to within about 1%;"

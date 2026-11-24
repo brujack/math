@@ -240,7 +240,7 @@ where
     // here is an internal error (exit 6) and leaves no table behind.
     let refined = match (&verdict, cli.refine) {
         (Verdict::Verified { intervals, .. }, true) => {
-            match refine_intervals(&z, env.cfg, intervals) {
+            match refine_intervals(&z, env.cfg, intervals, env.policy, err)? {
                 Ok(refined) => Some(refined),
                 Err(e) => {
                     writeln!(err, "internal error: {e}")?;
@@ -1442,7 +1442,7 @@ mod tests {
         let f: Vec<&str> = lines[2].split(' ').collect();
         assert_eq!(f.len(), 5);
         assert_eq!(f[3], "21.0005000000000");
-        assert_eq!(f[4], "1.00e-3");
+        assert_eq!(f[4], "1.01e-3", "rounded up from 1.00000000000122e-3");
         assert_eq!(lines.len(), 3);
     }
 
