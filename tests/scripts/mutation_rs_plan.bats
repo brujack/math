@@ -288,12 +288,90 @@ _plan() {
     [ "$(jq -r '.[0].fault' <<<"${output}")" = "no mutants listed" ]
 }
 
-@test "fault units add nothing to the 256 shard total" {
+@test "256 real shards plus one fault unit is red (limit counts units)" {
     _cfg a-rs count=19200
     _cfg b-rs count=1 exit=1
     _plan --whole a/a-rs b/b-rs
+    [ "${status}" -eq 1 ]
+    [[ "${stderr}" == *'error: plan needs 257 shards, over the 256-job matrix limit (ADR-0046)'* ]]
+}
+
+@test "255 real shards plus one fault unit is green" {
+    _cfg a-rs count=19125
+    _cfg b-rs count=1 exit=1
+    _plan --whole a/a-rs b/b-rs
     [ "${status}" -eq 0 ]
-    [ "$(jq 'length' <<<"${output}")" -eq 257 ]
+    [ "$(jq 'length' <<<"${output}")" -eq 256 ]
+}
+
+# jq shim: fails any unit-emit call (those pass `--arg crate`), else runs the real jq.
+_shim_jq_fail_emit() {
+    REAL_JQ="$(command -v jq)"
+    export REAL_JQ
+    cat >"${STUBS}/jq" <<'SHIM'
+#!/usr/bin/env bash
+if [[ "$*" == *"--arg crate"* ]]; then exit 1; fi
+exec "${REAL_JQ}" "$@"
+SHIM
+    chmod +x "${STUBS}/jq"
+}
+
+@test "failed shard unit emit is red" {
+    _shim_jq_fail_emit
+    _cfg a-rs count=3
+    _plan --whole a/a-rs
+    [ "${status}" -eq 1 ]
+    [[ "${stderr}" == *'red: a/a-rs - unit emit failed'* ]]
+    [ -z "${output}" ]
+}
+
+@test "failed fault unit emit is red" {
+    _shim_jq_fail_emit
+    _cfg a-rs count=3 exit=1
+    _plan --whole a/a-rs
+    [ "${status}" -eq 1 ]
+    [[ "${stderr}" == *'red: a/a-rs - unit emit failed'* ]]
+}
+
+@test "multiple trailing slashes are stripped" {
+    _cfg a-rs count=1
+    _plan --whole a/a-rs//
+    [ "${status}" -eq 0 ]
+    [ "$(jq -c '[.[0].crate, .[0].slug]' <<<"${output}")" = '["a/a-rs","a-rs-0"]' ]
+}
+
+@test "crate dir with whitespace is red in diff mode" {
+    _plan main "a b/a-rs"
+    [ "${status}" -eq 1 ]
+    [[ "${stderr}" == *'red: a b/a-rs - bad crate dir'* ]]
+}
+
+@test "crate dir with whitespace is red in whole mode" {
+    _plan --whole "a b/a-rs"
+    [ "${status}" -eq 1 ]
+    [[ "${stderr}" == *'red: a b/a-rs - bad crate dir'* ]]
+}
+
+@test "crate dir empty after stripping slashes is red" {
+    _plan --whole /
+    [ "${status}" -eq 1 ]
+    [[ "${stderr}" == *'bad crate dir'* ]]
+}
+
+@test "temp dir is removed after a green run and after a red run" {
+    mkdir "${BATS_TEST_TMPDIR}/t"
+    _cfg a-rs count=3
+    TMPDIR="${BATS_TEST_TMPDIR}/t" _plan --whole a/a-rs
+    [ "${status}" -eq 0 ]
+    [ -z "$(ls -A "${BATS_TEST_TMPDIR}/t")" ]
+    TMPDIR="${BATS_TEST_TMPDIR}/t" _plan main a/a-rs
+    [ "${status}" -eq 1 ]
+    [ -z "$(ls -A "${BATS_TEST_TMPDIR}/t")" ]
+}
+
+@test "base ref starting with a dash exits 2" {
+    _plan -x a/a-rs
+    [ "${status}" -eq 2 ]
 }
 
 @test "large listing (750 objects) is counted" {

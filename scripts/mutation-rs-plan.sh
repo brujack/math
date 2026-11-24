@@ -8,8 +8,8 @@
 # Per crate, K is the number of mutants `cargo mutants --list --json` reports (with
 # `--in-diff` of the PR diff in diff mode). K > 0 becomes n = ceil(K/75) round-robin
 # shards; shard k holds ceil((K-k)/n) mutants. Units go to stdout as one compact line,
-# [{"crate","slug","k","n","count"}], `[]` when none. A plan of more than 256 shards in
-# total is red (the GitHub matrix limit, ADR-0046).
+# [{"crate","slug","k","n","count"}], `[]` when none. A plan of more than 256 units
+# (fault units included) is red (the GitHub matrix limit, ADR-0046).
 #
 # Diff mode: an empty diff, a failed diff or a failed or non-array listing prints
 # `red: <crate> - <reason>` to stderr; the other crates are still planned, no units are
@@ -30,10 +30,13 @@ _red() {
     return 1
 }
 
-# _emit_fault <units-file> <dir> <message>: one fault unit line.
+# _emit_fault <units-file> <dir> <message>: one fault unit line; red on failure.
 _emit_fault() {
-    jq -nc --arg crate "$2" --arg slug "${2##*/}-plan" --arg fault "$3" \
-        '{crate: $crate, slug: $slug, k: 0, n: 0, count: 0, fault: $fault}' >>"$1"
+    if ! jq -nc --arg crate "$2" --arg slug "${2##*/}-plan" --arg fault "$3" \
+        '{crate: $crate, slug: $slug, k: 0, n: 0, count: 0, fault: $fault}' >>"$1"; then
+        _red "$2" "unit emit failed"
+        return 1
+    fi
 }
 
 # _list_count <dir> <listing-file> <diff-file-or-empty>
@@ -56,7 +59,15 @@ _list_count() {
 # An empty base-ref means --whole. Returns 1 for a diff-mode red.
 plan_crate() {
     local script_dir="$1" base_ref="$2" tmp="$3" index="$4" units="$5"
-    local dir="${6%/}"
+    local dir="${6}"
+    while [[ "${dir}" == */ ]]; do
+        dir="${dir%/}"
+    done
+    # A caller bug, not a crate fault, so --whole is red here too.
+    if [[ -z "${dir}" || "${dir}" =~ [[:space:]] ]]; then
+        _red "${6}" "bad crate dir"
+        return 1
+    fi
     local name="${dir##*/}"
     local diff_file=""
     local listing="${tmp}/${index}.json"
@@ -83,9 +94,9 @@ plan_crate() {
             return 1
         fi
         if [[ "${rc}" -eq 1 ]]; then
-            _emit_fault "${units}" "${dir}" "mutant listing failed"
+            _emit_fault "${units}" "${dir}" "mutant listing failed" || return 1
         else
-            _emit_fault "${units}" "${dir}" "mutant listing is not a JSON array"
+            _emit_fault "${units}" "${dir}" "mutant listing is not a JSON array" || return 1
         fi
         return 0
     fi
@@ -94,7 +105,7 @@ plan_crate() {
         if [[ -n "${base_ref}" ]]; then
             printf 'plan: %s K=0 (no mutants on changed lines)\n' "${dir}" >&2
         else
-            _emit_fault "${units}" "${dir}" "no mutants listed"
+            _emit_fault "${units}" "${dir}" "no mutants listed" || return 1
         fi
         return 0
     fi
@@ -103,9 +114,12 @@ plan_crate() {
     printf 'plan: %s K=%s n=%s per-shard=%s\n' "${dir}" "${k}" "${n}" "$(((k + n - 1) / n))" >&2
     local shard
     for ((shard = 0; shard < n; shard++)); do
-        jq -nc --arg crate "${dir}" --arg slug "${name}-${shard}" \
+        if ! jq -nc --arg crate "${dir}" --arg slug "${name}-${shard}" \
             --argjson k "${shard}" --argjson n "${n}" --argjson count "$(((k - shard + n - 1) / n))" \
-            '{crate: $crate, slug: $slug, k: $k, n: $n, count: $count}' >>"${units}"
+            '{crate: $crate, slug: $slug, k: $k, n: $n, count: $count}' >>"${units}"; then
+            _red "${dir}" "unit emit failed"
+            return 1
+        fi
     done
 }
 
@@ -145,8 +159,8 @@ main() {
         fi
 
         local total
-        # Each crate's shards all carry its n, so count n once per crate, at shard 0.
-        total="$(jq -s '[.[] | select(.k == 0) | .n] | add // 0' "${units}")" || exit 1
+        # The matrix gets one job per emitted unit, fault units included (R3 amendment).
+        total="$(jq -s 'length' "${units}")" || exit 1
         if [[ "${total}" -gt "${MATRIX_LIMIT}" ]]; then
             printf 'error: plan needs %s shards, over the %s-job matrix limit (ADR-0046)\n' \
                 "${total}" "${MATRIX_LIMIT}" >&2
