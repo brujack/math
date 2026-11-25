@@ -31,6 +31,7 @@ _ELAPSED_LINE_RE = re.compile(
 _RSS_RE = re.compile(
     r"^\s*Maximum resident set size \(kbytes\): (\d+)\s*$", re.MULTILINE
 )
+_SIGNAL_RE = re.compile(r"^\s*Command terminated by signal (\d+)\s*$", re.MULTILINE)
 _EXIT_RE = re.compile(r"^\s*Exit status: (\d+)\s*$", re.MULTILINE)
 _VERIFIED_RE = re.compile(
     r"^RH verified: all (\d+) nontrivial zeros with 0 < Im s <= (\d+) "
@@ -106,6 +107,9 @@ def parse_time_report(text: str, run_id: str) -> TimeReport:
     command = _require(
         _COMMAND_RE, text, run_id, "command line (zeta-<hash> <N>[ --refine])"
     )
+    signal = _SIGNAL_RE.search(text)
+    if signal is not None:
+        raise ResultsError(f"{run_id}: command terminated by signal {signal.group(1)}")
     status = int(_require(_EXIT_RE, text, run_id, "Exit status").group(1))
     if status != 0:
         raise ResultsError(f"{run_id}: Exit status is {status}, not 0")
@@ -146,7 +150,7 @@ def _parse_refined_out(text: str, run_id: str) -> tuple[int, tuple[int, ...], st
     return spacings, counts, ks
 
 
-def parse_out(text: str, run_id: str, n: int, refine: bool = False) -> OutSummary:
+def parse_out(text: str, run_id: str, n: int, *, refine: bool) -> OutSummary:
     """Parse the CLI's stdout; a refined run must also carry its histogram and KS."""
     verified = _require(_VERIFIED_RE, text, run_id, "RH verified line")
     if int(verified.group(2)) != 10**n:
@@ -194,6 +198,8 @@ def load_runs_toml(path: Path) -> dict[str, RunMeta]:
         raise ResultsError("runs.toml: no [[run]] tables")
     runs: dict[str, RunMeta] = {}
     for index, table in enumerate(tables):
+        if not isinstance(table, dict):
+            raise ResultsError(f"runs.toml: run[{index}] is not a table")
         meta = _run_from_table(table, index)
         if meta.id in runs:
             raise ResultsError(f"{meta.id}: duplicate id in runs.toml")
@@ -204,10 +210,12 @@ def load_runs_toml(path: Path) -> dict[str, RunMeta]:
 def _table_row(line: str, number: int, run_id: str) -> tuple[float, float]:
     """Validate one data line; return its (a, b) with `t_n` bracket-checked."""
     fields = line.split()
-    if len(fields) != 5 or fields[0] != str(number):
+    if len(fields) != 5:
         raise ResultsError(
-            f"{run_id}: refined table line {number} is malformed or out of order"
+            f"{run_id}: refined table line {number} has {len(fields)} fields, expected 5"
         )
+    if fields[0] != str(number):
+        raise ResultsError(f"{run_id}: refined table line {number} is out of order")
     try:
         _, a, b, t, w = (float(f) for f in fields)
     except ValueError as err:

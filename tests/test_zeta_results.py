@@ -6,6 +6,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -120,6 +122,16 @@ class TestParsing(_FixtureCopy):
         rep = zr.parse_time_report("\n".join(lines), "tr3")
         self.assertEqual(rep.elapsed_s, 3743)
 
+    def test_time_signal_killed_with_exit_status_zero(self) -> None:
+        bad = self.err().replace(
+            "\tExit status: 0", "\tCommand terminated by signal 9\n\tExit status: 0"
+        )
+        self.assertIn("signal 9", bad)
+        with self.assertRaisesRegex(
+            zr.ResultsError, "^tr3: command terminated by signal 9"
+        ):
+            zr.parse_time_report(bad, "tr3")
+
     def test_time_nonzero_exit_status(self) -> None:
         bad = self.err().replace("Exit status: 0", "Exit status: 1")
         with self.assertRaisesRegex(zr.ResultsError, "^tr3: "):
@@ -172,7 +184,7 @@ class TestParsing(_FixtureCopy):
         self.assertEqual(s.cli_ks, "0.0448")
 
     def test_out_plain_fixture(self) -> None:
-        s = zr.parse_out(self.out("t2"), "t2", 2)
+        s = zr.parse_out(self.out("t2"), "t2", 2, refine=False)
         self.assertEqual(s.count, 29)
         self.assertIsNone(s.spacings)
         self.assertIsNone(s.cli_counts)
@@ -263,6 +275,18 @@ class TestParsing(_FixtureCopy):
         with self.assertRaisesRegex(zr.ResultsError, "^runs.toml: "):
             self.load()
 
+    def test_toml_non_table_run_entry(self) -> None:
+        (self.root / "runs.toml").write_text("run = [1]\n")
+        with self.assertRaisesRegex(
+            zr.ResultsError, r"^runs.toml: run\[0\] is not a table"
+        ):
+            self.load()
+
+    def test_toml_empty_run_array(self) -> None:
+        (self.root / "runs.toml").write_text("run = []\n")
+        with self.assertRaisesRegex(zr.ResultsError, "^runs.toml: no "):
+            self.load()
+
     def test_toml_unparseable_toml(self) -> None:
         (self.root / "runs.toml").write_text("[[run\n")
         with self.assertRaisesRegex(zr.ResultsError, "^runs.toml: "):
@@ -298,30 +322,38 @@ class TestParsing(_FixtureCopy):
         with self.assertRaisesRegex(zr.ResultsError, "^tr3: "):
             self.read()
 
+    def _write_row(self, mutate: Callable[[list[str]], list[str]]) -> None:
+        lines = (FIXTURES / "tr3" / "zeta_1e3.txt").read_text().splitlines()
+        edited = [*lines[:5], " ".join(mutate(lines[5].split())), *lines[6:]]
+        (self.root / "tr3" / "zeta_1e3.txt").write_text("\n".join(edited) + "\n")
+
+    @staticmethod
+    def _replace_field(fields: list[str], column: int, token: str) -> list[str]:
+        return [*fields[:column], token, *fields[column + 1 :]]
+
     def test_table_non_finite_values(self) -> None:
-        for token in ("nan", "inf"):
-            with self.subTest(token=token):
-                path = self.root / "tr3" / "zeta_1e3.txt"
-                path.write_text((FIXTURES / "tr3" / "zeta_1e3.txt").read_text())
-                lines = path.read_text().splitlines()
-                f = lines[5].split()
-                f[2] = token
-                lines[5] = " ".join(f)
-                path.write_text("\n".join(lines) + "\n")
-                with self.assertRaisesRegex(zr.ResultsError, "^tr3: "):
+        for column in (2, 4):
+            for token in ("nan", "inf"):
+                with self.subTest(column=column, token=token):
+                    self._write_row(
+                        partial(self._replace_field, column=column, token=token)
+                    )
+                    with self.assertRaisesRegex(zr.ResultsError, "^tr3: .*non-finite"):
+                        self.read()
+
+    def test_table_wrong_field_count(self) -> None:
+        for mutate in (lambda f: f[:4], lambda f: [*f, "1"]):
+            with self.subTest():
+                self._write_row(mutate)
+                with self.assertRaisesRegex(
+                    zr.ResultsError, "^tr3: .*fields, expected 5"
+                ):
                     self.read()
 
-    def test_table_unparseable_number_and_field_count(self) -> None:
-        lines = (FIXTURES / "tr3" / "zeta_1e3.txt").read_text().splitlines()
-        for mutate in (lambda f: f[:4], lambda f: [*f[:2], "x", *f[3:]]):
-            with self.subTest():
-                f = lines[5].split()
-                edited = [*lines[:5], " ".join(mutate(f)), *lines[6:]]
-                (self.root / "tr3" / "zeta_1e3.txt").write_text(
-                    "\n".join(edited) + "\n"
-                )
-                with self.assertRaisesRegex(zr.ResultsError, "^tr3: "):
-                    self.read()
+    def test_table_unparseable_number(self) -> None:
+        self._write_row(lambda f: [*f[:2], "x", *f[3:]])
+        with self.assertRaisesRegex(zr.ResultsError, "^tr3: .*non-number"):
+            self.read()
 
     def test_table_non_increasing_midpoints(self) -> None:
         path = self.root / "tr3" / "zeta_1e3.txt"
