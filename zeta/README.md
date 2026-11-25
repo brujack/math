@@ -106,11 +106,11 @@ with the command above.
 
 ## Results page
 
-The results page is generated locally from finished run directories and committed under `zeta/results/site/`. Each run directory holds the CLI's `out.txt` and `err.txt`, where `err.txt` must be the report from `/usr/bin/time -v`, because the generator reads provenance from it. To regenerate:
+The results page is generated locally from finished run directories and committed under `zeta/results/site/`. Each run directory holds the CLI's `out.txt` and `err.txt`, where `err.txt` must be the report from `/usr/bin/time -v`, because the generator reads provenance from it. Each `--run` id must match an `id` entry in `runs.toml`. To regenerate:
 
 ```bash
 python3 scripts/zeta_results.py --runs-toml zeta/results/runs.toml \
-    --run 3=<run dir> --run 7=<run dir> \
+    --run t3=<run dir> --run r7=<run dir> \
     --out zeta/results/site --runs-out zeta/results/runs
 ```
 
