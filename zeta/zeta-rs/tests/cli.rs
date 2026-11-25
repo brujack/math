@@ -185,3 +185,22 @@ fn e2e_create_failure_after_verification_exits_4_without_a_verified_claim() {
     assert!(last.starts_with("Error: cannot write zeta_1e2.txt: "), "{err}");
     assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
 }
+
+/// The production throttle (2 s, 1%) is wired by `run` alone, so only the real binary
+/// can pin it: a quick run prints just each stage's final line, one per stage.
+#[test]
+fn e2e_a_quick_run_prints_exactly_one_final_progress_line_per_stage() {
+    let dir = tempfile::tempdir().unwrap();
+    let (code, out, err) = run_in(dir.path(), &["2"], "");
+    assert_eq!(code, Some(0), "{out}{err}");
+    assert!(!out.contains("progress:"), "{out}");
+    let lines: Vec<&str> = err.lines().filter(|l| l.starts_with("progress:")).collect();
+    assert_eq!(lines.len(), 2, "{err}");
+    for (line, noun) in lines.iter().zip(["Gram points", "Gram blocks"]) {
+        let (counts, rest) =
+            line["progress: ".len()..].split_once(&format!(" {noun}, t = ")).unwrap();
+        let (done, total) = counts.split_once('/').unwrap();
+        assert_eq!(done, total, "{line}");
+        assert!(rest.parse::<f64>().is_ok(), "{line}");
+    }
+}

@@ -7,7 +7,8 @@ use clap::Parser;
 use rug::Float;
 use rug::float::Round;
 use zeta::config::VerifyConfig;
-use zeta::spacing::{midpoint, refine_intervals, width_text, write_report};
+use zeta::isolate::midpoint;
+use zeta::spacing::{refine_intervals, width_text, write_report};
 use zeta::verify::{GramSpan, PoolPolicy, RunStats, Throttle, Verdict, verify};
 use zeta::zfun::{RealZ, SELF_CHECK_PREC, ZError, ZEvaluator, ZSource, self_check};
 
@@ -298,11 +299,11 @@ fn report<W: Write, E: Write, S: OutputStore>(
     let height = 10u64.pow(n);
     match verdict {
         Verdict::Verified { count, intervals, stats } => {
-            let (brackets, columns) = match refined {
-                Some(r) => (r, true),
-                None => (intervals.as_slice(), false),
+            let (brackets, shape) = match refined {
+                Some(r) => (r, TableShape::Refined),
+                None => (intervals.as_slice(), TableShape::Plain),
             };
-            if let Err(e) = save_table(store, n, brackets, columns) {
+            if let Err(e) = save_table(store, n, brackets, shape) {
                 writeln!(err, "Error: cannot write {}: {e}", table_name(n))?;
                 return Ok(4);
             }
@@ -384,11 +385,11 @@ fn save_table<S: OutputStore>(
     store: &S,
     n: u32,
     intervals: &[(f64, f64)],
-    columns: bool,
+    shape: TableShape,
 ) -> io::Result<()> {
     let (tmp, table) = (tmp_name(n), table_name(n));
     let mut file = store.create(&tmp)?;
-    let written = write_table(&mut file, intervals, columns).and_then(|()| file.sync());
+    let written = write_table(&mut file, intervals, shape).and_then(|()| file.sync());
     drop(file);
     let result = written.and_then(|()| store.rename(&tmp, &table));
     if result.is_err() {
@@ -398,15 +399,24 @@ fn save_table<S: OutputStore>(
     result
 }
 
-/// Header `# n a b`, then one `n a b` line per zero; with `columns` (`--refine`) the
+/// Which columns the table has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TableShape {
+    /// `# n a b`.
+    Plain,
+    /// `--refine`: `# n a b t_n w_n`.
+    Refined,
+}
+
+/// Header `# n a b`, then one `n a b` line per zero; with `TableShape::Refined` (`--refine`) the
 /// header is `# n a b t_n w_n` and each line adds the bracket's midpoint to 15
 /// significant digits and its width b - a to 3.
-fn write_table<F: Write>(file: F, intervals: &[(f64, f64)], columns: bool) -> io::Result<()> {
+fn write_table<F: Write>(file: F, intervals: &[(f64, f64)], shape: TableShape) -> io::Result<()> {
     let mut w = BufWriter::new(file);
-    writeln!(w, "{}", if columns { "# n a b t_n w_n" } else { "# n a b" })?;
+    writeln!(w, "{}", if shape == TableShape::Refined { "# n a b t_n w_n" } else { "# n a b" })?;
     for (i, &(a, b)) in intervals.iter().enumerate() {
         write!(w, "{} {} {}", i + 1, digits30(a, Round::Down), digits30(b, Round::Up))?;
-        if columns {
+        if shape == TableShape::Refined {
             write!(w, " {} {}", digits(midpoint(a, b), 15, Round::Nearest), width_text(b - a))?;
         }
         writeln!(w)?;
@@ -1037,7 +1047,7 @@ mod tests {
     #[test]
     fn write_table_has_the_header_then_numbered_lines() {
         let mut buf = Vec::new();
-        write_table(&mut buf, &[(14.0, 14.5), (21.0, 21.5)], false).unwrap();
+        write_table(&mut buf, &[(14.0, 14.5), (21.0, 21.5)], TableShape::Plain).unwrap();
         let text = String::from_utf8(buf).unwrap();
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines.len(), 3);
@@ -1052,7 +1062,7 @@ mod tests {
     fn write_table_rounds_a_down_and_b_up_for_a_non_exact_interval() {
         // 1.1 and 1.2 are not exact in binary: the interval must only ever widen.
         let mut buf = Vec::new();
-        write_table(&mut buf, &[(1.1, 1.2)], false).unwrap();
+        write_table(&mut buf, &[(1.1, 1.2)], TableShape::Plain).unwrap();
         let text = String::from_utf8(buf).unwrap();
         assert_eq!(
             text,
@@ -1063,14 +1073,14 @@ mod tests {
     #[test]
     fn write_table_of_no_zeros_is_just_the_header() {
         let mut buf = Vec::new();
-        write_table(&mut buf, &[], false).unwrap();
+        write_table(&mut buf, &[], TableShape::Plain).unwrap();
         assert_eq!(String::from_utf8(buf).unwrap(), "# n a b\n");
     }
 
     #[test]
     fn write_table_reports_a_failing_writer() {
-        assert!(write_table(WriteFailingWriter, &[(1.0, 2.0)], false).is_err());
-        assert!(write_table(FlushFailingWriter, &[], false).is_err());
+        assert!(write_table(WriteFailingWriter, &[(1.0, 2.0)], TableShape::Plain).is_err());
+        assert!(write_table(FlushFailingWriter, &[], TableShape::Plain).is_err());
     }
 
     #[test]
@@ -1087,7 +1097,7 @@ mod tests {
     #[test]
     fn save_table_leaves_only_the_final_file() {
         let store = MemStore::new(Break::Nothing);
-        save_table(&store, 2, &[(14.0, 15.0)], false).unwrap();
+        save_table(&store, 2, &[(14.0, 15.0)], TableShape::Plain).unwrap();
         assert_eq!(store.names(), vec!["zeta_1e2.txt".to_string()]);
         let data = String::from_utf8(store.files.borrow()["zeta_1e2.txt"].clone()).unwrap();
         assert!(data.starts_with("# n a b\n1 14.0"), "{data:?}");
@@ -1098,7 +1108,7 @@ mod tests {
     fn save_table_failure_at_any_step_leaves_no_file_and_removes_the_temporary() {
         for brk in [Break::Write, Break::Sync, Break::Rename] {
             let store = MemStore::new(brk);
-            assert!(save_table(&store, 3, &[(14.0, 15.0)], false).is_err());
+            assert!(save_table(&store, 3, &[(14.0, 15.0)], TableShape::Plain).is_err());
             assert!(store.names().is_empty(), "{:?}", store.names());
             assert_eq!(*store.removed.borrow(), vec!["zeta_1e3.tmp.txt".to_string()]);
         }
@@ -1107,14 +1117,14 @@ mod tests {
     #[test]
     fn save_table_syncs_the_temporary_file_before_the_rename() {
         let store = MemStore::new(Break::Nothing);
-        save_table(&store, 3, &[(14.0, 15.0)], false).unwrap();
+        save_table(&store, 3, &[(14.0, 15.0)], TableShape::Plain).unwrap();
         assert_eq!(*store.synced.borrow(), vec!["zeta_1e3.tmp.txt".to_string()]);
     }
 
     #[test]
     fn a_failed_create_removes_nothing() {
         let store = MemStore::new(Break::Create);
-        assert!(save_table(&store, 3, &[(14.0, 15.0)], false).is_err());
+        assert!(save_table(&store, 3, &[(14.0, 15.0)], TableShape::Plain).is_err());
         assert!(store.removed.borrow().is_empty());
     }
 
@@ -1122,7 +1132,7 @@ mod tests {
     fn a_temporary_file_that_already_exists_is_left_untouched_and_fails_the_save() {
         let store = MemStore::new(Break::Nothing);
         store.files.borrow_mut().insert("zeta_1e3.tmp.txt".into(), b"other run".to_vec());
-        let error = save_table(&store, 3, &[(14.0, 15.0)], false).unwrap_err();
+        let error = save_table(&store, 3, &[(14.0, 15.0)], TableShape::Plain).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(store.files.borrow()["zeta_1e3.tmp.txt"], b"other run");
         assert!(store.removed.borrow().is_empty());
@@ -1498,7 +1508,7 @@ mod tests {
     #[test]
     fn write_table_with_columns_adds_t_n_and_w_n() {
         let mut buf = Vec::new();
-        write_table(&mut buf, &[(14.0, 14.5), (21.0, 21.001)], true).unwrap();
+        write_table(&mut buf, &[(14.0, 14.5), (21.0, 21.001)], TableShape::Refined).unwrap();
         let text = String::from_utf8(buf).unwrap();
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines[0], "# n a b t_n w_n");
@@ -1520,7 +1530,7 @@ mod tests {
     #[test]
     fn write_table_without_columns_is_the_plain_three_column_table() {
         let mut buf = Vec::new();
-        write_table(&mut buf, &[(14.0, 14.5)], false).unwrap();
+        write_table(&mut buf, &[(14.0, 14.5)], TableShape::Plain).unwrap();
         let text = String::from_utf8(buf).unwrap();
         assert!(text.starts_with("# n a b\n1 "), "{text}");
         assert_eq!(text.lines().nth(1).unwrap().split(' ').count(), 3);
@@ -1668,5 +1678,70 @@ mod tests {
         assert_eq!(code, 6, "{out}{err}");
         assert!(err.lines().last().unwrap_or_default().starts_with("internal error: "), "{err}");
         assert!(names.is_empty() && !out.contains("RH verified"), "{out}");
+    }
+    /// Real Z that sleeps once, on its `at`th `z` call.
+    struct SleepAt {
+        inner: RealZ,
+        calls: std::sync::atomic::AtomicUsize,
+        at: usize,
+    }
+
+    impl ZSource for SleepAt {
+        fn z(&self, t: f64, prec: u32) -> Result<Option<Interval>, ZFault> {
+            if self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == self.at {
+                std::thread::sleep(std::time::Duration::from_millis(1200));
+            }
+            self.inner.z(t, prec)
+        }
+
+        fn z_over(&self, lo: f64, hi: f64, prec: u32) -> Result<Option<Interval>, ZFault> {
+            self.inner.z_over(lo, hi, prec)
+        }
+    }
+
+    #[test]
+    fn e2e_elapsed_covers_the_refinement() {
+        let cfg = VerifyConfig::default();
+        let run = |at: usize| {
+            let store = MemStore::new(Break::Nothing);
+            let z = SleepAt {
+                inner: RealZ::new(&cfg).unwrap(),
+                calls: std::sync::atomic::AtomicUsize::new(0),
+                at,
+            };
+            let e = Env {
+                cfg: &cfg,
+                z: Ok(z),
+                store: &store,
+                policy: PoolPolicy::Serial,
+                throttle: Throttle::NONE,
+                skip_self_check: true,
+            };
+            let (code, out, _) = drive_with(&["2", "--refine"], "", e);
+            assert_eq!(code, 0, "{out}");
+            let line = out.lines().find(|l| l.starts_with("Elapsed: ")).unwrap();
+            line["Elapsed: ".len()..].trim_end_matches(" s").parse::<f64>().unwrap()
+        };
+        // A plain run's `z` call count marks where refinement starts: sleep on the next call.
+        let plain_calls = {
+            let store = MemStore::new(Break::Nothing);
+            let counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let z = FaultAfter {
+                inner: RealZ::new(&cfg).unwrap(),
+                calls: counter.clone(),
+                limit: usize::MAX,
+            };
+            let e = Env {
+                cfg: &cfg,
+                z: Ok(z),
+                store: &store,
+                policy: PoolPolicy::Serial,
+                throttle: Throttle::NONE,
+                skip_self_check: true,
+            };
+            assert_eq!(drive_with(&["2"], "", e).0, 0);
+            counter.load(std::sync::atomic::Ordering::SeqCst)
+        };
+        assert!(run(plain_calls) >= 1.2, "a sleep inside refinement must show in Elapsed");
     }
 }

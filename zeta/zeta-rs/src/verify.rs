@@ -253,7 +253,7 @@ impl Runner {
 }
 
 /// When a progress line may be printed (spec R21): at least `min_fraction` of all
-/// blocks finished since the previous line AND at least `min_interval` since it.
+/// items of the stage (Gram points, then Gram blocks) finished since the previous line AND at least `min_interval` since it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Throttle {
     pub min_interval: Duration,
@@ -261,10 +261,10 @@ pub struct Throttle {
 }
 
 impl Throttle {
-    /// Production: 1% more blocks and 2 s.
+    /// Production: 1% more items and 2 s.
     pub const PRODUCTION: Throttle =
         Throttle { min_interval: Duration::from_secs(2), min_fraction: 0.01 };
-    /// Every finished block prints a line; for deterministic tests.
+    /// Every finished item prints a line; for deterministic tests.
     pub const NONE: Throttle = Throttle { min_interval: Duration::ZERO, min_fraction: 0.0 };
 
     fn allows(&self, gained: usize, total: usize, since_last: Duration) -> bool {

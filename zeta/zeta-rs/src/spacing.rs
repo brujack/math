@@ -9,8 +9,7 @@ use rug::float::Round;
 
 use crate::config::VerifyConfig;
 use crate::interval::Sign;
-use crate::isolate::candidates;
-pub use crate::isolate::midpoint;
+use crate::isolate::{candidates, midpoint};
 use crate::verify::{Fault, PoolPolicy, Runner};
 use crate::zfun::{ZFault, ZSource, certified_sign_ladder};
 
