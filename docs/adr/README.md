@@ -50,3 +50,4 @@ Repo-specific decisions for the `math` repository. Cross-cutting decisions (CI t
 | [0044](0044-python-pr-mutation-gate.md) | Per-PR Python mutation gate on changed lines | 2026-11-08 | Accepted |
 | [0045](0045-descartes-rs-explicit-rayon-pool-with-serial-fallback.md) | descartes-rs builds its rayon pool explicitly and falls back to serial | 2026-11-19 | Accepted |
 | [0046](0046-shard-the-rust-mutation-runs.md) | Shard the Rust mutation runs | 2026-11-24 | Accepted |
+| [0047](0047-zeta-results-page-on-gh-pages.md) | Publish the zeta results page on gh-pages from a local generator | 2026-11-25 | Accepted |

@@ -104,12 +104,28 @@ Measured example, release build, 2026-11-24, Linux x86_64 with 48 threads, `zeta
 (649 zeros, 648 spacings, 0.6 s): KS distance 0.0448, largest `w_n` 3.89e-3. Reproduce it
 with the command above.
 
+## Results page
+
+The results page is generated locally from finished run directories and committed under `zeta/results/site/`. Each run directory holds the CLI's `out.txt` and `err.txt`, where `err.txt` must be the report from `/usr/bin/time -v`, because the generator reads provenance from it. To regenerate:
+
+```bash
+python3 scripts/zeta_results.py --runs-toml zeta/results/runs.toml \
+    --run 3=<run dir> --run 7=<run dir> \
+    --out zeta/results/site --runs-out zeta/results/runs
+```
+
+The generator fails closed on any check (provenance from `/usr/bin/time -v`, an exact-midpoint cross-check against the CLI's printed values), so a refusal means the input needs fixing, not the generator.
+
+Output targets are guarded. The generator refuses `.`, `..` and the current directory, symlinked targets or `.tmp` and `.old` siblings, targets that overlap an input or each other, and any existing non-empty directory without the `.zeta-results` marker that it writes into every tree it produces. The deploy step does not publish the marker.
+
+To publish the committed site, dispatch the workflow from master: `gh workflow run zeta-results-pages.yml --ref master`. It copies the site into `gh-pages/zeta/` under the shared `gh-pages` concurrency group. See [ADR-0047](../docs/adr/0047-zeta-results-page-on-gh-pages.md).
+
 ## Build
 
 ```bash
 cd zeta-rs
 make zeta       # cargo build --release (binary in target/release/zeta)
-make install    # build, then copy to ${XDG_BIN_HOME:-~/.local/bin}/zeta
+make install    # build, then copy to ${XDG_BIN_HOME:-$HOME/.local/bin}/zeta
 make lint       # cargo fmt --check + clippy
 make test       # lint + cargo test
 ```
