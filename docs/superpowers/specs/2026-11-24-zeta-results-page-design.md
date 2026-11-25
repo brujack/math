@@ -5,7 +5,7 @@
 - **Origin:** operator approval of 2026-11-23 for a published page of zeta's verified
   results, built after the V3–V7 runs of `2026-11-23-zeta-rh-verification-design.md`;
   operator choices of 2026-11-24: GitHub Pages, matplotlib.
-- **Revised:** 2026-11-24, after Multi-Lens Review rounds 1 and 2 (operator dispositions below)
+- **Revised:** 2026-11-24, after Multi-Lens Review rounds 1 and 2 and External Review round 1
 
 ## Summary
 
@@ -88,13 +88,13 @@ This spec turns it into a page whose every figure traces to a command and a comm
   - Not every existing run was made under `time -v`: n2, n3, v7plain, v7refine and r3 have no
     `Maximum resident` line. They take seconds to re-run.
 - **Gram's law counts (Goal-Fit lens, double-precision Gram points by Newton on θ, refined
-  midpoints; S counts brackets with a Gram point strictly inside, see Computations):**
+  midpoints; S counts brackets with a Gram point strictly inside, by the 1e-8 rule of Computations; External Review round 1 measured the N = 5 value):**
 
   | N | exactly-one share | intervals with 0 / 1 / 2 / 3 zeros | brackets straddling a Gram point |
   |---|---|---|---|
   | 3 | 0.9321 | 22 / 604 / 22 / 0 | 0 |
   | 4 | 0.8385 | 822 / 8504 / 810 / 6 | 1 |
-  | 5 | 0.7899 | 14568 / 109064 / 14304 / 132 | 7 |
+  | 5 | 0.7899 | 14568 / 109064 / 14304 / 132 | 6 |
 - **`--refine` cost.**
   - `zeta 5 --refine`: 124.9 s (verification alone 6.6 s), 41,344 kB peak RSS.
   - `zeta 6 --refine` and `zeta 7 --refine` were running when this was written (V4).
@@ -102,7 +102,10 @@ This spec turns it into a page whose every figure traces to a command and a comm
 - **Run storage.** Every run directory needed for the page lives outside the repo, on the
   operator's machine in a durable directory chosen by the operator (2026-11-24: `~/zeta-runs/`).
   Session scratch space is a RAM-backed `/tmp` that a reboot clears. The repo never names the
-  location.
+  location. At the time of writing the store holds t2, t3, t4, n5, n6, n7, tr3, tr4 and r5. The
+  refined N = 6 and N = 7 runs are in flight in session scratch and move to the store when they
+  finish. If either is lost, R18 cannot be met until it is re-run (refined N = 7 is estimated at
+  8 hours or more, unmeasured), and the plan says so before Phase 2.
 - **Published counts.** N(10^N) for N = 2–7 is 29, 649, 10142, 138069, 1747146 and 21136125
   (OEIS A072080). The `zeta` counts equal them.
 - **matplotlib 3.11.2** resolves with cp315 wheels locally and cp314 manylinux wheels for CI (dry
@@ -140,8 +143,14 @@ This spec turns it into a page whose every figure traces to a command and a comm
   links `deployed-from.txt`, which holds the master commit last deployed. A generation commit in
   the page itself was dropped: the repo squash-merges, so the commit a generator ran at never
   lands on master.
-- **`data.json`.** Dropped in round 2: no reader of the page used it. The consistency test reads
-  `index.html` instead.
+- **`data.json`.** Dropped in round 2: no reader of the page used it.
+- **Consistency from `runs.toml` alone.** External Review round 1 showed a hand-edited count or
+  elapsed time would pass a check of only ids, commits and dates. Instead each run's `out.txt`
+  and `err.txt` is committed under `zeta/results/runs/<id>/` (about 30 KB for all eleven). CI
+  then regenerates every value those files determine and compares it with `index.html`. That
+  covers the counts table, the run table, and each refined run's CLI gap count, 20 bins and KS.
+  The δ-derived figures and the Gram table still need the uncommitted tables, so those stay
+  operator-attested, cross-checked against the CLI at generation time.
 - **Hand-typed provenance.** Operator choice 2026-11-24: parse `/usr/bin/time -v` output.
 - **A run wrapper script.** It would record provenance more cleanly, but the N = 6 and N = 7
   `--refine` runs were already in flight without one. Parsing `err.txt` covers every run.
@@ -200,6 +209,9 @@ For each `--run`:
   All three use δ_n = (m_{n+1} − m_n)·ln(m_n/2π)/2π computed in that operation order, so they
   reproduce the CLI's values bit for bit rather than within a tolerance.
 - **`runs.toml`:** every `--run` id has an entry, and every entry has a `--run`.
+- The script copies each run's `out.txt` and `err.txt` into `zeta/results/runs/<id>/`. The
+  `Command being timed` path in `err.txt` is reduced to `zeta-<h>` on copy, so no path is
+  committed.
 - **Start:** stale `site.*` siblings from a crashed earlier run are removed before anything is
   read.
 
@@ -230,7 +242,9 @@ When matplotlib cannot be imported, the script exits 1 with
   - each zero is assigned to an interval by its midpoint m_n; output the number of intervals
     holding 0, 1, 2, 3 and 4 or more zeros, and the exactly-one share;
   - S, the number of brackets with a Gram point g strictly inside, a < g < b, where a g within
-    1e-9·g of a or b counts as that endpoint. The CLI isolates on the Gram grid, so a bracket
+    an absolute 1e-8 of a or b counts as that endpoint. The tolerance is sized to the f64 Newton
+    error (about 2e-9 at 10^7), not to g: refined brackets narrow with height (median width
+    1.55e-5 at N = 5), so a relative tolerance would hide real straddles. The CLI isolates on the Gram grid, so a bracket
     can start exactly at a Gram point without its zero's interval being in doubt. The page
     reports S beside the share.
   - The zero above the last Gram point g_K ≤ 10^N is in no interval, and the page says so.
@@ -296,8 +310,9 @@ This is accepted: both are re-runnable by hand.
 ### Dependencies and push-path safety
 
 - `matplotlib==3.11.2` is added to `requirements-dev.txt`, which `scripts.yml` installs. The
-  script imports no other third-party module directly (no `numpy`), so
-  `tests/test_root_python_deps.py` needs only that pin.
+  script imports no other third-party module directly (no `numpy`). The matplotlib import is
+  guarded by `except ImportError`, which `tests/test_root_python_deps.py` skips, so an AST test
+  in `tests/test_zeta_results.py` enforces this (Testing, Imports).
 - Dev machines without matplotlib:
   - `tests/test_zeta_results.py` skips with `matplotlib not installed; run make install-deps`
     when the import fails and `CI` is not `true`, and fails when `CI=true`.
@@ -330,8 +345,11 @@ binary as `../zeta-f935b23`, a relative path.
     26, 27, 43, 34, 22, 36, 37, 41, 31, 31, 19, 30, 22, 23, 13, 20, 21, 16, 8, 9, 11, 6, 5, 8,
     5, 3, 0, 7, 2, 0, 0, 0, 1 and then 15 zeros;
   - Gram counts 22 / 604 / 22 / 0 and 4+ = 0, share 0.9321, S = 0.
-- **S and assignment on synthetic brackets:** one bracket straddling the computed g₀ ≈ 17.8456
-  gives S = 1. One starting exactly at g₀ gives S = 0.
+- **S and assignment on synthetic brackets:**
+  - one bracket straddling the computed g₀ ≈ 17.8456 gives S = 1, and one starting exactly at
+    g₀ gives S = 0;
+  - near g ≈ 9.2·10^4, a bracket of width 2e-5 with the Gram point 1e-5 inside gives S = 1, and
+    one whose end is 5e-9 from the Gram point gives S = 0.
 - The N = 3 counts row reads 649 and `equal`.
 - The SVG files written equal the `<img>` sources in `index.html`. Each SVG contains at least
   one bar and both curves.
@@ -361,8 +379,13 @@ byte-unchanged:
   - every table inside an `overflow-x:auto` div;
   - the claim paragraph verbatim;
   - no path from the fixture `err.txt`.
-- **Consistency:** every `zeta/results/runs.toml` entry's id, binary commit and date appear in
-  the run table of the committed `zeta/results/site/index.html`, and the table has no other run.
+- **Consistency (runs in CI):** from the committed `zeta/results/runs.toml` and
+  `zeta/results/runs/<id>/{out,err}.txt` alone, the script's table builders regenerate the
+  counts table, the run table and each refined run's CLI gap count, 20 counts and KS. Each must
+  equal what the committed `zeta/results/site/index.html` shows, with no extra run.
+- **Imports:** an AST walk of `scripts/zeta_results.py` finds exactly one third-party top-level
+  module, `matplotlib`. `tests/test_root_python_deps.py` skips imports guarded by
+  `except ImportError`, so this test is the one that enforces R13.
 - **matplotlib-absent skip:** the module skips with the named line when `CI` is unset and the
   import fails, and fails when `CI=true`.
 
@@ -380,7 +403,7 @@ exit 1.
 - **R4.** The script exits 1, printing one line that names the run id and the failed check, and leaves an existing output directory byte-unchanged, when: `out.txt` lacks `RH verified: all <L> nontrivial zeros with 0 < Im s <= <10^N> lie on Re s = 1/2 and are simple`; `Exit status` is not 0; the binary name does not match `binary_sha`; a refined table's header is not `# n a b t_n w_n`; a refined table's data-line count differs from L; a number is not finite; the midpoints a + (b − a)/2 are not strictly increasing; `t_n` lies outside [a, b] by more than 1e-9 relative; a `--run` id has no `runs.toml` entry or an entry has no `--run`.
 - **R5.** For every refined run the script computes δ_n = (m_{n+1} − m_n)·ln(m_n/2π)/2π from the f64 midpoints m_n = a + (b − a)/2 of the parsed `a` and `b` columns (never from `t_n`), and exits 1 unless its gap count equals both L − 1 and the CLI's printed `<k> spacings`, its counts `min(floor(δ/0.15), 19)` over δ in [0, 3] equal the CLI's 20 printed counts, and its KS distance to F(s) = erf(x) − (2/√π)·x·exp(−(4/π)·s²), x = (2/√π)·s, with erf by Abramowitz–Stegun 7.1.26, rounded to 4 decimals equals the CLI's `KS distance to the Wigner surmise CDF:` value.
 - **R6.** Each refined N gets its own figure from R5's δ_n: a density histogram on [0, 3] divided by the total gap count, with 20 bins of 0.15 below 10,000 gaps and 60 bins of 0.05 (`min(floor(δ/0.05), 59)`) otherwise, the curves (32/π²)·s²·exp(−4s²/π) and exp(−s), the gap count, and the KS distances to R5's F(s) and to 1 − exp(−s).
-- **R7.** For each refined run, Gram points come from Newton's method on θ(t) = (t/2)·ln(t/2π) − t/2 − π/8 + 1/(48t) + 7/(5760t³) = nπ; zeros are assigned to [g_{n−1}, g_n) by their midpoint a + (b − a)/2 for every n with g_n ≤ 10^N; the page shows the number of intervals holding 0, 1, 2, 3 and 4+ zeros, the exactly-one share, and the count S of brackets with a Gram point g strictly inside (a < g < b, with g within 1e-9·g of an endpoint counted as that endpoint), and states that the Gram points are computed in double precision and are not certified.
+- **R7.** For each refined run, Gram points come from Newton's method on θ(t) = (t/2)·ln(t/2π) − t/2 − π/8 + 1/(48t) + 7/(5760t³) = nπ; zeros are assigned to [g_{n−1}, g_n) by their midpoint a + (b − a)/2 for every n with g_n ≤ 10^N; the page shows the number of intervals holding 0, 1, 2, 3 and 4+ zeros, the exactly-one share, and the count S of brackets with a Gram point g strictly inside (a < g < b, with g within an absolute 1e-8 of an endpoint counted as that endpoint), and states that the Gram points are computed in double precision and are not certified.
 - **R8.** The counts table shows, for every run, L, the published N(10^N) from a constant citing OEIS A072080 (29, 649, 10142, 138069, 1747146, 21136125 for N = 2–7), and `equal` or `differs`.
 - **R9.** `index.html` has no `<script` element, no `src` or `href` beginning with `http`, the meta `<meta name="viewport" content="width=device-width, initial-scale=1">`, an `alt` on every `<img>`, every `<table>` inside a `<div style="overflow-x:auto">`, the claim paragraph of the section "Claim text (exact)" verbatim, no sentence calling the result new, a provenance line (command, binary commit, machine, date) under every figure, and a footer linking `deployed-from.txt`.
 - **R10.** Two runs of the script over the same inputs in one environment produce byte-identical output directories.
@@ -388,11 +411,12 @@ exit 1.
 - **R12.** `.github/workflows/benchmarks.yml`'s job gains `concurrency` group `gh-pages` with `cancel-in-progress: false`.
 - **R13.** `requirements-dev.txt` pins `matplotlib==3.11.2`, no other file installs matplotlib, `scripts/zeta_results.py` imports no third-party module other than matplotlib, and its matplotlib import carries `# pyright: ignore[reportMissingImports]`.
 - **R14.** Without matplotlib, the script exits 1 with `zeta_results: matplotlib missing; run make install-deps`, and `tests/test_zeta_results.py` skips with `matplotlib not installed; run make install-deps` when `CI` is not `true` and fails when `CI=true`.
-- **R15.** `tests/test_zeta_results.py` pins, on the N = 3 refined fixture: KS 0.0448 to Wigner and 0.3260 to Poisson; 648 gaps; the 20 counts 0, 7, 26, 58, 96, 92, 109, 80, 58, 57, 28, 19, 8, 9, 1, 0, 0, 0, 0, 0; with the bin threshold set to 0, the 60 counts 0, 0, 0, 0, 4, 3, 3, 13, 10, 12, 22, 24, 26, 27, 43, 34, 22, 36, 37, 41, 31, 31, 19, 30, 22, 23, 13, 20, 21, 16, 8, 9, 11, 6, 5, 8, 5, 3, 0, 7, 2, 0, 0, 0, 1 followed by 15 zeros; Gram counts 22 / 604 / 22 / 0 and 4+ = 0 with share 0.9321 and S = 0; and the N = 3 counts row reading 649 `equal`. It also covers: S = 1 for a synthetic bracket straddling g₀ and S = 0 for one starting at g₀; both elapsed formats; every R4 and R5 failure case; R10; R9; the SVG set equal to the `<img>` sources, each SVG with a bar and both curves; and every `zeta/results/runs.toml` entry's id, binary commit and date appearing in the committed `index.html` run table, with no other run.
+- **R15.** `tests/test_zeta_results.py` pins, on the N = 3 refined fixture: KS 0.0448 to Wigner and 0.3260 to Poisson; 648 gaps; the 20 counts 0, 7, 26, 58, 96, 92, 109, 80, 58, 57, 28, 19, 8, 9, 1, 0, 0, 0, 0, 0; with the bin threshold set to 0, the 60 counts 0, 0, 0, 0, 4, 3, 3, 13, 10, 12, 22, 24, 26, 27, 43, 34, 22, 36, 37, 41, 31, 31, 19, 30, 22, 23, 13, 20, 21, 16, 8, 9, 11, 6, 5, 8, 5, 3, 0, 7, 2, 0, 0, 0, 1 followed by 15 zeros; Gram counts 22 / 604 / 22 / 0 and 4+ = 0 with share 0.9321 and S = 0; and the N = 3 counts row reading 649 `equal`. It also covers: S = 1 for a synthetic bracket straddling g₀ and S = 0 for one starting at g₀; S = 1 for a width-2e-5 bracket with a Gram point near 9.2·10^4 1e-5 inside it and S = 0 when the end is 5e-9 from it; an AST check that the script's only third-party top-level import is `matplotlib`; both elapsed formats; every R4 and R5 failure case; R10; R9; the SVG set equal to the `<img>` sources, each SVG with a bar and both curves; and, from the committed `zeta/results/runs.toml` and `zeta/results/runs/<id>/{out,err}.txt` alone, the counts table, the run table and each refined run's CLI gap count, 20 counts and KS regenerating equal to the committed `index.html`, with no extra run.
 - **R16.** A bats test runs the deploy workflow's outside-`zeta/` guard against a fixture repo with a change outside `zeta/` and asserts exit 1.
 - **R17.** `.github/workflows/scripts.yml` `paths:` includes `zeta/results/**`.
 - **R18.** `zeta/results/site/` is committed holding the page generated from the real runs of binary f935b23: plain N = 2–7 and `--refine` N = 3–7, every one under `/usr/bin/time -v`.
 - **R19.** `.gitignore` carries `!tests/fixtures/zeta_results/**/zeta_1e3.txt`, and a test asserts `git ls-files` lists the N = 3 refined fixture table.
+- **R20.** The script copies each run's `out.txt` and `err.txt` to `zeta/results/runs/<id>/`, replacing the `Command being timed` binary path with `zeta-<first 7 of binary_sha>`, and both are committed with the site.
 - **V1.** After the deploy workflow is dispatched, `https://brujack.github.io/math/zeta/` serves the page with `deployed-from.txt` equal to the master commit, and `https://brujack.github.io/math/dev/bench/` still serves the benchmark page.
 - **V2.** On the real runs the script passes every R5 cross-check for N = 3–7, and every counts row reads `equal`.
 - **V3.** `pip install -r requirements-dev.txt` succeeds on CI's Python 3.14 (`scripts.yml` job log) and the local 3.15 venv.
@@ -579,3 +603,22 @@ So the next step is Step 8.5, not a third lens round.
 ### Adversarial Spec Review (comparison/judge designs only)
 
 N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+
+## External Review
+
+### Round 1 (reviewed at `72d375b2d90cc069775faeb86f29b9eb0d8720b4`)
+
+Report: [round1.md](2026-11-24-zeta-results-page-design.external-review/round1.md)
+
+#### Author response
+
+| finding | disposition | evidence | reviewer verdict | operator (Step 9) |
+| ------- | ----------- | -------- | ---------------- | ----------------- |
+| F1.1 | Fixed | S now uses an absolute 1e-8 endpoint tolerance (Computations, R7); Facts N = 5 S is 6, the reviewer's measured value under that rule; R15 adds the width-2e-5 straddle near 9.2·10^4 (S = 1) and a 5e-9 end (S = 0) | unjudged | |
+| F1.2 | Fixed | Facts "Run storage" now states r6 and r7 are in flight in scratch, move to the store on completion, and that a loss blocks R18 until re-run, to be stated in the plan before Phase 2. R18 unchanged: r6 was running under `/usr/bin/time -v` at review time and r7 is queued behind it | unjudged | |
+| F1.3 | Fixed | Testing gains an AST import test; R15 covers it; the Dependencies sentence now says `test_root_python_deps.py` skips the guarded import | unjudged | |
+| F1.4 | Fixed | Adopted: each run's `out.txt` and `err.txt` committed under `zeta/results/runs/<id>/` with the path reduced (R20); the CI consistency test regenerates the counts table, run table and CLI gap count, bins and KS from them and compares with `index.html` (R15); weighed under Approach | unjudged | |
+| F1.5 | Fixed | The Facts Gram header now names the 1e-8 rule and the N = 5 value is 6 (with F1.1) | unjudged | |
+
+Stopped: reviewer recommended stopping in round 1
+
