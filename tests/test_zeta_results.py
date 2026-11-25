@@ -638,6 +638,26 @@ class TestRendering(_FixtureCopy):
     def page(self) -> str:
         return (self.site / "index.html").read_text()
 
+    def test_gated_tests_skip_when_matplotlib_is_absent_outside_ci(self) -> None:
+        env = {k: v for k, v in os.environ.items() if k != "CI"}
+        with (
+            mock.patch.object(importlib.util, "find_spec", return_value=None),
+            mock.patch.dict(os.environ, env, clear=True),
+            self.assertRaises(unittest.SkipTest) as caught,
+        ):
+            self.require_matplotlib()
+        self.assertEqual(
+            str(caught.exception), "matplotlib not installed; run make install-deps"
+        )
+
+    def test_gated_tests_fail_when_matplotlib_is_absent_in_ci(self) -> None:
+        with (
+            mock.patch.object(importlib.util, "find_spec", return_value=None),
+            mock.patch.dict(os.environ, {"CI": "true"}),
+            self.assertRaises(self.failureException),
+        ):
+            self.require_matplotlib()
+
     def test_smoke_run_writes_page_and_svgs(self) -> None:
         self.assertEqual(self.generate(), 0, self.stderr.getvalue())
         self.assertEqual(
@@ -666,20 +686,109 @@ class TestRendering(_FixtureCopy):
         self.assertFalse(self.site.with_name("site.tmp").exists())
         self.assertFalse(self.runs_dir.exists())
 
-    def test_stale_siblings_from_a_crash_are_removed(self) -> None:
-        for name in ("site.tmp", "site.old"):
-            (self.root.parent / name).mkdir()
-            (self.root.parent / name / "junk").write_text("x")
-        (self.root.parent / "site.partial").write_text("x")
+    def test_crash_leftover_tmp_is_removed_and_other_siblings_survive(self) -> None:
+        parent = self.root.parent
+        for name in ("site.tmp", "runs.tmp"):
+            (parent / name).mkdir()
+            (parent / name / "junk").write_text("x")
+        for name in ("site.toml", "site.partial"):
+            (parent / name).write_text("keep")
         self.assertEqual(self.generate(), 0)
-        self.assertEqual(sorted(p.name for p in self.root.parent.glob("site.*")), [])
+        self.assertFalse((parent / "site.tmp").exists())
+        self.assertFalse((parent / "runs.tmp").exists())
+        for name in ("site.toml", "site.partial"):
+            self.assertEqual((parent / name).read_text(), "keep")
 
-    def test_failed_check_still_removes_stale_siblings(self) -> None:
-        stale = self.root.parent / "site.tmp"
+    def test_failed_check_still_removes_stale_tmp(self) -> None:
+        stale = self.site.with_name("site.tmp")
         stale.mkdir()
         self.edit("tr3/err.txt", "Exit status: 0", "Exit status: 1")
         self.assertEqual(self.generate(), 1)
         self.assertFalse(stale.exists())
+
+    def test_crash_between_renames_is_recovered_at_start(self) -> None:
+        for final, tmp_name in ((self.site, "site"), (self.runs_dir, "runs")):
+            old = final.with_name(f"{tmp_name}.old")
+            old.mkdir()
+            (old / "last.txt").write_text("last good")
+            final.with_name(f"{tmp_name}.tmp").mkdir()
+        self.edit("tr3/err.txt", "Exit status: 0", "Exit status: 1")
+        self.assertEqual(self.generate(), 1)
+        for final, tmp_name in ((self.site, "site"), (self.runs_dir, "runs")):
+            self.assertEqual((final / "last.txt").read_text(), "last good")
+            self.assertFalse(final.with_name(f"{tmp_name}.old").exists())
+            self.assertFalse(final.with_name(f"{tmp_name}.tmp").exists())
+
+    def test_recovery_leaves_a_present_site_alone_and_drops_its_old(self) -> None:
+        self.assertEqual(self.generate(), 0)
+        before = _snapshot(self.site)
+        self.site.with_name("site.old").mkdir()
+        self.edit("tr3/err.txt", "Exit status: 0", "Exit status: 1")
+        self.assertEqual(self.generate(), 1)
+        self.assertEqual(_snapshot(self.site), before)
+        self.assertFalse(self.site.with_name("site.old").exists())
+
+    def test_dot_out_is_refused_and_deletes_nothing(self) -> None:
+        self.require_matplotlib()
+        cwd = self.root.parent / "cwd"
+        (cwd / ".git").mkdir(parents=True)
+        (cwd / ".git" / "HEAD").write_text("ref")
+        (cwd / "site.tmp").mkdir()
+        before = _snapshot(cwd)
+        previous = Path.cwd()
+        os.chdir(cwd)
+        self.addCleanup(os.chdir, previous)
+        for bad in (".", "..", "x/..", "/"):
+            with self.subTest(out=bad):
+                self.stderr = io.StringIO()
+                with contextlib.redirect_stderr(self.stderr):
+                    rc = zr.main(
+                        [*self.argv(Path(bad))[:-4], "--out", bad, "--runs-out", "r"]
+                    )
+                self.assertEqual(rc, 1)
+                self.assertIn("refusing", self.stderr.getvalue())
+        self.assertEqual(_snapshot(cwd), before)
+
+    def test_the_working_directory_is_refused_as_a_target(self) -> None:
+        self.require_matplotlib()
+        cwd = self.root.parent / "cwd2"
+        (cwd / "sub").mkdir(parents=True)
+        previous = Path.cwd()
+        os.chdir(cwd)
+        self.addCleanup(os.chdir, previous)
+        with contextlib.redirect_stderr(self.stderr):
+            rc = zr.main([*self.argv()[:-4], "--out", str(cwd), "--runs-out", "r"])
+        self.assertEqual(rc, 1)
+        self.assertTrue((cwd / "sub").is_dir())
+
+    def test_runs_out_may_not_equal_or_nest_with_out(self) -> None:
+        self.require_matplotlib()
+        base = self.root.parent / "t"
+        cases = [
+            (base, base),
+            (base, base / "runs"),
+            (base / "site", base),
+            (base / "..", base / "runs"),
+        ]
+        for out, runs_out in cases:
+            with self.subTest(out=str(out), runs_out=str(runs_out)):
+                self.stderr = io.StringIO()
+                argv = [
+                    *self.argv()[:-4],
+                    "--out",
+                    str(out),
+                    "--runs-out",
+                    str(runs_out),
+                ]
+                with contextlib.redirect_stderr(self.stderr):
+                    rc = zr.main(argv)
+                self.assertEqual(rc, 1)
+                self.assertIn("refusing", self.stderr.getvalue())
+        self.assertFalse(base.exists())
+
+    def test_runs_out_is_required(self) -> None:
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            zr.main(["--runs-toml", "x", "--out", "y"])
 
     def test_run_without_toml_entry_fails(self) -> None:
         self.assertEqual(self.generate(ids=(*RUN_IDS, "zz")), 1)
@@ -692,7 +801,18 @@ class TestRendering(_FixtureCopy):
     def test_malformed_run_spec_fails(self) -> None:
         self.require_matplotlib()
         with contextlib.redirect_stderr(self.stderr):
-            rc = zr.main(["--runs-toml", "x", "--run", "noequals", "--out", "y"])
+            rc = zr.main(
+                [
+                    "--runs-toml",
+                    "x",
+                    "--run",
+                    "noequals",
+                    "--out",
+                    "y",
+                    "--runs-out",
+                    "z",
+                ]
+            )
         self.assertEqual(rc, 1)
         self.assertIn("expected <id>=<dir>", self.stderr.getvalue())
 
@@ -700,7 +820,18 @@ class TestRendering(_FixtureCopy):
         self.require_matplotlib()
         with contextlib.redirect_stderr(self.stderr):
             rc = zr.main(
-                ["--runs-toml", "x", "--run", "a=1", "--run", "a=2", "--out", "y"]
+                [
+                    "--runs-toml",
+                    "x",
+                    "--run",
+                    "a=1",
+                    "--run",
+                    "a=2",
+                    "--out",
+                    "y",
+                    "--runs-out",
+                    "z",
+                ]
             )
         self.assertEqual(rc, 1)
         self.assertRegex(self.stderr.getvalue(), r"^a: ")
@@ -758,6 +889,7 @@ class TestRendering(_FixtureCopy):
         text = _plain(self.page())
         self.assertIn("A Gram point", text)
         self.assertIn("normalised gap", text)
+        self.assertIn("m_n is the midpoint", text)
         self.assertIn("contrast with Poisson", text)
         self.assertIn("not certified", text)
 
@@ -814,6 +946,76 @@ class TestRendering(_FixtureCopy):
         self.assertEqual(zr.strip_command_path(text, "1234567" + "0" * 33), want)
         self.assertEqual(zr.strip_command_path("no command", "1234567"), "no command")
 
+    def test_strip_command_path_handles_absolute_and_spaced_paths(self) -> None:
+        sha = "1234567" + "0" * 33
+        for path in (
+            "/home/u/zeta-1234567",
+            "/home/u/my runs/zeta-1234567",
+            "zeta-1234567",
+        ):
+            with self.subTest(path=path):
+                text = f'\tCommand being timed: "{path} 3"\n'
+                self.assertEqual(
+                    zr.strip_command_path(text, sha),
+                    '\tCommand being timed: "zeta-1234567 3"\n',
+                )
+
+    def test_published_err_fails_closed_on_an_unexpected_command_line(self) -> None:
+        rep = zr.parse_time_report(self.err(), "tr3")
+        good = zr.published_err(self.err(), rep, "f935b23" + "0" * 33, "tr3")
+        self.assertIn('Command being timed: "zeta-f935b23 3 --refine"', good)
+        with self.assertRaisesRegex(zr.ResultsError, "^tr3: "):
+            zr.published_err(self.err(), rep, "abcdef0" + "0" * 33, "tr3")
+
+    def test_absolute_and_spaced_binary_paths_are_stripped_in_copies(self) -> None:
+        self.edit(
+            "tr3/err.txt",
+            '"../zeta-f935b23 3 --refine"',
+            '"/home/u/my runs/zeta-f935b23 3 --refine"',
+        )
+        self.assertEqual(self.generate(), 0, self.stderr.getvalue())
+        copied = (self.runs_dir / "tr3" / "err.txt").read_text()
+        self.assertIn('Command being timed: "zeta-f935b23 3 --refine"', copied)
+        self.assertNotIn("/home", copied)
+
+    def test_dropped_run_directory_does_not_linger(self) -> None:
+        (self.runs_dir / "gone").mkdir(parents=True)
+        (self.runs_dir / "gone" / "out.txt").write_text("stale")
+        self.assertEqual(self.generate(), 0)
+        self.assertEqual(sorted(p.name for p in self.runs_dir.iterdir()), list(RUN_IDS))
+
+    def test_staging_failure_leaves_both_old_trees_untouched(self) -> None:
+        self.assertEqual(self.generate(), 0)
+        before = (_snapshot(self.site), _snapshot(self.runs_dir))
+        calls = {"n": 0}
+        real = Path.write_bytes
+
+        def flaky(path: Path, data: bytes) -> int:
+            calls["n"] += 1
+            if calls["n"] > 3:
+                raise OSError("disk full")
+            return real(path, data)
+
+        with mock.patch.object(Path, "write_bytes", flaky):
+            self.assertEqual(self.generate(), 1)
+        self.assertGreater(calls["n"], 3)
+        self.assertEqual((_snapshot(self.site), _snapshot(self.runs_dir)), before)
+        self.assertEqual(sorted(p.name for p in self.root.parent.glob("*.tmp")), [])
+
+    def test_failed_runs_swap_rolls_the_site_back(self) -> None:
+        self.assertEqual(self.generate(), 0)
+        before = (_snapshot(self.site), _snapshot(self.runs_dir))
+        real = Path.rename
+
+        def flaky(src: Path, target: Path) -> Path:
+            if src.name == "runs.tmp":
+                raise OSError("boom")
+            return real(src, target)
+
+        with mock.patch.object(Path, "rename", flaky):
+            self.assertEqual(self.generate(), 1)
+        self.assertEqual((_snapshot(self.site), _snapshot(self.runs_dir)), before)
+
     def test_count_verdict(self) -> None:
         self.assertEqual(zr.count_verdict(3, 649), "equal")
         self.assertEqual(zr.count_verdict(3, 648), "differs")
@@ -822,8 +1024,8 @@ class TestRendering(_FixtureCopy):
     def test_format_elapsed(self) -> None:
         self.assertEqual(zr.format_elapsed(2.45), "2.45 s")
         self.assertEqual(zr.format_elapsed(59.99), "59.99 s")
-        self.assertEqual(zr.format_elapsed(60), "1:00.00")
-        self.assertEqual(zr.format_elapsed(125.5), "2:05.50")
+        self.assertEqual(zr.format_elapsed(60), "0:01:00")
+        self.assertEqual(zr.format_elapsed(125), "0:02:05")
         self.assertEqual(zr.format_elapsed(3743), "1:02:23")
         self.assertEqual(zr.format_elapsed(3600), "1:00:00")
 

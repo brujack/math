@@ -461,8 +461,8 @@ GRAM_DEFINITION = (
     "theta function."
 )
 DELTA_DEFINITION = (
-    "The normalised gap is δ_n = (t_(n+1) − t_n)·ln(t_n/2π)/2π, which rescales the "
-    "spacings between consecutive zeros to mean 1; t_n is the midpoint of the "
+    "The normalised gap is δ_n = (m_(n+1) − m_n)·ln(m_n/2π)/2π, which rescales the "
+    "spacings between consecutive zeros to mean 1; m_n is the midpoint of the "
     "certified bracket."
 )
 GRAM_CAVEAT = (
@@ -477,7 +477,9 @@ _PAGE_STYLE = (
     "th,td{border:1px solid #888;padding:.25rem .5rem;text-align:right}"
     "figcaption{font-size:.85rem;color:#444}figure{margin:1rem 0}"
 )
-_COMMAND_PATH_RE = re.compile(r'(Command being timed: ")(?:[^"\s]*/)?zeta-[0-9a-f]{7} ')
+_COMMAND_PATH_RE = re.compile(
+    r'(?<=Command being timed: ")(?:.*/)?(?=zeta-[0-9a-f]{7} )'
+)
 
 
 class MatplotlibMissing(ResultsError):
@@ -499,7 +501,7 @@ class RunData:
     report: TimeReport
     out: OutSummary
     out_text: str
-    err_text: str
+    err_published: str
     refined: Refined | None
 
 
@@ -521,7 +523,16 @@ def command_text(rep: TimeReport) -> str:
 
 def strip_command_path(err_text: str, binary_sha: str) -> str:
     """Reduce the timed binary's path to `zeta-<first 7 of binary_sha>`."""
-    return _COMMAND_PATH_RE.sub(rf"\g<1>zeta-{binary_sha[:7]} ", err_text)
+    return _COMMAND_PATH_RE.sub("", err_text)
+
+
+def published_err(err_text: str, rep: TimeReport, binary_sha: str, run_id: str) -> str:
+    """The err.txt to publish; fails closed unless the command line is path-free."""
+    stripped = strip_command_path(err_text, binary_sha)
+    expected = f'Command being timed: "zeta-{binary_sha[:7]} {command_text(rep)[5:]}"'
+    if not any(line.strip() == expected for line in stripped.splitlines()):
+        raise ResultsError(f"{run_id}: command line is not exactly {expected!r}")
+    return stripped
 
 
 def count_verdict(n: int, count: int) -> str:
@@ -530,14 +541,12 @@ def count_verdict(n: int, count: int) -> str:
 
 
 def format_elapsed(seconds: float) -> str:
+    """Seconds below 60 s, else h:mm:ss (rounded to a whole second)."""
     if seconds < 60:
         return f"{seconds:.2f} s"
-    whole, frac = divmod(seconds, 1)
-    hours, rest = divmod(int(whole), 3600)
+    hours, rest = divmod(round(seconds), 3600)
     minutes, secs = divmod(rest, 60)
-    if hours:
-        return f"{hours}:{minutes:02d}:{secs:02d}"
-    return f"{minutes}:{secs + frac:05.2f}"
+    return f"{hours}:{minutes:02d}:{secs:02d}"
 
 
 def _read_text(path: Path, run_id: str) -> str:
@@ -570,7 +579,8 @@ def load_run(run_id: str, meta: RunMeta, directory: Path) -> RunData:
     check_binary(meta, rep, run_id)
     out = parse_out(out_text, run_id, rep.n, refine=rep.refine)
     refined = _analyse_refined(run_id, directory, rep, out) if rep.refine else None
-    return RunData(meta, rep, out, out_text, err_text, refined)
+    err_published = published_err(err_text, rep, meta.binary_sha, run_id)
+    return RunData(meta, rep, out, out_text, err_published, refined)
 
 
 def _check_run_set(metas: dict[str, RunMeta], dirs: dict[str, Path]) -> None:
@@ -812,46 +822,99 @@ def render_site(plt: ModuleType, runs: list[RunData]) -> dict[str, bytes]:
     return files
 
 
-def _remove_stale(out: Path) -> None:
-    for stale in out.parent.glob(f"{out.name}.*"):
-        if stale.is_dir():
-            shutil.rmtree(stale)
+def _check_targets(out: Path, runs_out: Path) -> None:
+    """Refuse targets the swap could destroy: `.`, `..`, the root, nesting, the cwd."""
+    for flag, path in (("--out", out), ("--runs-out", runs_out)):
+        if path.name in ("", ".", ".."):
+            raise ResultsError(f"refusing {flag} {str(path)!r}: no directory name")
+    a, b = out.resolve(), runs_out.resolve()
+    if a == b or a in b.parents or b in a.parents:
+        raise ResultsError("refusing --out and --runs-out: equal or nested")
+    cwd = Path.cwd().resolve()
+    for flag, path in (("--out", a), ("--runs-out", b)):
+        if path == cwd or path in cwd.parents:
+            raise ResultsError(f"refusing {flag}: it holds the working directory")
+
+
+def _sibling(path: Path, suffix: str) -> Path:
+    return path.with_name(f"{path.name}.{suffix}")
+
+
+def _recover(final: Path) -> None:
+    """Undo a crash between the swap's renames; touch only `<final>.old` and `.tmp`."""
+    old, tmp = _sibling(final, "old"), _sibling(final, "tmp")
+    if old.exists():
+        if final.exists():
+            shutil.rmtree(old)
         else:
-            stale.unlink()
+            old.rename(final)
+    if tmp.exists():
+        shutil.rmtree(tmp)
+
+
+def _keep_swap(tmp: Path, final: Path) -> None:
+    """Rename the old tree to `.old` and the new one in; restore on failure."""
+    old = _sibling(final, "old")
+    had_old = final.exists()
+    if had_old:
+        final.rename(old)
+    try:
+        tmp.rename(final)
+    except OSError:
+        if had_old:
+            old.rename(final)
+        raise
+
+
+def _undo_swap(tmp: Path, final: Path) -> None:
+    old = _sibling(final, "old")
+    final.rename(tmp)
+    if old.exists():
+        old.rename(final)
 
 
 def _swap_in(tmp: Path, out: Path) -> None:
-    """Rename the old site away, the new one in; restore the old on failure."""
-    old = out.with_name(f"{out.name}.old")
-    had_old = out.exists()
-    if had_old:
-        out.rename(old)
-    try:
-        tmp.rename(out)
-    except OSError:
-        if had_old:
-            old.rename(out)
-        raise
-    if had_old:
-        shutil.rmtree(old)
+    """Swap one staged tree in and drop the old one."""
+    _keep_swap(tmp, out)
+    shutil.rmtree(_sibling(out, "old"), ignore_errors=True)
 
 
-def write_site(out: Path, files: dict[str, bytes]) -> None:
-    tmp = out.with_name(f"{out.name}.tmp")
+def _stage(final: Path, files: dict[str, bytes]) -> Path:
+    tmp = _sibling(final, "tmp")
     tmp.mkdir(parents=True)
     for name, data in files.items():
-        (tmp / name).write_bytes(data)
-    _swap_in(tmp, out)
+        target = tmp / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    return tmp
 
 
-def write_run_copies(runs: list[RunData], runs_out: Path) -> None:
+def publish(trees: list[tuple[Path, dict[str, bytes]]]) -> None:
+    """Stage every tree, then swap them all in; any failure restores the old ones."""
+    staged: list[tuple[Path, Path]] = []
+    swapped: list[tuple[Path, Path]] = []
+    try:
+        for final, files in trees:
+            staged.append((_stage(final, files), final))
+        for tmp, final in staged:
+            _keep_swap(tmp, final)
+            swapped.append((tmp, final))
+    except OSError:
+        for tmp, final in reversed(swapped):
+            _undo_swap(tmp, final)
+        for final, _ in trees:
+            shutil.rmtree(_sibling(final, "tmp"), ignore_errors=True)
+        raise
+    for _, final in swapped:
+        shutil.rmtree(_sibling(final, "old"), ignore_errors=True)
+
+
+def run_copy_files(runs: list[RunData]) -> dict[str, bytes]:
+    files: dict[str, bytes] = {}
     for run in runs:
-        target = runs_out / run.meta.id
-        target.mkdir(parents=True, exist_ok=True)
-        (target / "out.txt").write_text(run.out_text)
-        (target / "err.txt").write_text(
-            strip_command_path(run.err_text, run.meta.binary_sha)
-        )
+        files[f"{run.meta.id}/out.txt"] = run.out_text.encode()
+        files[f"{run.meta.id}/err.txt"] = run.err_published.encode()
+    return files
 
 
 def _parse_runs(specs: list[str]) -> dict[str, Path]:
@@ -871,7 +934,7 @@ def _arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--runs-toml", type=Path, required=True)
     parser.add_argument("--run", action="append", default=[], metavar="ID=DIR")
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--runs-out", type=Path)
+    parser.add_argument("--runs-out", type=Path, required=True)
     return parser
 
 
@@ -879,11 +942,13 @@ def main(argv: list[str] | None = None) -> int:
     args = _arg_parser().parse_args(argv)
     try:
         plt = _load_pyplot()
-        _remove_stale(args.out)
-        runs = load_runs(args.runs_toml, _parse_runs(args.run))
-        write_site(args.out, render_site(plt, runs))
-        if args.runs_out is not None:
-            write_run_copies(runs, args.runs_out)
+        dirs = _parse_runs(args.run)
+        _check_targets(args.out, args.runs_out)
+        _recover(args.out)
+        _recover(args.runs_out)
+        runs = load_runs(args.runs_toml, dirs)
+        site = render_site(plt, runs)
+        publish([(args.out, site), (args.runs_out, run_copy_files(runs))])
     except (ResultsError, OSError) as err:
         print(err, file=sys.stderr)
         return 1
