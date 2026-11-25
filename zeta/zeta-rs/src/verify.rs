@@ -527,7 +527,7 @@ fn certify_gram_points<Z: ZSource + Sync>(
     runner: &Runner,
     progress: &Progress<'_>,
 ) -> Result<Certified, Fault> {
-    let count = (m + 1) as usize;
+    let count = usize::try_from(m + 1).expect("m >= -1");
     // g_m is already certified: it is the last item, finished before the pool starts.
     progress.finished_at(count, last.point().t);
     let certified = runner.try_map(count, |i| {
@@ -1900,8 +1900,44 @@ mod tests {
         assert!(z.over_calls.load(Ordering::SeqCst) < 3 * n, "stopped after the first block");
     }
 
+    /// Accepts every write except one carrying `needle`.
+    struct FailOn(&'static str);
+
+    impl Write for FailOn {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if String::from_utf8_lossy(buf).contains(self.0) {
+                return Err(io::Error::other("blocks line refused"));
+            }
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
-    fn a_progress_write_fault_names_itself() {
-        assert_eq!(Fault::ProgressWrite.to_string(), "progress write failed");
+    fn a_failed_block_stage_write_is_a_write_failure_not_a_short_count() {
+        let verdict = verify(
+            100.0,
+            &fake(wave),
+            &cfg(),
+            PoolPolicy::Serial,
+            Throttle::NONE,
+            &mut FailOn("Gram blocks"),
+        );
+        assert_eq!(verdict, Verdict::WriteFailed { error: "blocks line refused".to_string() });
+    }
+
+    #[test]
+    fn an_unusable_gram_point_still_counts_as_finished_in_the_points_stage() {
+        let mut z = fake(wave);
+        z.refuse_below = 12.0;
+        let (verdict, err) = go(&z, 100.0, &cfg(), PoolPolicy::Serial);
+        assert!(matches!(verdict, Verdict::NotVerified { .. }), "{verdict:?}");
+        let last = err.lines().rfind(|l| l.contains(" Gram points, ")).unwrap();
+        let counts = last.strip_prefix("progress: ").unwrap().split_once(" Gram").unwrap().0;
+        let (done, total) = counts.split_once('/').unwrap();
+        assert_eq!(done, total, "{last}");
     }
 }
