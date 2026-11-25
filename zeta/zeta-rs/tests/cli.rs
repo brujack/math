@@ -181,6 +181,43 @@ fn e2e_create_failure_after_verification_exits_4_without_a_verified_claim() {
     std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
     assert_eq!(code, Some(4), "{out}{err}");
     assert!(!out.contains("RH verified"), "{out}");
-    assert!(err.starts_with("Error: cannot write zeta_1e2.txt: "), "{err}");
+    let last = err.lines().last().unwrap_or_default();
+    assert!(last.starts_with("Error: cannot write zeta_1e2.txt: "), "{err}");
     assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
+}
+
+/// The production throttle (2 s, 1%) is wired by `run` alone, so only the real binary
+/// can pin it. Timing-free (tarpaulin's instrumented binary is slow): the 1% rule allows
+/// at most 101 lines per stage (100 steps plus the final), while an unthrottled run prints
+/// one line per item (291 Gram points at N = 2); each stage ends on exactly one line with
+/// done == total, and the points stage comes first.
+#[test]
+fn e2e_a_run_prints_throttled_progress_ending_once_per_stage() {
+    let dir = tempfile::tempdir().unwrap();
+    let (code, out, err) = run_in(dir.path(), &["2"], "");
+    assert_eq!(code, Some(0), "{out}{err}");
+    assert!(!out.contains("progress:"), "{out}");
+    let lines: Vec<&str> = err.lines().filter(|l| l.starts_with("progress:")).collect();
+    for noun in ["Gram points", "Gram blocks"] {
+        let stage: Vec<(u64, u64)> = lines
+            .iter()
+            .filter(|l| l.contains(&format!(" {noun}, t = ")))
+            .map(|line| {
+                let (counts, rest) =
+                    line["progress: ".len()..].split_once(&format!(" {noun}, t = ")).unwrap();
+                assert!(rest.parse::<f64>().is_ok(), "{line}");
+                let (done, total) = counts.split_once('/').unwrap();
+                (done.parse().unwrap(), total.parse().unwrap())
+            })
+            .collect();
+        assert!(!stage.is_empty() && stage.len() <= 101, "{noun}: {} lines\n{err}", stage.len());
+        let (done, total) = *stage.last().unwrap();
+        assert_eq!(done, total, "{noun} final\n{err}");
+        assert!(total > 101, "{noun}: {total} items cannot tell a throttle from none");
+        let finals = stage.iter().filter(|(d, t)| d == t).count();
+        assert_eq!(finals, 1, "{noun}: one final line\n{err}");
+        assert!(stage.windows(2).all(|w| w[0].0 < w[1].0), "{noun} increasing\n{err}");
+    }
+    let first_blocks = lines.iter().position(|l| l.contains(" Gram blocks, ")).unwrap();
+    assert!(lines[..first_blocks].iter().all(|l| l.contains(" Gram points, ")), "{err}");
 }

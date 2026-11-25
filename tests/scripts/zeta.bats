@@ -47,6 +47,25 @@ setup() {
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"RH verified: all 29 nontrivial zeros with 0 < Im s <= 100 lie on Re s = 1/2 and are simple"* ]]
     [[ "${output}${stderr}" != *"RH holds"* ]]
+    [[ "${output}" != *"progress:"* ]]
+    # The production throttle's 1% rule bounds each stage at 101 lines (an unthrottled
+    # run prints one per item, 291 Gram points), ending on exactly one done == total line.
+    # Timing-free: a loaded machine may add intermediate lines, never past the bound.
+    local re='^progress: ([0-9]+)/([0-9]+) Gram (points|blocks), t = [0-9.]+$'
+    local kind lines line finals
+    for kind in points blocks; do
+        lines="$(printf '%s\n' "${stderr}" | grep "^progress: .* Gram ${kind}, ")"
+        [ "$(printf '%s\n' "${lines}" | wc -l)" -le 101 ]
+        finals=0
+        while IFS= read -r line; do
+            [[ "${line}" =~ ${re} ]]
+            [ "${BASH_REMATCH[2]}" -gt 101 ]
+            if [ "${BASH_REMATCH[1]}" = "${BASH_REMATCH[2]}" ]; then finals=$((finals + 1)); fi
+        done <<<"${lines}"
+        [ "${finals}" -eq 1 ]
+        [[ "$(printf '%s\n' "${lines}" | tail -n 1)" =~ ${re} ]]
+        [ "${BASH_REMATCH[1]}" = "${BASH_REMATCH[2]}" ]
+    done
     [ "$(ls -A "${WORK_DIR}")" = "zeta_1e2.txt" ]
     [ "$(head -n 1 "${WORK_DIR}/zeta_1e2.txt")" = "# n a b" ]
     [ "$(grep -vc '^#' "${WORK_DIR}/zeta_1e2.txt")" -eq 29 ]
@@ -58,4 +77,12 @@ setup() {
     [ "${status}" -eq 4 ]
     [[ "${output}${stderr}" != *"RH verified"* ]]
     [ ! -e "${WORK_DIR}/zeta_1e2.txt" ]
+}
+
+@test "N = 2 --refine writes the refined table and prints the spacing report" {
+    run --separate-stderr bash -c "cd '${WORK_DIR}' && '${RUST_BIN}' 2 --refine </dev/null"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"KS distance to the Wigner surmise CDF:"* ]]
+    [ "$(head -n 1 "${WORK_DIR}/zeta_1e2.txt")" = "# n a b t_n w_n" ]
+    [ "$(ls -A "${WORK_DIR}")" = "zeta_1e2.txt" ]
 }
