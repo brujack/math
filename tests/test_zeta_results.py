@@ -761,6 +761,96 @@ class TestRendering(_FixtureCopy):
         self.assertEqual(rc, 1)
         self.assertTrue((cwd / "sub").is_dir())
 
+    def data_dir(self) -> Path:
+        """A private copy of the inputs, so a slip would have something to wipe."""
+        data = self.root.parent / "data"
+        shutil.copytree(self.root, data)
+        return data
+
+    def run_main(
+        self, toml: Path, dirs: dict[str, Path], out: Path, runs_out: Path
+    ) -> int:
+        self.require_matplotlib()
+        argv = [
+            "--runs-toml",
+            str(toml),
+            "--out",
+            str(out),
+            "--runs-out",
+            str(runs_out),
+        ]
+        for run_id, path in dirs.items():
+            argv += ["--run", f"{run_id}={path}"]
+        self.stderr = io.StringIO()
+        with contextlib.redirect_stderr(self.stderr):
+            return zr.main(argv)
+
+    def assert_refused_untouched(self, rc: int, *roots: Path) -> None:
+        before = [_snapshot(r) for r in roots]
+        self.assertEqual(rc, 1, self.stderr.getvalue())
+        self.assertIn("refusing", self.stderr.getvalue())
+        self.assertEqual([_snapshot(r) for r in roots], before)
+
+    def test_runs_out_may_not_be_the_input_directory(self) -> None:
+        data = self.data_dir()
+        before = _snapshot(data)
+        dirs = {i: data / i for i in RUN_IDS}
+        rc = self.run_main(data / "runs.toml", dirs, self.site, data)
+        self.assertEqual(rc, 1)
+        self.assertIn("refusing", self.stderr.getvalue())
+        self.assertEqual(_snapshot(data), before)
+        self.assertFalse(self.site.exists())
+
+    def test_out_may_not_be_an_input_run_directory(self) -> None:
+        data = self.data_dir()
+        before = _snapshot(data)
+        dirs = {i: data / i for i in RUN_IDS}
+        rc = self.run_main(data / "runs.toml", dirs, data / "t2", self.runs_dir)
+        self.assertEqual(rc, 1)
+        self.assertIn("refusing", self.stderr.getvalue())
+        self.assertEqual(_snapshot(data), before)
+
+    def test_targets_may_not_sit_inside_or_be_inputs(self) -> None:
+        data = self.data_dir()
+        before = _snapshot(data)
+        dirs = {i: data / i for i in RUN_IDS}
+        cases = [
+            (data / "t2" / "sub", self.runs_dir),
+            (self.site, data / "tr3" / "inner" / "deep"),
+            (self.site, data / "runs.toml"),
+            (data / "runs.toml" / "x", self.runs_dir),
+        ]
+        for out, runs_out in cases:
+            with self.subTest(out=out.name, runs_out=runs_out.name):
+                rc = self.run_main(data / "runs.toml", dirs, out, runs_out)
+                self.assertEqual(rc, 1)
+                self.assertIn("refusing", self.stderr.getvalue())
+        self.assertEqual(_snapshot(data), before)
+
+    def test_old_or_tmp_sibling_may_not_be_an_input(self) -> None:
+        parent = self.root.parent
+        held = parent / "siteX.old"
+        shutil.copytree(self.root / "t2", held)
+        before = _snapshot(held)
+        dirs = {"t2": held, "t3": self.root / "t3", "tr3": self.root / "tr3"}
+        rc = self.run_main(
+            self.root / "runs.toml", dirs, parent / "siteX", self.runs_dir
+        )
+        self.assertEqual(rc, 1)
+        self.assertIn("refusing", self.stderr.getvalue())
+        self.assertEqual(_snapshot(held), before)
+
+    def test_out_and_runs_out_siblings_may_not_collide(self) -> None:
+        dirs = {i: self.root / i for i in RUN_IDS}
+        for name in ("site.old", "site.tmp"):
+            with self.subTest(runs_out=name):
+                victim = self.root.parent / name
+                victim.mkdir()
+                (victim / "keep.txt").write_text("keep")
+                rc = self.run_main(self.root / "runs.toml", dirs, self.site, victim)
+                self.assert_refused_untouched(rc, victim)
+                shutil.rmtree(victim)
+
     def test_runs_out_may_not_equal_or_nest_with_out(self) -> None:
         self.require_matplotlib()
         base = self.root.parent / "t"
@@ -1016,6 +1106,20 @@ class TestRendering(_FixtureCopy):
             self.assertEqual(self.generate(), 1)
         self.assertEqual((_snapshot(self.site), _snapshot(self.runs_dir)), before)
 
+    def test_published_err_requires_exactly_one_command_line(self) -> None:
+        rep = zr.parse_time_report(self.err(), "tr3")
+        extra = '\tCommand being timed: "/home/u/zeta-f935b23 3 --refine"\n'
+        sha = "f935b23" + "0" * 33
+        for bad in (self.err() + extra, self.err() + "\tCommand being timed: x\n"):
+            with (
+                self.subTest(bad=bad[-30:]),
+                self.assertRaisesRegex(zr.ResultsError, "^tr3: .*exactly one"),
+            ):
+                zr.published_err(bad, rep, sha, "tr3")
+        without = self.err().replace("Command being timed", "Cmd")
+        with self.assertRaisesRegex(zr.ResultsError, "^tr3: "):
+            zr.published_err(without, rep, sha, "tr3")
+
     def test_count_verdict(self) -> None:
         self.assertEqual(zr.count_verdict(3, 649), "equal")
         self.assertEqual(zr.count_verdict(3, 648), "differs")
@@ -1069,6 +1173,7 @@ class TestRendering(_FixtureCopy):
             "zeta_results: matplotlib missing; run make install-deps",
         )
         self.assertFalse(self.site.exists())
+        self.assertFalse(self.runs_dir.exists())
 
     def test_only_matplotlib_is_third_party_and_its_imports_are_pinned(self) -> None:
         source = (REPO_ROOT / "scripts" / "zeta_results.py").read_text()

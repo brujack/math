@@ -530,8 +530,11 @@ def published_err(err_text: str, rep: TimeReport, binary_sha: str, run_id: str) 
     """The err.txt to publish; fails closed unless the command line is path-free."""
     stripped = strip_command_path(err_text, binary_sha)
     expected = f'Command being timed: "zeta-{binary_sha[:7]} {command_text(rep)[5:]}"'
-    if not any(line.strip() == expected for line in stripped.splitlines()):
-        raise ResultsError(f"{run_id}: command line is not exactly {expected!r}")
+    commands = [ln for ln in stripped.splitlines() if "Command being timed" in ln]
+    if len(commands) != 1 or commands[0].strip() != expected:
+        raise ResultsError(
+            f"{run_id}: err.txt must hold exactly one command line, {expected!r}"
+        )
     return stripped
 
 
@@ -822,18 +825,46 @@ def render_site(plt: ModuleType, runs: list[RunData]) -> dict[str, bytes]:
     return files
 
 
-def _check_targets(out: Path, runs_out: Path) -> None:
-    """Refuse targets the swap could destroy: `.`, `..`, the root, nesting, the cwd."""
-    for flag, path in (("--out", out), ("--runs-out", runs_out)):
-        if path.name in ("", ".", ".."):
-            raise ResultsError(f"refusing {flag} {str(path)!r}: no directory name")
-    a, b = out.resolve(), runs_out.resolve()
-    if a == b or a in b.parents or b in a.parents:
-        raise ResultsError("refusing --out and --runs-out: equal or nested")
+def _overlaps(a: Path, b: Path) -> bool:
+    """True when the resolved paths are equal or one contains the other."""
+    return a == b or a in b.parents or b in a.parents
+
+
+def _family(path: Path) -> list[Path]:
+    """The target and the two siblings the swap creates, resolved."""
+    root = path.resolve()
+    return [root, _sibling(root, "tmp"), _sibling(root, "old")]
+
+
+def _check_name_and_cwd(flag: str, path: Path) -> None:
+    if path.name in ("", ".", ".."):
+        raise ResultsError(f"refusing {flag} {str(path)!r}: no directory name")
     cwd = Path.cwd().resolve()
-    for flag, path in (("--out", a), ("--runs-out", b)):
-        if path == cwd or path in cwd.parents:
-            raise ResultsError(f"refusing {flag}: it holds the working directory")
+    resolved = path.resolve()
+    if resolved == cwd or resolved in cwd.parents:
+        raise ResultsError(f"refusing {flag}: it holds the working directory")
+
+
+def _check_inputs(flag: str, path: Path, inputs: list[Path]) -> None:
+    for member in _family(path):
+        for item in inputs:
+            if _overlaps(member, item):
+                raise ResultsError(
+                    f"refusing {flag}: {member.name} overlaps an input ({item.name})"
+                )
+
+
+def _check_targets(out: Path, runs_out: Path, inputs: list[Path]) -> None:
+    """Refuse targets the swap could destroy: `.`, `..`, the cwd, an input, a clash."""
+    for flag, path in (("--out", out), ("--runs-out", runs_out)):
+        _check_name_and_cwd(flag, path)
+    if _overlaps(out.resolve(), runs_out.resolve()):
+        raise ResultsError("refusing --out and --runs-out: equal or nested")
+    if set(_family(out)) & set(_family(runs_out)):
+        raise ResultsError("refusing --out and --runs-out: their .tmp/.old collide")
+    resolved = [p.resolve() for p in inputs]
+    for flag, path in (("--out", out), ("--runs-out", runs_out)):
+        _check_inputs(flag, path, resolved)
 
 
 def _sibling(path: Path, suffix: str) -> Path:
@@ -943,7 +974,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         plt = _load_pyplot()
         dirs = _parse_runs(args.run)
-        _check_targets(args.out, args.runs_out)
+        _check_targets(args.out, args.runs_out, [*dirs.values(), args.runs_toml])
         _recover(args.out)
         _recover(args.runs_out)
         runs = load_runs(args.runs_toml, dirs)
