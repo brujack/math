@@ -11,6 +11,7 @@ import unittest
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -451,6 +452,26 @@ class TestComputations(_FixtureCopy):
         self.assertAlmostEqual(
             zr.wigner_pdf(1.0), 32 / math.pi**2 * math.exp(-4 / math.pi)
         )
+
+    def test_erf_port_values_pinned(self) -> None:
+        self.assertAlmostEqual(zr.as_erf(1.0), 0.8427006897475899, delta=1e-12)
+        self.assertAlmostEqual(zr.as_erf(0.5), 0.5205000163047472, delta=1e-12)
+
+    def test_newton_non_convergence_raises(self) -> None:
+        with (
+            mock.patch.object(zr, "_NEWTON_MAX", 0),
+            self.assertRaisesRegex(zr.ResultsError, "did not converge"),
+        ):
+            zr.gram_points_upto(100.0)
+        with (
+            mock.patch.object(zr, "_theta_slope", return_value=math.nan),
+            self.assertRaisesRegex(zr.ResultsError, "did not converge"),
+        ):
+            zr.gram_points_upto(100.0)
+
+    def test_cross_check_without_cli_counts_raises(self) -> None:
+        with self.assertRaisesRegex(zr.ResultsError, "^tr3: "):
+            zr.cross_check("tr3", self.d, self._altered(cli_counts=None), 649)
 
     def test_cli_bins_pin_and_boundaries(self) -> None:
         self.assertEqual(zr.cli_bins(self.d), WIGNER_20)
