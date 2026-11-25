@@ -65,7 +65,9 @@ class ZetaResultsPagesWorkflowTest(unittest.TestCase):
     def test_checkout_sha_matches_benchmarks(self) -> None:
         bench = _load("benchmarks.yml")["jobs"]["benchmark"]["steps"][0]["uses"]
         checkouts = [
-            s["uses"] for s in self.job["steps"] if str(s.get("uses", "")).startswith(CHECKOUT)
+            s["uses"]
+            for s in self.job["steps"]
+            if str(s.get("uses", "")).startswith(CHECKOUT)
         ]
         self.assertEqual(len(checkouts), 2)
         for ref in checkouts:
@@ -75,7 +77,8 @@ class ZetaResultsPagesWorkflowTest(unittest.TestCase):
         refs = [
             s["with"]["ref"]
             for s in self.job["steps"]
-            if str(s.get("uses", "")).startswith(CHECKOUT) and "ref" in s.get("with", {})
+            if str(s.get("uses", "")).startswith(CHECKOUT)
+            and "ref" in s.get("with", {})
         ]
         self.assertEqual(refs, ["gh-pages"])
 
@@ -90,7 +93,9 @@ class ZetaResultsPagesWorkflowTest(unittest.TestCase):
         self.assertIn("rm -rf gh-pages/zeta", text)
         self.assertIn("cp -R zeta/results/site gh-pages/zeta", text)
         self.assertIn("scripts/gh-pages-zeta-guard.sh gh-pages", text)
-        self.assertLess(text.index("gh-pages-zeta-guard.sh"), text.index("git -C gh-pages push"))
+        self.assertLess(
+            text.index("gh-pages-zeta-guard.sh"), text.index("git -C gh-pages push")
+        )
 
     def test_marker_file_is_not_published(self) -> None:
         text = _run_text(self.job)
@@ -106,7 +111,24 @@ class ZetaResultsPagesWorkflowTest(unittest.TestCase):
         self.assertIn("github.sha", str(self.job["steps"]))
 
     def test_push_only_when_something_changed(self) -> None:
-        self.assertIn("git -C gh-pages status --porcelain", _run_text(self.job))
+        push_step = next(
+            step
+            for step in self.job["steps"]
+            if "git -C gh-pages status --porcelain" in str(step.get("run", ""))
+        )
+        lines = [line.strip() for line in str(push_step["run"]).splitlines()]
+        test_at = next(
+            i
+            for i, line in enumerate(lines)
+            if "git -C gh-pages status --porcelain" in line
+        )
+        exit_at = next(i for i, line in enumerate(lines) if line == "exit 0")
+        commit_at = next(i for i, line in enumerate(lines) if "commit -m" in line)
+        fi_at = next(i for i, line in enumerate(lines) if line == "fi")
+        self.assertTrue(lines[test_at].startswith("if [[ -z "))
+        self.assertLess(test_at, exit_at)
+        self.assertLess(exit_at, fi_at)
+        self.assertLess(fi_at, commit_at)
 
 
 class BenchmarksConcurrencyTest(unittest.TestCase):

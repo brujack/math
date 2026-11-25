@@ -55,6 +55,22 @@ setup() {
     [[ "${output}" == *"moved.html"* ]]
 }
 
+@test "a rename within zeta/ exits 0" {
+    printf 'a\n' >"${PAGES}/zeta/a"
+    git -C "${PAGES}" add zeta/a
+    git -C "${PAGES}" -c user.name=t -c user.email=t@example.com commit -q -m add-a
+    git -C "${PAGES}" mv zeta/a zeta/c
+    run "${SCRIPT}" "${PAGES}"
+    [ "${status}" -eq 0 ]
+}
+
+@test "a rename from outside zeta/ into zeta/ exits 1 and names the origin" {
+    git -C "${PAGES}" mv dev/bench/x zeta/x
+    run "${SCRIPT}" "${PAGES}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"dev/bench/x"* ]]
+}
+
 @test "a sibling directory sharing the zeta prefix exits 1" {
     mkdir -p "${PAGES}/zeta-other"
     printf 'x\n' >"${PAGES}/zeta-other/a"
