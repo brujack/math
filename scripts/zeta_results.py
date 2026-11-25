@@ -1,18 +1,27 @@
-"""Input parsing for the zeta results page.
+"""Generator for the zeta results page.
 
 Reads the `/usr/bin/time -v` report, the CLI's `out.txt`, the committed
 `runs.toml` and a refined zero table. Every bad input raises `ResultsError`
 whose message is `"<run id>: <check>"`, so a run is never published on
-unverified data.
+unverified data. Only after every check passes does it render the matplotlib
+SVGs and the static `index.html`, swap the site in atomically and copy each
+run's `out.txt` and `err.txt` (binary path reduced) beside it.
 """
 
+import argparse
+import html
+import io
 import math
 import re
+import shutil
+import sys
 from bisect import bisect_right
 from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import tomllib
 
@@ -423,3 +432,463 @@ def gram_stats(table: RefinedTable, gram: list[float]) -> GramStats:
     intervals = max(len(gram) - 1, 0)
     share = counts[1] / intervals if intervals else 0.0
     return GramStats(counts, share, _straddles(table, gram))
+
+
+# ---------------------------------------------------------------------------
+# Rendering, site assembly and the command line.
+# ---------------------------------------------------------------------------
+
+MPL_MISSING = "zeta_results: matplotlib missing; run make install-deps"
+FIGURE_SIZE = (6, 4)
+FONT_PT = 12
+SVG_HASH_SALT = "zeta-results"
+CURVE_POINTS = 300
+CLAIM_TAIL = (
+    " re-verified, with certified interval arithmetic, that every nontrivial zero of "
+    "ζ(s) with 0 < Im s ≤ 10^N lies on the critical line and is simple, for each N "
+    "shown. This is an independent re-computation of a known result, not a new one. "
+    "Platt and Trudgian (2021) verified the same property up to 3·10^12, and "
+    "Odlyzko's tables give the zeros themselves."
+)
+POISSON_SENTENCE = (
+    "The contrast with Poisson is the lesson: independent points would pile up near "
+    "zero gap, while the zeros repel each other. A small KS distance to the Wigner "
+    "surmise can still be a statistical rejection at a large gap count, because the "
+    "surmise is an approximation and convergence with height is slow."
+)
+GRAM_DEFINITION = (
+    "A Gram point g_n is the solution of θ(t) = nπ, where θ is the Riemann–Siegel "
+    "theta function."
+)
+DELTA_DEFINITION = (
+    "The normalised gap is δ_n = (t_(n+1) − t_n)·ln(t_n/2π)/2π, which rescales the "
+    "spacings between consecutive zeros to mean 1; t_n is the midpoint of the "
+    "certified bracket."
+)
+GRAM_CAVEAT = (
+    "The zero brackets are certified. The Gram points are computed in double "
+    "precision, not certified; S counts the brackets with a Gram point strictly "
+    "inside, which bounds how much that matters. The zero above the last Gram point "
+    "g_K ≤ 10^N falls in no interval."
+)
+_PAGE_STYLE = (
+    "body{font-family:sans-serif;max-width:50rem;margin:1rem auto;padding:0 1rem;"
+    "line-height:1.5}img{max-width:100%;height:auto}table{border-collapse:collapse}"
+    "th,td{border:1px solid #888;padding:.25rem .5rem;text-align:right}"
+    "figcaption{font-size:.85rem;color:#444}figure{margin:1rem 0}"
+)
+_COMMAND_PATH_RE = re.compile(r'(Command being timed: ")(?:[^"\s]*/)?zeta-[0-9a-f]{7} ')
+
+
+class MatplotlibMissing(ResultsError):
+    """matplotlib is not importable; the message is the full user-facing line."""
+
+
+@dataclass(frozen=True)
+class Refined:
+    table: RefinedTable
+    gaps: list[float]
+    ks_wigner: float
+    ks_poisson: float
+    gram: GramStats
+
+
+@dataclass(frozen=True)
+class RunData:
+    meta: RunMeta
+    report: TimeReport
+    out: OutSummary
+    out_text: str
+    err_text: str
+    refined: Refined | None
+
+
+def _load_pyplot() -> ModuleType:
+    try:
+        import matplotlib  # pyright: ignore[reportMissingImports]
+
+        matplotlib.use("Agg")
+        from matplotlib import pyplot  # pyright: ignore[reportMissingImports]
+    except ImportError as err:
+        raise MatplotlibMissing(MPL_MISSING) from err
+    return pyplot
+
+
+def command_text(rep: TimeReport) -> str:
+    """The published command line, `zeta <N>[ --refine]`, without any path."""
+    return f"zeta {rep.n}" + (" --refine" if rep.refine else "")
+
+
+def strip_command_path(err_text: str, binary_sha: str) -> str:
+    """Reduce the timed binary's path to `zeta-<first 7 of binary_sha>`."""
+    return _COMMAND_PATH_RE.sub(rf"\g<1>zeta-{binary_sha[:7]} ", err_text)
+
+
+def count_verdict(n: int, count: int) -> str:
+    """`equal` when `count` is the published N(10^n), else `differs`."""
+    return "equal" if PUBLISHED_COUNTS[n] == count else "differs"
+
+
+def format_elapsed(seconds: float) -> str:
+    if seconds < 60:
+        return f"{seconds:.2f} s"
+    whole, frac = divmod(seconds, 1)
+    hours, rest = divmod(int(whole), 3600)
+    minutes, secs = divmod(rest, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes}:{secs + frac:05.2f}"
+
+
+def _read_text(path: Path, run_id: str) -> str:
+    try:
+        return path.read_text()
+    except OSError as err:
+        raise ResultsError(f"{run_id}: cannot read {path.name}") from err
+
+
+def _analyse_refined(
+    run_id: str, directory: Path, rep: TimeReport, out: OutSummary
+) -> Refined:
+    table = read_refined(directory / f"zeta_1e{rep.n}.txt", run_id, out.count)
+    gaps = spacings(table.m)
+    cross_check(run_id, gaps, out, out.count)
+    return Refined(
+        table,
+        gaps,
+        ks_distance(gaps, wigner_cdf),
+        ks_distance(gaps, poisson_cdf),
+        gram_stats(table, gram_points_upto(10.0**rep.n)),
+    )
+
+
+def load_run(run_id: str, meta: RunMeta, directory: Path) -> RunData:
+    """Read and fully check one run directory."""
+    err_text = _read_text(directory / "err.txt", run_id)
+    out_text = _read_text(directory / "out.txt", run_id)
+    rep = parse_time_report(err_text, run_id)
+    check_binary(meta, rep, run_id)
+    out = parse_out(out_text, run_id, rep.n, refine=rep.refine)
+    refined = _analyse_refined(run_id, directory, rep, out) if rep.refine else None
+    return RunData(meta, rep, out, out_text, err_text, refined)
+
+
+def _check_run_set(metas: dict[str, RunMeta], dirs: dict[str, Path]) -> None:
+    for run_id in dirs:
+        if run_id not in metas:
+            raise ResultsError(f"{run_id}: --run has no runs.toml entry")
+    for run_id in metas:
+        if run_id not in dirs:
+            raise ResultsError(f"{run_id}: runs.toml entry has no --run")
+
+
+def load_runs(runs_toml: Path, dirs: dict[str, Path]) -> list[RunData]:
+    """Check every run; the result is sorted by N, plain before refined, then id."""
+    metas = load_runs_toml(runs_toml)
+    _check_run_set(metas, dirs)
+    runs = [load_run(run_id, metas[run_id], path) for run_id, path in dirs.items()]
+    runs.sort(key=lambda r: (r.report.n, r.report.refine, r.meta.id))
+    seen: set[tuple[int, bool]] = set()
+    for run in runs:
+        key = (run.report.n, run.report.refine)
+        if key in seen:
+            raise ResultsError(
+                f"{run.meta.id}: duplicate run of {command_text(run.report)}"
+            )
+        seen.add(key)
+    return runs
+
+
+def _svg_bytes(plt: ModuleType, fig: Any) -> bytes:
+    buf = io.BytesIO()
+    fig.savefig(buf, format="svg", metadata={"Date": None})
+    plt.close(fig)
+    return buf.getvalue()
+
+
+def _gap_figure(plt: ModuleType, rep: TimeReport, data: Refined) -> bytes:
+    total = len(data.gaps)
+    width, counts = display_bins(data.gaps)
+    fig, ax = plt.subplots(figsize=FIGURE_SIZE)
+    centres = [(i + 0.5) * width for i in range(len(counts))]
+    heights = [c / (total * width) for c in counts]
+    for i, bar in enumerate(
+        ax.bar(centres, heights, width=width, color="#9ab", edgecolor="white")
+    ):
+        bar.set_gid(f"hist-bar-{i}")
+    xs = [i * S_MAX / CURVE_POINTS for i in range(CURVE_POINTS + 1)]
+    (wigner,) = ax.plot(xs, [wigner_pdf(x) for x in xs], "r-", label="Wigner surmise")
+    (poisson,) = ax.plot(xs, [math.exp(-x) for x in xs], "k--", label="Poisson")
+    wigner.set_gid("wigner-curve")
+    poisson.set_gid("poisson-curve")
+    ax.set_xlim(0, S_MAX)
+    ax.set_xlabel("normalised gap δ")
+    ax.set_ylabel("density")
+    ax.set_title(f"Gaps between zeros, N = {rep.n}")
+    ax.legend(loc="upper right")
+    ax.text(
+        0.97,
+        0.6,
+        f"{total:,} gaps\nKS Wigner {data.ks_wigner:.4f}\nKS Poisson {data.ks_poisson:.4f}",
+        transform=ax.transAxes,
+        ha="right",
+        va="top",
+    )
+    fig.tight_layout()
+    return _svg_bytes(plt, fig)
+
+
+def _share_figure(plt: ModuleType, refined: list[RunData]) -> bytes:
+    ns = [r.report.n for r in refined]
+    shares = [r.refined.gram.share for r in refined if r.refined is not None]
+    fig, ax = plt.subplots(figsize=FIGURE_SIZE)
+    (line,) = ax.plot(ns, shares, "o-")
+    line.set_gid("gram-share-line")
+    ax.set_xticks(ns)
+    ax.set_ylim(0, 1)
+    ax.set_xlabel("N (zeros up to 10^N)")
+    ax.set_ylabel("share of Gram intervals with one zero")
+    ax.set_title("Gram's law")
+    fig.tight_layout()
+    return _svg_bytes(plt, fig)
+
+
+def _text(value: str) -> str:
+    return html.escape(value, quote=False)
+
+
+def _attr(value: str) -> str:
+    return html.escape(value, quote=True)
+
+
+def _table_html(headers: list[str], rows: list[list[str]]) -> str:
+    head = "".join(f"<th>{_text(h)}</th>" for h in headers)
+    body = "\n".join(
+        "<tr>" + "".join(f"<td>{_text(c)}</td>" for c in row) + "</tr>" for row in rows
+    )
+    return (
+        '<div style="overflow-x:auto">\n<table>\n'
+        f"<tr>{head}</tr>\n{body}\n</table>\n</div>"
+    )
+
+
+def _provenance(run: RunData) -> str:
+    meta = run.meta
+    return (
+        f"command: {command_text(run.report)}; binary commit: {meta.binary_sha[:7]}; "
+        f"machine: {meta.machine}; date: {meta.date}"
+    )
+
+
+def _figure_html(src: str, alt: str, provenance: str) -> str:
+    return (
+        f'<figure>\n<img src="{_attr(src)}" alt="{_attr(alt)}">\n'
+        f'<figcaption class="provenance">{_text(provenance)}</figcaption>\n</figure>'
+    )
+
+
+def _counts_html(runs: list[RunData]) -> str:
+    rows = [
+        [
+            str(r.report.n),
+            "refine" if r.report.refine else "plain",
+            str(r.out.count),
+            str(PUBLISHED_COUNTS[r.report.n]),
+            count_verdict(r.report.n, r.out.count),
+        ]
+        for r in runs
+    ]
+    headers = ["N", "mode", "zeros found L", "published N(10^N)", "result"]
+    return (
+        "<h2>Verified counts</h2>\n"
+        "<p>Published counts: OEIS A072080.</p>\n" + _table_html(headers, rows)
+    )
+
+
+def _gram_html(refined: list[RunData]) -> str:
+    rows = [
+        [
+            str(r.report.n),
+            *(str(r.refined.gram.counts[k]) for k in range(5)),
+            f"{r.refined.gram.share:.4f}",
+            str(r.refined.gram.straddles),
+        ]
+        for r in refined
+        if r.refined is not None
+    ]
+    headers = [
+        "N",
+        "0 zeros",
+        "1 zero",
+        "2 zeros",
+        "3 zeros",
+        "4+ zeros",
+        "exactly one",
+        "S",
+    ]
+    return (
+        f"<h2>Gram's law</h2>\n<p>{_text(GRAM_DEFINITION)}</p>\n"
+        + _table_html(headers, rows)
+        + f"\n<p>{_text(GRAM_CAVEAT)}</p>"
+    )
+
+
+def _runs_html(runs: list[RunData]) -> str:
+    machines = {r.meta.machine for r in runs}
+    shared = len(machines) == 1
+    headers = ["N", "refine", "elapsed", "peak RSS", "binary commit", "date", "note"]
+    if not shared:
+        headers.insert(0, "machine")
+    rows = []
+    for r in runs:
+        row = [
+            str(r.report.n),
+            "yes" if r.report.refine else "no",
+            format_elapsed(r.report.elapsed_s),
+            f"{r.report.peak_rss_kb / 1024:.1f} MiB",
+            r.meta.binary_sha[:7],
+            r.meta.date,
+            r.meta.note or "",
+        ]
+        rows.append(row if shared else [r.meta.machine, *row])
+    machine = f"<p>Machine: {_text(machines.pop())}</p>\n" if shared else ""
+    return "<h2>Runs</h2>\n" + machine + _table_html(headers, rows)
+
+
+def _figures(plt: ModuleType, refined: list[RunData]) -> tuple[str, dict[str, bytes]]:
+    files: dict[str, bytes] = {}
+    parts = [f"<h2>Gap spacings</h2>\n<p>{_text(DELTA_DEFINITION)}</p>"]
+    parts.append(f"<p>{_text(POISSON_SENTENCE)}</p>")
+    for r in refined:
+        if r.refined is None:
+            continue
+        name = f"gaps-N{r.report.n}.svg"
+        files[name] = _gap_figure(plt, r.report, r.refined)
+        alt = (
+            f"Histogram of {len(r.refined.gaps):,} normalised gaps for N = {r.report.n} "
+            "against the Wigner surmise and the Poisson curve"
+        )
+        parts.append(_figure_html(name, alt, _provenance(r)))
+    return "\n".join(parts), files
+
+
+def _gram_figure(plt: ModuleType, refined: list[RunData]) -> tuple[str, bytes]:
+    name = "gram-share.svg"
+    alt = "Share of Gram intervals holding exactly one zero, against N"
+    provenance = " | ".join(_provenance(r) for r in refined)
+    return _figure_html(name, alt, provenance), _share_figure(plt, refined)
+
+
+def _page(body: list[str]) -> str:
+    footer = (
+        '<footer><p><a href="deployed-from.txt">deployed-from.txt</a> names the '
+        "commit this page was deployed from.</p></footer>"
+    )
+    return (
+        '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        f"<title>zeta results</title>\n<style>{_PAGE_STYLE}</style>\n</head>\n<body>\n"
+        "<main>\n<h1>zeta results</h1>\n"
+        f'<p class="claim"><code>zeta</code>{_text(CLAIM_TAIL)}</p>\n'
+        + "\n".join(body)
+        + f"\n</main>\n{footer}\n</body>\n</html>\n"
+    )
+
+
+def render_site(plt: ModuleType, runs: list[RunData]) -> dict[str, bytes]:
+    """The site as `{relative path: bytes}`; deterministic for the same inputs."""
+    refined = [r for r in runs if r.refined is not None]
+    body = [_counts_html(runs)]
+    files: dict[str, bytes] = {}
+    with plt.rc_context({"svg.hashsalt": SVG_HASH_SALT, "font.size": FONT_PT}):
+        if refined:
+            gap_html, files = _figures(plt, refined)
+            gram_html = _gram_html(refined)
+            figure_html, share_svg = _gram_figure(plt, refined)
+            files["gram-share.svg"] = share_svg
+            body += [gap_html, gram_html, figure_html]
+    body.append(_runs_html(runs))
+    files["index.html"] = _page(body).encode()
+    return files
+
+
+def _remove_stale(out: Path) -> None:
+    for stale in out.parent.glob(f"{out.name}.*"):
+        if stale.is_dir():
+            shutil.rmtree(stale)
+        else:
+            stale.unlink()
+
+
+def _swap_in(tmp: Path, out: Path) -> None:
+    """Rename the old site away, the new one in; restore the old on failure."""
+    old = out.with_name(f"{out.name}.old")
+    had_old = out.exists()
+    if had_old:
+        out.rename(old)
+    try:
+        tmp.rename(out)
+    except OSError:
+        if had_old:
+            old.rename(out)
+        raise
+    if had_old:
+        shutil.rmtree(old)
+
+
+def write_site(out: Path, files: dict[str, bytes]) -> None:
+    tmp = out.with_name(f"{out.name}.tmp")
+    tmp.mkdir(parents=True)
+    for name, data in files.items():
+        (tmp / name).write_bytes(data)
+    _swap_in(tmp, out)
+
+
+def write_run_copies(runs: list[RunData], runs_out: Path) -> None:
+    for run in runs:
+        target = runs_out / run.meta.id
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "out.txt").write_text(run.out_text)
+        (target / "err.txt").write_text(
+            strip_command_path(run.err_text, run.meta.binary_sha)
+        )
+
+
+def _parse_runs(specs: list[str]) -> dict[str, Path]:
+    dirs: dict[str, Path] = {}
+    for spec in specs:
+        run_id, sep, directory = spec.partition("=")
+        if not sep or not run_id or not directory:
+            raise ResultsError(f"--run {spec!r}: expected <id>=<dir>")
+        if run_id in dirs:
+            raise ResultsError(f"{run_id}: --run given twice")
+        dirs[run_id] = Path(directory)
+    return dirs
+
+
+def _arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Generate the zeta results page.")
+    parser.add_argument("--runs-toml", type=Path, required=True)
+    parser.add_argument("--run", action="append", default=[], metavar="ID=DIR")
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--runs-out", type=Path)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _arg_parser().parse_args(argv)
+    try:
+        plt = _load_pyplot()
+        _remove_stale(args.out)
+        runs = load_runs(args.runs_toml, _parse_runs(args.run))
+        write_site(args.out, render_site(plt, runs))
+        if args.runs_out is not None:
+            write_run_copies(runs, args.runs_out)
+    except (ResultsError, OSError) as err:
+        print(err, file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

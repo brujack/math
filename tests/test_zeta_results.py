@@ -1,8 +1,14 @@
-"""Tests for the zeta results page: fixtures, parsing and (later) the generator."""
+"""Tests for the zeta results page: fixtures, parsing, computations and rendering."""
 
+import ast
+import contextlib
 import dataclasses
+import html
+import importlib.util
+import io
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -561,3 +567,330 @@ class TestComputations(_FixtureCopy):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+SPEC = (
+    REPO_ROOT
+    / "docs"
+    / "superpowers"
+    / "specs"
+    / "2026-11-24-zeta-results-page-design.md"
+)
+RUN_IDS = ("t2", "t3", "tr3")
+ABSOLUTE_PATH = re.compile(r"(?<![\w.])/(home|tmp|Users|root|var)/")
+
+
+def _snapshot(root: Path) -> dict[str, bytes]:
+    return {
+        p.relative_to(root).as_posix(): p.read_bytes()
+        for p in sorted(root.rglob("*"))
+        if p.is_file()
+    }
+
+
+def _spec_claim() -> str:
+    """The claim paragraph of the spec's 'Claim text (exact)' section, as plain text."""
+    lines = SPEC.read_text().splitlines()
+    start = lines.index("### Claim text (exact)")
+    quoted = []
+    for line in lines[start + 1 :]:
+        if line.startswith("> "):
+            quoted.append(line[2:])
+        elif quoted:
+            break
+    return " ".join(quoted).replace("`", "")
+
+
+def _plain(fragment: str) -> str:
+    return html.unescape(re.sub(r"<[^>]+>", "", fragment))
+
+
+class TestRendering(_FixtureCopy):
+    """SVGs, index.html, run copies, the atomic swap and the command line."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.site = self.root.parent / "site"
+        self.runs_dir = self.root.parent / "runs"
+        self.stderr = io.StringIO()
+
+    def require_matplotlib(self) -> None:
+        if importlib.util.find_spec("matplotlib") is not None:
+            return
+        if os.environ.get("CI") == "true":
+            self.fail("matplotlib not installed; run make install-deps")
+        self.skipTest("matplotlib not installed; run make install-deps")
+
+    def argv(
+        self, out: Path | None = None, ids: tuple[str, ...] = RUN_IDS
+    ) -> list[str]:
+        args = ["--runs-toml", str(self.root / "runs.toml")]
+        for run_id in ids:
+            args += ["--run", f"{run_id}={self.root / run_id}"]
+        args += ["--out", str(out or self.site), "--runs-out", str(self.runs_dir)]
+        return args
+
+    def generate(self, out: Path | None = None, ids: tuple[str, ...] = RUN_IDS) -> int:
+        self.require_matplotlib()
+        with contextlib.redirect_stderr(self.stderr):
+            return zr.main(self.argv(out, ids))
+
+    def page(self) -> str:
+        return (self.site / "index.html").read_text()
+
+    def test_smoke_run_writes_page_and_svgs(self) -> None:
+        self.assertEqual(self.generate(), 0, self.stderr.getvalue())
+        self.assertEqual(
+            sorted(p.name for p in self.site.iterdir()),
+            ["gaps-N3.svg", "gram-share.svg", "index.html"],
+        )
+
+    def test_two_runs_are_byte_identical(self) -> None:
+        other = self.root.parent / "site2"
+        self.assertEqual(self.generate(), 0)
+        self.assertEqual(self.generate(other), 0)
+        self.assertEqual(_snapshot(self.site), _snapshot(other))
+
+    def test_failed_check_leaves_existing_site_unchanged(self) -> None:
+        self.assertEqual(self.generate(), 0)
+        before = _snapshot(self.site)
+        self.edit("tr3/err.txt", "Exit status: 0", "Exit status: 1")
+        self.assertEqual(self.generate(), 1)
+        self.assertTrue(self.stderr.getvalue().startswith("tr3: "))
+        self.assertEqual(_snapshot(self.site), before)
+
+    def test_failed_check_writes_nothing_on_first_run(self) -> None:
+        self.edit("tr3/err.txt", "Exit status: 0", "Exit status: 1")
+        self.assertEqual(self.generate(), 1)
+        self.assertFalse(self.site.exists())
+        self.assertFalse(self.site.with_name("site.tmp").exists())
+        self.assertFalse(self.runs_dir.exists())
+
+    def test_stale_siblings_from_a_crash_are_removed(self) -> None:
+        for name in ("site.tmp", "site.old"):
+            (self.root.parent / name).mkdir()
+            (self.root.parent / name / "junk").write_text("x")
+        (self.root.parent / "site.partial").write_text("x")
+        self.assertEqual(self.generate(), 0)
+        self.assertEqual(sorted(p.name for p in self.root.parent.glob("site.*")), [])
+
+    def test_failed_check_still_removes_stale_siblings(self) -> None:
+        stale = self.root.parent / "site.tmp"
+        stale.mkdir()
+        self.edit("tr3/err.txt", "Exit status: 0", "Exit status: 1")
+        self.assertEqual(self.generate(), 1)
+        self.assertFalse(stale.exists())
+
+    def test_run_without_toml_entry_fails(self) -> None:
+        self.assertEqual(self.generate(ids=(*RUN_IDS, "zz")), 1)
+        self.assertRegex(self.stderr.getvalue(), r"^zz: ")
+
+    def test_toml_entry_without_run_fails(self) -> None:
+        self.assertEqual(self.generate(ids=("t2", "t3")), 1)
+        self.assertRegex(self.stderr.getvalue(), r"^tr3: ")
+
+    def test_malformed_run_spec_fails(self) -> None:
+        self.require_matplotlib()
+        with contextlib.redirect_stderr(self.stderr):
+            rc = zr.main(["--runs-toml", "x", "--run", "noequals", "--out", "y"])
+        self.assertEqual(rc, 1)
+        self.assertIn("expected <id>=<dir>", self.stderr.getvalue())
+
+    def test_duplicate_run_spec_fails(self) -> None:
+        self.require_matplotlib()
+        with contextlib.redirect_stderr(self.stderr):
+            rc = zr.main(
+                ["--runs-toml", "x", "--run", "a=1", "--run", "a=2", "--out", "y"]
+            )
+        self.assertEqual(rc, 1)
+        self.assertRegex(self.stderr.getvalue(), r"^a: ")
+
+    def test_two_runs_of_the_same_command_fail(self) -> None:
+        shutil.copytree(self.root / "tr3", self.root / "tr3b")
+        with (self.root / "runs.toml").open("a") as handle:
+            handle.write(
+                '\n[[run]]\nid = "tr3b"\n'
+                'binary_sha = "f935b233046fa0905c3198efc93a15fb2412677a"\n'
+                'machine = "m"\ndate = "2026-11-24"\n'
+            )
+        self.assertEqual(self.generate(ids=(*RUN_IDS, "tr3b")), 1)
+        self.assertRegex(self.stderr.getvalue(), r"^tr3b: .*duplicate")
+
+    def test_missing_run_file_names_the_run(self) -> None:
+        (self.root / "t2" / "out.txt").unlink()
+        self.assertEqual(self.generate(), 1)
+        self.assertRegex(self.stderr.getvalue(), r"^t2: cannot read out\.txt")
+
+    def test_page_hygiene(self) -> None:
+        self.assertEqual(self.generate(), 0)
+        page = self.page()
+        self.assertNotIn("<script", page)
+        self.assertIsNone(re.search(r'(?:src|href)="http', page))
+        self.assertIn(
+            '<meta name="viewport" content="width=device-width, initial-scale=1">', page
+        )
+        self.assertIn("img{max-width:100%;height:auto}", page)
+        self.assertEqual(
+            page.count("<table>"), page.count('<div style="overflow-x:auto">\n<table>')
+        )
+        self.assertGreater(page.count("<table>"), 0)
+        self.assertEqual(
+            len(re.findall(r"<img ", page)),
+            len(re.findall(r'<img [^>]*alt="[^"]+"', page)),
+        )
+        self.assertIn('<a href="deployed-from.txt">', page)
+        for name, data in _snapshot(self.site).items():
+            self.assertNotIn(b"../zeta-f935b23", data, name)
+
+    def test_claim_paragraph_is_verbatim_from_the_spec(self) -> None:
+        self.assertEqual(self.generate(), 0)
+        match = re.search(r'<p class="claim">(.*?)</p>', self.page(), re.DOTALL)
+        assert match is not None
+        self.assertEqual(_plain(match.group(1)), _spec_claim())
+
+    def test_nothing_else_calls_the_result_new(self) -> None:
+        self.assertEqual(self.generate(), 0)
+        rest = re.sub(r'<p class="claim">.*?</p>', "", self.page(), flags=re.DOTALL)
+        self.assertIsNone(re.search(r"\bnew\b", _plain(rest)))
+
+    def test_definitions_and_contrast_are_present(self) -> None:
+        self.assertEqual(self.generate(), 0)
+        text = _plain(self.page())
+        self.assertIn("A Gram point", text)
+        self.assertIn("normalised gap", text)
+        self.assertIn("contrast with Poisson", text)
+        self.assertIn("not certified", text)
+
+    def test_counts_gram_and_run_tables_carry_the_fixture_values(self) -> None:
+        self.assertEqual(self.generate(), 0)
+        text = _plain(self.page())
+        self.assertRegex(text, r"3\s*refine\s*649\s*649\s*equal")
+        self.assertRegex(text, r"3\s*22\s*604\s*22\s*0\s*0\s*0\.9321\s*0")
+        self.assertIn("Machine: Threadripper 3960X, 48 threads, Ubuntu 26.04", text)
+        self.assertIn("2.45 s", text)
+
+    def test_every_figure_has_a_provenance_line(self) -> None:
+        self.assertEqual(self.generate(), 0)
+        figures = re.findall(r"<figure>.*?</figure>", self.page(), re.DOTALL)
+        self.assertEqual(len(figures), 2)
+        for figure in figures:
+            caption = re.search(
+                r'<figcaption class="provenance">(.*?)</figcaption>', figure
+            )
+            assert caption is not None
+            for part in (
+                "command: zeta 3 --refine",
+                "binary commit: f935b23",
+                "machine: Threadripper",
+                "date: 2026-11-24",
+            ):
+                self.assertIn(part, caption.group(1))
+
+    def test_svg_files_equal_img_sources_and_show_bars_and_curves(self) -> None:
+        self.assertEqual(self.generate(), 0)
+        sources = set(re.findall(r'<img src="([^"]+)"', self.page()))
+        self.assertEqual(sources, {p.name for p in self.site.glob("*.svg")})
+        gaps = (self.site / "gaps-N3.svg").read_text()
+        self.assertIn('id="hist-bar-0"', gaps)
+        self.assertIn('id="hist-bar-19"', gaps)
+        self.assertNotIn('id="hist-bar-20"', gaps)
+        self.assertIn('id="wigner-curve"', gaps)
+        self.assertIn('id="poisson-curve"', gaps)
+
+    def test_run_copies_drop_the_binary_path(self) -> None:
+        self.assertEqual(self.generate(), 0)
+        for run_id in RUN_IDS:
+            copied = (self.runs_dir / run_id / "err.txt").read_text()
+            self.assertNotIn("../", copied)
+            self.assertRegex(copied, r'Command being timed: "zeta-f935b23 \d')
+            self.assertEqual(
+                (self.runs_dir / run_id / "out.txt").read_text(),
+                (self.root / run_id / "out.txt").read_text(),
+            )
+
+    def test_strip_command_path_leaves_other_lines_alone(self) -> None:
+        text = 'x ../y\n\tCommand being timed: "/a/b/zeta-1234567 3 --refine"\nz /q/\n'
+        want = 'x ../y\n\tCommand being timed: "zeta-1234567 3 --refine"\nz /q/\n'
+        self.assertEqual(zr.strip_command_path(text, "1234567" + "0" * 33), want)
+        self.assertEqual(zr.strip_command_path("no command", "1234567"), "no command")
+
+    def test_count_verdict(self) -> None:
+        self.assertEqual(zr.count_verdict(3, 649), "equal")
+        self.assertEqual(zr.count_verdict(3, 648), "differs")
+        self.assertEqual(zr.count_verdict(3, 650), "differs")
+
+    def test_format_elapsed(self) -> None:
+        self.assertEqual(zr.format_elapsed(2.45), "2.45 s")
+        self.assertEqual(zr.format_elapsed(59.99), "59.99 s")
+        self.assertEqual(zr.format_elapsed(60), "1:00.00")
+        self.assertEqual(zr.format_elapsed(125.5), "2:05.50")
+        self.assertEqual(zr.format_elapsed(3743), "1:02:23")
+        self.assertEqual(zr.format_elapsed(3600), "1:00:00")
+
+    def test_swap_restores_old_site_when_the_second_rename_fails(self) -> None:
+        site = self.root.parent / "swap"
+        site.mkdir()
+        (site / "old.txt").write_text("old")
+        tmp = self.root.parent / "swap.tmp"
+        tmp.mkdir()
+        (tmp / "new.txt").write_text("new")
+        real = Path.rename
+
+        def flaky(src: Path, target: Path) -> Path:
+            if src.name == "swap.tmp":
+                raise OSError("boom")
+            return real(src, target)
+
+        with mock.patch.object(Path, "rename", flaky), self.assertRaises(OSError):
+            zr._swap_in(tmp, site)
+        self.assertEqual((site / "old.txt").read_text(), "old")
+        self.assertFalse((self.root.parent / "swap.old").exists())
+
+    def test_swap_without_an_existing_site(self) -> None:
+        site = self.root.parent / "fresh"
+        tmp = self.root.parent / "fresh.tmp"
+        tmp.mkdir()
+        (tmp / "new.txt").write_text("new")
+        zr._swap_in(tmp, site)
+        self.assertEqual((site / "new.txt").read_text(), "new")
+        self.assertFalse(tmp.exists())
+
+    def test_matplotlib_missing_prints_the_remedy_and_exits_1(self) -> None:
+        with (
+            mock.patch.dict(sys.modules, {"matplotlib": None}),
+            contextlib.redirect_stderr(self.stderr),
+        ):
+            rc = zr.main(self.argv())
+        self.assertEqual(rc, 1)
+        self.assertEqual(
+            self.stderr.getvalue().strip(),
+            "zeta_results: matplotlib missing; run make install-deps",
+        )
+        self.assertFalse(self.site.exists())
+
+    def test_only_matplotlib_is_third_party_and_its_imports_are_pinned(self) -> None:
+        source = (REPO_ROOT / "scripts" / "zeta_results.py").read_text()
+        lines = source.splitlines()
+        third_party = set()
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.Import):
+                names = [a.name.split(".")[0] for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                names = [node.module.split(".")[0]]
+            else:
+                continue
+            for name in names:
+                if name not in sys.stdlib_module_names:
+                    third_party.add(name)
+                    self.assertIn(
+                        "# pyright: ignore[reportMissingImports]",
+                        lines[node.lineno - 1],
+                    )
+        self.assertEqual(third_party, {"matplotlib"})
+
+    def test_no_absolute_path_in_committed_results_or_fixtures(self) -> None:
+        for base in (REPO_ROOT / "zeta" / "results", FIXTURES):
+            for path in base.rglob("*") if base.exists() else []:
+                if path.is_file():
+                    text = path.read_text(errors="replace")
+                    self.assertIsNone(ABSOLUTE_PATH.search(text), str(path))
