@@ -7,6 +7,8 @@
   operator choices of 2026-11-24: GitHub Pages, matplotlib.
 - **Revised:** 2026-11-24, after Multi-Lens Review rounds 1 and 2 and External Review round 1
 
+- **Approved:** 2026-11-24
+
 ## Summary
 
 A static page at `https://brujack.github.io/math/zeta/` shows what `zeta` computed:
@@ -614,11 +616,11 @@ Report: [round1.md](2026-11-24-zeta-results-page-design.external-review/round1.m
 
 | finding | disposition | evidence | reviewer verdict | operator (Step 9) |
 | ------- | ----------- | -------- | ---------------- | ----------------- |
-| F1.1 | Fixed | S now uses an absolute 1e-8 endpoint tolerance (Computations, R7); Facts N = 5 S is 6, the reviewer's measured value under that rule; R15 adds the width-2e-5 straddle near 9.2·10^4 (S = 1) and a 5e-9 end (S = 0) | unjudged | |
-| F1.2 | Fixed | Facts "Run storage" now states r6 and r7 are in flight in scratch, move to the store on completion, and that a loss blocks R18 until re-run, to be stated in the plan before Phase 2. R18 unchanged: r6 was running under `/usr/bin/time -v` at review time and r7 is queued behind it | unjudged | |
-| F1.3 | Fixed | Testing gains an AST import test; R15 covers it; the Dependencies sentence now says `test_root_python_deps.py` skips the guarded import | unjudged | |
-| F1.4 | Fixed | Adopted: each run's `out.txt` and `err.txt` committed under `zeta/results/runs/<id>/` with the path reduced (R20); the CI consistency test regenerates the counts table, run table and CLI gap count, bins and KS from them and compares with `index.html` (R15); weighed under Approach | unjudged | |
-| F1.5 | Fixed | The Facts Gram header now names the 1e-8 rule and the N = 5 value is 6 (with F1.1) | unjudged | |
+| F1.1 | Fixed | S now uses an absolute 1e-8 endpoint tolerance (Computations, R7); Facts N = 5 S is 6, the reviewer's measured value under that rule; R15 adds the width-2e-5 straddle near 9.2·10^4 (S = 1) and a 5e-9 end (S = 0) | unjudged | approved 2026-11-24 ("Spec approved") |
+| F1.2 | Fixed | Facts "Run storage" now states r6 and r7 are in flight in scratch, move to the store on completion, and that a loss blocks R18 until re-run, to be stated in the plan before Phase 2. R18 unchanged: r6 was running under `/usr/bin/time -v` at review time and r7 is queued behind it | unjudged | approved 2026-11-24 ("Spec approved") |
+| F1.3 | Fixed | Testing gains an AST import test; R15 covers it; the Dependencies sentence now says `test_root_python_deps.py` skips the guarded import | unjudged | approved 2026-11-24 ("Spec approved") |
+| F1.4 | Fixed | Adopted: each run's `out.txt` and `err.txt` committed under `zeta/results/runs/<id>/` with the path reduced (R20); the CI consistency test regenerates the counts table, run table and CLI gap count, bins and KS from them and compares with `index.html` (R15); weighed under Approach | unjudged | approved 2026-11-24 ("Spec approved") |
+| F1.5 | Fixed | The Facts Gram header now names the 1e-8 rule and the N = 5 value is 6 (with F1.1) | unjudged | approved 2026-11-24 ("Spec approved") |
 
 Stopped: reviewer recommended stopping in round 1
 
