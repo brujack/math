@@ -90,7 +90,7 @@ where
 }
 
 /// The narrowest certified bracket found for each `(a, b)`, in the same order, on
-/// verify's private pool under the same `policy` (a pool that cannot be built is
+/// a private pool built by `verify::Runner` under the same `policy` (a pool that cannot be built is
 /// announced on `stderr` and the work runs serially). The outer `Err` is a failed
 /// write to `stderr`; the inner one a Z fault or a worker panic.
 pub fn refine_intervals<Z: ZSource + Sync, E: Write>(

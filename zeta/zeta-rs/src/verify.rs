@@ -169,7 +169,8 @@ pub enum Verdict {
     NotVerified { reason: NotVerifiedReason, blocks: Vec<GramSpan> },
     /// An implementation fault.
     Fault { reason: Fault },
-    /// The fallback notice could not be written to the caller's stderr (exit 4).
+    /// The fallback notice or a progress line could not be written to the caller's
+    /// stderr (exit 4).
     WriteFailed { error: String },
 }
 
