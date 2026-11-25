@@ -1,0 +1,54 @@
+name: zeta results pages
+
+# Publishes the committed zeta/results/site/ to gh-pages under zeta/. Manual and
+# master-only: the page is generated locally from long runs, never in CI.
+on:
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Same group as benchmarks.yml: both write the gh-pages branch.
+    concurrency:
+      group: gh-pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      - name: Replace zeta/ on gh-pages
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          rm -rf gh-pages/zeta
+          cp -R zeta/results/site gh-pages/zeta
+          # The generator's tree marker is not part of the published site.
+          rm -f gh-pages/zeta/.zeta-results
+          printf '%s\n' "${DEPLOY_SHA}" > gh-pages/zeta/deployed-from.txt
+
+      - name: Refuse changes outside zeta/
+        run: scripts/gh-pages-zeta-guard.sh gh-pages
+
+      - name: Commit and push
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          if [[ -z "$(git -C gh-pages status --porcelain)" ]]; then
+            printf 'gh-pages already up to date\n'
+            exit 0
+          fi
+          git -C gh-pages add zeta
+          git -C gh-pages -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "zeta results page from ${DEPLOY_SHA}"
+          git -C gh-pages push origin HEAD:gh-pages
