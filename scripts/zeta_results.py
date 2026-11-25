@@ -8,6 +8,8 @@ unverified data.
 
 import math
 import re
+from bisect import bisect_right
+from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
@@ -253,3 +255,171 @@ def read_refined(path: Path, run_id: str, count: int) -> RefinedTable:
     if any(y <= x for x, y in pairwise(mids)):
         raise ResultsError(f"{run_id}: bracket midpoints are not strictly increasing")
     return RefinedTable(a_values, b_values, mids)
+
+
+# N(10^N), the count of zeros with 0 < Im s <= 10^N: OEIS A072080.
+PUBLISHED_COUNTS = {2: 29, 3: 649, 4: 10142, 5: 138069, 6: 1747146, 7: 21136125}
+
+BIN_WIDTH = 0.15
+S_MAX = 3.0
+DISPLAY_FINE_WIDTH = 0.05
+DISPLAY_FINE_BINS = 60
+DISPLAY_THRESHOLD = 10_000
+GRAM_TOLERANCE = 1e-8
+_ERF_P = 0.327_591_1
+_ERF_A = (0.254_829_592, -0.284_496_736, 1.421_413_741, -1.453_152_027, 1.061_405_429)
+_WIGNER_A = 4.0 / math.pi
+_GRAM_START = 9.67
+_NEWTON_STOP = 1e-7
+_NEWTON_MAX = 100
+
+
+def spacings(m: list[float]) -> list[float]:
+    """Normalised gaps between consecutive midpoints, as the CLI computes them."""
+    return [(m1 - m0) * math.log(m0 / math.tau) / math.tau for m0, m1 in pairwise(m)]
+
+
+def as_erf(x: float) -> float:
+    """Abramowitz and Stegun 7.1.26, ported from `spacing.rs` `erf`."""
+    ax = abs(x)
+    t = 1.0 / (1.0 + _ERF_P * ax)
+    poly = 0.0
+    for c in reversed(_ERF_A):
+        poly = (poly + c) * t
+    return math.copysign(1.0 - poly * math.exp(-ax * ax), x)
+
+
+def wigner_pdf(s: float) -> float:
+    return 32.0 / (math.pi * math.pi) * s * s * math.exp(-4.0 * s * s / math.pi)
+
+
+def wigner_cdf(s: float) -> float:
+    if s <= 0.0:
+        return 0.0
+    x = math.sqrt(_WIGNER_A) * s
+    return as_erf(x) - 2.0 / math.sqrt(math.pi) * x * math.exp(-_WIGNER_A * s * s)
+
+
+def poisson_cdf(s: float) -> float:
+    return 1 - math.exp(-s)
+
+
+def ks_distance(d: list[float], cdf: Callable[[float], float]) -> float:
+    """Kolmogorov-Smirnov distance of the sample `d` to `cdf`."""
+    if not d:
+        raise ValueError("KS distance of an empty sample")
+    ordered = sorted(d)
+    n = float(len(ordered))
+    worst = 0.0
+    for i, s in enumerate(ordered):
+        f = cdf(s)
+        worst = max(worst, (i + 1.0) / n - f, f - i / n)
+    return worst
+
+
+def _binned(d: list[float], width: float, bins: int) -> list[int]:
+    counts = [0] * bins
+    for s in d:
+        if 0.0 <= s <= S_MAX:
+            counts[min(int(s / width), bins - 1)] += 1
+    return counts
+
+
+def cli_bins(d: list[float]) -> list[int]:
+    """The CLI's 20 bins of 0.15 over [0, 3]; gaps outside are dropped."""
+    return _binned(d, BIN_WIDTH, HISTOGRAM_BINS)
+
+
+def display_bins(
+    d: list[float], threshold: int = DISPLAY_THRESHOLD
+) -> tuple[float, list[int]]:
+    """Bin width and counts for the figure: 0.05 wide once `len(d) >= threshold`."""
+    if len(d) < threshold:
+        return BIN_WIDTH, cli_bins(d)
+    return DISPLAY_FINE_WIDTH, _binned(d, DISPLAY_FINE_WIDTH, DISPLAY_FINE_BINS)
+
+
+def cross_check(run_id: str, d: list[float], out: OutSummary, count: int) -> None:
+    """Fail closed unless our gaps, 20 bins and KS equal the CLI's printed values."""
+    if not len(d) == count - 1 == out.spacings:
+        raise ResultsError(
+            f"{run_id}: gap count {len(d)} does not match L - 1 = {count - 1} "
+            f"and the CLI's {out.spacings}"
+        )
+    if out.cli_counts is None or cli_bins(d) != list(out.cli_counts):
+        raise ResultsError(f"{run_id}: 20-bin histogram differs from the CLI's")
+    ours = f"{ks_distance(d, wigner_cdf):.4f}"
+    if ours != out.cli_ks:
+        raise ResultsError(f"{run_id}: KS {ours} differs from the CLI's {out.cli_ks}")
+
+
+def theta(t: float) -> float:
+    return (
+        (t / 2) * math.log(t / math.tau)
+        - t / 2
+        - math.pi / 8
+        + 1 / (48 * t)
+        + 7 / (5760 * t**3)
+    )
+
+
+def _theta_slope(t: float) -> float:
+    return 0.5 * math.log(t / math.tau) - 1 / (48 * t * t) - 7 / (1920 * t**4)
+
+
+def _newton(target: float, start: float) -> float:
+    t = start
+    for _ in range(_NEWTON_MAX):
+        step = (theta(t) - target) / _theta_slope(t)
+        t -= step
+        if abs(step) < _NEWTON_STOP:
+            return t
+    raise ResultsError(f"Gram point for theta = {target} did not converge")
+
+
+def gram_points_upto(limit: float) -> list[float]:
+    """Gram points g_-1, g_0, ... up to the last one not above `limit`."""
+    points: list[float] = []
+    g = _newton(-math.pi, _GRAM_START)
+    n = -1
+    while g <= limit:
+        points.append(g)
+        n += 1
+        g = _newton(n * math.pi, g + math.pi / _theta_slope(g))
+    return points
+
+
+@dataclass(frozen=True)
+class GramStats:
+    counts: dict[int, int]
+    share: float
+    straddles: int
+
+
+def _gram_counts(m: list[float], gram: list[float]) -> dict[int, int]:
+    per_interval = [0] * (len(gram) - 1)
+    for value in m:
+        i = bisect_right(gram, value) - 1
+        if 0 <= i < len(per_interval):
+            per_interval[i] += 1
+    counts = dict.fromkeys(range(5), 0)
+    for zeros in per_interval:
+        counts[min(zeros, 4)] += 1
+    return counts
+
+
+def _straddles(table: RefinedTable, gram: list[float]) -> int:
+    total = 0
+    for a, b in zip(table.a, table.b, strict=True):
+        i = bisect_right(gram, a + GRAM_TOLERANCE)
+        if i < len(gram) and gram[i] < b - GRAM_TOLERANCE:
+            total += 1
+    return total
+
+
+def gram_stats(table: RefinedTable, gram: list[float]) -> GramStats:
+    """Zeros per Gram interval [g_{n-1}, g_n) by midpoint, plus strict straddles S."""
+    counts = _gram_counts(table.m, gram)
+    intervals = max(len(gram) - 1, 0)
+    share = counts[1] / intervals if intervals else 0.0
+    return GramStats(counts, share, _straddles(table, gram))

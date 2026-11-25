@@ -1,5 +1,7 @@
 """Tests for the zeta results page: fixtures, parsing and (later) the generator."""
 
+import dataclasses
+import math
 import os
 import shutil
 import subprocess
@@ -395,6 +397,145 @@ class TestParsing(_FixtureCopy):
         path.write_text("\n".join(lines) + "\n")
         with self.assertRaisesRegex(zr.ResultsError, "^tr3: "):
             self.read()
+
+
+WIGNER_20 = [0, 7, 26, 58, 96, 92, 109, 80, 58, 57, 28, 19, 8, 9, 1, 0, 0, 0, 0, 0]
+DISPLAY_60 = [
+    0, 0, 0, 0, 4, 3, 3, 13, 10, 12, 22, 24, 26, 27, 43, 34, 22, 36, 37, 41,
+    31, 31, 19, 30, 22, 23, 13, 20, 21, 16, 8, 9, 11, 6, 5, 8, 5, 3, 0, 7,
+    2, 0, 0, 0, 1,
+] + [0] * 15  # fmt: skip
+
+
+def _bracket_table(brackets: list[tuple[float, float]]) -> "zr.RefinedTable":
+    a = [x for x, _ in brackets]
+    b = [y for _, y in brackets]
+    return zr.RefinedTable(a, b, [x + (y - x) / 2 for x, y in brackets])
+
+
+class TestComputations(_FixtureCopy):
+    """Spacings, CLI cross-check, histograms and Gram statistics."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.table = zr.read_refined(REFINED_TABLE, "tr3", 649)
+        self.d = zr.spacings(self.table.m)
+        self.summary = zr.parse_out(self.out(), "tr3", 3, refine=True)
+
+    def test_spacings_count_and_empty(self) -> None:
+        self.assertEqual(len(self.d), 648)
+        self.assertEqual(zr.spacings([]), [])
+        self.assertEqual(zr.spacings([20.0]), [])
+
+    def test_spacings_formula_order(self) -> None:
+        got = zr.spacings([20.0, 21.0])[0]
+        self.assertEqual(got, (21.0 - 20.0) * math.log(20.0 / math.tau) / math.tau)
+
+    def test_ks_pins(self) -> None:
+        self.assertEqual(f"{zr.ks_distance(self.d, zr.wigner_cdf):.4f}", "0.0448")
+        self.assertEqual(f"{zr.ks_distance(self.d, zr.poisson_cdf):.4f}", "0.3260")
+
+    def test_ks_empty_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            zr.ks_distance([], zr.wigner_cdf)
+
+    def test_erf_and_cdfs(self) -> None:
+        self.assertAlmostEqual(zr.as_erf(0.0), 0.0, delta=1.5e-7)
+        self.assertAlmostEqual(zr.as_erf(1.0), math.erf(1.0), delta=1.5e-7)
+        self.assertEqual(zr.as_erf(-0.5), -zr.as_erf(0.5))
+        self.assertEqual(zr.wigner_cdf(0.0), 0.0)
+        self.assertEqual(zr.wigner_cdf(-1.0), 0.0)
+        self.assertAlmostEqual(zr.wigner_cdf(10.0), 1.0, places=6)
+        self.assertEqual(zr.poisson_cdf(0.0), 0.0)
+        self.assertEqual(zr.poisson_cdf(1.0), 1 - math.exp(-1.0))
+        self.assertAlmostEqual(
+            zr.wigner_pdf(1.0), 32 / math.pi**2 * math.exp(-4 / math.pi)
+        )
+
+    def test_cli_bins_pin_and_boundaries(self) -> None:
+        self.assertEqual(zr.cli_bins(self.d), WIGNER_20)
+        self.assertEqual(zr.cli_bins([3.0, 3.1]), [0] * 19 + [1])
+        self.assertEqual(zr.cli_bins([]), [0] * 20)
+        self.assertEqual(zr.cli_bins([0.0, -0.1]), [1] + [0] * 19)
+
+    def test_display_bins(self) -> None:
+        width, counts = zr.display_bins(self.d, threshold=0)
+        self.assertEqual(width, 0.05)
+        self.assertEqual(counts, DISPLAY_60)
+        width, counts = zr.display_bins(self.d)
+        self.assertEqual((width, counts), (0.15, WIGNER_20))
+        self.assertEqual(zr.display_bins([1.0], threshold=1)[0], 0.05)
+        self.assertEqual(zr.display_bins([1.0], threshold=2)[0], 0.15)
+
+    def test_cross_check_passes_on_fixture(self) -> None:
+        zr.cross_check("tr3", self.d, self.summary, 649)
+
+    def _altered(self, **changes: object) -> "zr.OutSummary":
+        return dataclasses.replace(self.summary, **changes)
+
+    def test_cross_check_fails_closed(self) -> None:
+        counts = list(self.summary.cli_counts or ())
+        counts[3] += 1
+        cases = {
+            "count": (self.d, self._altered(), 650),
+            "spacings": (self.d, self._altered(spacings=647), 649),
+            "bins": (self.d, self._altered(cli_counts=tuple(counts)), 649),
+            "ks": (self.d, self._altered(cli_ks="0.0449"), 649),
+        }
+        for name, (d, out, count) in cases.items():
+            with self.subTest(name), self.assertRaisesRegex(zr.ResultsError, "^tr3: "):
+                zr.cross_check("tr3", d, out, count)
+
+    def test_gram_points(self) -> None:
+        gram = zr.gram_points_upto(1000.0)
+        self.assertAlmostEqual(gram[0], 9.666908, places=5)
+        self.assertAlmostEqual(gram[1], 17.845600, places=5)
+        self.assertLessEqual(gram[-1], 1000.0)
+        self.assertGreater(gram[-1] + 3.0, 1000.0)
+        self.assertEqual(len(gram), 649)
+        self.assertEqual(zr.gram_points_upto(9.0), [])
+        self.assertAlmostEqual(zr.theta(gram[5]), 4 * math.pi, places=9)
+
+    def test_gram_stats_pin(self) -> None:
+        stats = zr.gram_stats(self.table, zr.gram_points_upto(1000.0))
+        self.assertEqual(stats.counts, {0: 22, 1: 604, 2: 22, 3: 0, 4: 0})
+        self.assertEqual(round(stats.share, 4), 0.9321)
+        self.assertEqual(stats.straddles, 0)
+
+    def test_gram_stats_four_or_more_and_edges(self) -> None:
+        gram = [10.0, 20.0, 30.0]
+        zeros = [(11.0, 11.0), (12.0, 12.0), (13.0, 13.0), (14.0, 14.0),
+                 (15.0, 15.0), (25.0, 25.0), (5.0, 5.0), (30.0, 30.0)]  # fmt: skip
+        stats = zr.gram_stats(_bracket_table(zeros), gram)
+        self.assertEqual(stats.counts, {0: 0, 1: 1, 2: 0, 3: 0, 4: 1})
+        self.assertEqual(stats.share, 0.5)
+
+    def test_straddle_at_gram_point(self) -> None:
+        g0 = zr.gram_points_upto(20.0)[1]
+        gram = zr.gram_points_upto(20.0)
+        cases = {
+            "straddle": ((g0 - 0.01, g0 + 0.01), 1),
+            "starts at g": ((g0, g0 + 0.01), 0),
+            "ends at g": ((g0 - 0.01, g0), 0),
+        }
+        for name, (bracket, want) in cases.items():
+            with self.subTest(name):
+                stats = zr.gram_stats(_bracket_table([bracket]), gram)
+                self.assertEqual(stats.straddles, want)
+
+    def test_straddle_absolute_tolerance_high_up(self) -> None:
+        g = zr.gram_points_upto(9.3e4)[-1]
+        gram = [g - 3.0, g, g + 3.0]
+        inside = _bracket_table([(g - 1e-5, g + 1e-5)])
+        self.assertEqual(zr.gram_stats(inside, gram).straddles, 1)
+        near = _bracket_table([(g - 2e-5 + 5e-9, g + 5e-9)])
+        self.assertEqual(zr.gram_stats(near, gram).straddles, 0)
+
+    def test_published_counts(self) -> None:
+        self.assertEqual(
+            zr.PUBLISHED_COUNTS,
+            {2: 29, 3: 649, 4: 10142, 5: 138069, 6: 1747146, 7: 21136125},
+        )
 
 
 if __name__ == "__main__":
