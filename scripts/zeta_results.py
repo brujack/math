@@ -12,6 +12,7 @@ import argparse
 import html
 import io
 import math
+import os
 import re
 import shutil
 import sys
@@ -825,15 +826,30 @@ def render_site(plt: ModuleType, runs: list[RunData]) -> dict[str, bytes]:
     return files
 
 
+# Empty file at the top of every tree this generator writes; without it a
+# directory is someone else's and must never be replaced or deleted.
+MARKER = ".zeta-results"
+
+
 def _overlaps(a: Path, b: Path) -> bool:
     """True when the resolved paths are equal or one contains the other."""
     return a == b or a in b.parents or b in a.parents
 
 
-def _family(path: Path) -> list[Path]:
-    """The target and the two siblings the swap creates, resolved."""
-    root = path.resolve()
+def _absolute(path: Path) -> Path:
+    """Absolute and normalised, without following symlinks."""
+    return Path(os.path.abspath(path))
+
+
+def _unresolved_family(path: Path) -> list[Path]:
+    """The target and the two siblings the swap creates, as the swap names them."""
+    root = _absolute(path)
     return [root, _sibling(root, "tmp"), _sibling(root, "old")]
+
+
+def _family(path: Path) -> list[Path]:
+    """The members of `_unresolved_family`, resolved."""
+    return [member.resolve() for member in _unresolved_family(path)]
 
 
 def _check_name_and_cwd(flag: str, path: Path) -> None:
@@ -854,17 +870,50 @@ def _check_inputs(flag: str, path: Path, inputs: list[Path]) -> None:
                 )
 
 
+def _check_symlinks(flag: str, path: Path) -> None:
+    """Refuse a symlink anywhere the swap renames or deletes."""
+    for member in _unresolved_family(path):
+        if member.is_symlink():
+            raise ResultsError(f"refusing {flag}: {member.name} is a symlink")
+
+
+def _check_owned(flag: str, member: Path, allow_empty: bool) -> None:
+    """Refuse an existing path the generator did not write (no MARKER at its top)."""
+    if not member.exists():
+        return
+    if not member.is_dir():
+        raise ResultsError(f"refusing {flag}: {member.name} is not a directory")
+    if (member / MARKER).is_file():
+        return
+    if allow_empty and not any(member.iterdir()):
+        return
+    raise ResultsError(
+        f"refusing {flag}: {member.name} exists and was not written by this generator"
+    )
+
+
 def _check_targets(out: Path, runs_out: Path, inputs: list[Path]) -> None:
-    """Refuse targets the swap could destroy: `.`, `..`, the cwd, an input, a clash."""
-    for flag, path in (("--out", out), ("--runs-out", runs_out)):
+    """Refuse targets the swap could destroy.
+
+    Covers `.`, `..`, the cwd, an input, a clash, a symlink and any existing
+    path the generator did not write. Nothing is created or deleted here.
+    """
+    targets = (("--out", out), ("--runs-out", runs_out))
+    for flag, path in targets:
         _check_name_and_cwd(flag, path)
+        _check_symlinks(flag, path)
     if _overlaps(out.resolve(), runs_out.resolve()):
         raise ResultsError("refusing --out and --runs-out: equal or nested")
     if set(_family(out)) & set(_family(runs_out)):
         raise ResultsError("refusing --out and --runs-out: their .tmp/.old collide")
     resolved = [p.resolve() for p in inputs]
-    for flag, path in (("--out", out), ("--runs-out", runs_out)):
+    for flag, path in targets:
         _check_inputs(flag, path, resolved)
+    for flag, path in targets:
+        target, tmp, old = _unresolved_family(path)
+        _check_owned(flag, target, allow_empty=True)
+        _check_owned(flag, tmp, allow_empty=False)
+        _check_owned(flag, old, allow_empty=False)
 
 
 def _sibling(path: Path, suffix: str) -> Path:
@@ -913,6 +962,7 @@ def _swap_in(tmp: Path, out: Path) -> None:
 def _stage(final: Path, files: dict[str, bytes]) -> Path:
     tmp = _sibling(final, "tmp")
     tmp.mkdir(parents=True)
+    (tmp / MARKER).write_bytes(b"")
     for name, data in files.items():
         target = tmp / name
         target.parent.mkdir(parents=True, exist_ok=True)

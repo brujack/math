@@ -605,6 +605,21 @@ def _plain(fragment: str) -> str:
     return html.unescape(re.sub(r"<[^>]+>", "", fragment))
 
 
+def _require_matplotlib(case: unittest.TestCase) -> None:
+    if importlib.util.find_spec("matplotlib") is not None:
+        return
+    if os.environ.get("CI") == "true":
+        case.fail("matplotlib not installed; run make install-deps")
+    case.skipTest("matplotlib not installed; run make install-deps")
+
+
+def _owned(path: Path) -> Path:
+    """Make `path` a directory the generator would accept as its own."""
+    path.mkdir(parents=True, exist_ok=True)
+    (path / zr.MARKER).write_bytes(b"")
+    return path
+
+
 class TestRendering(_FixtureCopy):
     """SVGs, index.html, run copies, the atomic swap and the command line."""
 
@@ -615,11 +630,7 @@ class TestRendering(_FixtureCopy):
         self.stderr = io.StringIO()
 
     def require_matplotlib(self) -> None:
-        if importlib.util.find_spec("matplotlib") is not None:
-            return
-        if os.environ.get("CI") == "true":
-            self.fail("matplotlib not installed; run make install-deps")
-        self.skipTest("matplotlib not installed; run make install-deps")
+        _require_matplotlib(self)
 
     def argv(
         self, out: Path | None = None, ids: tuple[str, ...] = RUN_IDS
@@ -662,7 +673,7 @@ class TestRendering(_FixtureCopy):
         self.assertEqual(self.generate(), 0, self.stderr.getvalue())
         self.assertEqual(
             sorted(p.name for p in self.site.iterdir()),
-            ["gaps-N3.svg", "gram-share.svg", "index.html"],
+            [zr.MARKER, "gaps-N3.svg", "gram-share.svg", "index.html"],
         )
 
     def test_two_runs_are_byte_identical(self) -> None:
@@ -689,7 +700,7 @@ class TestRendering(_FixtureCopy):
     def test_crash_leftover_tmp_is_removed_and_other_siblings_survive(self) -> None:
         parent = self.root.parent
         for name in ("site.tmp", "runs.tmp"):
-            (parent / name).mkdir()
+            _owned(parent / name)
             (parent / name / "junk").write_text("x")
         for name in ("site.toml", "site.partial"):
             (parent / name).write_text("keep")
@@ -700,18 +711,16 @@ class TestRendering(_FixtureCopy):
             self.assertEqual((parent / name).read_text(), "keep")
 
     def test_failed_check_still_removes_stale_tmp(self) -> None:
-        stale = self.site.with_name("site.tmp")
-        stale.mkdir()
+        stale = _owned(self.site.with_name("site.tmp"))
         self.edit("tr3/err.txt", "Exit status: 0", "Exit status: 1")
         self.assertEqual(self.generate(), 1)
         self.assertFalse(stale.exists())
 
     def test_crash_between_renames_is_recovered_at_start(self) -> None:
         for final, tmp_name in ((self.site, "site"), (self.runs_dir, "runs")):
-            old = final.with_name(f"{tmp_name}.old")
-            old.mkdir()
+            old = _owned(final.with_name(f"{tmp_name}.old"))
             (old / "last.txt").write_text("last good")
-            final.with_name(f"{tmp_name}.tmp").mkdir()
+            _owned(final.with_name(f"{tmp_name}.tmp"))
         self.edit("tr3/err.txt", "Exit status: 0", "Exit status: 1")
         self.assertEqual(self.generate(), 1)
         for final, tmp_name in ((self.site, "site"), (self.runs_dir, "runs")):
@@ -722,7 +731,7 @@ class TestRendering(_FixtureCopy):
     def test_recovery_leaves_a_present_site_alone_and_drops_its_old(self) -> None:
         self.assertEqual(self.generate(), 0)
         before = _snapshot(self.site)
-        self.site.with_name("site.old").mkdir()
+        _owned(self.site.with_name("site.old"))
         self.edit("tr3/err.txt", "Exit status: 0", "Exit status: 1")
         self.assertEqual(self.generate(), 1)
         self.assertEqual(_snapshot(self.site), before)
@@ -1069,10 +1078,14 @@ class TestRendering(_FixtureCopy):
         self.assertNotIn("/home", copied)
 
     def test_dropped_run_directory_does_not_linger(self) -> None:
-        (self.runs_dir / "gone").mkdir(parents=True)
+        _owned(self.runs_dir)
+        (self.runs_dir / "gone").mkdir()
         (self.runs_dir / "gone" / "out.txt").write_text("stale")
         self.assertEqual(self.generate(), 0)
-        self.assertEqual(sorted(p.name for p in self.runs_dir.iterdir()), list(RUN_IDS))
+        self.assertEqual(
+            sorted(p.name for p in self.runs_dir.iterdir()),
+            sorted([zr.MARKER, *RUN_IDS]),
+        )
 
     def test_staging_failure_leaves_both_old_trees_untouched(self) -> None:
         self.assertEqual(self.generate(), 0)
@@ -1201,3 +1214,228 @@ class TestRendering(_FixtureCopy):
                 if path.is_file():
                     text = path.read_text(errors="replace")
                     self.assertIsNone(ABSOLUTE_PATH.search(text), str(path))
+
+
+def _tree(root: Path) -> dict[str, tuple[str, bytes | str]]:
+    """Every entry under `root`, links unfollowed, so a victim can be compared."""
+    seen: dict[str, tuple[str, bytes | str]] = {}
+    for base, dirs, files in os.walk(root, followlinks=False):
+        for name in [*dirs, *files]:
+            path = Path(base) / name
+            rel = path.relative_to(root).as_posix()
+            if path.is_symlink():
+                seen[rel] = ("link", os.readlink(path))
+            elif path.is_dir():
+                seen[rel] = ("dir", b"")
+            else:
+                seen[rel] = ("file", path.read_bytes())
+    return seen
+
+
+class TestTargetSafety(_FixtureCopy):
+    """The generator replaces only trees it wrote, and never through a symlink."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.work = self.root.parent / "work"
+        self.work.mkdir()
+        self.site = self.work / "site"
+        self.runs = self.work / "runs"
+        self.dirs = {i: self.root / i for i in RUN_IDS}
+        self.stderr = io.StringIO()
+
+    def inputs(self) -> list[Path]:
+        return [self.root / "runs.toml", *self.dirs.values()]
+
+    def refuse(self, out: Path, runs_out: Path, pattern: str) -> None:
+        """`_check_targets` refuses with `pattern` and leaves everything as it was."""
+        before = (_tree(self.work), _tree(self.root))
+        with self.assertRaisesRegex(zr.ResultsError, pattern):
+            zr._check_targets(out, runs_out, self.inputs())
+        self.assertEqual((_tree(self.work), _tree(self.root)), before)
+
+    def run_main(self, out: Path, runs_out: Path, dirs: dict[str, Path]) -> int:
+        _require_matplotlib(self)
+        argv = ["--runs-toml", str(self.root / "runs.toml")]
+        for run_id, path in dirs.items():
+            argv += ["--run", f"{run_id}={path}"]
+        argv += ["--out", str(out), "--runs-out", str(runs_out)]
+        self.stderr = io.StringIO()
+        with contextlib.redirect_stderr(self.stderr):
+            return zr.main(argv)
+
+    def victim(self, name: str) -> Path:
+        """A directory of someone else's, with content and no marker."""
+        path = self.work / name
+        (path / "sub").mkdir(parents=True)
+        (path / "sub" / "keep.txt").write_text("keep")
+        return path
+
+    def test_symlinked_out_is_refused_and_its_old_input_survives(self) -> None:
+        real = self.victim("real")
+        lnk = self.work / "lnk"
+        lnk.symlink_to(real)
+        held = self.work / "lnk.old"
+        shutil.copytree(self.root / "t2", held)
+        dirs = {**self.dirs, "t2": held}
+        before = _tree(self.work)
+        _require_matplotlib(self)
+        self.assertEqual(self.run_main(lnk, self.runs, dirs), 1)
+        self.assertIn("refusing --out: lnk is a symlink", self.stderr.getvalue())
+        self.assertEqual(_tree(self.work), before)
+        self.assertTrue((held / "out.txt").is_file())
+
+    def test_symlinked_out_is_refused_by_the_check_alone(self) -> None:
+        lnk = self.work / "lnk"
+        lnk.symlink_to(self.victim("real"))
+        self.refuse(lnk, self.runs, "^refusing --out: lnk is a symlink$")
+
+    def test_symlinked_old_or_tmp_sibling_is_refused(self) -> None:
+        elsewhere = self.victim("elsewhere")
+        for suffix in ("old", "tmp"):
+            with self.subTest(suffix=suffix):
+                link = self.work / f"site.{suffix}"
+                link.symlink_to(elsewhere)
+                self.refuse(
+                    self.site,
+                    self.runs,
+                    f"^refusing --out: site.{suffix} is a symlink$",
+                )
+                link.unlink()
+
+    def test_symlinked_runs_out_and_its_siblings_are_refused(self) -> None:
+        elsewhere = self.victim("elsewhere")
+        link = self.work / "runs"
+        link.symlink_to(elsewhere)
+        self.refuse(self.site, self.runs, "^refusing --runs-out: runs is a symlink$")
+        link.unlink()
+        sibling = self.work / "runs.old"
+        sibling.symlink_to(elsewhere)
+        self.refuse(
+            self.site, self.runs, "^refusing --runs-out: runs.old is a symlink$"
+        )
+
+    def test_dangling_symlink_target_is_refused(self) -> None:
+        (self.work / "site").symlink_to(self.work / "nowhere")
+        self.refuse(self.site, self.runs, "is a symlink$")
+
+    def test_foreign_directories_are_refused_for_both_flags(self) -> None:
+        foreign = self.victim("foreign")
+        pattern = "exists and was not written by this generator$"
+        self.refuse(foreign, self.runs, f"^refusing --out: foreign {pattern}")
+        self.refuse(self.site, foreign, f"^refusing --runs-out: foreign {pattern}")
+
+    def test_foreign_directory_is_untouched_by_a_full_run(self) -> None:
+        foreign = self.victim("foreign")
+        before = _tree(foreign)
+        self.assertEqual(self.run_main(foreign, self.runs, self.dirs), 1)
+        self.assertIn("foreign exists and was not written", self.stderr.getvalue())
+        self.assertEqual(_tree(foreign), before)
+        self.assertFalse(self.runs.exists())
+
+    def test_a_regular_file_target_is_refused(self) -> None:
+        for flag, out, runs_out in (
+            ("--out", self.work / "f", self.runs),
+            ("--runs-out", self.site, self.work / "f"),
+        ):
+            with self.subTest(flag=flag):
+                (self.work / "f").write_text("precious")
+                self.refuse(out, runs_out, f"^refusing {flag}: f is not a directory$")
+                self.assertEqual((self.work / "f").read_text(), "precious")
+                (self.work / "f").unlink()
+
+    def test_unmarked_old_or_tmp_sibling_is_refused_whatever_it_is(self) -> None:
+        for suffix in ("old", "tmp"):
+            for kind in ("full dir", "empty dir", "file"):
+                with self.subTest(suffix=suffix, kind=kind):
+                    path = self.work / f"site.{suffix}"
+                    if kind == "file":
+                        path.write_text("precious")
+                    elif kind == "empty dir":
+                        path.mkdir()
+                    else:
+                        path.mkdir()
+                        (path / "x").write_text("precious")
+                    pattern = (
+                        "is not a directory$"
+                        if kind == "file"
+                        else "was not written by this generator$"
+                    )
+                    self.refuse(
+                        self.site,
+                        self.runs,
+                        f"^refusing --out: site.{suffix} .*{pattern}",
+                    )
+                    if path.is_dir():
+                        shutil.rmtree(path)
+                    else:
+                        path.unlink()
+
+    def test_marked_old_and_tmp_are_recovered_as_before(self) -> None:
+        old = _owned(self.work / "site.old")
+        (old / "last.txt").write_text("last good")
+        _owned(self.work / "site.tmp")
+        zr._check_targets(self.site, self.runs, self.inputs())
+        zr._recover(self.site)
+        self.assertEqual((self.site / "last.txt").read_text(), "last good")
+        self.assertFalse(old.exists())
+        self.assertFalse((self.work / "site.tmp").exists())
+
+    def test_missing_and_empty_targets_pass_the_check(self) -> None:
+        zr._check_targets(self.site, self.runs, self.inputs())
+        self.site.mkdir()
+        self.runs.mkdir()
+        zr._check_targets(self.site, self.runs, self.inputs())
+
+    def test_an_empty_directory_is_replaced_and_marked(self) -> None:
+        self.site.mkdir()
+        self.runs.mkdir()
+        self.assertEqual(self.run_main(self.site, self.runs, self.dirs), 0)
+        self.assertTrue((self.site / zr.MARKER).is_file())
+        self.assertTrue((self.runs / zr.MARKER).is_file())
+        self.assertTrue((self.site / "index.html").is_file())
+
+    def test_a_generator_directory_is_replaced(self) -> None:
+        _owned(self.site)
+        (self.site / "stale.txt").write_text("stale")
+        _owned(self.runs)
+        self.assertEqual(self.run_main(self.site, self.runs, self.dirs), 0)
+        self.assertFalse((self.site / "stale.txt").exists())
+        self.assertTrue((self.site / zr.MARKER).is_file())
+        self.assertTrue((self.runs / zr.MARKER).is_file())
+
+    def test_stage_writes_the_marker_before_any_other_file(self) -> None:
+        real = Path.write_bytes
+        calls: list[str] = []
+
+        def flaky(path: Path, data: bytes) -> int:
+            calls.append(path.name)
+            if len(calls) > 1:
+                raise OSError("disk full")
+            return real(path, data)
+
+        with (
+            mock.patch.object(Path, "write_bytes", flaky),
+            self.assertRaisesRegex(OSError, "disk full"),
+        ):
+            zr._stage(self.site, {"a.txt": b"1", "b.txt": b"2"})
+        self.assertEqual(calls, [zr.MARKER, "a.txt"])
+        self.assertTrue((self.work / "site.tmp" / zr.MARKER).is_file())
+        zr._check_targets(self.site, self.runs, self.inputs())
+        zr._recover(self.site)
+        self.assertFalse((self.work / "site.tmp").exists())
+
+    def test_publishing_twice_gives_identical_trees(self) -> None:
+        self.assertEqual(self.run_main(self.site, self.runs, self.dirs), 0)
+        first = (_tree(self.site), _tree(self.runs))
+        self.assertEqual(
+            self.run_main(self.site, self.runs, self.dirs), 0, self.stderr.getvalue()
+        )
+        self.assertEqual((_tree(self.site), _tree(self.runs)), first)
+        self.assertIn(zr.MARKER, first[0])
+        self.assertEqual(sorted(p.name for p in self.work.iterdir()), ["runs", "site"])
+
+    def test_the_marker_is_not_page_content(self) -> None:
+        self.assertEqual(self.run_main(self.site, self.runs, self.dirs), 0)
+        self.assertNotIn(zr.MARKER, (self.site / "index.html").read_text())
+        self.assertEqual((self.site / zr.MARKER).read_bytes(), b"")
