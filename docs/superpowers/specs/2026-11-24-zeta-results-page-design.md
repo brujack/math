@@ -247,3 +247,100 @@ already covers SHA pins, and the workflow has no logic beyond copy-and-push.
 - **N3.** No run output table (`zeta_1eN.txt`) is committed, apart from the N = 2 and N = 3 test fixtures.
 - **N4.** The deploy workflow never deletes or rewrites anything on `gh-pages` outside `zeta/`.
 - **N5.** No change to the Pages source setting (stays `gh-pages /`, legacy build).
+
+## Multi-Lens Review
+
+Reviewed at commit: `bf86fa5` (Step 7 self-review commit, before Step 8 dispatch)
+
+### Goal-Fit
+
+Finding:
+
+- F1: the KS reference CDF 1 − exp(−4s²/π) is wrong; the Wigner surmise CDF is
+  erf(2s/√π) − (4s/π)·exp(−4s²/π) (as in `spacing.rs` `wigner_cdf`).
+  - The spec's form gives KS 0.2449 / 0.2320 / 0.2257 at N = 3 / 4 / 5 on the real refined
+    tables, against the CLI's 0.0448 / 0.0272 / 0.0184. So R4 contradicts R5.
+- F2: "Gram blocks per Gram interval" is not the statistic readers expect for Gram's law.
+  - The standard one is the share of Gram intervals holding exactly one zero, with the 0/1/2/3
+    counts. It is computable from refined `t_n`.
+  - Measured: N = 3: 0.9321 (22/604/22); N = 4: 0.8385 (822/8504/810/6); N = 5: 0.7899
+    (14568/109064/14304/132).
+  - Brackets straddling a Gram point: 0, 1 and 7.
+- F3: no test pins the histogram itself. Pin the 60 bins re-binned 3:1 against the CLI's
+  20-bin counts.
+- F4: the plain tables add only a row count the CLI already certified (1.5 GB read at N = 7).
+  - Generate from `out.txt`, plus refined tables where needed.
+  - `data.json` has no reader except tests.
+
+Assumption: `zeta 6 --refine` finishes, so N = 6 can stay mandatory in R14. Settled by `r6/rc.txt`
+showing rc=0 and `r6/out.txt` holding the verified and KS lines.
+Disposition:
+
+### Ergonomics
+
+Finding:
+
+- F1: runs.toml hand-copies about 90 values that `err.txt` (`/usr/bin/time -v`) already holds,
+  and nothing binds `binary_sha`, elapsed, RSS or command to the run.
+  - The binary has no `--version`.
+  - 5 of the 10 needed runs lack `time -v` output.
+  - Proposed fixes: parse `err.txt`, check the binary name against the SHA, or add a
+    `scripts/zeta_run.sh` wrapper that records provenance.
+- F2: adding matplotlib makes pyright (`reportMissingImports`) and `make test-python` fail on
+  any dev machine without it. That blocks unrelated root pushes until `make install-deps` runs.
+  - Skip the tests outside CI when matplotlib is absent.
+  - Give fan-out notice.
+- F3: nothing checks that the committed site matches `runs.toml`, and a site-only PR runs no
+  tests (`scripts.yml` paths). Add a consistency test and `zeta/results/**` to the paths.
+- F4: a refresh is about 11 steps, including the full Phase 3 chain on generated files. Nothing
+  prompts the deploy after merge.
+  - Stamp the master SHA on the page, or deploy on push of `zeta/results/site/**`.
+- F5: phone and teacher readability.
+  - Add a viewport meta, `img{max-width:100%}`, alt text, and one figure per N at 12 pt or more.
+  - Define a Gram point and δ in words.
+  - Show sample size per panel.
+  - N = 3 has only 648 gaps in 60 bins.
+
+Assumption: provenance can be trusted without being derived from the run. It holds only if every
+published run comes from one sanctioned wrapper. 5 of the 10 existing run dirs already lack
+`time -v`.
+Disposition:
+
+### Risk
+
+Finding:
+
+- R1 (high): the same wrong-CDF finding as Goal-Fit F1.
+- R2: make the CLI cross-checks fail-closed at runtime for every refined run, not only in a test:
+  - spacing count = L − 1;
+  - the 60 bins re-binned 3:1 equal the CLI's 20 printed counts (verified exact on r3 and r5);
+  - KS at 4 decimals equals the CLI's line.
+- R3: `tests/test_root_python_deps.py` requires every direct third-party import to be pinned.
+  - A direct `numpy` import needs `numpy==2.5.5` too.
+  - The pre-push breakage is the same as Ergonomics F2.
+  - CI 3.14 wheels resolve (dry run).
+- R4: hand-typed provenance.
+  - `command` copied from `err.txt` would leak a path. Validate it against
+    `^zeta [2-7]( --refine)?$`.
+  - The SHA is unverifiable: label it "recorded", or add the binary's sha256.
+- R5: nothing enforces N4.
+  - Fail if `gh-pages` changes outside `zeta/`.
+  - Forbid `--force`.
+  - Add `concurrency: gh-pages` to both writer workflows.
+- R6: a Gram density labelled by N misstates its range: N = 2 covers [g₋₁, 529.1].
+  - Label by g_M.
+  - The between-run difference can be off by ±1 block (`plan_blocks` trailing run).
+
+Premises verified:
+
+- M from θ(g_M) equals the stderr `progress: X/X Gram points` total minus 2 for N = 2, 5, 6, 7.
+  That line is an exact second source of M.
+- A072080 counts match.
+
+Assumption: R14 as written depends on `zeta 6 --refine` completing; same settling check as
+Goal-Fit.
+Disposition:
+
+### Adversarial Spec Review (comparison/judge designs only)
+
+N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
