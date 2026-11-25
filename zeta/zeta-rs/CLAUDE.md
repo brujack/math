@@ -32,7 +32,7 @@ make test       # lint + cargo test
 
 ## Output
 
-`--refine` prints, after the verified block, the spacing histogram, `KS distance to the Wigner surmise` and `Largest w_n`, and the table becomes `# n a b t_n w_n` (`t_n` the midpoint rounded to 15 significant digits, so it can print just outside a very narrow `[a, b]`; `w_n = b - a` rounded up to 3 significant digits). `Elapsed:` covers verification plus refinement. Progress lines go to stderr only; stdout and the table do not depend on them. Mutation testing skips `e2e_` tests (spec V8): the progress logic is unit-tested in `verify.rs`, and the production `Throttle::PRODUCTION` wired by `run` is pinned by `tests/cli.rs` in CI (real binary; a quick `zeta 2` prints exactly the two final lines, `Throttle::NONE` would print more) and again by `tests/scripts/zeta.bats` locally.
+`--refine` prints, after the verified block, the spacing histogram, `KS distance to the Wigner surmise` and `Largest w_n`, and the table becomes `# n a b t_n w_n` (`t_n` the midpoint rounded to 15 significant digits, so it can print just outside a very narrow `[a, b]`; `w_n = b - a` rounded up to 3 significant digits). `Elapsed:` covers verification plus refinement. Progress lines go to stderr only; stdout and the table do not depend on them. Mutation testing skips `e2e_` tests (spec V8): the progress logic is unit-tested in `verify.rs`, and the production `Throttle::PRODUCTION` wired by `run` is pinned by `tests/cli.rs` in CI and by `tests/scripts/zeta.bats` locally, both timing-free on the real binary of `zeta 2`: at most 101 lines per stage (the 1% rule; `Throttle::NONE` prints one per item, 291 Gram points) and exactly one final `done == total` line per stage.
 
 ## Exit codes
 

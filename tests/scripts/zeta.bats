@@ -48,14 +48,22 @@ setup() {
     [[ "${output}" == *"RH verified: all 29 nontrivial zeros with 0 < Im s <= 100 lie on Re s = 1/2 and are simple"* ]]
     [[ "${output}${stderr}" != *"RH holds"* ]]
     [[ "${output}" != *"progress:"* ]]
-    # The production throttle (2 s, 1%) lets a quick run print only each stage's final line.
-    [ "$(printf '%s\n' "${stderr}" | grep -c '^progress:')" -eq 2 ]
+    # The production throttle's 1% rule bounds each stage at 101 lines (an unthrottled
+    # run prints one per item, 291 Gram points), ending on exactly one done == total line.
+    # Timing-free: a loaded machine may add intermediate lines, never past the bound.
     local re='^progress: ([0-9]+)/([0-9]+) Gram (points|blocks), t = [0-9.]+$'
-    local kind line
+    local kind lines line finals
     for kind in points blocks; do
-        line="$(printf '%s\n' "${stderr}" | grep "^progress: .* Gram ${kind}, ")"
-        [ "$(printf '%s\n' "${line}" | wc -l)" -eq 1 ]
-        [[ "${line}" =~ ${re} ]]
+        lines="$(printf '%s\n' "${stderr}" | grep "^progress: .* Gram ${kind}, ")"
+        [ "$(printf '%s\n' "${lines}" | wc -l)" -le 101 ]
+        finals=0
+        while IFS= read -r line; do
+            [[ "${line}" =~ ${re} ]]
+            [ "${BASH_REMATCH[2]}" -gt 101 ]
+            if [ "${BASH_REMATCH[1]}" = "${BASH_REMATCH[2]}" ]; then finals=$((finals + 1)); fi
+        done <<<"${lines}"
+        [ "${finals}" -eq 1 ]
+        [[ "$(printf '%s\n' "${lines}" | tail -n 1)" =~ ${re} ]]
         [ "${BASH_REMATCH[1]}" = "${BASH_REMATCH[2]}" ]
     done
     [ "$(ls -A "${WORK_DIR}")" = "zeta_1e2.txt" ]
