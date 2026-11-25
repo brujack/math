@@ -1,5 +1,7 @@
 # zeta: Certified RH Verification Implementation Plan
 
+> **Status: DONE** (PR 1-4 merged: math#244, math#245, math#246, math#248; V3-V7 recorded below, 2026-11-24)
+
 spec: docs/superpowers/specs/2026-11-23-zeta-rh-verification-design.md
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -32,6 +34,29 @@ spec: docs/superpowers/specs/2026-11-23-zeta-rh-verification-design.md
 - **Expected:** counts 29 (N = 2), 649 (N = 3), 10,142 (N = 4, V7); exit 3 with a named block for every negative control; exit 6 for every implementation-fault fake.
 - **Edge cases:** N = 1 and N = 8 exit 1; end of input at the prompt; the self-check failure paths; a write failure (exit 4); the pool forced to fail (byte-identical output); T inside g_M's bracket.
 - **Post-merge obligations (orchestrator, on `claude`, recorded in the last PR):** V3 (N = 5, 6, 7 counts, time, RSS, uncertified-before-retry, precision histogram), V4 (N = 7 passes the Rosser failure), V5 (`zeta 3 --refine` KS below 0.1), V6 (`make test` per-test time under tarpaulin on `ubuntu-latest`, from the coverage job log), V7 (`zeta 4` and `zeta 4 --refine` against the first 10,142 Odlyzko zeros).
+
+## Post-merge measurements (V3-V7, recorded 2026-11-24)
+
+Release binary at f935b23 (math#248), on `claude` (48 threads), each run alone in its own directory under `/usr/bin/time -v`.
+
+- **V3:** every run exits 0 with `RH verified`.
+
+  | N | zeros (0 < t <= 10^N) | Gram blocks | Rosser exceptions | max precision | elapsed | peak RSS |
+  |---|---|---|---|---|---|---|
+  | 5 | 138,069 | 122,381 | 0 | 128 bits | 6.6 s | 36 MB |
+  | 6 | 1,747,146 | 1,512,390 | 0 | 128 bits | 142.5 s | 405 MB |
+  | 7 | 21,136,125 | 17,946,632 | 1 | 128 bits | 3724.0 s (1:02:23 wall, 4543% CPU) | 4.77 GB |
+
+  The counts equal the published N(10^5), N(10^6) and N(10^7). Gap: the CLI prints only the maximum precision, not the uncertified-before-retry count or a precision histogram. No run needed more than 128 bits, so the histogram would hold one bin. The missing counter is a Backlog row.
+- **V4:** pass. N = 7 completes with exactly one Rosser exception, the expected one at [g_13999525, g_13999527) per V1. The run does not print the block's location, so the count is the evidence. N = 7 writes `zeta_1e7.txt` at 1.53 GB.
+- **V5:** pass. `zeta 3 --refine` reports a spacing KS distance of 0.0448 to the Wigner surmise (bound 0.1).
+- **V6:** CI run 45526275326 (math#248, `ubuntu-latest`). The coverage job took about 3m12s (limit 30 min), with 97.39% line coverage. Under tarpaulin the cli tests took 11.32 s (12 tests), the bin tests 65.32 s (79) and the lib tests 51.88 s (385). The test job took about 2m13s. Under tarpaulin, cargo test prints only per-binary totals, not per-test times.
+- **V7:** pass. Against Odlyzko's `zeros1` (100,000 zeros; sha256 prefix 3436c916a7878261):
+  - plain `zeta 4` lists 10,142 brackets, ordered and disjoint (max width 8.18);
+  - `zeta 4 --refine` lists 10,142 brackets, max width 0.00388;
+  - for both, 0 of 10,142 Odlyzko zeros fall outside their bracket (tolerance 5.1e-10);
+  - `--refine` reports KS 0.0272 and a largest w_n of 3.89e-3;
+  - Odlyzko zero 10,143 is at 10000.065 > 10^4.
 
 ## PR structure (orchestrator)
 
