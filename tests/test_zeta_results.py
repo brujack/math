@@ -1439,3 +1439,119 @@ class TestTargetSafety(_FixtureCopy):
         self.assertEqual(self.run_main(self.site, self.runs, self.dirs), 0)
         self.assertNotIn(zr.MARKER, (self.site / "index.html").read_text())
         self.assertEqual((self.site / zr.MARKER).read_bytes(), b"")
+
+
+class TestCanonicalTargets(_FixtureCopy):
+    """Checks and actions share one resolved path, so `..` after a symlink is safe."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.s = self.root.parent / "S"
+        (self.s / "deep" / "a").mkdir(parents=True)
+        (self.s / "link").symlink_to(self.s / "deep" / "a")
+        for name in ("t2", "t3", "tr3"):
+            shutil.copytree(self.root / name, self.s / name)
+        shutil.copy(self.root / "runs.toml", self.s / "runs.toml")
+        self.runs_out = self.s / "runsout"
+        self.stderr = io.StringIO()
+
+    def run_main(
+        self,
+        out: str | Path,
+        runs_out: str | Path,
+        extra: dict[str, Path] | None = None,
+    ) -> int:
+        _require_matplotlib(self)
+        dirs = {i: self.s / i for i in RUN_IDS}
+        dirs.update(extra or {})
+        argv = ["--runs-toml", str(self.s / "runs.toml")]
+        for run_id, path in dirs.items():
+            argv += ["--run", f"{run_id}={path}"]
+        argv += ["--out", str(out), "--runs-out", str(runs_out)]
+        self.stderr = io.StringIO()
+        with contextlib.redirect_stderr(self.stderr):
+            return zr.main(argv)
+
+    def dotdot(self, name: str) -> str:
+        return f"{self.s}/link/../{name}"
+
+    def test_dotdot_after_a_symlink_cannot_reach_an_unowned_directory(self) -> None:
+        victim = self.s / "deep" / "victim"
+        victim.mkdir()
+        (victim / "keep.txt").write_text("keep")
+        before = _tree(self.s / "deep")
+        self.assertEqual(self.run_main(self.dotdot("victim"), self.runs_out), 1)
+        self.assertIn("was not written by this generator", self.stderr.getvalue())
+        self.assertEqual((victim / "keep.txt").read_text(), "keep")
+        self.assertEqual(_tree(self.s / "deep"), before)
+        self.assertFalse(self.runs_out.exists())
+
+    def test_dotdot_after_a_symlink_publishes_at_the_real_location(self) -> None:
+        victim = _owned(self.s / "deep" / "victim")
+        (victim / "stale.txt").write_text("stale")
+        self.assertEqual(
+            self.run_main(self.dotdot("victim"), self.runs_out),
+            0,
+            self.stderr.getvalue(),
+        )
+        self.assertTrue((victim / "index.html").is_file())
+        self.assertFalse((victim / "stale.txt").exists())
+        self.assertFalse((self.s / "victim").exists())
+        self.assertFalse((self.s / "victim.tmp").exists())
+
+    def test_dotdot_after_a_symlink_overlapping_an_input_is_refused(self) -> None:
+        (self.s / "deep" / "x").mkdir()
+        shutil.copytree(self.s / "t2", self.s / "deep" / "x" / "run")
+        moved = self.s / "deep" / "x"
+        before = _tree(moved)
+        extra = {"t2": moved / "run"}
+        self.assertEqual(self.run_main(self.s / "site", self.dotdot("x"), extra), 1)
+        self.assertIn("overlaps an input", self.stderr.getvalue())
+        self.assertEqual(_tree(moved), before)
+
+    def test_symlinked_parent_without_dotdot_still_publishes_into_it(self) -> None:
+        self.assertEqual(
+            self.run_main(self.s / "link" / "site", self.runs_out),
+            0,
+            self.stderr.getvalue(),
+        )
+        self.assertTrue((self.s / "deep" / "a" / "site" / "index.html").is_file())
+
+    def test_a_symlinked_marker_does_not_prove_ownership(self) -> None:
+        target = self.s / "deep" / "owned"
+        target.mkdir()
+        (target / "keep.txt").write_text("keep")
+        real_file = self.s / "deep" / "real-marker"
+        real_file.write_text("")
+        (target / zr.MARKER).symlink_to(real_file)
+        before = _tree(target)
+        self.assertEqual(self.run_main(target, self.runs_out), 1)
+        self.assertIn("was not written by this generator", self.stderr.getvalue())
+        self.assertEqual(_tree(target), before)
+
+    def test_a_regular_marker_still_proves_ownership(self) -> None:
+        self.assertTrue(zr._has_marker(_owned(self.s / "deep" / "m")))
+        self.assertFalse(zr._has_marker(self.s / "deep" / "none"))
+
+    def test_nonexistent_parent_chain_is_created(self) -> None:
+        out = self.s / "new" / "sub" / "out"
+        self.assertEqual(self.run_main(out, self.runs_out), 0, self.stderr.getvalue())
+        self.assertTrue((out / "index.html").is_file())
+
+    def test_missing_name_and_leaf_symlink_are_refused_first(self) -> None:
+        for raw in ("", "..", f"{self.s}/.."):
+            with (
+                self.subTest(raw=raw),
+                self.assertRaisesRegex(zr.ResultsError, "no directory name"),
+            ):
+                zr._canonical("--out", Path(raw))
+        lnk = self.s / "lnk"
+        lnk.symlink_to(self.s / "deep")
+        with self.assertRaisesRegex(
+            zr.ResultsError, "^refusing --out: lnk is a symlink$"
+        ):
+            zr._canonical("--out", lnk)
+
+    def test_canonical_returns_the_resolved_parent_and_raw_leaf(self) -> None:
+        got = zr._canonical("--out", Path(self.dotdot("victim")))
+        self.assertEqual(got, (self.s / "deep" / "victim").resolve())

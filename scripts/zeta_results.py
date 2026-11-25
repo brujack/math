@@ -12,9 +12,9 @@ import argparse
 import html
 import io
 import math
-import os
 import re
 import shutil
+import stat
 import sys
 from bisect import bisect_right
 from collections.abc import Callable
@@ -836,33 +836,36 @@ def _overlaps(a: Path, b: Path) -> bool:
     return a == b or a in b.parents or b in a.parents
 
 
-def _absolute(path: Path) -> Path:
-    """Absolute and normalised, without following symlinks."""
-    return Path(os.path.abspath(path))
+def _canonical(flag: str, path: Path) -> Path:
+    """The one path every later check and action uses for this target.
 
-
-def _unresolved_family(path: Path) -> list[Path]:
-    """The target and the two siblings the swap creates, as the swap names them."""
-    root = _absolute(path)
-    return [root, _sibling(root, "tmp"), _sibling(root, "old")]
-
-
-def _family(path: Path) -> list[Path]:
-    """The members of `_unresolved_family`, resolved."""
-    return [member.resolve() for member in _unresolved_family(path)]
-
-
-def _check_name_and_cwd(flag: str, path: Path) -> None:
+    Checks and actions must share one path object: `os.path.abspath` folds `..`
+    textually while the kernel follows symlinks first, so a checked spelling
+    could name a different directory than the one swapped. The parent is
+    resolved (symlinks, then `..`, as the kernel does) and the leaf appended
+    unresolved. A leaf symlink is refused before that, since resolving it
+    would hide it. A parent that does not exist resolves non-strictly: its
+    existing prefix is resolved and the remainder kept, so a new tree can be
+    created beneath it.
+    """
+    if path.is_symlink():
+        raise ResultsError(f"refusing {flag}: {path.name} is a symlink")
     if path.name in ("", ".", ".."):
         raise ResultsError(f"refusing {flag} {str(path)!r}: no directory name")
+    canon = path.parent.resolve() / path.name
     cwd = Path.cwd().resolve()
-    resolved = path.resolve()
-    if resolved == cwd or resolved in cwd.parents:
+    if canon == cwd or canon in cwd.parents:
         raise ResultsError(f"refusing {flag}: it holds the working directory")
+    return canon
 
 
-def _check_inputs(flag: str, path: Path, inputs: list[Path]) -> None:
-    for member in _family(path):
+def _family(canon: Path) -> list[Path]:
+    """The target and the two siblings the swap creates, as the swap names them."""
+    return [canon, _sibling(canon, "tmp"), _sibling(canon, "old")]
+
+
+def _check_inputs(flag: str, canon: Path, inputs: list[Path]) -> None:
+    for member in _family(canon):
         for item in inputs:
             if _overlaps(member, item):
                 raise ResultsError(
@@ -870,11 +873,19 @@ def _check_inputs(flag: str, path: Path, inputs: list[Path]) -> None:
                 )
 
 
-def _check_symlinks(flag: str, path: Path) -> None:
+def _check_symlinks(flag: str, canon: Path) -> None:
     """Refuse a symlink anywhere the swap renames or deletes."""
-    for member in _unresolved_family(path):
+    for member in _family(canon):
         if member.is_symlink():
             raise ResultsError(f"refusing {flag}: {member.name} is a symlink")
+
+
+def _has_marker(member: Path) -> bool:
+    """True for a regular MARKER file; a symlink does not prove ownership."""
+    try:
+        return stat.S_ISREG((member / MARKER).lstat().st_mode)
+    except OSError:
+        return False
 
 
 def _check_owned(flag: str, member: Path, allow_empty: bool) -> None:
@@ -883,7 +894,7 @@ def _check_owned(flag: str, member: Path, allow_empty: bool) -> None:
         return
     if not member.is_dir():
         raise ResultsError(f"refusing {flag}: {member.name} is not a directory")
-    if (member / MARKER).is_file():
+    if _has_marker(member):
         return
     if allow_empty and not any(member.iterdir()):
         return
@@ -892,28 +903,33 @@ def _check_owned(flag: str, member: Path, allow_empty: bool) -> None:
     )
 
 
-def _check_targets(out: Path, runs_out: Path, inputs: list[Path]) -> None:
-    """Refuse targets the swap could destroy.
+def _check_targets(out: Path, runs_out: Path, inputs: list[Path]) -> tuple[Path, Path]:
+    """Refuse targets the swap could destroy; return their canonical paths.
 
     Covers `.`, `..`, the cwd, an input, a clash, a symlink and any existing
-    path the generator did not write. Nothing is created or deleted here.
+    path the generator did not write. Nothing is created or deleted here. The
+    returned paths are the only ones the caller may act on.
     """
-    targets = (("--out", out), ("--runs-out", runs_out))
-    for flag, path in targets:
-        _check_name_and_cwd(flag, path)
-        _check_symlinks(flag, path)
-    if _overlaps(out.resolve(), runs_out.resolve()):
+    targets = [
+        ("--out", _canonical("--out", out)),
+        ("--runs-out", _canonical("--runs-out", runs_out)),
+    ]
+    for flag, canon in targets:
+        _check_symlinks(flag, canon)
+    out_canon, runs_canon = targets[0][1], targets[1][1]
+    if _overlaps(out_canon, runs_canon):
         raise ResultsError("refusing --out and --runs-out: equal or nested")
-    if set(_family(out)) & set(_family(runs_out)):
+    if set(_family(out_canon)) & set(_family(runs_canon)):
         raise ResultsError("refusing --out and --runs-out: their .tmp/.old collide")
     resolved = [p.resolve() for p in inputs]
-    for flag, path in targets:
-        _check_inputs(flag, path, resolved)
-    for flag, path in targets:
-        target, tmp, old = _unresolved_family(path)
+    for flag, canon in targets:
+        _check_inputs(flag, canon, resolved)
+    for flag, canon in targets:
+        target, tmp, old = _family(canon)
         _check_owned(flag, target, allow_empty=True)
         _check_owned(flag, tmp, allow_empty=False)
         _check_owned(flag, old, allow_empty=False)
+    return out_canon, runs_canon
 
 
 def _sibling(path: Path, suffix: str) -> Path:
@@ -1024,12 +1040,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         plt = _load_pyplot()
         dirs = _parse_runs(args.run)
-        _check_targets(args.out, args.runs_out, [*dirs.values(), args.runs_toml])
-        _recover(args.out)
-        _recover(args.runs_out)
+        out, runs_out = _check_targets(
+            args.out, args.runs_out, [*dirs.values(), args.runs_toml]
+        )
+        _recover(out)
+        _recover(runs_out)
         runs = load_runs(args.runs_toml, dirs)
         site = render_site(plt, runs)
-        publish([(args.out, site), (args.runs_out, run_copy_files(runs))])
+        publish([(out, site), (runs_out, run_copy_files(runs))])
     except (ResultsError, OSError) as err:
         print(err, file=sys.stderr)
         return 1
