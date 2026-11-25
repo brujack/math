@@ -1555,3 +1555,21 @@ class TestCanonicalTargets(_FixtureCopy):
     def test_canonical_returns_the_resolved_parent_and_raw_leaf(self) -> None:
         got = zr._canonical("--out", Path(self.dotdot("victim")))
         self.assertEqual(got, (self.s / "deep" / "victim").resolve())
+
+    def test_one_tree_nested_in_the_others_tmp_or_old_is_refused(self) -> None:
+        cases = (
+            (self.s / "r.old" / "site", self.s / "r"),
+            (self.s / "q.tmp" / "site", self.s / "q"),
+            (self.s / "r", self.s / "r.old" / "site"),
+            (self.s / "q", self.s / "q.tmp" / "site"),
+        )
+        for out, runs_out in cases:
+            with self.subTest(out=out.name, runs_out=runs_out.name):
+                before = _tree(self.s)
+                self.assertEqual(self.run_main(out, runs_out), 1)
+                self.assertIn("collide", self.stderr.getvalue())
+                self.assertEqual(_tree(self.s), before)
+                self.assertEqual(
+                    sorted(p.name for p in self.s.iterdir()),
+                    sorted(["deep", "link", "t2", "t3", "tr3", "runs.toml"]),
+                )

@@ -919,7 +919,7 @@ def _check_targets(out: Path, runs_out: Path, inputs: list[Path]) -> tuple[Path,
     out_canon, runs_canon = targets[0][1], targets[1][1]
     if _overlaps(out_canon, runs_canon):
         raise ResultsError("refusing --out and --runs-out: equal or nested")
-    if set(_family(out_canon)) & set(_family(runs_canon)):
+    if any(_overlaps(a, b) for a in _family(out_canon) for b in _family(runs_canon)):
         raise ResultsError("refusing --out and --runs-out: their .tmp/.old collide")
     resolved = [p.resolve() for p in inputs]
     for flag, canon in targets:
