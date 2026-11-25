@@ -70,3 +70,11 @@ setup() {
     [[ "${output}${stderr}" != *"RH verified"* ]]
     [ ! -e "${WORK_DIR}/zeta_1e2.txt" ]
 }
+
+@test "N = 2 --refine writes the refined table and prints the spacing report" {
+    run --separate-stderr bash -c "cd '${WORK_DIR}' && '${RUST_BIN}' 2 --refine </dev/null"
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"KS distance to the Wigner surmise CDF:"* ]]
+    [ "$(head -n 1 "${WORK_DIR}/zeta_1e2.txt")" = "# n a b t_n w_n" ]
+    [ "$(ls -A "${WORK_DIR}")" = "zeta_1e2.txt" ]
+}

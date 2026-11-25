@@ -86,6 +86,12 @@ every step certified by the same precision ladder) and replaces the table with
 estimate of its midpoint (it can print just outside a very narrow `[a, b]`) and `w_n = b - a`
 rounded up to 3 significant digits. `Elapsed:` then covers verification plus refinement.
 
+Resolution is not f64 everywhere. Above t = 200 the Hardy Z enclosure carries Gabcke's
+Riemann–Siegel remainder bound 0.127·t^(-3/4) (about 2.4e-3 at t = 200), which does not
+shrink with precision, so brackets there stop at `w_n` of about 1e-3 to 4e-3 (measured at
+N = 3: 570 of 649 zeros, largest `w_n` 3.89e-3, the same at N = 4). Below t = 200
+(Euler–Maclaurin) they reach about 1e-15. Do not expect f64-resolution brackets above t = 200.
+
 The spacing report compares the normalised gaps
 `delta_n = (t_(n+1) - t_n) ln(t_n / 2 pi) / 2 pi` with the Wigner surmise of the GUE: a
 20-bin histogram of the observed density against `p(s)`, the Kolmogorov–Smirnov distance

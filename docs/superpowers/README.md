@@ -171,6 +171,9 @@ Add a new row to the group that matches its priority.
 | Python sweep survivor report lacks col and diff | The sweep's survivor report prints no column or mutant diff; slice 9's `mutants-equivalent.toml` authoring needs both (the PR gate's `--max-survivors` output has them). |
 | zeta results page | A published visual page: the normalised zero-gap histogram against Wigner/GUE at N = 3, 5, 7 with a Poisson curve for contrast, Gram's-law good-interval share per decade, and verified counts against the published N(T). Figures come from a repo script reading real `zeta_1eN.txt` / `--refine` output, each stamped with commit SHA, command, machine and date. Claims stated exactly: independent re-verification up to 10^N, citing Platt–Trudgian 2021 and Odlyzko, never "new result". Build it after the V3–V7 runs. |
 | zeta --refine at N = 7 cost unmeasured | Release `zeta 4 --refine` took 9.3 s wall / 213 CPU-s on 48 threads (2026-11-24); refinement is about 10x verification CPU and the per-zero cost grows with height. Measure N = 6 and 7 before promising a time. |
+| zeta progress-write error plumbing | `Fault::ProgressWrite` carries no message while the text travels as `Option<String>` beside placeholder vectors (`Certified`, `Isolated.write_error`), and a write failure masks a concurrent Z fault (exit 4, not 6). Fix: `ProgressWrite(String)` or a private stop enum, mapped to `WriteFailed` once. |
+| zeta --refine prints the pool-fallback notice twice | `refine_intervals` calls `Runner::new` again, so a pool that cannot be built is announced by verify and again by refinement. Reuse verify's runner or print once. |
+| zeta refinement prints no progress | Spec R21 covers Gram points and Gram blocks only; `zeta 4 --refine` is silent for about 9 s of refinement and N = 7 would be far longer. A third progress stage needs an R21 amendment. |
 
 ### P4 — features and new tooling
 
