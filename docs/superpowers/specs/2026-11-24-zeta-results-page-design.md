@@ -581,7 +581,7 @@ Checked clean:
 
 Assumption: as Goal-Fit.
 
-Disposition: Addressed (operator, 2026-11-24: "Address all" and run store "~/zeta-runs/"). Changes:
+Disposition: Addressed (operator, 2026-11-24: "Address all" and a run store location, redacted 2026-11-26 per N7 at the operator's direction). Changes:
 
 - every compared value is computed from the exact midpoint a + (b − a)/2, using the CLI's
   A&S erf and bin rule (R5, R6, R7);
