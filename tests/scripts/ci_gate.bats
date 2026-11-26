@@ -10,6 +10,8 @@ setup() {
     export GITHUB_REPOSITORY="test-owner/test-repo"
     export CI_GATE_POLL_INTERVAL=0
     export CI_GATE_MAX_POLLS=5
+    export REQUIRED_CHECKS_FILE="${BATS_TEST_TMPDIR}/required-status-checks"
+    printf 'secret-scan\n' > "${REQUIRED_CHECKS_FILE}"
 }
 
 @test "all required checks pass → exit 0" {
@@ -252,11 +254,17 @@ setup() {
     command grep -F "actions/runs" "${MOCK_CALLS_FILE}" | command grep -qF "event: .event"
 }
 
-# Required-context tests (R36): the gate waits for every context branch protection
-# requires on the base branch, even one that registers after all other checks finish.
+# Required-context tests (R36): the gate waits for every context listed in the tracked
+# required-status-checks file (a mirror of branch protection; GITHUB_TOKEN cannot read
+# protection itself), even one that registers after all other checks finish.
+
+write_required() {
+    export REQUIRED_CHECKS_FILE="${BATS_TEST_TMPDIR}/required-status-checks"
+    printf '%s\n' "$@" > "${REQUIRED_CHECKS_FILE}"
+}
 
 @test "required context registering late (pull_request_target) is waited for → exit 0 on poll 2" {
-    export MOCK_GH_REQUIRED='mutation-gate-items'
+    write_required '# header' 'mutation-gate-items'
     export MOCK_GH_CHECK_RUNS_1='{"name":"Test pi-rs","status":"completed","conclusion":"success"}'
     export MOCK_GH_CHECK_RUNS_2='{"name":"Test pi-rs","status":"completed","conclusion":"success"}
 {"name":"mutation-gate-items","status":"completed","conclusion":"success"}'
@@ -266,7 +274,7 @@ setup() {
 }
 
 @test "required context that never registers ends red at the poll timeout → exit 1 naming it" {
-    export MOCK_GH_REQUIRED='mutation-gate-items'
+    write_required 'mutation-gate-items'
     export MOCK_GH_CHECK_RUNS='{"name":"Test pi-rs","status":"completed","conclusion":"success"}'
     export CI_GATE_MAX_POLLS=3
     run "${REPO_ROOT}/scripts/ci-gate.sh" 42 2>&1
@@ -277,7 +285,7 @@ setup() {
 }
 
 @test "late-registering required context that fails → exit 1 naming it" {
-    export MOCK_GH_REQUIRED='mutation-gate-items'
+    write_required 'mutation-gate-items'
     export MOCK_GH_CHECK_RUNS_1='{"name":"Test pi-rs","status":"completed","conclusion":"success"}'
     export MOCK_GH_CHECK_RUNS_2='{"name":"Test pi-rs","status":"completed","conclusion":"success"}
 {"name":"mutation-gate-items","status":"completed","conclusion":"failure"}'
@@ -286,30 +294,35 @@ setup() {
     [[ "$output" == *"mutation-gate-items"* ]]
 }
 
-@test "required-contexts lookup failure (403/404) fails closed → exit 1 with message" {
-    export MOCK_GH_EXIT_REQUIRED=1
+@test "missing required-checks file fails closed before polling → exit 1" {
+    export REQUIRED_CHECKS_FILE="${BATS_TEST_TMPDIR}/absent"
     export MOCK_GH_CHECK_RUNS_1='{"name":"Test pi-rs","status":"completed","conclusion":"success"}'
     run "${REPO_ROOT}/scripts/ci-gate.sh" 42 2>&1
     [ "$status" -eq 1 ]
-    [[ "$output" == *"required status checks"* ]]
-    # fails before polling: no check-runs call was made
+    [[ "$output" == *"required-checks file"* ]]
     [ ! -e "${MOCK_GH_COUNTER_FILE}" ]
 }
 
-@test "required list names the PR base branch" {
-    export MOCK_GH_PR_BASE='main'
+@test "empty required-checks file (only comments and blanks) fails closed → exit 1" {
+    write_required '# only a comment' '' '   '
     export MOCK_GH_CHECK_RUNS_1='{"name":"Test pi-rs","status":"completed","conclusion":"success"}'
-    run "${REPO_ROOT}/scripts/ci-gate.sh" 42
-    [ "$status" -eq 0 ]
-    grep -q 'branches/main/protection/required_status_checks' "${MOCK_CALLS_FILE}"
+    run "${REPO_ROOT}/scripts/ci-gate.sh" 42 2>&1
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"required-checks file"* ]]
+    [ ! -e "${MOCK_GH_COUNTER_FILE}" ]
 }
 
 @test "required self-checks and advisory checks are not waited for → exit 0" {
-    export MOCK_GH_REQUIRED='secret-scan
-auto-merge
-snyk-scan'
+    write_required 'secret-scan' 'auto-merge' 'snyk-scan'
     export MOCK_GH_CHECK_RUNS_1='{"name":"Test pi-rs","status":"completed","conclusion":"success"}'
     run "${REPO_ROOT}/scripts/ci-gate.sh" 42
     [ "$status" -eq 0 ]
     [ "$(cat "${MOCK_GH_COUNTER_FILE}")" -eq 1 ]
+}
+
+@test "the tracked required-checks file lists secret-scan and mutation-pr only" {
+    run grep -v -e '^#' -e '^[[:space:]]*$' "${REPO_ROOT}/.github/required-status-checks"
+    [ "$status" -eq 0 ]
+    [ "$output" = "secret-scan
+mutation-pr" ]
 }

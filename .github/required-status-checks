@@ -1,0 +1,6 @@
+# Required status check contexts on master, one per line. Mirrors branch protection;
+# ci-gate.sh waits for each (GITHUB_TOKEN cannot read protection itself).
+# V4 checks this file against live protection. Blank lines and # comments ignored.
+# Add mutation-gate-items only after the operator adds it as a required check.
+secret-scan
+mutation-pr

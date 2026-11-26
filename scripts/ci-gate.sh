@@ -24,16 +24,20 @@ ci_gate() {
     local sha
     sha=$(gh api "repos/${repo}/pulls/${pr}" --jq '.head.sha') || return 1
 
-    # Branch protection names the contexts that must pass; a pull_request_target run
-    # (mutation-gate-items) can register after every pull_request check has finished,
-    # so "everything seen so far is terminal" is not enough. The lookup needs a token
-    # with admin scope: fail closed rather than treat a 403/404 as "nothing required".
-    local base
-    base=$(gh api "repos/${repo}/pulls/${pr}" --jq '.base.ref') || return 1
+    # The contexts that must pass come from a tracked mirror of branch protection: a
+    # pull_request_target run (mutation-gate-items) can register after every
+    # pull_request check has finished, so "everything seen so far is terminal" is not
+    # enough, and GITHUB_TOKEN cannot be granted the administration permission needed
+    # to read protection itself. A missing or empty file fails closed.
+    local required_file="${REQUIRED_CHECKS_FILE:-$(dirname "${BASH_SOURCE[0]}")/../.github/required-status-checks}"
     local protection_contexts
-    if ! protection_contexts=$(gh api "repos/${repo}/branches/${base}/protection/required_status_checks" \
-        --jq '[.contexts[]?, .checks[]?.context] | unique | .[]'); then
-        printf "Cannot read required status checks for %s (token needs admin scope?); failing closed.\n" "${base}" >&2
+    if [[ ! -r "${required_file}" ]]; then
+        printf "Cannot read required-checks file %s; failing closed.\n" "${required_file}" >&2
+        return 1
+    fi
+    protection_contexts=$(sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "${required_file}" | awk 'NF')
+    if [[ -z "${protection_contexts}" ]]; then
+        printf "The required-checks file %s lists no contexts; failing closed.\n" "${required_file}" >&2
         return 1
     fi
     # Advisory and self-check contexts are never waited for: ci-gate runs inside the
