@@ -11,8 +11,9 @@
 # `rs_canary=true|false`. A crate dir (passed as arguments to detect) is
 # selected when a changed path starts with `<crate>/src/`, `<crate>/tests/` or
 # `<crate>/.cargo/` (any extension), is `<crate>/build.rs`, or is
-# `<crate>/Cargo.toml` with a changed line that is neither inside a dependency
-# table nor the `[package]` `version` line. rs_canary is true when a file that
+# `<crate>/Cargo.toml` with a changed line that is neither inside its
+# `[dependencies]`, `[dev-dependencies]` or `[build-dependencies]` table nor the
+# `[package]` `version` line. rs_canary is true when a file that
 # shapes the Rust mutation run itself changed.
 #
 # Then prints `py_src_dirs=<sorted dirs>` and `py_canary=true|false`. A Python

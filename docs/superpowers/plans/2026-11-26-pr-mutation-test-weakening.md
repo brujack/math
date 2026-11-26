@@ -782,6 +782,7 @@ depends_on: [9, 13, 14, 15, 17, 18]
 ## Verification obligations after merge (bootstrap)
 
 1. The operator adds `mutation-gate-items` to branch protection with expected source GitHub Actions, and sets the same expected source on `mutation-pr` and `secret-scan`.
+   Then a small follow-up PR adds `mutation-gate-items` to `.github/required-status-checks` (R36 amendment), and V4 confirms the file equals `gh api repos/brujack/math/branches/master/protection/required_status_checks --jq .contexts`.
 2. **V4.** Use throwaway draft PRs:
    - add an equivalents entry: red; green after the operator's signed commit; red again after a further edit;
    - an unsigned commit with the same line stays red;
