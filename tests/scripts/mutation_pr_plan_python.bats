@@ -76,7 +76,7 @@ weak_n() {
     python3 -I -c '
 import json, sys
 u = json.load(open(sys.argv[1]))
-assert [x["shard"] for x in u] == list(range(len(u)))
+assert [x["k"] for x in u] == list(range(len(u)))
 assert {x["mode"] for x in u} == {"weakening"} and {x["dir"] for x in u} == {sys.argv[2]}
 ns = {x["n"] for x in u}
 assert ns == {len(u)}, (ns, len(u))
@@ -393,7 +393,7 @@ for line in open(sys.argv[2]):
 @test "weakening rows carry the exact shape and the plan line keeps the pinned text" {
     weak_fix pi 100 1
     PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
-    [[ "$(cat "${PLAN_OUT}/units.json")" == '[{"dir":"pi","shard":0,"n":10,"mode":"weakening"},{"dir":"pi","shard":1,'* ]]
+    [[ "$(cat "${PLAN_OUT}/units.json")" == '[{"dir":"pi","k":0,"n":10,"mode":"weakening"},{"dir":"pi","k":1,'* ]]
     [ "$(cat "${PLAN_OUT}/plan.txt")" = "$(printf 'pi\tgreen\t100 mutants in 10 shards')" ]
 }
 

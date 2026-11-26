@@ -16,7 +16,7 @@
 # (mutation-pr-verdict-python.sh) parses it, so the green/red texts below are a pinned contract:
 #   `<K> mutants in <n> shards`, `0 mutants on changed lines`, `lines 0`, or a flattened error.
 # units.json rows: diff mode {"dir":..,"k":..,"n":..,"mode":"diff"} for green dirs with K > 0 only,
-# weakening mode {"dir":..,"shard":..,"n":..,"mode":"weakening"}; [] when none.
+# weakening mode {"dir":..,"k":..,"n":..,"mode":"weakening"}; [] when none.
 # Zero dirs is valid (an empty plan and []), so the caller never special-cases "nothing changed".
 
 readonly SHARD_SIZE=150
@@ -216,7 +216,7 @@ plan_weakening_dir() {
     n="$(weakening_shard_count "${kept}" "${secs}")" || return 1
     PLAN_LINE="green${TAB}${kept} mutants in ${n} shards"
     for ((k = 0; k < n; k++)); do
-        UNITS+=("{\"dir\":\"$(json_escape "${dir}")\",\"shard\":${k},\"n\":${n},\"mode\":\"weakening\"}")
+        UNITS+=("{\"dir\":\"$(json_escape "${dir}")\",\"k\":${k},\"n\":${n},\"mode\":\"weakening\"}")
     done
     return 0
 }
