@@ -104,7 +104,7 @@ This spec turns it into a page whose every figure traces to a command and a comm
   - V2: the generator exited 0 over the eleven real runs (t2 t3 t4 n5 n6 n7 tr3 tr4 r5 r6 r7), so every refined cross-check passed and every counts row reads `equal`. Generating took 4:01.35 wall clock and 6,053,788 kB peak RSS.
 - **Gap counts.** N = 3 has 648 gaps and N = 4 has 10,141 (`tr4`).
 - **Run storage.** Every run directory needed for the page lives outside the repo, on the
-  operator's machine in a durable directory chosen by the operator (2026-11-24: `~/zeta-runs/`).
+  operator's machine in a durable directory chosen by the operator.
   Session scratch space is a RAM-backed `/tmp` that a reboot clears. The repo never names the
   location. At the time of writing the store holds t2, t3, t4, n5, n6, n7, tr3, tr4 and r5. The
   refined N = 6 and N = 7 runs are in flight in session scratch and move to the store when they
