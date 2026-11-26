@@ -1,6 +1,6 @@
 # PR mutation gates see test weakening
 
-- **Date:** 2026-11-26 (revised after Multi-Lens Review rounds 1-4)
+- **Date:** 2026-11-26 (revised after Multi-Lens Review rounds 1-5)
 - **Backlog row closed:** "PR mutation gates miss test-only weakening (Rust and Python)" (P2)
 - **Related:** ADR-0042 (Rust sweep holds zero missed), ADR-0044 (per-PR Python gate), ADR-0046
   (shard the Rust runs), `specs/2026-11-05-worldclass-slice5-rust-pr-mutation-ratchet-design.md`,
@@ -17,12 +17,18 @@ or change the gate that judges it. This spec closes those holes with three parts
 - **Python (in `mutation-pr`):** a change to `test_<module>.py`, `cosmic-ray.toml` or
   `mutants-equivalent.toml` mutates the whole head module and runs the head tests on every mutant;
   each shard then replays its own head survivors under the base tests through an assertion-continuing
-  runner, so a failure early in a base test does not hide its later assertions. A mutant the base
-  tests kill and the head tests do not is a weakening.
+  runner, so a failure early in a base test does not hide its later assertions. The base arm kills a
+  mutant only when a new failure site appears or a test's outcome changes, never on a changed message.
+  A mutant the base tests kill and the head tests do not is a weakening.
 - **Items (new required check `mutation-gate-items`):** a `pull_request_target` job that runs only
   master's code computes what the PR newly exempts and which gate-shaping content it changes, keyed by
-  content and value. Every item is red unless a FIDO-signed `Mutation-Gate-Reviewed:` commit, verified
-  against master's allowed-signers file, approved that exact content.
+  content and value. Every item is red unless a FIDO-signed `Mutation-Gate-Reviewed: #<pr>` commit in
+  that PR, verified against master's allowed-signers file, approved that exact content.
+
+The threat model is a goal-seeking agent using the documented levers (deleting or weakening assertions,
+exemption entries, `test-command`, hidden code, editing the gate). A hostile author can defeat any
+mutation gate with a test that asserts nothing real: one test asserting the sha256 of `sq.py` killed all
+164 sq mutants. That is out of scope; the items job is hardened only so a PR cannot run code in it.
 
 ## Why
 
@@ -106,7 +112,33 @@ round, a new required check and signing with a forwarded FIDO key (2026-11-26).
   shell). The repo squash-merges with `COMMIT_MESSAGES`.
 - **Item frequency.** Over the last 100 PRs, 35 touched a gate-shaping or exemption file as round 4
   defined them; most gate hits were rendered `Makefile`s changed outside their mutation recipes, and 8
-  Renovate PRs since 2026-08-24 changed only action digests in `mutation-pr.yml`.
+  Renovate PRs since 2026-08-24 changed only action digests in `mutation-pr.yml`. Under the round-5
+  rules about 30 of the last 100 PRs (#142-#251) would need a signature, about 20 of them the gate's own
+  development. `mutation-pr.yml` also uses `taiki-e/install-action` and `dtolnay/rust-toolchain`, whose
+  Renovate bumps change the SHA and its `# vX.Y.Z` comment.
+- **Macros in this tree.** Under `*-rs/src/`: `prop_assert!` 58, `env!` 29, `proptest!` 20,
+  `prop_oneof!` 4, `concat!` 4, `prop_assert_eq!` 3, `include_str!` 2, `value_parser!` 1, `prop_assume!`
+  1; the proptest family is used only in `#[cfg(test)]` code (proptest is a dev-dependency of all 13
+  crates). Allowed macros also hide code: `vec![a * b + 1][0]`, `matches!(a, _ if a * b > 10)`,
+  `format!("{}", a * b + 1).parse()` and `assert!({ r = a * b + 1; true })` each removed every operator
+  mutant, while a plain expression, a `static` closure, a `const fn` and a local closure kept them.
+- **Running PR code by accident.** With cwd inside a PR crate, a `.cargo/config.toml`
+  `[alias] mutants = ["run", ...]` made `cargo mutants --list` build and run a PR binary, and a
+  `rust-toolchain.toml` with an absolute `[toolchain] path` made rustup run a PR `cargo`. Run from a cwd
+  outside the PR tree with `-d <dir>`, `RUSTUP_TOOLCHAIN` pinned and a fresh `CARGO_HOME`, neither ran.
+  `cargo metadata` without `--no-deps` ran a PR `rustc-wrapper`; `cargo mutants --list` did not.
+  `python -m cosmic_ray.cli init` with cwd in a PR dir imported a planted `parso.py`; the `cosmic-ray`
+  console script did not. `git archive` honours a PR `.gitattributes` `export-ignore`, which hid an
+  exemption file; `git show <sha>:<path>` does not. The repo is public and `pull_request_target` runs are
+  not held for fork approval.
+- **Message snapshots.** With messages in the signature, a correct behaviour change (`f` gains `+ 1`, its
+  test updated) read `weakened: 1` because a backlog mutant on an unchanged line changed a float printed
+  in an already-failing assertion's message. Keyed on failure sites (test, line, `subTest` parameters)
+  instead, it read 0, and the masked `6 != 9` still counted because it is a new site.
+- **`with` assertions.** The 10 judged test files hold 206 `with self.assert*` blocks, 112 followed by
+  more statements; a failing one stops its test (probe p2 missed a weakening behind one).
+- **Old PR heads.** Squash-merged PR heads are not ancestors of master but stay fetchable
+  (`refs/pull/251/head`), so a signed commit from another PR can be merged into a new branch.
 
 ## Design
 
@@ -142,12 +174,12 @@ changes, in addition to the existing module-change trigger.
    path). Any survivor on a line the PR added to `<module>.py` is red, as today.
 5. **Base runner.** `scripts/mutation_base_runner.py`, started with the sandbox as working directory,
    inserts the sandbox at `sys.path[0]` after interpreter start-up, parses `test_<module>_base.py`, and
-   rewrites every expression statement that calls `self.assert*` and every `assert` statement into a block
-   that records `(line, exception type, message)` on `AssertionError` and continues. It runs every test
-   and produces, per test id, a signature: its final outcome (`pass`, `fail`, `error`, `skip`,
-   `expected-failure` or `unexpected-success`), the recorded assertion failures in order, and for an
-   error the exception type and the innermost line in the base file; messages have every `0x[0-9a-f]+`
-   replaced by `0x?`.
+   rewrites every expression statement that calls `self.assert*`, every `assert` statement, and every
+   `with` statement whose context expression calls `self.assert*`, into a block that records the failure
+   site on `AssertionError` and continues. It runs every test and produces, per test id, a signature:
+   its final outcome (`pass`, `fail`, `error`, `skip`, `expected-failure` or `unexpected-success`), the
+   set of failure sites `(line, active subTest parameters)`, and for an error the exception type and the
+   innermost line in the base file. Messages are not part of the signature.
 6. **Judgeable base suite.** The shard records signatures twice on the unmutated head module. The dir is
    unjudgeable, red with the affected test ids, when either run times out, any result is
    `unittest.loader._FailedTest`, any class-, module- or per-test `setUp` errors, or the two recordings
@@ -155,7 +187,11 @@ changes, in addition to the existing module-change trigger.
 7. **Replay.** For each of its own head survivors, the shard calls
    `cosmic_ray.mutating.mutate_and_test([<the session's stored MutationSpec>], <base runner command>,
    <the merge base's toml timeout>)`. The runner exits non-zero, and the mutant counts as killed by the
-   base arm, when any test's signature differs from the recording. `killed` and `survived` are the only
+   base arm, when any test's outcome or error differs from the recording or a failure site absent from
+   the recording appears; a site that already fails in the recording never kills, whatever its message.
+   Before the base arm, `mutation-pr` checks R27 clearance and skips a dir already cleared for its
+   current module and test file. Each shard checks that it ran exactly its planned slice and replayed
+   every head survivor, and is red with the two counts otherwise. `killed` and `survived` are the only
    accepted outcomes; any other outcome or an exception is red with `replay failed: <outcome>` and the
    job id. When the base kill was a timeout, the shard re-runs the mutant under both arms with twice the
    timeout and counts a weakening only if the base runner kills it and the head tests do not.
@@ -172,15 +208,23 @@ changes, in addition to the existing module-change trigger.
 ### Items (new required check `mutation-gate-items`)
 
 A new workflow `.github/workflows/mutation-gate-items.yml` runs on `pull_request_target` with
-`permissions: contents: read` and no secrets. It checks out master's code, fetches the PR head's objects
-into a separate directory without executing anything from them, and runs master's
-`scripts/mutation-gate-items.sh`. It only reads PR files and runs listings (`cosmic-ray init`, which
-parses, and `cargo mutants --list`). It is red when any item is uncleared, within minutes of a push.
+`permissions: contents: read`, no secrets and no `paths:` filter. It checks out master's code, fetches
+the PR head's objects, and runs master's `scripts/mutation-gate-items.sh`. It is red when any item is
+uncleared, within minutes of a push.
+
+Invocation rules, so no PR content is ever executed:
+
+- PR files are written to a scratch tree only with `git show <sha>:<path>` for the paths the job needs
+  (never `git archive` or `git checkout`, which honour PR `.gitattributes` and filters).
+- Every tool runs with its working directory outside the PR scratch tree: `cargo mutants --list --json
+  -d <scratch>/<crate>` with `RUSTUP_TOOLCHAIN` set to the pinned toolchain and `CARGO_HOME` set to a fresh
+  empty directory; no `cargo metadata` call without `--no-deps`; `cosmic-ray init` through its installed
+  console script, never `python -m`.
 
 Items and their keys (every key carries the content it approves):
 
 - **Python equivalents.** The head module's jobs are pruned with a tolerant copy of master's prune
-  matching (entries that match no job are skipped and listed), once with the merge base's
+  matching (entries that match no job are skipped), once with the merge base's
   `mutants-equivalent.toml` and once with the head's. Each job pruned only by the head file is an item,
   keyed by (dir, operator, function, mutated line text, line above, ordinal).
 - **Python config.** Each changed key of `<dir>/cosmic-ray.toml`, keyed by (dir, key, new value).
@@ -190,47 +234,63 @@ Items and their keys (every key carries the content it approves):
   whitespace-normalized source line, the line above, ordinal from the `--no-config` listing). Each head
   excluded key absent at the merge base is an item. Each changed `.cargo/mutants.toml` key other than
   `exclude_re` is an item keyed by (crate, key, new value).
-- **Rust hidden code.** In each hunk under `<crate>/src/`, the added lines with comments and whitespace
-  removed are searched for `mutants::skip`, for `macro_rules!`, and for any macro invocation other than
-  `println!`, `eprintln!`, `print!`, `eprint!`, `format!`, `write!`, `writeln!`, `vec!`, `panic!`,
-  `matches!`, `unreachable!`, `todo!`, `assert!`, `assert_eq!`, `assert_ne!`, `debug_assert!`,
-  `debug_assert_eq!` and `debug_assert_ne!`; each hit is an item keyed by (crate, file, normalized added
-  text).
+- **Rust hidden code**, outside `#[cfg(test)]` modules only, keyed by (crate, file, normalized text):
+  an added `mutants::skip` in any spelling (searched with comments and whitespace removed); an added
+  `macro_rules!`; an added macro invocation whose arguments contain an arithmetic, comparison or
+  logical operator token; and a function defined in the head source, absent at the merge base, that has
+  no mutant in the head `--no-config` listing.
 - **Gate-shaping content.** For each changed file among `.github/workflows/mutation-pr.yml`,
   `.github/workflows/mutation-gate-items.yml`, `scripts/mutation-*.sh`, `scripts/mutation_*.py`,
   `scripts/cosmic_ray_*.py`, `.github/mutation-gate-allowed-signers` and its test, and the
   `tests/fixtures/mutation_weakening/` files, an item keyed by (path, new blob hash); for `Makefile`
   templates and rendered crate or Python `Makefile`s, an item only when the text of their `mutants*`
-  targets or `MUTANTS_*` variables changes, keyed by (path, hash of that text). A change to
-  `mutation-pr.yml` that only replaces the 40-hex SHA of a `uses: actions/<name>@<sha>` line is not an
-  item.
+  targets, or of any variable those targets reference directly or transitively, changes, keyed by
+  (path, hash of that text). A workflow change in which every changed line is a
+  `uses: <owner>/<repo>[/<path>]@<40-hex>` line whose owner, repo and path are unchanged and whose only
+  other change is its trailing `# <version>` comment is not an item.
 
-Clearance: a commit in the PR range that is an ancestor of head, carries the line
-`Mutation-Gate-Reviewed: <target>: <reason>` (target a dir, a crate dir or `gate`; reason at least 10
-characters), and whose signature `git verify-commit` accepts with `gpg.format=ssh` and
-`gpg.ssh.allowedSignersFile` set to master's `.github/mutation-gate-allowed-signers` clears every item of
-its target whose key is present in that commit's tree. Because keys carry content and value, a later
-change produces a new key and is red again. Every item red names the item, its target and the remedy:
-"commit `git commit --allow-empty -S -m 'chore: mutation gate review' -m 'Mutation-Gate-Reviewed:
-<target>: <reason>'` in the PR worktree with the operator's forwarded FIDO key, touching only for a
-prompt you started". A trailer on an unsigned or unaccepted commit is reported as
-`trailer ignored: <commit>: <reason>`.
+Clearance: a commit in the PR range that carries one or more lines
+`Mutation-Gate-Reviewed: #<pr> <target>: <reason>`, where `<pr>` equals the PR's number, `<target>` is a
+dir, a crate dir or `gate`, and `<reason>` has at least 10 characters, and whose signature `git
+verify-commit` accepts with `gpg.format=ssh` and `gpg.ssh.allowedSignersFile` set to master's
+`.github/mutation-gate-allowed-signers`, clears every item of each named target whose key is present in
+that commit's tree. Because keys carry content and value, a later change produces a new key and is red
+again. The red names every uncleared item and prints one command that clears all of them:
+
+```
+git -c gpg.format=ssh -c user.signingkey='key::<key from the allowed-signers file>' \
+  commit --allow-empty -S -m 'chore: mutation gate review' \
+  -m 'Mutation-Gate-Reviewed: #<pr> <target>: <reason>' [-m '...' for each further target]
+```
+
+run in the PR worktree with the operator's forwarded FIDO key (the key blinks; no prompt text appears;
+touch only for a signing you started), then pushed; after signing, update the branch by merging master,
+not by rebasing, which drops the signature. A trailer on an unsigned or unaccepted commit, or naming
+another PR's number, is reported as `trailer ignored: <commit>: <reason>`.
 
 The same verified commit, for its dir, also clears an unjudgeable base suite or a `weakened` red in
 `mutation-pr` when `<module>.py` and `test_<module>.py` are unchanged between it and head.
 
+Before the first push: when a push touches an item-relevant path, `scripts/pre-push` prints the items
+`scripts/mutation-gate-items.sh` finds and whether a signed trailer already clears them. It is advisory
+(never fails the push) and runs no mutants.
+
 Bootstrap: the PR that adds `mutation-gate-items.yml` is not judged by it (`pull_request_target` runs
 master's workflow, which does not have it yet). That PR adds `.github/mutation-gate-allowed-signers`
-with the operator's key. After it merges, the operator adds `mutation-gate-items` to branch protection.
+with the operator's key. After it merges, the operator adds `mutation-gate-items` to branch protection;
+PRs already open then need one new push to report it.
 
 ### Known limits
 
+- A hostile test that asserts nothing real (for example a hash of the module) kills every mutant and
+  defeats any mutation-based gate; the design targets a goal-seeking agent using the documented levers.
 - A weakening on a mutant another head test still kills is invisible to any mutation-based gate.
-- An assertion written as a bare expression other than `self.assert*` or `assert` (for example a helper
-  that asserts) still stops its test at the first failure.
-- New code inside an allowed macro (such as `vec![...]`) is not mutated by cargo-mutants.
+- An assertion made inside a helper function (rather than a `self.assert*` statement, an `assert`
+  statement or a `with self.assert*` block in the test body) still stops its test at the first failure.
+- Code inside a macro invocation that contains no operator token, and code in `#[cfg(test)]` modules, is
+  not examined for hidden code.
 - A forwarded key means an agent can raise a touch prompt; the touch proves presence, so the operator
-  must only touch for a signing they started. Enrolment in the allowed-signers file is the trust root.
+  touches only for a signing they started. Enrolment in the allowed-signers file is the trust root.
 - A uniform refactor of many test files plans up to 40 shards per dir and runs in waves.
 
 ### Workflow and local repro
@@ -254,43 +314,46 @@ with the operator's key. After it merges, the operator adds `mutation-gate-items
 - **R8.** The dir is red with `base suite unjudgeable: test-command must be python3 -m unittest test_<module>` unless both the head and the merge base `cosmic-ray.toml` `test-command` are exactly that.
 - **R9.** The generated `sitecustomize.py` sets `hypothesis.core.function_digest` to a SHA-384 of the test's `__qualname__` and calls `settings.register_profile("mutation-gate", derandomize=True, database=None, deadline=None, suppress_health_check=list(HealthCheck))` and `settings.load_profile("mutation-gate")`.
 - **R10.** Each shard runs a preflight in which two `@given` functions with the same `__qualname__` and different bodies must draw the same first 10 examples, and is red with `hypothesis profile not active (hypothesis <version>)` when they differ or the preflight errors.
-- **R11.** `scripts/mutation_base_runner.py` inserts its working directory at `sys.path[0]` after start-up, rewrites every expression statement calling `self.assert*` and every `assert` statement in `test_<module>_base.py` to record `(line, exception type, message)` on `AssertionError` and continue, and writes or compares per-test signatures made of the final outcome (`pass`, `fail`, `error`, `skip`, `expected-failure`, `unexpected-success`), the recorded assertion failures in order, and for an error its exception type and innermost line in the base file, with every `0x[0-9a-f]+` in a message replaced by `0x?`; in compare mode it exits non-zero when any test's signature differs.
+- **R11.** `scripts/mutation_base_runner.py` inserts its working directory at `sys.path[0]` after start-up; rewrites every expression statement calling `self.assert*`, every `assert` statement, and every `with` statement whose context expression calls `self.assert*` in `test_<module>_base.py` to record the failure site on `AssertionError` and continue; and writes or compares per-test signatures made of the final outcome (`pass`, `fail`, `error`, `skip`, `expected-failure`, `unexpected-success`), the set of failure sites `(line, active subTest parameters)`, and for an error its exception type and innermost line in the base file, with no message; in compare mode it exits non-zero when a test's outcome or error differs or a failure site absent from the recording appears, and never because of a site that already failed in the recording.
 - **R12.** Each shard records signatures twice on the unmutated head module, and the dir is red with `base suite unjudgeable: <cause>` and the affected test ids when either run times out, any result is `unittest.loader._FailedTest`, any class-, module- or per-test `setUp` errors, or the two recordings differ.
 - **R13.** For each of its own head survivors, a shard calls `cosmic_ray.mutating.mutate_and_test` with that job's stored `MutationSpec`, the base runner command and the merge base's toml `timeout`; `killed` and `survived` are accepted, and any other outcome or an exception is red with `replay failed: <outcome>` and the job id.
 - **R14.** When a base kill in R13 was a timeout, the shard re-runs that mutant under the head tests and the base runner with twice that timeout, and counts a weakening only when the base runner kills it and the head tests do not.
-- **R15.** A dir is red when any mutant is killed by the base arm and survives the head arm, and its summary reads `weakened: <count> mutants killed by base tests survive head tests`, then for each mutant its job id, operator, occurrence, diff and `repro: make -C <dir> mutants-weakening BASE=<sha> JOB=<job id>`.
+- **R15.** A dir is red when any mutant is killed by the base arm and survives the head arm, and its summary reads `weakened: <count> mutants killed by base tests survive head tests`, then for each mutant its job id, operator, occurrence, diff, `repro: make -C <dir> mutants-weakening BASE=<sha> JOB=<job id>` and the clearance command of R26 for that dir.
 - **R16.** A dir in `py_test_dirs` keeps the existing rule that any head survivor on a line the PR added to `<module>.py` is red.
 - **R17.** A dir whose `test_<module>.py` exists at the merge base and not at head is red with `test_<module>.py deleted`; one whose merge base has no `test_<module>.py` skips R11-R15 and prints `no base test file: weakening check skipped`.
-- **R18.** `py_canary` runs the weakening path on committed fixture pairs under `tests/fixtures/mutation_weakening/` (one where head drops an assertion, one where an obsolete first assertion masks a later one) and is red unless each reports `weakened: 1` naming its expected mutant.
-- **R19.** `.github/workflows/mutation-gate-items.yml` runs on `pull_request_target` with `permissions: contents: read`, checks out the base branch, fetches the PR head into a separate directory, never executes a file from it, and runs the base branch's `scripts/mutation-gate-items.sh <base-sha> <head-sha>`, whose only tools on PR content are `git`, `cosmic-ray init` and `cargo mutants --list`; its job is named `mutation-gate-items`.
-- **R20.** Python items: each head job pruned under the head `mutants-equivalent.toml` but not under the merge base's, using a tolerant prune that skips and lists entries matching no job, keyed by (dir, operator, function, mutated line text, line above, ordinal); and each changed `<dir>/cosmic-ray.toml` key, keyed by (dir, key, new value).
-- **R21.** Rust items: each mutant excluded by config at head (the `--no-config` listing minus the configured listing, matched by `name`) whose key (crate, file, function, genre, description without `<line>:<col>:`, whitespace-normalized source line, line above, ordinal in the `--no-config` listing) is not excluded at the merge base; and each changed `.cargo/mutants.toml` key other than `exclude_re`, keyed by (crate, key, new value).
-- **R22.** Hidden-code items: each hunk under `<crate>/src/` whose added lines, with comments and whitespace removed, contain `mutants::skip`, `macro_rules!`, or a macro invocation not in the list `println! eprintln! print! eprint! format! write! writeln! vec! panic! matches! unreachable! todo! assert! assert_eq! assert_ne! debug_assert! debug_assert_eq! debug_assert_ne!`, keyed by (crate, file, normalized added text).
-- **R23.** Gate items, target `gate`: each changed file among `.github/workflows/mutation-pr.yml`, `.github/workflows/mutation-gate-items.yml`, `scripts/mutation-*.sh`, `scripts/mutation_*.py`, `scripts/cosmic_ray_*.py`, `.github/mutation-gate-allowed-signers`, its test, and `tests/fixtures/mutation_weakening/`, keyed by (path, new blob hash); and each `Makefile` template or rendered `Makefile` whose `mutants*` targets or `MUTANTS_*` variables change, keyed by (path, hash of that text); a `mutation-pr.yml` change that only replaces the 40-hex SHA in a `uses: actions/<name>@<sha>` line is not an item.
-- **R24.** An item is cleared by a commit in the PR range that is an ancestor of head, carries `Mutation-Gate-Reviewed: <target>: <reason>` for the item's target (reason at least 10 characters), is accepted by `git verify-commit` with `gpg.format=ssh` and `gpg.ssh.allowedSignersFile` set to the base branch's `.github/mutation-gate-allowed-signers`, and whose tree contains the item's key; any uncleared item makes `mutation-gate-items` red, naming the item, its target and the remedy command; a trailer on an unsigned or unaccepted commit is reported as `trailer ignored: <commit>: <reason>`.
-- **R25.** A commit that clears target `<dir>` under R24 also clears that dir's R12 and R15 reds in `mutation-pr` when `<dir>/<module>.py` and `<dir>/test_<module>.py` are unchanged between it and head, and the summary then says `cleared by Mutation-Gate-Reviewed <commit>`.
-- **R26.** `.github/mutation-gate-allowed-signers` lists only `sk-ssh-ed25519` keys, none with `no-touch-required`, and a test fails on any other key type or that option.
-- **R27.** `mutation-pr.yml` sets `concurrency: { group: mutation-pr-${{ github.event.pull_request.number }}, cancel-in-progress: true }`.
-- **R28.** CI runs the Python steps through `make -C <dir> mutants-weakening BASE=<sha> MUTANT_SHARD=<k>/<n>`, a target every Python `Makefile` gains from `scripts/crate_templates/python/Makefile`, which also accepts `JOB=<job id>` and writes nothing in the tracked tree; `scripts/mutation-pr-run.sh --whole [--shard <k>/<n> --expect <count>] <crate-dir>` runs one crate's whole set and exits non-zero on the R4 red conditions.
-- **R29.** `tests/scripts/mutation_pr_detect.bats` covers R1 (a `tests/` fixture, a non-`.rs` `src/` file, a `.cargo/mutants.toml` change, `build.rs` and a `Cargo.toml` `[[test]]` change each select the crate; a `[dependencies]` version change alone does not) and R5 (added-only, deleted-only and file-deletion changes to `test_<module>.py`, and changes to `cosmic-ray.toml` or `mutants-equivalent.toml`, each select the dir; a change to `<module>.py` alone does not).
-- **R30.** A test on a copy of `sq/` requires: dropping an assertion that alone kills a known mutant reports it under `weakened: 1`; only adding a test reports `weakened: 0`; a cosmetic edit to every `@given` body reports `weakened: 0`; an obsolete first assertion followed by a deleted later assertion reports the later assertion's mutant; a `subTest` failure under a mutant counts as a kill; a message containing a set repr or an address is stable across recordings; an import-breaking rename, a per-test `setUp` error, and a base test sleeping past the timeout are each red with `base suite unjudgeable` and leave no process running; an untested line added to `sq.py` with a test-file change is red under R16; a replay forced to `no-test` is red with `replay failed`; a `sitecustomize.py` placed in the sandbox does not replace the generated one; a broken generated profile is red with `hypothesis profile not active`; and the tracked `sq/` files are byte-identical after every case.
-- **R31.** Tests cover R20-R26: a new equivalents entry, a `variant` change and a duplicated entry are items; pure line shifts of `exclude_re` and of an equivalents entry are not; an equivalents entry whose line was legitimately edited does not crash the item computation; a retargeted pattern onto an equal operator elsewhere in the function is an item; an `additional_cargo_test_args` change and a `timeout` change are items keyed by their new value; `#[mutants::skip]` in spaced, split and commented spellings, `macro_rules!`, a local macro wrapping an expression and `dbg!(...)` are items; a changed `mutation-pr-detect.sh`, allowed-signers file, or `mutants` recipe is a `gate` item and a non-recipe `Makefile` change and an `actions/checkout` digest bump are not; each item clears only with a verified trailer commit for its target whose tree holds its key, not with an unsigned or non-`sk` signature, a trailer for another target, a 9-character reason, or a commit whose tree holds an earlier value.
-- **R32.** Root `CLAUDE.md` (Mutation testing sections) and an ADR describe the whole-crate PR rule, the Python weakening check, the items job, the signed trailer and the bootstrap order, with repro commands; `docs/superpowers/README.md` removes the Backlog row "PR mutation gates miss test-only weakening (Rust and Python)"; root `CLAUDE.md` stays at or under 30,000 bytes.
+- **R18.** `py_canary` runs the weakening path on committed fixture pairs under `tests/fixtures/mutation_weakening/` (one where head drops an assertion, one where an obsolete first assertion masks a later one, one where a failing `with self.assertRaises` block masks a later one) and is red unless each reports `weakened: 1` naming its expected mutant.
+- **R19.** Each `py_test_dirs` shard is red with `shard incomplete: ran <a> of <b> jobs, replayed <c> of <d> survivors` unless it ran exactly its planned slice and replayed every one of its head survivors; before its base arm, `mutation-pr` skips any dir that a verified commit already clears under R27 and says `cleared by Mutation-Gate-Reviewed <commit>`.
+- **R20.** `.github/workflows/mutation-gate-items.yml` runs on `pull_request_target` with `permissions: contents: read`, no secrets and no `paths:` filter, checks out the base branch, and runs the base branch's `scripts/mutation-gate-items.sh <base-sha> <head-sha>`; its job is named `mutation-gate-items`.
+- **R21.** `scripts/mutation-gate-items.sh` writes PR files only with `git show <sha>:<path>`; runs every tool with a working directory outside the PR scratch tree; runs `cargo mutants --list --json -d <dir>` with `RUSTUP_TOOLCHAIN` set to the pinned toolchain and `CARGO_HOME` set to a fresh empty directory; never runs `cargo metadata` without `--no-deps`; and runs `cosmic-ray init` through its console script, never `python -m`.
+- **R22.** Python items: each head job pruned under the head `mutants-equivalent.toml` but not under the merge base's, using a tolerant prune that skips entries matching no job, keyed by (dir, operator, function, mutated line text, line above, ordinal); and each changed `<dir>/cosmic-ray.toml` key, keyed by (dir, key, new value).
+- **R23.** Rust exclusion items: each mutant excluded by config at head (the `--no-config` listing minus the configured listing, matched by `name`) whose key (crate, file, function, genre, description without `<line>:<col>:`, whitespace-normalized source line, line above, ordinal in the `--no-config` listing) is not excluded at the merge base; and each changed `.cargo/mutants.toml` key other than `exclude_re`, keyed by (crate, key, new value).
+- **R24.** Hidden-code items, outside `#[cfg(test)]` modules, keyed by (crate, file, normalized text): an added `mutants::skip` found after removing comments and whitespace; an added `macro_rules!`; an added macro invocation whose arguments contain an arithmetic, comparison or logical operator token; and a function defined in the head source, absent at the merge base, with no mutant in the head `--no-config` listing.
+- **R25.** Gate items, target `gate`: each changed file among `.github/workflows/mutation-pr.yml`, `.github/workflows/mutation-gate-items.yml`, `scripts/mutation-*.sh`, `scripts/mutation_*.py`, `scripts/cosmic_ray_*.py`, `.github/mutation-gate-allowed-signers`, its test, and `tests/fixtures/mutation_weakening/`, keyed by (path, new blob hash); and each `Makefile` template or rendered `Makefile` whose `mutants*` targets, or any variable they reference directly or transitively, change, keyed by (path, hash of that text); a workflow change in which every changed line is a `uses: <owner>/<repo>[/<path>]@<40-hex>` line with unchanged owner, repo and path and otherwise only a changed trailing `# <version>` comment is not an item.
+- **R26.** An item is cleared by a commit in the PR range that carries a line `Mutation-Gate-Reviewed: #<pr> <target>: <reason>` with `<pr>` equal to the PR's number, `<target>` the item's target and a reason of at least 10 characters (one commit may carry several such lines), that `git verify-commit` accepts with `gpg.format=ssh` and `gpg.ssh.allowedSignersFile` set to the base branch's `.github/mutation-gate-allowed-signers`, and whose tree contains the item's key; uncleared items make `mutation-gate-items` red with one printed command `git -c gpg.format=ssh -c user.signingkey='key::<key>' commit --allow-empty -S -m 'chore: mutation gate review'` plus one `-m 'Mutation-Gate-Reviewed: #<pr> <target>: <reason>'` per uncleared target, and a note to merge master rather than rebase after signing; a trailer on an unsigned or unaccepted commit or naming another PR is reported as `trailer ignored: <commit>: <reason>`.
+- **R27.** A commit that clears target `<dir>` under R26 also clears that dir's R12 and R15 reds in `mutation-pr` when `<dir>/<module>.py` and `<dir>/test_<module>.py` are unchanged between it and head.
+- **R28.** `.github/mutation-gate-allowed-signers` lists only `sk-ssh-ed25519` keys, none with `no-touch-required`, and a test fails on any other key type or that option.
+- **R29.** `scripts/pre-push` prints, for a push touching an item-relevant path, the items `scripts/mutation-gate-items.sh` finds and whether a verified trailer already clears each, without failing the push and without running any mutant.
+- **R30.** `mutation-pr.yml` sets `concurrency: { group: mutation-pr-${{ github.event.pull_request.number }}, cancel-in-progress: true }`.
+- **R31.** CI runs the Python steps through `make -C <dir> mutants-weakening BASE=<sha> MUTANT_SHARD=<k>/<n>`, a target every Python `Makefile` gains from `scripts/crate_templates/python/Makefile`, which also accepts `JOB=<job id>` and writes nothing in the tracked tree; `scripts/mutation-pr-run.sh --whole [--shard <k>/<n> --expect <count>] <crate-dir>` runs one crate's whole set and exits non-zero on the R4 red conditions.
+- **R32.** `tests/scripts/mutation_pr_detect.bats` covers R1 (a `tests/` fixture, a non-`.rs` `src/` file, a `.cargo/mutants.toml` change, `build.rs` and a `Cargo.toml` `[[test]]` change each select the crate; a `[dependencies]` version change alone does not) and R5 (added-only, deleted-only and file-deletion changes to `test_<module>.py`, and changes to `cosmic-ray.toml` or `mutants-equivalent.toml`, each select the dir; a change to `<module>.py` alone does not).
+- **R33.** A test on a copy of `sq/` requires: dropping an assertion that alone kills a known mutant reports it under `weakened: 1`; only adding a test reports `weakened: 0`; a cosmetic edit to every `@given` body reports `weakened: 0`; an obsolete first assertion, and separately a failing `with self.assertRaises` block, followed by a deleted later assertion reports the later assertion's mutant; a `subTest` failure under a mutant counts as a kill; a behaviour change with its test updated and a mutant on an unchanged line that only changes the message of an already-failing assertion reports `weakened: 0`; an import-breaking rename, a per-test `setUp` error, and a base test sleeping past the timeout are each red with `base suite unjudgeable` and leave no process running; an untested line added to `sq.py` with a test-file change is red under R16; a replay forced to `no-test` is red with `replay failed`; a shard that skips a job is red with `shard incomplete`; a `sitecustomize.py` placed in the sandbox does not replace the generated one; a broken generated profile is red with `hypothesis profile not active`; and the tracked `sq/` files are byte-identical after every case.
+- **R34.** Tests cover R21-R28: a PR `.cargo/config.toml` `[alias] mutants` entry, a `rust-toolchain.toml` with an absolute `path`, a `rustc-wrapper`, and a planted `parso.py` each leave no marker of having run; a PR `.gitattributes` `export-ignore` does not hide an exemption file; a new equivalents entry, a `variant` change and a duplicated entry are items; pure line shifts of `exclude_re` and of an equivalents entry are not; an equivalents entry whose line was legitimately edited does not crash the computation; a pattern retargeted onto an equal operator elsewhere in the function is an item; an `additional_cargo_test_args` change and a `timeout` change are items keyed by their new value; `#[mutants::skip]` in spaced, split and commented spellings, `macro_rules!`, `vec![a * b + 1][0]`, `dbg!(a * b)` and a new mutant-less function are items while `prop_assert!` in a `#[cfg(test)]` module and `println!("{}", x)` are not; a changed `mutation-pr-detect.sh`, allowed-signers file, `mutants` recipe or a variable it references is a `gate` item, and a non-recipe `Makefile` change and a `taiki-e/install-action` SHA-and-comment bump are not; each item clears only with a verified commit for its PR and target whose tree holds its key, not with an unsigned or non-`sk` signature, another PR's number, another target, a 9-character reason, or a commit whose tree holds an earlier value; one commit with two trailer lines clears two targets.
+- **R35.** Root `CLAUDE.md` (Mutation testing sections) and an ADR describe the whole-crate PR rule, the Python weakening check, the items job and its invocation rules, the signed trailer and the bootstrap order, with repro commands; `docs/superpowers/README.md` removes the Backlog row "PR mutation gates miss test-only weakening (Rust and Python)"; root `CLAUDE.md` stays at or under 30,000 bytes.
 
 - **V1.** Positive control before the PR is marked ready: a throwaway draft PR that deletes one assertion from a crate's `#[cfg(test)]` module, leaving a mutant uncaught, shows `mutation-pr` red naming that mutant; closed and its branch deleted.
 - **V2.** Positive control: a throwaway draft PR that weakens one assertion in `sq/test_sq.py` shows `mutation-pr` red with `weakened: 1` naming the mutant; closed and deleted afterwards.
 - **V3.** Negative control: a throwaway draft PR that only adds a test to `sq/test_sq.py` shows `mutation-pr` green.
-- **V4.** After the items job is on master and required: a throwaway draft PR that adds one `[[equivalent]]` entry to `sq/mutants-equivalent.toml` shows `mutation-gate-items` red naming it, green after the operator pushes a FIDO-signed `Mutation-Gate-Reviewed: sq: <reason>` commit, and red again after a further edit of that entry; an unsigned commit with the same line stays red; a throwaway PR that deletes the items step from `mutation-pr.yml` is still red in `mutation-gate-items`.
+- **V4.** After the items job is on master and required: a throwaway draft PR that adds one `[[equivalent]]` entry to `sq/mutants-equivalent.toml` shows `mutation-gate-items` red naming it, green after the operator pushes a FIDO-signed commit carrying `Mutation-Gate-Reviewed: #<that pr> sq: <reason>`, and red again after a further edit of that entry; an unsigned commit with the same line stays red; a throwaway PR that deletes the items step from `mutation-pr.yml` is still red in `mutation-gate-items`.
 - **V5.** Timing: throwaway draft PRs that add one test to `collatz/test_collatz.py`, `descartes/test_descartes.py` and `pi/test_pi.py` record every shard's wall time and concurrent jobs; a shard past about 45 minutes changes the R6 constants before merge.
-- **V6.** False-positive replay before merge: run the weakening path locally on the 32 real commits since 2026-09-26 that changed a module and its test file and have a base file and no hang; print per commit the head survivors replayed, the base-arm kills, the kills that come only from a changed failure signature, and every `weakened` result, and inspect each `weakened` result.
-- **V7.** Signing setup before merge: the operator's `sk-ssh-ed25519` public key is in `.github/mutation-gate-allowed-signers`, the key is forwarded to a session on `claude`, a trailer commit made there prompts for a touch on the physical key, and `git verify-commit` accepts it against that file.
-- **V8.** Item frequency: run `scripts/mutation-gate-items.sh` over the last 100 merged PRs and report how many would need a signature, by item kind, to the operator before merge.
+- **V6.** False-positive replay before merge: run the weakening path locally on the 32 real commits since 2026-09-26 that changed a module and its test file and have a base file and no hang; print per commit the head survivors replayed, the base-arm kills, and every `weakened` result; every `weakened` result that is not a real weakening is fixed in the design before merge.
+- **V7.** Signing setup before merge: the operator's `sk-ssh-ed25519` public key is in `.github/mutation-gate-allowed-signers`; on the operator's Mac, `ssh-add -L` lists it from a FIDO-capable agent; it is forwarded to a session on `claude`; the R26 command there makes the key blink and succeeds; and `git verify-commit` accepts the commit against that file.
+- **V8.** Item frequency: run `scripts/mutation-gate-items.sh` over the last 100 merged PRs and report to the operator before merge how many would need a signature, by item kind; it must report 1 Rust exclusion item for #204, an `additional_cargo_test_args` item for #246, and 0 items for #229 and #152.
 - **V9.** Record the wall time of the PR's own `mutation-pr` and `mutation-gate-items` runs and of V1-V5; a zeta-rs whole-crate run is measured or projected, and any Rust shard past about 50 minutes lowers B per ADR-0046.
 
 - **N1.** The monthly `mutation-testing.yml` and `mutation-testing-python.yml` sweeps do not change.
 - **N2.** No committed survivor, missed or baseline list is added; the only committed fixtures are the R18 canary pairs.
-- **N3.** The local pre-push hook runs no mutants.
-- **N4.** `mutation-gate-items` never checks out, builds, imports or runs a file from the PR head, and has no secrets.
+- **N3.** The local pre-push hook runs no mutants and never fails a push because of items.
+- **N4.** `mutation-gate-items` never builds, imports or runs a file from the PR head, and has no secrets.
 - **N5.** Nothing in the gates or the local targets writes to a tracked file in the working tree.
 - **N6.** The Python changed-line gate's behaviour for dirs not in `py_test_dirs` does not change.
 - **N7.** No agent, script or workflow signs a `Mutation-Gate-Reviewed:` commit; only the operator does, touching the key only for a signing they started.
@@ -400,3 +463,29 @@ Disposition: Addressed (operator, 2026-11-26: "Round 5 on full design"): allowed
 Finding: F1 (load-bearing) masking: a base test stops at its first failing assertion, so later assertions never run under head or any mutant and their kills vanish (probe: obsolete `label(3)` assertion hid `sq(3) == 9`); per-test `setUp` errors mask whole classes; this is the ordinary refactor PR. F2 base arm disadvantaged: `Path(__file__).parent / "<module>.py"` subprocess tests (amicable, collatz) break from `.base/`; the runner script's `sys.path[0]` lacks the sandbox; cwd-first `PYTHONPATH` lets a PR-supplied `sitecustomize.py` preempt the generated one. F3 `subTest` (about 40 in descartes), skip and expected-failure outcomes are outside the signature model. F4 `cosmic_ray_prune.py` exits 1 on any entry matching no spec (probe on `e/`: `matches no spec`, rc=1), so any legitimate edit of an entry's line breaks the item computation. F5 config items keyed without value let a signed timeout change clear a later `timeout = 1.0`; which side's toml sets the replay timeout is undefined. F6 trust root ungated; an old signed gate commit can be merged back to clear later changes; "latest" is undefined in a non-linear range. F7 wrapping one expression in a local macro or `dbg!()` removes its mutants while the function keeps others, so function-level disappearance misses it; `build.rs` is not a trigger. F8 hash-seed false kills.
 Assumption: Masking loses few sole kills on real commits; settle on the 7 high-failure commits by isolating the assertions after each recorded failure.
 Disposition: Addressed (operator, 2026-11-26: "Round 5 on full design"): an assertion-continuing base runner (probe: it recorded the masked `6 != 9` and a `subTest` failure `8 != 16` that plain unittest never reached), per-test `setUp` errors unjudgeable, base file at the sandbox root after the head session with the runner inserting the sandbox on `sys.path` after start-up, outcomes extended to skip and expected-failure, a tolerant prune, value keys, ancestor-based clearance, an added-macro scan, `build.rs` trigger, `PYTHONHASHSEED=0`.
+
+### Round 5 (all four reviews, reviewed at `bdae51a`, the round-4 revision)
+
+#### Goal-Fit
+
+Finding: Converged: no new design defect in the Python core, the Rust half or the clearance model; round 5's own defects are apparatus-sized. (1) N4/R19 is false for Rust as written: a PR `rust-toolchain.toml` with an absolute `path` made `cargo mutants --list` run a PR-supplied `cargo`; `RUSTUP_TOOLCHAIN` pinned stopped it; `.cargo/config.toml` `rustc-wrapper` runs under plain `cargo metadata`. (2) New fact: one test asserting the sha256 of `sq.py` killed all 164 sq mutants (`cosmic-ray exec`: `KILLED 164`), so a hostile author defeats any mutation gate; the design is calibrated against a goal-seeking agent using the documented levers, which belongs in Known limits. (3) The macro scan flags the repo's proptest macros (4 of 100 commits). Mechanism count rose relative to round 4.
+Assumption: Message-only changes at already-failing base assertions do not create false `weakened` reds; settle with V6 on the 7 high-failure commits.
+Disposition: Addressed (operator, 2026-11-26: "Apply + scoped review"): invocation rules with a pinned toolchain, hostile-test known limit, failure-site signatures (messages not compared), test code excluded from the hidden-code rule.
+
+#### Ergonomics
+
+Finding: About 30 of the last 100 PRs would need a signature (about 20 are the gate's own development; about 9 per 100 otherwise; every new crate or project at least 2 targets). D1 the digest exemption covers only `actions/`, but `mutation-pr.yml` uses `taiki-e/install-action` and `dtolnay/rust-toolchain`, whose bumps also change the version comment; 7 of 8 historical Renovate PRs would block. D2 the allowlist misses `prop_*`, `proptest!`, `env!` (29 uses), `concat!`, `include_str!`, `value_parser!`. D3 one target per trailer line, while #219 has 10 targets. D4 each signature restarts the full run; up to three runs in the worst case; print items before the first push and check clearance before the base arm. Apparatus: the remedy needs `-c gpg.format=ssh -c user.signingkey=...` on `claude`; a forwarded key shows no prompt text (the key blinks); the Mac agent must support `sk-`; after signing, merge master rather than rebase.
+Assumption: The operator's real signing seat serves an `sk-ssh-ed25519` key over forwarding to `claude`.
+Disposition: Addressed (operator, 2026-11-26: "Apply + scoped review"): SHA-plus-comment exemption for any owner, test code excluded, several targets per signed commit, items printed by pre-push and clearance checked first, full remedy command.
+
+#### Risk
+
+Finding: F1 (load-bearing, apparatus) the items job runs PR code under natural invocations: a PR `.cargo/config.toml` `[alias] mutants = ["run", ...]` made `cargo mutants --list` build and run a PR binary, and a `rust-toolchain.toml` absolute `path` ran a PR `cargo`; cwd outside the tree with `-d`, pinned `RUSTUP_TOOLCHAIN` and a fresh `CARGO_HOME` stopped both; the repo is public and `pull_request_target` is not approval-gated, and the job shares master's cache scope (`gmp-mpfr-sys`). F2 `git archive` honours a PR's `.gitattributes` `export-ignore`, hiding an exemption file from the items job. F3 the hidden-code scan flags ordinary test PRs (8 of 59 recent `src/` commits). F4 the narrowed Makefile item misses variables the recipes expand, and an empty Python slice or skipped replay reads green. F5 a signed clearance is not bound to its PR.
+Assumption: Items fire rarely enough that a touch stays a deliberate review; settle with V8.
+Disposition: Addressed (operator, 2026-11-26: "Apply + scoped review"): invocation rules, blobs materialized with `git show`, test code excluded, recipe text plus referenced variables hashed, shard completeness counts, PR-bound trailer.
+
+#### Adversarial Spec Review
+
+Finding: F1 (load-bearing) comparing messages turns an already-failing assertion into an exact-value snapshot: on a correct behaviour change, a backlog mutant on an unchanged line changed a float in the message and read `weakened: 1` (probe p1). F2 `with self.assertRaises/assertWarns/assertLogs` blocks are not continued (206 such blocks, 112 followed by more statements; probe p2 missed a weakening). F3 ancestor-based clearance adds nothing under squash merge: old PR heads stay fetchable (`refs/pull/251/head`) and can be merged back. F4 allowed macros hide code: `vec![a * b + 1][0]`, `matches!(a, _ if a * b > 10)`, `format!(...).parse()` and `assert!({ ...; true })` each removed every operator mutant. F5 natural invocations execute PR code (toolchain file; `python -m cosmic_ray.cli` with cwd in a PR dir imported a planted `parso.py`).
+Assumption: Message-only kills at already-failing sites are rare; settle with V6 on the 16 commits with failing base tests.
+Disposition: Addressed (operator, 2026-11-26: "Apply + scoped review"): kills only from new failure sites or outcome changes, `with self.assert*` blocks continued, PR-number-bound trailer, operators inside macro arguments in non-test code and mutant-less new functions as items, invocation rules.
