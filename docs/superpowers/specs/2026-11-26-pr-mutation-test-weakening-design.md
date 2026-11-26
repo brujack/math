@@ -1,6 +1,6 @@
 # PR mutation gates see test weakening
 
-- **Date:** 2026-11-26 (revised after Multi-Lens Review rounds 1 and 2)
+- **Date:** 2026-11-26 (revised after Multi-Lens Review rounds 1-3)
 - **Backlog row closed:** "PR mutation gates miss test-only weakening (Rust and Python)" (P2)
 - **Related:** ADR-0042 (Rust sweep holds zero missed), ADR-0044 (per-PR Python gate), ADR-0046
   (shard the Rust runs), `specs/2026-11-05-worldclass-slice5-rust-pr-mutation-ratchet-design.md`,
@@ -9,19 +9,20 @@
 ## Summary
 
 Both per-PR mutation gates judge only mutants on lines a PR changes. A PR that deletes or weakens
-tests changes no production line, so it is never judged, and a PR can exempt the mutant it exposes.
-This spec closes both holes:
+tests changes no production line, so it is never judged, and a PR can exempt the mutant it exposes
+or change the gate itself. This spec closes those holes:
 
 - **Rust:** any change to a crate's `src/`, `tests/`, `.cargo/` or the test-shaping parts of its
   `Cargo.toml` runs every mutant in that crate, held to the sweep's rule (0 missed, timeouts green).
 - **Python:** a change to `test_<module>.py`, `cosmic-ray.toml` or `mutants-equivalent.toml` mutates
   the whole head module and runs the head tests on every mutant; each shard then replays its own head
-  survivors under the base tests, with the head arm's exact mutation specs, sandbox, timeout and
-  deterministic hypothesis. A mutant the base tests kill and the head tests do not is a weakening.
-  A base suite that cannot be judged is red, never green.
-- **Exemptions:** what a PR newly exempts is computed from ground truth (the mutant listing or the
-  prune result under the base versus the head configuration), and is red unless the operator clears
-  that target with a terminal-confirmed `Mutation-Gate-Reviewed:` trailer.
+  survivors under the base tests. Base tests that fail on the new code are not dropped: each is judged
+  by whether its recorded failure signature changes under the mutant. A mutant the base tests kill and
+  the head tests do not is a weakening. A base suite that cannot be judged is red.
+- **Exemptions and the gate itself:** what a PR newly exempts is computed from ground truth with
+  content-keyed mutant identity, and a change to any gate-shaping file is itself an item. Every item is
+  red unless the operator clears its target with a trailer on a commit signed by a touch-required FIDO
+  key, verified in CI.
 
 ## Why
 
@@ -34,67 +35,69 @@ Measured 2026-11-26 on master `0bc607f`:
   mutants are filtered by `--in-diff`. A hunk inside a `#[test]` yields `INFO No mutants to filter`,
   exit 0 (slice 5 spec, 2026-11-05). A change under `<crate>/tests/` (13 crates have one) or to
   `Cargo.toml` (`autotests`, `[[test]]`) selects no crate.
-- The 90% coverage floors catch a large test deletion but not a weakened assertion: coverage is
-  unchanged when `assertEqual(x, 5)` becomes `assertIsNotNone(x)`.
+- The 90% coverage floors catch a large test deletion but not a weakened assertion.
 - The Rust monthly sweep holds 0 missed (ADR-0042; run 45479226540 green), so a Rust weakening is
-  reported within a month, after merge. The Python sweep carries about 1,250 open survivors (issue
-  #184: pi 712, e 736), so a new Python survivor is never reported at all.
-- The exemption channels are looser than the gate: Python `mutants-equivalent.toml` entries are pruned
-  before the session runs (template `Makefile` lines 101-103), `cosmic-ray.toml`'s `test-command`
-  chooses which tests run, Rust `.cargo/mutants.toml` holds `exclude_re` and zeta's
-  `additional_cargo_test_args = ["--", "--skip", "e2e_"]`, and `#[mutants::skip]` removes mutants. The
-  existing drift tests check only stale or non-matching entries.
+  reported within a month, after merge. The Python sweep carries about 1,250 open survivors (issue #184;
+  latest per-dir figures pi 368, e 396), so a new Python survivor is never reported at all.
+- The exemption and gate channels are looser than the gate: `mutants-equivalent.toml` entries are pruned
+  before the session runs, `cosmic-ray.toml`'s `test-command` chooses which tests run, Rust
+  `.cargo/mutants.toml` holds `exclude_re` and zeta's `additional_cargo_test_args`, `#[mutants::skip]`
+  and macro-wrapped code remove mutants, and the gate's own scripts, templates and crate `Makefile`
+  arguments run from the PR head.
 
 Agents write most of the tests here, weakening a test to make a gate pass is on the executor FORBIDDEN
 list, and auto-merge lands a green PR without review. No weakening incident in this repo has been
-measured; the operator chose the semantic design over a static assertion-line rule (2026-11-26).
+measured; the operator chose this semantic design over a static assertion-line rule and asked for a
+fourth review round (2026-11-26).
 
 ## Facts this design rests on (measured 2026-11-26)
 
 - **Rust whole-crate cost.** Sweep run 45479226540 (all 13 crates, 2,221 mutants, 37 shards at B = 75)
-  took 9 minutes of wall time; longest shard 7.4 min (descartes-rs). zeta-rs: 748 mutants at about
-  29.6 s each, 10 shards of about 37 min against `mutation-rs`'s `timeout-minutes: 60`. The Rust trigger
-  fires on the same 17 of the last 100 PRs as today's; a one-line zeta edit goes from about 1 to about
-  37 min.
+  took 9 minutes of wall time; longest shard 7.4 min. zeta-rs: 748 mutants, 10 shards of about 37 min
+  against `mutation-rs`'s `timeout-minutes: 60`. The Rust trigger fires on the same 17 of the last 100
+  PRs as today's.
 - **Planner.** `scripts/mutation-rs-plan.sh --whole <crate-dir>...` plans every mutant and emits a fault
-  unit `{"slug":"<name>-plan",...,"fault":"<cause>"}` instead of failing.
-- **cargo-mutants listing.** `cargo mutants --list --json` lists the mutants a configuration admits,
-  and `--config <FILE>` points it at another config file, so the mutants a head config newly excludes
-  are the difference between two listings of the head source. `#[mutants :: skip]` and a line-split
-  `#[mutants::` / `skip]` both suppressed every mutant of their functions under 27.1.0 while
-  `grep -c 'mutants::skip'` returned 0.
-- **Python whole-module size** (`cosmic-ray init` on master): descartes 3663, triangle 3113, pi 1828,
-  e 1621, perfect-numbers 679, factorial 500, collatz 420, amicable 252, fib 232, sq 164. Local suite
-  run times: descartes 7.0 s, e 5.5 s, pi 4.5 s, sq 1.0 s, triangle 0.8 s; pi on CI about 5.9 s per
-  mutant (run 42157892557).
-- **Python trigger rate.** Of the last 100 merged PRs, 18 changed a `test_<module>.py` and 16 of those
-  also changed the module; descartes is in 5 of the last 9 such commits.
+  unit instead of failing.
+- **cargo-mutants listing.** `cargo mutants --list --json` gives, per mutant, `file`,
+  `function.function_name`, `genre`, `replacement`, `name` (`<file>:<line>:<col>: <description>`) and a
+  `span`; `--config <FILE>` and `--no-config` choose the configuration. So a mutant can be identified by
+  content (file, function, genre, description, the source text under its span, and its ordinal among
+  equal keys) rather than by line number. Patterns in every `exclude_re` embed `:<line>:<col>:`; 3 of
+  the 8 recent commits to a `mutants.toml` only shifted those numbers.
+- **Skip evasions.** Under cargo-mutants 27.1.0, `#[mutants::skip]`, `#[mutants :: skip]`, a line-split
+  `#[mutants::` / `skip]`, `#[mutants:: /* c */ skip]`, and wrapping a function in a no-op
+  `macro_rules!` invocation each removed that function's mutants from `--list`.
+- **Python whole-module size** (`cosmic-ray init`): descartes 3663, triangle 3113, pi 1828, e 1621,
+  perfect-numbers 679, factorial 500, collatz 420, amicable 252, fib 232, sq 164. Local suite times:
+  descartes 7.0 s, e 5.5 s, pi 4.5 s, sq 1.0 s, triangle 0.8 s, amicable 0.6 s, collatz 0.5 s, fib
+  0.5 s, factorial 0.4 s, perfect-numbers 0.4 s.
+- **Timeouts dominate small suites.** Sweep run 41279088956 (10 cells per dir): collatz 82.2 min summed
+  with 62 timed-out mutants, perfect-numbers 36.1 min (24), factorial 30.3 min (18), sq 28.0 min (19);
+  the slowest collatz cell took 759 s.
 - **Replay identity and timeout.** `cosmic_ray.mutating.mutate_and_test(mutations, test_command,
   timeout)` applies stored `MutationSpec`s and runs `cosmic_ray.testing.run_tests`, which starts the
-  tests in a new session and kills the whole process group on timeout, returning `KILLED`. Replaying
-  every one of sq's 164 session jobs through it with each job's stored spec gave a diff identical to
-  the session's in 164 of 164, and `sq.py` was restored. The CLI `cosmic-ray mutate-and-test` passes
-  `timeout=None`, and an outer `timeout` leaves the test process running.
-- **Replay outcomes.** An out-of-range occurrence returns `worker_outcome: "no-test"` and a command that
-  cannot launch returns `test_outcome: "incompetent"`, both with exit 0.
-- **Obsolete base tests in real PRs.** For the 36 commits since 2026-09-26 that changed both a module and
-  its test file, the parent's test file was run against the commit's module: 2 had no base file, 16 no
-  failures, 9 at most 5% failing, 7 (all from 68a2f8a, the uniform CLI refactor, math#171) 13-65%, 2
-  (949fd22, a re-prompt change) hung past 900 s, 0 collapsed to `_FailedTest`. A synthetic rename of one
-  imported name in a copy of `sq/` collapsed all 53 base tests into one `_FailedTest`.
+  tests in a new session and kills the whole process group on timeout, returning `KILLED`. Replaying all
+  164 of sq's session jobs with their stored specs gave diffs identical to the session's (164 of 164).
+  Out-of-range occurrences return `no-test`; an unlaunchable command returns `incompetent`, both exit 0.
+- **Obsolete base tests in real PRs.** Of 36 commits since 2026-09-26 that changed both a module and its
+  test file: 2 had no base file, 16 no failing base test, 9 at most 5%, 7 (68a2f8a, math#171) 13-65%, 2
+  (949fd22) hung past 900 s, 0 collapsed to `_FailedTest`. A synthetic rename of one imported name in a
+  copy of `sq/` collapsed all 53 base tests into one `_FailedTest`.
 - **Hypothesis.** 8 of 10 Python test files import hypothesis; 9 set no `deadline`. `derandomize=True`
-  seeds from a digest of the test's source, so an edited `@given` body drew different examples
-  (`[0, 2179, 4761, ...]` versus `[0, -18471347, ...]`). A `sitecustomize.py` that replaces
-  `hypothesis.core.function_digest` with a digest of the test's `__qualname__` and loads a profile with
-  `derandomize=True, database=None, deadline=None, suppress_health_check=list(HealthCheck)` drew the same
-  examples for both bodies (`[0, -82, 7227, ...]`). A `sitecustomize.py` that raises only prints
-  `Error in sitecustomize` and the interpreter continues.
-- **Exemption churn.** 10 commits since 2026-09-26 touched an exemption file; 9 would need the operator
-  under this design (one, 57271ec, only re-keyed `above` after a refactor).
-- **Terminal confirmation.** Agent shells have no controlling terminal (a hook writing `/dev/tty` in
-  this session failed with `No such device or address`), so a `commit-msg` hook that reads a typed
-  confirmation from `/dev/tty` refuses an agent's commit.
-- **Runner pool.** Sweep run 45479226540 ran 35 jobs at once.
+  seeds from a digest of the test's source, so an edited `@given` body drew different examples. A
+  `sitecustomize.py` that replaces `hypothesis.core.function_digest` (called at `core.py:720` in 6.168.5)
+  with a digest of the test's `__qualname__`, and loads a profile with `derandomize=True, database=None,
+  deadline=None, suppress_health_check=list(HealthCheck)`, drew identical examples for two bodies. A
+  failing `sitecustomize.py` prints `Error in sitecustomize` and the interpreter continues.
+- **Terminal confirmation is not a boundary.** From an agent shell, `printf 'yes\n' | script -qec
+  "git commit -F msg" /dev/null` satisfied a `/dev/tty` prompt (rc=0); `git cherry-pick` runs no
+  commit-msg hook.
+- **Hardware signing.** `ssh-keygen -Y verify` (used by `git verify-commit` with `gpg.format=ssh`)
+  rejects an `sk-` key signature without user presence unless the allowed-signers entry says
+  `no-touch-required`. git 2.53.0 here. The repo squash-merges with `COMMIT_MESSAGES`, so trailer lines
+  survive into master's history even though signatures do not.
+- **Exemption churn.** 13 of 107 PRs since 2026-09-26 touched an exemption file; one `cosmic-ray.toml`
+  template edit touches 10 dirs.
 
 ## Design
 
@@ -102,98 +105,115 @@ measured; the operator chose the semantic design over a static assertion-line ru
 
 1. `mutation-pr-detect.sh` selects a crate for `rs_dirs` when a changed path is under `<crate>/src/`,
    `<crate>/tests/` or `<crate>/.cargo/`, or when `<crate>/Cargo.toml` changes outside its
-   `[dependencies]`, `[dev-dependencies]` and `[build-dependencies]` tables (so Renovate version bumps
-   do not select it).
+   `[dependencies]`, `[dev-dependencies]` and `[build-dependencies]` tables.
 2. `mutation-rs-plan` plans the selected crates with `--whole`. A fault unit is red. The 256-unit limit
    applies to the Rust matrix.
 3. Each shard uses the sweep's rule through `scripts/mutation-classify.sh`: red on a missed mutant, on
    `caught + missed + timeout == 0`, on a missing `outcomes.json` or `mutants.out/exit-code`, or on a
    failed baseline; timeouts green beside a catch.
-4. The amicable-rs canary is unchanged. Drift from a newer rustc or cargo-mutants surfaces on the next
-   PR touching the crate (accepted by the operator).
+4. The amicable-rs canary is unchanged. Toolchain drift surfaces on the next PR touching the crate.
 
 ### Python: same code, two test suites
 
 Triggered for a dir when its `test_<module>.py`, `cosmic-ray.toml` or `mutants-equivalent.toml`
 changes, in addition to the existing module-change trigger.
 
-1. **Planning.** The planner job runs the head suite once on the unmutated head module and records its
-   wall time `s`. It plans `n = min(20, max(1, ceil(K * s / 600)))` shards per dir (about 10 minutes of
-   head work each), and `mutation-py`'s `timeout-minutes` rises to 60.
-2. **One sandbox.** Both arms run in the existing `MUTANTS_BODY` sandbox: its file set, the
-   `MUTANTS_CAP` limits and `TMPDIR` under `.mutants-tmp`. The base test file is written only there,
-   as `test_<module>_base.py`, from `git show <merge-base>:<dir>/test_<module>.py`.
+1. **Planning.** The planner times the head suite once on the unmutated head module (`s` seconds) and
+   plans `n = min(40, max(10, ceil(K * s / 600)))` shards for each dir; the floor of 10 matches the
+   sweep, whose slowest collatz cell took 759 s. `mutation-py` has `timeout-minutes: 60`.
+2. **Sandbox and order.** Both arms run in the `MUTANTS_BODY` sandbox (its file set, `MUTANTS_CAP` and
+   `TMPDIR` under `.mutants-tmp`). The head session runs first. Only after it finishes is the base test
+   file written, as `<sandbox>/.base/test_<module>_base.py` from the merge base, and `.base` is on the
+   base arm's `PYTHONPATH` only. Both the head and the base `test-command` must name exactly one test
+   module (`python3 -m unittest test_<module>`); otherwise the dir is unjudgeable.
 3. **Deterministic hypothesis.** Every run in both arms has `PYTHONPATH` holding a generated
    `sitecustomize.py` that replaces `hypothesis.core.function_digest` with a SHA-384 of the test's
    `__qualname__` and loads the profile `mutation-gate` (`derandomize=True, database=None,
-   deadline=None, suppress_health_check=list(HealthCheck)`). Each shard first runs a preflight under the
-   same `PYTHONPATH` that asserts the profile is loaded and the digest replaced; a failed preflight is red.
+   deadline=None, suppress_health_check=list(HealthCheck)`). A behavioural preflight, under the same
+   `PYTHONPATH`, defines two `@given` functions with the same `__qualname__` and different bodies and
+   requires them to draw the same first 10 examples; it fails red with the installed hypothesis version.
 4. **Head arm.** Each shard runs the head tests on every mutant in its slice (the existing session path).
-   The existing changed-line rule still applies: any survivor on a line the PR added to `<module>.py`
-   is red.
-5. **Judgeable base suite.** The base command is the merge base's `cosmic-ray.toml` `test-command`
-   with its test module renamed to `test_<module>_base`. The shard runs it once on the unmutated head
-   module through `cosmic_ray.testing.run_tests` with the toml `timeout`. The suite is unjudgeable, and
-   the dir red, when that run times out, when any result is `unittest.loader._FailedTest`, when a class-
-   or module-level setup errors, or when more than 5% of base tests fail or error. Otherwise each failing
-   or erroring base test is excluded from replay.
+   Any survivor on a line the PR added to `<module>.py` is red, as today.
+5. **Base runner and signatures.** The base command runs `scripts/mutation_base_runner.py`, which runs
+   the base test module under unittest and compares each test with a signature file. Before replay, the
+   shard runs the base runner twice on the unmutated head module, recording each test's signature:
+   `pass`, or (`fail` or `error`, exception type, the line of the innermost frame in the base test file,
+   the exception message). The base suite is unjudgeable, and the dir red with the failing ids, when
+   either run times out, any result is `unittest.loader._FailedTest`, a class- or module-level setup
+   errors, or the two runs' signatures differ.
 6. **Replay.** For each of its own head survivors, the shard calls
-   `cosmic_ray.mutating.mutate_and_test([<the session's stored MutationSpec>], <base command restricted
-   to the kept tests>, <toml timeout>)`. `killed` (a timeout included) and `survived` are the only
-   accepted outcomes; any other outcome or an exception is red with `replay failed: <outcome>`.
-7. **Verdict.** A mutant killed by the base arm and surviving the head arm is a weakening; the summary
-   prints `weakened: <count> mutants killed by base tests survive head tests`, then each mutant's
-   operator, occurrence, diff and a one-mutant repro command.
-8. **Missing files.** A `test_<module>.py` present at the merge base and absent at head is red with
-   `test_<module>.py deleted`. A merge base with no test file skips steps 5-7 and says so.
-9. **Standing canary.** `py_canary` gains a weakening case: committed fixture files
-   `tests/fixtures/mutation_weakening/test_sq_base.py` and `test_sq_head.py`, where head drops one
-   assertion, must report `weakened: 1` naming the expected mutant whenever a file that shapes the
-   Python run changes.
+   `cosmic_ray.mutating.mutate_and_test([<the session's stored MutationSpec>], <base runner command>,
+   <toml timeout>)`. The runner exits non-zero, so the mutant counts as killed by the base suite, when
+   any recorded `pass` fails or errors, or any recorded failure's signature differs. `killed` and
+   `survived` are the only accepted outcomes; any other outcome or an exception is red with
+   `replay failed: <outcome>` and the job id.
+7. **Near-timeout check.** When the base kill was a timeout, the shard re-runs that mutant under both the
+   head tests and the base runner with twice the toml timeout, and counts a weakening only if the base
+   runner kills it and the head tests do not.
+8. **Verdict.** A mutant killed by the base arm and surviving the head arm is a weakening; the summary
+   prints `weakened: <count> mutants killed by base tests survive head tests`, then each mutant's job id,
+   operator, occurrence, diff and `repro: make -C <dir> mutants-weakening BASE=<sha> JOB=<job id>`.
+9. **Missing files.** A `test_<module>.py` present at the merge base and absent at head is red with
+   `test_<module>.py deleted`. A merge base with no test file skips steps 5-8 and says so.
+10. **Standing canary.** `py_canary` runs the weakening path on committed fixtures
+    `tests/fixtures/mutation_weakening/test_sq_base.py` and `test_sq_head.py`, where head drops one
+    assertion, and requires `weakened: 1` naming the expected mutant.
 
-### Exemptions need the operator
+### Items the operator must clear
 
-For every dir or crate in the PR's plan, the gate computes what the PR newly exempts:
+The planners compute every item before any shard runs, so an item red arrives within minutes. Each item
+has a content key that survives line shifts.
 
-- **Python equivalents.** The head module's job list is pruned twice, by the merge base's
-  `mutants-equivalent.toml` and by the head's (with `scripts/cosmic_ray_prune.py`'s matching). Each job
-  pruned only by the head file is newly exempted.
-- **Python config.** Any change to `cosmic-ray.toml` is an exemption item.
-- **Rust exclusions.** `cargo mutants --list --json` runs on the head crate with the head
-  `.cargo/mutants.toml` and again with `--config <merge-base copy>`. Each mutant listed only under the
-  base config is newly excluded. Any change to a key other than `exclude_re` is an exemption item.
-- **Rust skips.** For each hunk under `<crate>/src/`, its added lines are joined with all whitespace
-  removed; any occurrence of `mutants::skip` is an exemption item.
+- **Python equivalents.** The head module's job list is pruned twice with the merge base's copy of
+  `scripts/cosmic_ray_prune.py`: by the merge base's `mutants-equivalent.toml` and by the head's. Each job
+  pruned only by the head file is an item, keyed by (operator, function, mutated line text, line above,
+  ordinal among equal keys).
+- **Python config.** Each changed key of `<dir>/cosmic-ray.toml` is an item, keyed by (dir, key).
+- **Rust exclusions.** For base source with the base config and head source with the head config, the
+  excluded set is the `--no-config` listing minus the configured listing. Each mutant is keyed by (file,
+  function, genre, description without `<line>:<col>:`, source text under its span, ordinal). Each head
+  excluded key absent from the base excluded keys is an item. Each changed key of `.cargo/mutants.toml`
+  other than `exclude_re` is an item.
+- **Rust disappearance.** Each (file, function) that has mutants in the base `--no-config` listing, none
+  in the head `--no-config` listing, and whose `fn <name>` still appears in the head file is an item. In
+  each hunk under `<crate>/src/`, the added lines with comments and whitespace removed are searched for
+  `mutants::skip`; each hit is an item.
+- **Gate-shaping files.** Each changed file among `.github/workflows/mutation-pr.yml`, the scripts it
+  runs (`scripts/mutation-*.sh`, `scripts/mutation_*.py`, `scripts/cosmic_ray_*.py`), the crate and
+  Python `Makefile` templates under `scripts/crate_templates/`, every rendered crate or Python `Makefile`,
+  and the canary fixtures is an item with target `gate`.
 
-Each item is red, naming it, unless the target is cleared. A commit message line
-`Mutation-Gate-Reviewed: <target>: <reason>`, where `<target>` is the dir or crate dir and `<reason>`
-has at least 10 characters, clears that target's items present at that commit (the latest such commit
-in the range per target wins); an item first present after it is red again. The same line clears an
-unjudgeable base suite for that dir only if its `<module>.py` and `test_<module>.py` are unchanged
-between that commit and head. Every red names the remedy: "operator-dictated
-`Mutation-Gate-Reviewed: <target>: <reason>`, committed from a terminal".
-
-`scripts/commit-msg` refuses a message containing `Mutation-Gate-Reviewed:` unless `yes` is typed at
-`/dev/tty`; with no terminal it refuses. Agents have no terminal and cannot bypass hooks
-(git-workflow-046). Honest ceiling: plumbing that runs no hooks (`git commit-tree`, a web edit) can
-still write the line, so the agent instruction (N7) remains.
+An item is cleared only by a commit in the PR range that carries the line
+`Mutation-Gate-Reviewed: <target>: <reason>` (target a dir, a crate dir or `gate`; reason at least 10
+characters) and whose signature `git verify-commit` accepts with `gpg.format=ssh` and
+`gpg.ssh.allowedSignersFile` set to the merge base's copy of `.github/mutation-gate-allowed-signers`,
+which lists only `sk-ssh-ed25519` keys without `no-touch-required`. Per target, the latest such commit
+clears every item whose content key is present at that commit; an item first present after it is red
+again. The same commit clears, for its dir, an unjudgeable base suite and a `weakened` red when
+`<module>.py` and `test_<module>.py` are unchanged between it and head. A trailer on an unsigned or
+unaccepted commit is ignored with `trailer ignored: <commit>: <reason>`. Every item red names the item,
+its target and the remedy: "a `Mutation-Gate-Reviewed: <target>: <reason>` commit signed with the
+operator's FIDO key".
 
 ### Known limits
 
 - A weakening on a mutant another head test still kills is invisible to any mutation-based gate.
-- A base test that legitimately fails on the new behaviour is excluded (at most 5% of the suite), so
-  pairing a behaviour change with weakening that test is not seen on unchanged lines; the changed-line
-  rule still covers the changed lines.
-- A uniform refactor of many test files can plan up to 20 shards per dir and run in several waves on the
+- New code written inside a macro invocation is never mutated by cargo-mutants (pre-existing).
+- A failing base test whose failure message does not change under a mutant gives no kill for that
+  mutant; the signature compares type, line and message only.
+- A uniform refactor of many test files plans up to 40 shards per dir and runs in several waves on the
   shared runner pool.
+- The signing key's custody is the trust root; a key left unlocked without a touch policy would defeat
+  it, which the allowed-signers rule forbids.
 
 ### Workflow and local repro
 
 - `mutation-pr.yml` sets `concurrency: { group: mutation-pr-${{ github.event.pull_request.number }},
   cancel-in-progress: true }`.
-- CI runs the Python steps through `make -C <dir> mutants-weakening BASE=<sha> MUTANT_SHARD=<k>/<n>`;
-  the same target runs locally.
+- CI runs the Python steps through `make -C <dir> mutants-weakening BASE=<sha> MUTANT_SHARD=<k>/<n>`
+  (also `JOB=<job id>` for one mutant); the same target runs locally.
 - Rust: `scripts/mutation-pr-run.sh --whole [--shard <k>/<n> --expect <count>] <crate>`.
+- Items: `scripts/mutation-gate-items.sh <base-sha>` prints every item and its clearance state locally.
 
 ## Requirements
 
@@ -202,45 +222,49 @@ still write the line, so the agent instruction (N7) remains.
 - **R3.** A `--whole` fault unit (`"fault": "<cause>"`) makes `mutation-pr` red and its summary names the crate and the cause.
 - **R4.** A Rust PR shard is red on any missed mutant, on `caught + missed + timeout == 0`, on a missing `mutants.out/outcomes.json` or `mutants.out/exit-code`, or on a failed baseline, and green on timeouts beside at least one caught mutant, using `scripts/mutation-classify.sh`.
 - **R5.** `mutation-pr-detect.sh` prints a Python dir in a new output `py_test_dirs=<sorted dirs>` when `git diff --numstat --no-renames` shows any added or deleted line in `<dir>/test_<module>.py`, `<dir>/cosmic-ray.toml` or `<dir>/mutants-equivalent.toml` (module = dir with `-` as `_`), including a file deletion.
-- **R6.** The Python planner runs each `py_test_dirs` dir's head suite once on the unmutated head module, records its wall time `s` in seconds, plans `n = min(20, max(1, ceil(K * s / 600)))` whole-module shards, and `mutation-py` has `timeout-minutes: 60`.
-- **R7.** Both arms of every `py_test_dirs` shard run in the `MUTANTS_BODY` sandbox under `.mutants-tmp` with `MUTANTS_CAP` and `TMPDIR`, and `test_<module>_base.py` (from `git show <merge-base>:<dir>/test_<module>.py`) is written only there.
-- **R8.** Every run in both arms has `PYTHONPATH` holding a generated `sitecustomize.py` that sets `hypothesis.core.function_digest` to a SHA-384 of the test's `__qualname__` and calls `settings.register_profile("mutation-gate", derandomize=True, database=None, deadline=None, suppress_health_check=list(HealthCheck))` and `settings.load_profile("mutation-gate")`.
-- **R9.** Each shard runs a preflight under that `PYTHONPATH` asserting `hypothesis.settings.default.derandomize` is true, `deadline` is `None` and `hypothesis.core.function_digest` is the replacement, and is red with `hypothesis profile not active` when it fails.
-- **R10.** The base command is the merge base's `cosmic-ray.toml` `test-command` with its test module renamed to `test_<module>_base`; each shard runs it once on the unmutated head module through `cosmic_ray.testing.run_tests` with the toml `timeout`, and the dir is red with `base suite unjudgeable: <cause>` followed by the failing test ids when that run times out, when any result is `unittest.loader._FailedTest`, when a class- or module-level setup errors, or when more than 5% of base tests fail or error.
-- **R11.** When R10 does not make the dir red, every base test that failed or errored on the unmutated head is excluded from replay, and the summary lists their ids under `obsolete base tests:`.
-- **R12.** For each of its own head survivors, a shard calls `cosmic_ray.mutating.mutate_and_test` with that job's stored `MutationSpec`, the base command restricted to the tests not excluded by R11, and the toml `timeout`; the outcomes `killed` and `survived` are accepted, and any other outcome or an exception makes the dir red with `replay failed: <outcome>`.
-- **R13.** A dir in `py_test_dirs` is red when any mutant is killed in the replay and survived in the head arm, and its summary reads `weakened: <count> mutants killed by base tests survive head tests`, then each mutant's operator, occurrence, diff and a line `repro: make -C <dir> mutants-weakening BASE=<sha> JOB=<job id>`.
-- **R14.** A dir in `py_test_dirs` keeps the existing rule that any head survivor on a line the PR added to `<module>.py` is red.
-- **R15.** A dir whose `test_<module>.py` exists at the merge base and not at head is red with `test_<module>.py deleted`; one whose merge base has no `test_<module>.py` skips R10-R13 and prints `no base test file: weakening check skipped`.
-- **R16.** `py_canary` runs the weakening path on committed fixtures `tests/fixtures/mutation_weakening/test_sq_base.py` and `test_sq_head.py` (head drops one assertion) and is red unless it reports `weakened: 1` naming the expected mutant.
-- **R17.** For each dir in the Python plan, each job of the head module that `scripts/cosmic_ray_prune.py`'s matching prunes under the head `mutants-equivalent.toml` but not under the merge base's is an exemption item, and any change to `<dir>/cosmic-ray.toml` is an exemption item.
-- **R18.** For each crate in the Rust plan, each mutant listed by `cargo mutants --list --json` on the head source with `--config <merge-base .cargo/mutants.toml>` but not with the head config is an exemption item, any change to a `.cargo/mutants.toml` key other than `exclude_re` is an exemption item, and each hunk under `<crate>/src/` whose added lines, joined with all whitespace removed, contain `mutants::skip` is an exemption item.
-- **R19.** Each exemption item makes `mutation-pr` red, naming it and the remedy `operator-dictated Mutation-Gate-Reviewed: <target>: <reason>, committed from a terminal`, unless the latest commit in the range with a line `Mutation-Gate-Reviewed: <target>: <reason>` for its dir or crate (reason at least 10 characters) already contains the item.
-- **R20.** That trailer also clears an R10 red for its dir when `<dir>/<module>.py` and `<dir>/test_<module>.py` are unchanged between the trailer commit and head, and the summary then says `cleared by Mutation-Gate-Reviewed`.
-- **R21.** `scripts/commit-msg` refuses a commit message containing `Mutation-Gate-Reviewed:` unless the line `yes` is read from `/dev/tty`, and refuses it when `/dev/tty` cannot be opened.
-- **R22.** `mutation-pr.yml` sets `concurrency: { group: mutation-pr-${{ github.event.pull_request.number }}, cancel-in-progress: true }`.
-- **R23.** CI runs the Python steps by calling `make -C <dir> mutants-weakening BASE=<sha> MUTANT_SHARD=<k>/<n>`, a target every Python `Makefile` gains from `scripts/crate_templates/python/Makefile`, which also accepts `JOB=<job id>` to replay one mutant and writes nothing in the tracked tree.
-- **R24.** `scripts/mutation-pr-run.sh --whole [--shard <k>/<n> --expect <count>] <crate-dir>` runs one crate's whole mutant set locally and exits non-zero on the R4 red conditions.
-- **R25.** `tests/scripts/mutation_pr_detect.bats` covers R1 (a `tests/` fixture, a non-`.rs` `src/` file, a `.cargo/mutants.toml` change and a `Cargo.toml` `[[test]]` change each select the crate; a `[dependencies]` version change alone does not) and R5 (an added-only, a deleted-only and a file-deletion change to `test_<module>.py`, and a change to `cosmic-ray.toml` or `mutants-equivalent.toml`, each put the dir in `py_test_dirs`; a change to `<module>.py` alone does not).
-- **R26.** A test on a copy of `sq/` requires: head dropping one assertion that kills a known mutant reports that mutant under `weakened: 1`; head only adding a test reports `weakened: 0`; a cosmetic edit to every `@given` test body reports `weakened: 0`; one base test failing on the unmutated head is listed under `obsolete base tests:` and not counted; an import-breaking rename is red with `base suite unjudgeable`; a base test sleeping past the timeout is red with `base suite unjudgeable` and leaves no process running; an untested line added to `sq.py` together with a test-file change is red under R14; a replay forced to `no-test` is red with `replay failed`; a failing `sitecustomize` is red with `hypothesis profile not active`; and after every case the tracked `sq/` files are byte-identical to before.
-- **R27.** Tests cover R17-R20: a new equivalents entry, a `variant` change and a duplicated entry are red; a re-keyed entry that prunes the same job is green only with the trailer; an `exclude_re` change that only shifts line numbers is green; a new or retargeted pattern is red; an `additional_cargo_test_args` change is red; `#[mutants::skip]`, `#[mutants :: skip]` and a line-split `#[mutants::` / `skip]` are each red; each red turns green with a valid trailer for its target, stays red with a trailer for another target or a 9-character reason, and an item added after the trailer commit is red; and tests for R21 show the hook refusing without a terminal.
-- **R28.** Root `CLAUDE.md` (Mutation testing sections) and an ADR describe the whole-crate PR rule, the Python weakening check, the exemption rule, the trailer and its terminal hook, with repro commands; `docs/superpowers/README.md` removes the Backlog row "PR mutation gates miss test-only weakening (Rust and Python)"; root `CLAUDE.md` stays at or under 30,000 bytes.
+- **R6.** The Python planner times each `py_test_dirs` dir's head suite once on the unmutated head module (`s` seconds), plans `n = min(40, max(10, ceil(K * s / 600)))` whole-module shards, and `mutation-py` has `timeout-minutes: 60`.
+- **R7.** Both arms of every `py_test_dirs` shard run in the `MUTANTS_BODY` sandbox under `.mutants-tmp` with `MUTANTS_CAP` and `TMPDIR`; the base test file is written as `<sandbox>/.base/test_<module>_base.py` only after the head session finishes, and `.base` is on the base arm's `PYTHONPATH` only.
+- **R8.** The dir is red with `base suite unjudgeable: test-command must name one test module` unless both the head and the merge base `cosmic-ray.toml` `test-command` are `python3 -m unittest test_<module>`.
+- **R9.** Every run in both arms has `PYTHONPATH` holding a generated `sitecustomize.py` that sets `hypothesis.core.function_digest` to a SHA-384 of the test's `__qualname__` and calls `settings.register_profile("mutation-gate", derandomize=True, database=None, deadline=None, suppress_health_check=list(HealthCheck))` and `settings.load_profile("mutation-gate")`.
+- **R10.** Each shard runs a preflight under that `PYTHONPATH` in which two `@given` functions with the same `__qualname__` and different bodies must draw the same first 10 examples, and is red with `hypothesis profile not active (hypothesis <version>)` when they differ or the preflight errors.
+- **R11.** `scripts/mutation_base_runner.py` runs the base test module and, given a signature file, exits non-zero when any test recorded as `pass` fails or errors, or any test recorded as failing has a different signature, a signature being (`fail` or `error`, exception type, line of the innermost frame in the base test file, exception message); in record mode it writes that file.
+- **R12.** Each shard records signatures twice on the unmutated head module, and the dir is red with `base suite unjudgeable: <cause>` followed by the failing test ids when either run times out, any result is `unittest.loader._FailedTest`, a class- or module-level setup errors, or the two recordings differ.
+- **R13.** For each of its own head survivors, a shard calls `cosmic_ray.mutating.mutate_and_test` with that job's stored `MutationSpec`, the base runner command and the toml `timeout`; `killed` and `survived` are accepted, and any other outcome or an exception makes the dir red with `replay failed: <outcome>` and the job id.
+- **R14.** When a base kill in R13 was a timeout, the shard re-runs that mutant under the head tests and the base runner with twice the toml `timeout`, and counts a weakening only when the base runner kills it and the head tests do not.
+- **R15.** A dir is red when any mutant is killed by the base arm and survives the head arm, and its summary reads `weakened: <count> mutants killed by base tests survive head tests`, then for each mutant its job id, operator, occurrence, diff and `repro: make -C <dir> mutants-weakening BASE=<sha> JOB=<job id>`.
+- **R16.** A dir in `py_test_dirs` keeps the existing rule that any head survivor on a line the PR added to `<module>.py` is red.
+- **R17.** A dir whose `test_<module>.py` exists at the merge base and not at head is red with `test_<module>.py deleted`; one whose merge base has no `test_<module>.py` skips R11-R15 and prints `no base test file: weakening check skipped`.
+- **R18.** `py_canary` runs the weakening path on committed fixtures `tests/fixtures/mutation_weakening/test_sq_base.py` and `test_sq_head.py` (head drops one assertion) and is red unless it reports `weakened: 1` naming the expected mutant.
+- **R19.** The planners compute all items before any shard runs: each head job that the merge base's copy of `scripts/cosmic_ray_prune.py` prunes under the head `mutants-equivalent.toml` but not under the merge base's, keyed by (operator, function, mutated line text, line above, ordinal); and each changed key of `<dir>/cosmic-ray.toml`, keyed by (dir, key).
+- **R20.** For each planned crate, each mutant excluded by config in the head (its `--no-config` listing minus its configured listing) whose key (file, function, genre, description without `<line>:<col>:`, source text under its span, ordinal) is not excluded at the merge base is an item, and each changed `.cargo/mutants.toml` key other than `exclude_re` is an item.
+- **R21.** For each planned crate, each (file, function) with mutants in the merge base `--no-config` listing, none in the head `--no-config` listing, and `fn <name>` still present in the head file is an item, and each hunk under `<crate>/src/` whose added lines, with comments and whitespace removed, contain `mutants::skip` is an item.
+- **R22.** Each changed file among `.github/workflows/mutation-pr.yml`, `scripts/mutation-*.sh`, `scripts/mutation_*.py`, `scripts/cosmic_ray_*.py`, the `Makefile` templates under `scripts/crate_templates/`, every rendered crate or Python `Makefile`, and the `tests/fixtures/mutation_weakening/` files is an item with target `gate`.
+- **R23.** Each item makes `mutation-pr` red, naming the item, its target and the remedy, unless the latest commit in the range that carries `Mutation-Gate-Reviewed: <target>: <reason>` for its target (reason at least 10 characters) and that `git verify-commit` accepts with `gpg.format=ssh` and `gpg.ssh.allowedSignersFile` set to the merge base's `.github/mutation-gate-allowed-signers` contains the item's content key.
+- **R24.** `.github/mutation-gate-allowed-signers` lists only `sk-ssh-ed25519` keys, none with `no-touch-required`, and a test fails on any other key type or that option.
+- **R25.** A verified trailer commit for a dir also clears that dir's R12 and R15 reds when `<dir>/<module>.py` and `<dir>/test_<module>.py` are unchanged between it and head, and the summary then says `cleared by Mutation-Gate-Reviewed <commit>`; a trailer on an unsigned or unaccepted commit is reported as `trailer ignored: <commit>: <reason>`.
+- **R26.** `mutation-pr.yml` sets `concurrency: { group: mutation-pr-${{ github.event.pull_request.number }}, cancel-in-progress: true }`.
+- **R27.** CI runs the Python steps by calling `make -C <dir> mutants-weakening BASE=<sha> MUTANT_SHARD=<k>/<n>`, a target every Python `Makefile` gains from `scripts/crate_templates/python/Makefile`, which also accepts `JOB=<job id>` and writes nothing in the tracked tree; `scripts/mutation-gate-items.sh <base-sha>` prints every item and its clearance state locally.
+- **R28.** `scripts/mutation-pr-run.sh --whole [--shard <k>/<n> --expect <count>] <crate-dir>` runs one crate's whole mutant set locally and exits non-zero on the R4 red conditions.
+- **R29.** `tests/scripts/mutation_pr_detect.bats` covers R1 (a `tests/` fixture, a non-`.rs` `src/` file, a `.cargo/mutants.toml` change and a `Cargo.toml` `[[test]]` change each select the crate; a `[dependencies]` version change alone does not) and R5 (added-only, deleted-only and file-deletion changes to `test_<module>.py`, and changes to `cosmic-ray.toml` or `mutants-equivalent.toml`, each select the dir; a change to `<module>.py` alone does not).
+- **R30.** A test on a copy of `sq/` requires: dropping one assertion that alone kills a known mutant reports it under `weakened: 1`; only adding a test reports `weakened: 0`; a cosmetic edit to every `@given` body reports `weakened: 0`; weakening a base test that fails on the unmutated head (its expected value changed) still reports the mutant it alone killed; an import-breaking rename and a base test whose failure message varies between runs are each red with `base suite unjudgeable`; a base test sleeping past the timeout is red and leaves no process running; an untested line added to `sq.py` with a test-file change is red under R16; a replay forced to `no-test` is red with `replay failed`; a broken `sitecustomize` is red with `hypothesis profile not active`; and the tracked `sq/` files are byte-identical after every case.
+- **R31.** Tests cover R19-R25: a new equivalents entry, a `variant` change and a duplicated entry are items; a pure line shift of `exclude_re` and of an equivalents entry is not; a new or retargeted pattern, an `additional_cargo_test_args` change, `#[mutants::skip]`, `#[mutants :: skip]`, a line-split or comment-split `mutants::skip`, and a function wrapped in a no-op macro are each items; an edit to `scripts/mutation-pr-detect.sh` is a `gate` item; each item clears only with a verified trailer for its target, not with an unsigned one, a non-`sk` signature, a trailer for another target or a 9-character reason, and an item first added after the trailer commit is red.
+- **R32.** Root `CLAUDE.md` (Mutation testing sections) and an ADR describe the whole-crate PR rule, the Python weakening check, the items and the signed trailer, with repro commands; `docs/superpowers/README.md` removes the Backlog row "PR mutation gates miss test-only weakening (Rust and Python)"; root `CLAUDE.md` stays at or under 30,000 bytes.
 
 - **V1.** Positive control before the PR is marked ready: a throwaway draft PR that deletes one assertion from a crate's `#[cfg(test)]` module, leaving a mutant uncaught, shows `mutation-pr` red naming that mutant; closed and its branch deleted.
 - **V2.** Positive control: a throwaway draft PR that weakens one assertion in `sq/test_sq.py` shows `mutation-pr` red with `weakened: 1` naming the mutant; closed and deleted afterwards.
 - **V3.** Negative control: a throwaway draft PR that only adds a test to `sq/test_sq.py` shows `mutation-pr` green.
-- **V4.** Positive control: a throwaway draft PR that adds one `[[equivalent]]` entry to `sq/mutants-equivalent.toml` shows `mutation-pr` red naming it; closed and deleted afterwards.
-- **V5.** Timing: throwaway draft PRs that add one test to `descartes/test_descartes.py` and to `pi/test_pi.py` record every shard's wall time and the number of concurrent jobs; a shard past about 30 minutes lowers the 600-second target before merge.
-- **V6.** Record the wall time of the PR's own `mutation-pr` run and of V1-V5; a zeta-rs whole-crate run is measured or projected from shard times, and any Rust shard past about 50 minutes lowers B per ADR-0046.
-- **V7.** The operator commits one `Mutation-Gate-Reviewed:` trailer from a terminal (answering `yes`) on a throwaway branch, and an agent's attempt to commit the same message is refused by the hook.
+- **V4.** Positive control: a throwaway draft PR that adds one `[[equivalent]]` entry to `sq/mutants-equivalent.toml` shows `mutation-pr` red naming it, then green after the operator pushes a FIDO-signed `Mutation-Gate-Reviewed: sq: <reason>` commit; an unsigned commit with the same line stays red.
+- **V5.** Timing: throwaway draft PRs that add one test to `collatz/test_collatz.py`, `descartes/test_descartes.py` and `pi/test_pi.py` record every shard's wall time and concurrent jobs; a shard past about 45 minutes changes the R6 constants before merge.
+- **V6.** False-positive replay: before merge, run the weakening path locally on the 25 real commits since 2026-09-26 that changed a module and its test file with at most 5% failing base tests; every `weakened` result is inspected and any that is not a real weakening is fixed or recorded before merge.
+- **V7.** Record the wall time of the PR's own `mutation-pr` run and of V1-V5; a zeta-rs whole-crate run is measured or projected, and any Rust shard past about 50 minutes lowers B per ADR-0046.
 
 - **N1.** The monthly `mutation-testing.yml` and `mutation-testing-python.yml` sweeps do not change.
-- **N2.** No committed survivor, missed or baseline list is added for any crate or Python dir; the only committed fixtures are the R16 canary files.
+- **N2.** No committed survivor, missed or baseline list is added; the only committed fixtures are the R18 canary files.
 - **N3.** The local pre-push hook runs no mutants.
 - **N4.** The required check stays `mutation-pr`; no new required check is added to branch protection.
-- **N5.** Nothing in the gate or the local target writes to a tracked file in the working tree; the base test file and every mutation exist only in the sandbox.
+- **N5.** Nothing in the gate or the local targets writes to a tracked file in the working tree.
 - **N6.** The Python changed-line gate's behaviour for dirs not in `py_test_dirs` does not change.
-- **N7.** No agent, script or workflow writes a `Mutation-Gate-Reviewed:` trailer; only the operator does, from a terminal.
+- **N7.** No agent, script or workflow creates a signature for a `Mutation-Gate-Reviewed:` commit; only the operator's FIDO key does.
 
 ## Multi-Lens Review
 
@@ -295,3 +319,29 @@ Disposition: Addressed (operator, 2026-11-26: "Round 3 on full design"): name-ke
 Finding: F1 an outer `timeout` around `mutate-and-test` kills cosmic-ray but leaves the test process alive (`start_new_session=True`; probe showed `python3 slow.py` running after rc=124), and base and head time different things. F2 replay outcomes `no-test` (out-of-range occurrence) and `incompetent` (command cannot launch) both rc=0 and count as neither killed nor survived, so a broken replay reports `weakened: 0` forever; no standing canary covers the weakening path. F3 the arms run in different sandboxes (head: 4-file copy with caps, `TMPDIR` and `../scripts`; base: "the dir", which includes `<crate>-rs/target`). F4 the base command is unspecified, and `cosmic-ray.toml`'s `test-command` is an unguarded weakening channel. F5 `#[mutants :: skip]` and a line-split `#[mutants::` / `skip]` both suppress mutants under cargo-mutants 27.1.0 while `grep -c 'mutants::skip'` returns 0. F6 `:N:N:` set comparison admits an added duplicate pattern and retargeting of function-less patterns (pi `^src/main\.rs:105:34: replace \* with \+$`). F7 the R15 tuple omits `variant` and `row`, which `cosmic_ray_prune.py` uses as selectors. F8 one trailer clears every item in the range, including later agent commits. F9 the 20% cap admits the dominant real weakening (a test failing on new behaviour, then weakened); the author's data supports 5%. F10 hypothesis `deadline` and health checks, and a silently failing `sitecustomize`. F11 a crate `Cargo.toml` edit dropping test targets is not a trigger.
 Assumption: The head session's (operator, occurrence) replays the same mutant under `mutate-and-test`; verified only for one job. Settle by replaying every job of a full session and comparing diffs.
 Disposition: Addressed (operator, 2026-11-26: "Round 3 on full design"): replay through `cosmic_ray.mutating.mutate_and_test` with the session's stored specs and the toml timeout (same group-kill semantics as the head arm; 164 of 164 sq jobs replayed to identical diffs), any other outcome red, a standing weakening canary, one sandbox for both arms, base command from the merge base's toml, `cosmic-ray.toml` changes are exemption-class, whitespace-insensitive skip scan, listing-based exclusion and prune-based equivalents comparison, 5% cap, `Cargo.toml` trigger.
+
+### Round 3 (all four reviews, reviewed at `d823b60`, the round-2 revision)
+
+#### Goal-Fit
+
+Finding: Rust and exemption halves are the right shape; the listing and prune comparisons are ground truth; the trailer is durable because squash merges keep commit messages (`squash_merge_commit_message: COMMIT_MESSAGES`). Load-bearing flaw: R6's time-based sizing ignores mutants that hang to the 60 s timeout. collatz's suite runs in about 0.5 s, so it gets 1 shard, but sweep run 41279088956 timed out 63 of its 420 mutants and its 10 cells summed about 75 minutes of head work: one shard exceeds `timeout-minutes: 60`, so every PR touching `test_collatz.py` goes red on the job kill. sq, factorial, perfect-numbers and fib also collapse to one shard (22-33 min). V5 cannot see it. `obsolete base tests:` on a possibly green run is still a log. The spec's per-dir survivor figures are stale (pi 368, e 396 in the latest report).
+Assumption: Single-assertion weakenings expose at least one mutant no other head test kills; settle by deleting each assertion of `test_sq.py` and `test_collatz.py` in turn and counting `weakened >= 1`.
+Disposition: Addressed (operator, 2026-11-26: "Round 4 on full design"): shard floor of 10, collatz in V5, obsolete tests judged by failure signature.
+
+#### Ergonomics
+
+Finding: Load-bearing: the trailer hook does not stop an agent: `printf 'yes\n' | script -qec "git commit -F ../msg" /dev/null` committed the trailer from an agent shell, rc=0; `pty.spawn`, `unbuffer` and `expect` do the same, and `git cherry-pick` writes a trailer without running commit-msg. collatz (62 timeouts, 82.2 min sweep sum) runs in one shard and times out; descartes hits the 20-shard cap at about 40-45 min per shard, so V5's lever is inert. 13 of 107 PRs since 2026-09-26 touched an exemption file; one template edit is 10 items; any fix-up after the trailer re-reds; the iPad and Claude Code's `!` prompt have no `/dev/tty`. The hook's own tests hang in a real terminal, and the commit-msg early exit for `Revert ` subjects precedes any new check. Exemption reds should be computed in the planner, not after a 45-minute run. Several reds lack a job id or remedy.
+Assumption: Agents cannot give the hook a terminal; refuted by the `script` probe.
+Disposition: Addressed (operator, 2026-11-26: "Round 4 on full design"; "Yes, FIDO key signing"): the hook is dropped in favour of a touch-required hardware-key signature verified in CI; shard floor and cap revised; exemption items computed in the planners; every red names its job id and remedy.
+
+#### Risk
+
+Finding: Load-bearing: R18's listing comparison goes red on a pure line shift (the base config's `:line:col:` patterns match nothing on head source), contradicting R27, and the same line-bound identity breaks R19's containment; round 2's normalization was dropped. The R9 preflight is a tautology (it checks the attribute it just assigned); a hypothesis bump could make the patch dead while it passes. The `/dev/tty` hook blocks the operator's own test runs and is bypassed by pty allocation. Sizing ignores timeouts (2% timeouts doubles a triangle shard). A mutant near the 60 s timeout can survive the head arm and time out in the base replay, a false `weakened`. The exemption machinery's complexity outgrows the threat.
+Assumption: No mutant runs close to the 60 s timeout; settle from the last sweep's per-job durations and TIMEOUT counts.
+Disposition: Addressed (operator, 2026-11-26: "Round 4 on full design"): content-keyed mutant identity, behavioural preflight, signing instead of the hook, shard floor, near-timeout re-run at twice the timeout.
+
+#### Adversarial Spec Review
+
+Finding: A (main recall hole): excluding base tests that fail on the unmutated head drops exactly the tests a PR had to edit, which is where an agent weakens; mutants they alone killed sit on unchanged lines (9 of 36 real commits hit this path). B: listing comparison reds on line shifts (3 of 8 recent `mutants.toml` commits were pure shifts); normalizing reopens retargeting; item identity is undefined. C: `#[mutants:: /* c */ skip]`, a comment inside a split attribute, and wrapping a function in a no-op `macro_rules!` invocation each removed mutants unseen by the scan. D: crate `Makefile` mutants arguments, the head copy of `cosmic_ray_prune.py`, and a cleared `unittest discover` test-command (which would also discover `test_<module>_base.py` and blind the check permanently) are outside the exemption check. E: the `/dev/tty` hook is not a boundary (`script` gave a `read </dev/tty` the answer `yes`); a touch-required FIDO signature verified with `git verify-commit` is. F: a false `weakened` red (for example after renaming a `@given` test) has no clearance path. Preflight checks the attribute, not behaviour.
+Assumption: Excluded base tests remove few weakening-relevant kills; settle on the 9 low-obsolete real commits by comparing kills with and without the excluded tests.
+Disposition: Addressed (operator, 2026-11-26: "Round 4 on full design"; "Yes, FIDO key signing"): failure-signature judging of failing base tests instead of exclusion, content-keyed identity, function-disappearance check plus comment-stripped scan, gate-shaping files as items, the base file outside the head arm's path and written after the head session, signed trailer, which may also clear a `weakened` red.
