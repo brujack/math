@@ -106,7 +106,7 @@ with the command above.
 
 ## Results page
 
-The results page is generated locally from finished run directories and committed under `zeta/results/site/`. Each run directory holds the CLI's `out.txt` and `err.txt`, where `err.txt` must be the report from `/usr/bin/time -v`, because the generator reads provenance from it. Each `--run` id must match an `id` entry in `runs.toml`; an id is ASCII letters, digits, `-` and `_`, starting with a letter or digit, because it names the run copy's directory. To regenerate:
+The published page is at [https://brujack.github.io/math/zeta/](https://brujack.github.io/math/zeta/). It is generated locally from finished run directories and committed under `zeta/results/site/`. Each run directory holds the CLI's `out.txt` and `err.txt`, where `err.txt` must be the report from `/usr/bin/time -v`, because the generator reads provenance from it. Each `--run` id must match an `id` entry in `runs.toml`; an id is ASCII letters, digits, `-` and `_`, starting with a letter or digit, because it names the run copy's directory. To regenerate:
 
 ```bash
 python3 scripts/zeta_results.py --runs-toml zeta/results/runs.toml \
