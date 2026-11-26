@@ -23,6 +23,14 @@ reduces each test to a signature that contains no exception messages:
 The test file is loaded under its absolute path, so `__file__` is usable and every line
 number refers to the base test file.
 
+Known limit: `cm = self.assertRaises(X)` followed by `with cm:` is not recognised as an
+exception-expecting block, so assertions in its body are rewritten and a failure there is
+recorded as a site (only the inline `with self.assert*(...)` form is understood).
+
+Every stderr line starts with `mutation_base_runner: diff: ` (a change) or
+`mutation_base_runner: internal error: <ExceptionType>` (exit 3); the suite's own output
+carries neither prefix.
+
 Exit codes: 0 = record written, or compare found no change; 1 = compare found a test
 whose outcome or error differs, a test that appeared or disappeared, or a failure site
 absent from the recording (a site that already failed in the recording never counts,
@@ -65,12 +73,18 @@ MODES = ("record", "compare")
 EXIT_CHANGED = 1
 EXIT_USAGE = 2
 EXIT_INTERNAL = 3
+DIFF_PREFIX = "mutation_base_runner: diff: "
+INTERNAL_PREFIX = "mutation_base_runner: internal error: "
 NO_MESSAGE = object()
 RUNTIME_NAME = "_mbr_rt"
 # An author handler naming one of these also catches the failure of an assertion.
-BROAD_EXCEPTIONS = frozenset({"AssertionError", "Exception", "BaseException"})
+BROAD_EXCEPTIONS = frozenset(
+    {"AssertionError", "Exception", "BaseException", "failureException"}
+)
 # Context managers whose body is expected to raise: their body is left unrewritten.
 EXPECTING_PREFIXES = ("assertRaises", "assertWarns")
+SITE_SHAPE = (int, str, int, str)
+ERROR_SHAPE = (str, int)
 ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+")
 
 
@@ -423,8 +437,9 @@ def load_suite(path: str, recorder: Recorder) -> unittest.TestSuite:
     module.__file__ = path
     setattr(module, RUNTIME_NAME, recorder)
     sys.modules[stem] = module
+    source = Path(path).read_text()  # unreadable file: internal error, not a load error
     try:
-        tree = AssertionRewriter().visit(ast.parse(Path(path).read_text(), path))
+        tree = AssertionRewriter().visit(ast.parse(source, path))
         code = compile(ast.fix_missing_locations(tree), path, "exec")
         exec(code, module.__dict__)  # noqa: S102 - running the base test file is the purpose
     except Exception as exc:  # noqa: BLE001 - the load failure is the recorded signature
@@ -446,10 +461,12 @@ def run_tests(path: str) -> Signature:
     }
 
 
-def is_pair_list(value: object, second: type) -> bool:
-    return isinstance(value, list) and all(
-        isinstance(item, list) and len(item) == 2 and isinstance(item[1], second)
-        for item in value
+def has_shape(item: object, shape: tuple[type, ...]) -> bool:
+    """True when `item` is a list of exactly the types in `shape` (bool is not int)."""
+    return (
+        isinstance(item, list)
+        and len(item) == len(shape)
+        and all(type(value) is kind for value, kind in zip(item, shape, strict=True))
     )
 
 
@@ -458,9 +475,9 @@ def validate_entry(test_id: str, entry: object) -> None:
         isinstance(entry, dict)
         and entry.get("outcome") in OUTCOME_RANK
         and isinstance(entry.get("sites"), list)
-        and all(isinstance(s, list) and len(s) == 4 for s in entry["sites"])
+        and all(has_shape(site, SITE_SHAPE) for site in entry["sites"])
         and isinstance(entry.get("error"), list)
-        and is_pair_list(entry["error"], int)
+        and all(has_shape(error, ERROR_SHAPE) for error in entry["error"])
     )
     if not ok:
         raise SignatureError(f"invalid signature entry for {test_id!r}")
@@ -508,7 +525,7 @@ def execute(mode: str, sig_path: str, test_path: str) -> int:
         return 0
     diffs = compare_signatures(recorded, current)
     for diff in diffs:
-        print(diff, file=sys.stderr)
+        print(DIFF_PREFIX + diff, file=sys.stderr)
     return EXIT_CHANGED if diffs else 0
 
 
@@ -522,9 +539,7 @@ def main(argv: list[str]) -> int:
     try:
         return execute(*argv[1:])
     except Exception as exc:  # noqa: BLE001 - any internal error must exit 3, never 1
-        print(
-            f"mutation_base_runner: internal error: {type_name(exc)}", file=sys.stderr
-        )
+        print(f"{INTERNAL_PREFIX}{type_name(exc)}", file=sys.stderr)
         return EXIT_INTERNAL
 
 

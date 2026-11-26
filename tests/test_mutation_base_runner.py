@@ -21,6 +21,8 @@ FAILED_LOAD_ID = "unittest.loader._FailedTest.test_mod_base"
 RUN_TIMEOUT_S = 120
 PASSING_MODULE = "def f(x):\n    return x\n"
 NO_PARAMS = "[]"
+DIFF = "mutation_base_runner: diff: "
+INTERNAL = "mutation_base_runner: internal error: "
 
 HEADER = "import unittest\n\nimport mod\n\n\nclass T(unittest.TestCase):\n"
 
@@ -161,6 +163,17 @@ class AssertionContinuationTests(RunnerCase):
         self.assertEqual(sig["error"], [])
         self.assertIn(line_of(src, "# L2"), [s[0] for s in sig["sites"]])
 
+    def test_failed_assert_warns_block_binds_warnings_list(self):
+        src = make_test_source("""\
+            with self.assertWarns(UserWarning) as cm:  # L1
+                pass
+            seen = cm.warnings
+            self.assertEqual(1, 2)  # L2
+            """)
+        sig = self.record(PASSING_MODULE, src)[TEST_ID]
+        self.assertEqual(sig["error"], [])
+        self.assertIn(line_of(src, "# L2"), [s[0] for s in sig["sites"]])
+
     def test_multi_item_with_binds_every_named_item(self):
         src = make_test_source("""\
             with self.assertRaises(ValueError) as a, self.assertRaises(KeyError) as b:  # L1
@@ -229,6 +242,45 @@ class AuthorHandlerTests(RunnerCase):
                 )
                 self.assertEqual(lines, [line_of(src, "# L2")])
 
+    def test_failure_exception_handlers_leave_their_body_unrewritten(self):
+        for handler in (
+            "except self.failureException:",
+            "except unittest.TestCase.failureException:",
+            "except (ValueError, self.failureException):",
+            "except builtins.Exception:",
+            "except builtins.BaseException:",
+        ):
+            with self.subTest(handler=handler):
+                src, lines = self.site_lines(
+                    "import builtins\n"
+                    "try:\n"
+                    "    self.assertEqual(1, 2)  # L1\n"
+                    f"{handler}\n"
+                    "    pass\n"
+                    "self.assertEqual(1, 3)  # L2\n"
+                )
+                self.assertEqual(lines, [line_of(src, "# L2")])
+
+    def test_except_star_with_broad_group_protects_its_body(self):
+        src, lines = self.site_lines(
+            "try:\n"
+            "    self.assertEqual(1, 2)  # L1\n"
+            "except* AssertionError:\n"
+            "    pass\n"
+            "self.assertEqual(1, 3)  # L2\n"
+        )
+        self.assertEqual(lines, [line_of(src, "# L2")])
+
+    def test_except_star_with_narrow_group_still_rewrites_its_body(self):
+        src = make_test_source(
+            "try:\n    self.assertEqual(1, 2)  # L1\nexcept* ValueError:\n    pass\n"
+        )
+        sig = self.record(PASSING_MODULE, src)[TEST_ID]
+        # nth 1 means the guard recorded it; nth 0 would be unittest's own failure.
+        self.assertEqual(
+            sig["sites"], [[line_of(src, "# L1"), NO_PARAMS, 1, "AssertionError"]]
+        )
+
     def test_narrow_author_handler_does_not_protect_its_body(self):
         src, lines = self.site_lines(
             "try:\n    self.assertEqual(1, 2)  # L1\nexcept ValueError:\n    pass\n"
@@ -284,7 +336,9 @@ class SiteKeyTests(RunnerCase):
         self.assertEqual(proc.returncode, 1)
         self.assertEqual(
             proc.stderr.splitlines(),
-            [f"{TEST_ID}: new failure site {[line, NO_PARAMS, 3, 'AssertionError']}"],
+            [
+                f"{DIFF}{TEST_ID}: new failure site {[line, NO_PARAMS, 3, 'AssertionError']}"
+            ],
         )
 
     def test_loop_with_same_failures_compares_clean(self):
@@ -331,6 +385,36 @@ class SiteKeyTests(RunnerCase):
             recordings.append(self.sig.read_text())
         self.assertEqual(len(set(recordings)), 1)
         self.assertNotIn("0x", recordings[0].replace("0x?", ""))
+
+    def record_params(self, subtest_args):
+        src = make_test_source(
+            "with self.subTest("
+            + subtest_args
+            + "):\n    self.assertEqual(1, 2)  # L1\n"
+        )
+        texts = set()
+        params = ""
+        for _ in range(4):
+            sig = self.record(PASSING_MODULE, src, hash_seed=None)[TEST_ID]
+            texts.add(self.sig.read_text())
+            params = sig["sites"][0][1]
+        self.assertEqual(len(texts), 1)
+        return params
+
+    def test_set_nested_in_dict_param_is_canonical(self):
+        params = self.record_params('p={"k": {"b", "a", "c", "d", "e"}}')
+        self.assertIn("{'k': {'a', 'b', 'c', 'd', 'e'}}", params)
+
+    def test_set_nested_in_tuple_param_is_canonical(self):
+        params = self.record_params('p=(1, {"b", "a", "c", "d", "e"})')
+        self.assertIn("(1, {'a', 'b', 'c', 'd', 'e'})", params)
+
+    def test_set_nested_in_list_param_is_canonical(self):
+        params = self.record_params('p=[frozenset({"b", "a", "c", "d", "e"})]')
+        self.assertIn("[frozenset({'a', 'b', 'c', 'd', 'e'})]", params)
+
+    def test_single_element_tuple_param_keeps_its_comma(self):
+        self.assertIn("(1,)", self.record_params("p=(1,)"))
 
 
 class ErrorRecordingTests(RunnerCase):
@@ -405,7 +489,9 @@ class CompareTests(RunnerCase):
         self.assertEqual(proc.returncode, 1)
         self.assertEqual(
             proc.stderr.splitlines(),
-            [f"{TEST_ID}: new failure site {[line, NO_PARAMS, 1, 'AssertionError']}"],
+            [
+                f"{DIFF}{TEST_ID}: new failure site {[line, NO_PARAMS, 1, 'AssertionError']}"
+            ],
         )
 
     def test_outcome_change_exits_one_with_outcome_and_site_lines(self):
@@ -416,8 +502,8 @@ class CompareTests(RunnerCase):
         self.assertEqual(
             proc.stderr.splitlines(),
             [
-                f"{TEST_ID}: outcome pass -> fail",
-                f"{TEST_ID}: new failure site {[line, NO_PARAMS, 1, 'RuntimeError']}",
+                f"{DIFF}{TEST_ID}: outcome pass -> fail",
+                f"{DIFF}{TEST_ID}: new failure site {[line, NO_PARAMS, 1, 'RuntimeError']}",
             ],
         )
 
@@ -425,7 +511,9 @@ class CompareTests(RunnerCase):
         self.record("def f(x):\n    return 5\n", self.SRC)
         proc = self.compare("def f(x):\n    return 2\n", self.SRC)
         self.assertEqual(proc.returncode, 1)
-        self.assertEqual(proc.stderr.splitlines(), [f"{TEST_ID}: outcome fail -> pass"])
+        self.assertEqual(
+            proc.stderr.splitlines(), [f"{DIFF}{TEST_ID}: outcome fail -> pass"]
+        )
 
     def test_error_only_change_at_same_line_exits_one(self):
         src = make_test_source("mod.boom()  # L1\n")
@@ -435,7 +523,9 @@ class CompareTests(RunnerCase):
         self.assertEqual(proc.returncode, 1)
         self.assertEqual(
             proc.stderr.splitlines(),
-            [f"{TEST_ID}: error {[['KeyError', line]]} -> {[['ValueError', line]]}"],
+            [
+                f"{DIFF}{TEST_ID}: error {[['KeyError', line]]} -> {[['ValueError', line]]}"
+            ],
         )
 
     def test_identical_run_exits_zero(self):
@@ -453,8 +543,8 @@ class CompareTests(RunnerCase):
         self.assertEqual(
             proc.stderr.splitlines(),
             [
-                f"{TEST_ID}: outcome pass -> fail",
-                f"{TEST_ID}: new failure site {[line, NO_PARAMS, 1, 'RuntimeError']}",
+                f"{DIFF}{TEST_ID}: outcome pass -> fail",
+                f"{DIFF}{TEST_ID}: new failure site {[line, NO_PARAMS, 1, 'RuntimeError']}",
             ],
         )
 
@@ -465,8 +555,8 @@ class CompareTests(RunnerCase):
         self.assertEqual(
             set(proc.stderr.splitlines()),
             {
-                f"{TEST_ID}: test set changed",
-                f"{FAILED_LOAD_ID}: test set changed",
+                f"{DIFF}{TEST_ID}: test set changed",
+                f"{DIFF}{FAILED_LOAD_ID}: test set changed",
             },
         )
 
@@ -479,9 +569,10 @@ class CompareTests(RunnerCase):
         )
         proc = self.compare(PASSING_MODULE, broken)
         self.assertEqual(proc.returncode, 1)
-        self.assertIn(f"{TEST_ID}: test set changed", proc.stderr.splitlines())
+        self.assertIn(f"{DIFF}{TEST_ID}: test set changed", proc.stderr.splitlines())
         self.assertIn(
-            "setUpClass (test_mod_base.T): test set changed", proc.stderr.splitlines()
+            f"{DIFF}setUpClass (test_mod_base.T): test set changed",
+            proc.stderr.splitlines(),
         )
 
 
@@ -639,6 +730,86 @@ class CliTests(RunnerCase):
                 proc = self.run_runner("compare")
                 self.assertEqual(proc.returncode, 3)
                 self.assertEqual(len(proc.stderr.splitlines()), 1)
+
+    def test_invalid_signature_is_rejected_before_any_test_code_runs(self):
+        marker = self.dir / "marker.txt"
+        src = "open('marker.txt', 'w').write('ran')\n" + make_test_source("pass\n")
+        self.write("", src)
+        self.sig.write_text("{not json")
+        proc = self.run_runner("compare")
+        self.assertEqual(proc.returncode, 3)
+        self.assertFalse(marker.exists())
+
+    def test_malformed_error_field_exits_three(self):
+        self.write("", make_test_source("pass\n"))
+        for error in (
+            "x",
+            [["KeyError"]],
+            [["KeyError", "x"]],
+            [[1, 2]],
+            [["KeyError", True]],
+            [["K", 1, 2]],
+            ["KeyError"],
+        ):
+            with self.subTest(error=error):
+                entry = {"outcome": "pass", "sites": [], "error": error}
+                self.sig.write_text(json.dumps({TEST_ID: entry}))
+                proc = self.run_runner("compare")
+                self.assertEqual(proc.returncode, 3)
+                self.assertEqual(len(proc.stderr.splitlines()), 1)
+
+    def test_malformed_sites_entry_exits_three(self):
+        self.write("", make_test_source("pass\n"))
+        for site in (
+            [1, "", 1],
+            [1, "", 1, "T", 5],
+            ["1", "", 1, "T"],
+            [1, 2, 1, "T"],
+            [1, "", "1", "T"],
+            [1, "", 1, 2],
+            [True, "", 1, "T"],
+            "site",
+        ):
+            with self.subTest(site=site):
+                entry = {"outcome": "fail", "sites": [site], "error": []}
+                self.sig.write_text(json.dumps({TEST_ID: entry}))
+                proc = self.run_runner("compare")
+                self.assertEqual(proc.returncode, 3)
+
+    def test_well_formed_signature_is_accepted(self):
+        self.write("", make_test_source("pass\n"))
+        entry = {"outcome": "pass", "sites": [], "error": []}
+        self.sig.write_text(json.dumps({TEST_ID: entry}))
+        self.assertEqual(self.run_runner("compare").returncode, 0)
+
+    def test_internal_error_line_names_the_type_only(self):
+        self.write("", make_test_source("pass\n"))
+        self.sig.write_text("{not json")
+        proc = self.run_runner("compare")
+        self.assertEqual(proc.stderr, INTERNAL + "JSONDecodeError\n")
+
+    def test_missing_test_file_exits_three_not_a_load_error(self):
+        self.write("", make_test_source("pass\n"))
+        self.record("", make_test_source("pass\n"))
+        (self.dir / TEST_FILE).unlink()
+        proc = self.run_runner("compare")
+        self.assertEqual(proc.returncode, 3)
+        self.assertEqual(proc.stderr, INTERNAL + "FileNotFoundError\n")
+
+    def test_existing_unimportable_test_file_is_still_a_load_error(self):
+        self.write("", "import no_such_module_xyz\n")
+        self.sig.write_text(json.dumps({}))
+        proc = self.run_runner("compare")
+        self.assertEqual(proc.returncode, 1)
+
+    def test_suite_output_is_not_a_diff_line(self):
+        src = make_test_source(
+            "print('suite-noise')\nimport sys\nprint('err-noise', file=sys.stderr)\n"
+        )
+        self.record("", src)
+        proc = self.compare("", src)
+        self.assertEqual(proc.returncode, 0)
+        self.assertNotIn(DIFF, proc.stderr)
 
     def test_unwritable_signature_path_exits_three_in_record_mode(self):
         self.write("", make_test_source("pass\n"))
