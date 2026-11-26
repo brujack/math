@@ -722,7 +722,7 @@ mkdir -p "${OUTPUT_DIR}"
 rm -f "${TRACE_FILE}" "${TRACE_FIFO}"
 mkfifo "${TRACE_FIFO}"
 
-# Hook-copy alias (see the filter above). A trace whose path ends in
+# Hook-copy alias (see the filter below). A trace whose path ends in
 # `/covalias/<rel>`, with <rel> in INCLUDE_FILES, is attributed to
 # `${REPO_ROOT}/<rel>`; any other covalias path is dropped, even if the file
 # exists on disk.
@@ -770,7 +770,7 @@ _merge_alias_traces() {
 # coarse filter therefore also passes `/covalias/`, and the python stage sets a
 # path outside REPO_ROOT that contains `/covalias/` aside in ALIAS_RAW instead of
 # TRACE_FILE. A path under REPO_ROOT is always a direct trace, never an alias.
-# _merge_alias_traces (below) maps and intersects the aside lines after the run.
+# _merge_alias_traces (defined above) maps and intersects the aside lines after the run.
 ALIAS_RAW="${OUTPUT_DIR}/alias_raw.txt"
 : > "${ALIAS_RAW}"
 grep -F -e "COVTRACE:${REPO_ROOT}/" -e '/covalias/' "${TRACE_FIFO}" \

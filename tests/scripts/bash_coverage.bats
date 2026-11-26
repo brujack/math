@@ -421,3 +421,15 @@ _row_field() {
     [ "$(_row_field sample.sh 2)" -eq "${covered_plain}" ]
     [ "$(_row_field sample.sh 3)" -eq "${coverable_plain}" ]
 }
+
+@test "covalias: a tracked file's path under REPO_ROOT that contains covalias/ is a direct trace, not an alias of scripts/sample.sh" {
+    local dir="${BATS_TEST_TMPDIR}/fixture-inroot"
+    _alias_fixture "${dir}"
+    mkdir -p "${dir}/x/covalias/scripts"
+    cp "${dir}/scripts/sample.sh" "${dir}/x/covalias/scripts/sample.sh"
+    # Only the copy under x/ runs, directly; scripts/sample.sh itself never does.
+    _alias_commit "${dir}" "$(printf '  run bash "%s/x/covalias/scripts/sample.sh"\n  [ "$status" -eq 0 ]' "${dir}")"
+    _run_fixture "${dir}"
+    [ "$status" -eq 0 ]
+    [ "$(_row_field sample.sh 2)" -eq 0 ]
+}

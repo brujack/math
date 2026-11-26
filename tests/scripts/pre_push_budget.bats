@@ -69,6 +69,7 @@ run_hook() {
     sha="$(head_sha)"
     run_hook "refs/heads/feat ${sha} refs/heads/feat ${ZEROS}"
     [ "$status" -eq 1 ]
+    [[ "${output}" == *"refusing ${sha}"* ]]
     [ ! -s "${MOCK_CALLS_FILE}" ]
 }
 

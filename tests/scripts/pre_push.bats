@@ -219,11 +219,13 @@ teardown() {
 }
 
 @test "make test failure exits non-zero" {
+    setup_harness_stub # without it the equivalents check runs real python and fails the push before any make
     export MOCK_GIT_DIFF_NAMES="pi/pi.py"
     export MOCK_MAKE_EXIT=1
     run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -ne 0 ]
+    assert_log_has "${ORDER_LOG}" "make"
 }
 
 @test "new branch push uses merge-base and calls make for changed files" {
@@ -1128,6 +1130,37 @@ assert_log_lacks() { # <file> <fixed string>
     run pg_hook_copy "${bad}"
     [ "$status" -ne 0 ]
     [[ "${output}" == *"_pcg_fetch markers not found"* ]]
+}
+
+# pg_hook_copy refuses a hook whose _pcg_fetch block is not the expected shape.
+_assert_copy_refused() { # <hook body>
+    local bad="${BATS_TEST_TMPDIR}/bad-hook"
+    printf '%s\n' "$1" > "${bad}"
+    run pg_hook_copy "${bad}"
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"_pcg_fetch markers not found"* ]]
+}
+
+@test "gates: the helper refuses a hook whose line after the opening marker is not the _pcg_fetch header" {
+    _assert_copy_refused $'# >>> _pcg_fetch\necho not-the-header\n}\n# <<< _pcg_fetch'
+}
+
+@test "gates: the helper refuses adjacent opening and closing markers" {
+    _assert_copy_refused $'# >>> _pcg_fetch\n# <<< _pcg_fetch'
+}
+
+@test "gates: the helper refuses a closing marker that precedes the opening one" {
+    # The header line passes its own check here, so only the marker-order check can refuse it.
+    _assert_copy_refused $'# <<< _pcg_fetch\n# >>> _pcg_fetch\n_pcg_fetch() {\n}'
+}
+
+@test "gates: the helper refuses a header that carries code after the brace" {
+    _assert_copy_refused $'# >>> _pcg_fetch\n_pcg_fetch() { echo trailing-code\n}\n# <<< _pcg_fetch'
+}
+
+@test "gates: the helper accepts the real hook header" {
+    run pg_hook_copy "${REPO_ROOT}/scripts/pre-push"
+    [ "$status" -eq 0 ]
 }
 
 @test "gates: the fake fetch returns 1 for any path it does not serve" {

@@ -8,9 +8,10 @@
 #
 # The copy is LINE-PRESERVING and lives at <dir>/covalias/scripts/pre-push: every line is
 # identical to the hook's except the `# >>> _pcg_fetch` marker line, which becomes a trampoline
-# into the fake, and the header and body lines after it (up to the closing marker), which become
-# empty. The trampoline sits on a comment line of the real file, so the coverage runner drops its
-# trace and claims no real line. The coverage
+# into the fake, and the header line after it, which is renamed `_pcg_fetch_real() {`. The body
+# lines up to the closing marker are kept verbatim, so they trace as the real hook's. The
+# trampoline sits on a comment line of the real file, so the coverage runner drops its trace and
+# claims no real line. The coverage
 # runner (scripts/run-bash-coverage.sh) attributes traces under `covalias/` to the real
 # hook at the same line numbers, so these runs count as coverage of scripts/pre-push.
 # Callers run the copy as plain `bash <copy>`, not `bash -p`: -p ignores BASH_ENV, which is how
@@ -54,12 +55,14 @@ WRAP
 # Fails loudly when the markers or header are not where expected, or the line counts differ.
 pg_hook_copy() {
   local hook="${1}" copy="${PG_DIR}/covalias/scripts/pre-push" start end
+  # The header may carry only a trailing comment after `{`: the copy renames the whole line.
+  local header_re='^_pcg_fetch\(\) \{( #.*)?$'
   # shellcheck disable=SC2016 # the trampoline text is literal; it expands when the copy runs
   local tramp='_pcg_fetch() { . "${PG_FAKE_FETCH:?}"; _pg_fake_fetch "$@"; }'
   start="$(grep -n "^[#] >>> _pcg_fetch\$" "${hook}" | cut -d: -f1)"
   end="$(grep -n "^[#] <<< _pcg_fetch\$" "${hook}" | cut -d: -f1)"
   if [[ ! "${start}" =~ ^[0-9]+$ || ! "${end}" =~ ^[0-9]+$ ]] || (( end <= start + 1 )) \
-    || [[ "$(sed -n "$((start + 1))p" "${hook}")" != '_pcg_fetch() {'* ]]; then
+    || [[ ! "$(sed -n "$((start + 1))p" "${hook}")" =~ ${header_re} ]]; then
     printf 'pg_hook_copy: _pcg_fetch markers not found in %s\n' "${hook}" >&2
     return 1
   fi
