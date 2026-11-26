@@ -87,7 +87,7 @@ setup() {
 @test "diff uses the three-dot range" {
     export MOCK_GIT_DIFF_NAMES="README.md"
     run -0 bash "${SCRIPT}" origin/main
-    grep -q 'diff --name-only origin/main...HEAD' "${MOCK_CALLS_FILE}"
+    grep -q 'diff --name-only --no-renames origin/main...HEAD' "${MOCK_CALLS_FILE}"
 }
 
 @test "missing base ref exits 2" {
@@ -437,8 +437,14 @@ rs_cargo_toml() {
 rs_fixture_repo() {
     FIX="${BATS_TEST_TMPDIR}/fixture"
     mkdir -p "${FIX}/fib/fib-rs/src"
-    rs_cargo_toml 0.1.0 1.0 > "${FIX}/fib/fib-rs/Cargo.toml"
+    mkdir -p "${FIX}/fib/fib-rs/tests"
+    if [[ -n "${RS_BASE_TOML:-}" ]]; then
+        printf '%s\n' "${RS_BASE_TOML}" > "${FIX}/fib/fib-rs/Cargo.toml"
+    else
+        rs_cargo_toml 0.1.0 1.0 > "${FIX}/fib/fib-rs/Cargo.toml"
+    fi
     printf 'fn main() {}\n' > "${FIX}/fib/fib-rs/src/main.rs"
+    printf 'fn t() {}\n' > "${FIX}/fib/fib-rs/tests/cli.rs"
     fixture_repo
 }
 
@@ -446,7 +452,7 @@ rs_fixture_repo() {
 rs_change() {
     rs_fixture_repo
     mkdir -p "$(dirname "${FIX}/$1")"
-    printf '%s' "$2" > "${FIX}/$1"
+    printf '%s\n' "$2" > "${FIX}/$1"
     fix_commit "change"
     fix_run
 }
@@ -526,6 +532,44 @@ rs_change() {
     export PATH="${shim}:${PATH}"
     cd "${FIX}" || return 1
     run ! bash "${SCRIPT}" main
+    [ -z "${output}" ]
+}
+
+@test "a table header removed in the same hunk does not mis-attribute an added line" {
+    RS_BASE_TOML=$'[lib]\npath = "src/lib.rs"\n[dev-dependencies]\nproptest = "1"'
+    rs_change fib/fib-rs/Cargo.toml $'[lib]\npath = "src/lib.rs"\ntest = false'
+    [ "${lines[2]}" = "rs_dirs=fib/fib-rs" ]
+}
+
+@test "a renamed-away tests/ file selects the crate" {
+    rs_fixture_repo
+    mkdir -p "${FIX}/attic"
+    git -C "${FIX}" mv fib/fib-rs/tests/cli.rs attic/cli.rs
+    fix_commit "rename"
+    fix_run
+    [ "${lines[2]}" = "rs_dirs=fib/fib-rs" ]
+}
+
+@test "an indented table header is recognised" {
+    rs_change fib/fib-rs/Cargo.toml "$(rs_cargo_toml 0.1.0 1.0 $'  [lints.rust]\n  unsafe_code = "forbid"')"
+    [ "${lines[2]}" = "rs_dirs=fib/fib-rs" ]
+}
+
+@test "a target-specific dependencies bump selects the crate" {
+    RS_BASE_TOML="$(rs_cargo_toml 0.1.0 1.0 $'\n[target.\'cfg(unix)\'.dependencies]\nlibc = "0.1"')"
+    rs_change fib/fib-rs/Cargo.toml "$(rs_cargo_toml 0.1.0 1.0 $'\n[target.\'cfg(unix)\'.dependencies]\nlibc = "0.2"')"
+    [ "${lines[2]}" = "rs_dirs=fib/fib-rs" ]
+}
+
+@test "a [dependencies.name] version bump alone does not select the crate" {
+    RS_BASE_TOML=$'[package]\nname = "fib"\nversion = "0.1.0"\n\n[dependencies.rug]\nversion = "1.0"'
+    rs_change fib/fib-rs/Cargo.toml $'[package]\nname = "fib"\nversion = "0.1.0"\n\n[dependencies.rug]\nversion = "1.1"'
+    [ "${lines[2]}" = "rs_dirs=" ]
+}
+
+@test "a commented [lints.rust] header with a change under it selects the crate" {
+    rs_change fib/fib-rs/Cargo.toml "$(rs_cargo_toml 0.1.0 1.0 $'\n[lints.rust] # c\nunsafe_code = "forbid"')"
+    [ "${lines[2]}" = "rs_dirs=fib/fib-rs" ]
 }
 
 # R5: py_test_dirs, line 7 of the output.

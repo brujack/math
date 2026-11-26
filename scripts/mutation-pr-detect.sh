@@ -74,14 +74,25 @@ py_test_dirs() {
     fi
 }
 
+# Returns 0 when a changed Cargo.toml line counts: it is neither inside one of
+# the three dependency tables (`[dependencies.<name>]` belongs to the first) nor
+# the `[package]` `version` line. Args: table header (no closing `]`), line text.
+cargo_line_counts() {
+    local _dep='^\[(dev-|build-)?dependencies(\..+)?$'
+    [[ "$1" =~ ${_dep} ]] && return 1
+    [[ "$1" == "[package" && "$2" =~ ^version[[:space:]]*= ]] && return 1
+    return 0
+}
+
 # Stdin is a full-context unified diff of one Cargo.toml (`git diff -U1000000`).
-# Returns 0 when a changed line is neither inside a dependency table nor the
-# `[package]` `version` line. The current table is tracked from header lines in
-# diff order, so a removed line is judged against the table it sat in.
+# Returns 0 when a changed line counts (see cargo_line_counts). Two tables are
+# tracked: a context or `-` line moves the base-side one, a context or `+` line
+# the head-side one, so each changed line is judged against the table it sat in
+# on its own side of the diff, not one the same hunk removed or added.
+# Known limit: a table header inside a multi-line string is read as a header.
 cargo_toml_changed() {
-    local _line _c _t _sec="" _body=0
+    local _line _c _t _base="" _head="" _body=0 _sec
     local _hdr='^\[\[?[^]]+\]\]?[[:space:]]*(#.*)?$'
-    local _dep='^\[(target\..+\.)?(dev-|build-)?dependencies(\..+)?$'
     while IFS= read -r _line; do
         if [[ "${_body}" -eq 0 ]]; then
             [[ "${_line}" == @@* ]] && _body=1
@@ -89,13 +100,19 @@ cargo_toml_changed() {
         fi
         _c="${_line:0:1}"
         _t="${_line:1}"
-        [[ "${_c}" == $'\\' ]] && continue
+        _t="${_t#"${_t%%[![:space:]]*}"}"
+        _sec=""
         [[ "${_t}" =~ ${_hdr} ]] && _sec="${_t%%]*}"
-        if [[ "${_c}" == '+' || "${_c}" == '-' ]]; then
-            [[ "${_sec}" =~ ${_dep} ]] && continue
-            [[ "${_sec}" == "[package" && "${_t}" =~ ^version[[:space:]]*= ]] && continue
-            return 0
-        fi
+        case "${_c}" in
+            ' ')
+                [[ -n "${_sec}" ]] && { _base="${_sec}"; _head="${_sec}"; } ;;
+            '-')
+                [[ -n "${_sec}" ]] && _base="${_sec}"
+                ! cargo_line_counts "${_base}" "${_t}" || return 0 ;;
+            '+')
+                [[ -n "${_sec}" ]] && _head="${_sec}"
+                ! cargo_line_counts "${_head}" "${_t}" || return 0 ;;
+        esac
     done
     return 1
 }
@@ -180,7 +197,7 @@ main() {
         return 2
     fi
     local _names
-    _names=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git diff --name-only "$1...HEAD") || return 1
+    _names=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git diff --name-only --no-renames "$1...HEAD") || return 1
     local _numstat _src _test _cargo _manifests _path
     _numstat=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git diff --numstat --no-renames "$1...HEAD") || return 1
     _src=$(py_src_dirs <<< "${_numstat}") || return 1
