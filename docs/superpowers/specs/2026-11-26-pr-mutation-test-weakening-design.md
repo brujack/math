@@ -536,3 +536,7 @@ Report: [round1.md](2026-11-26-pr-mutation-test-weakening-design.external-review
 | F1.9 | Fixed | R1 and Design step 1 exempt the `[package]` `version` line of `Cargo.toml`; the Facts count is 18 of the last 100 PRs by path (2 of 7 `Cargo.toml` PRs were version-only). | unjudged | accepted (operator, 2026-11-26) |
 
 Stopped: reviewer recommended stopping in round 1
+
+## Amendments
+
+- N6 -> The Python changed-line gate's verdicts for dirs not in `py_test_dirs` do not change; the `mutation-py` job timeout (R6) and the PR-level concurrency (R30) apply to all of its rows. — R6 and R30 are job- and workflow-level settings that cannot be scoped per matrix row (plan non-goal check, 2026-11-26).
