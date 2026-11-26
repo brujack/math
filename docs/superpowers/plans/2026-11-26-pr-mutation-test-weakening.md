@@ -782,6 +782,7 @@ depends_on: [9, 13, 14, 15, 17, 18]
 ## Verification obligations after merge (bootstrap)
 
 1. The operator adds `mutation-gate-items` to branch protection with expected source GitHub Actions, and sets the same expected source on `mutation-pr` and `secret-scan`.
+   Before that, confirm on a live PR that the `pull_request_target` check run of `mutation-gate-items` is returned by `gh api repos/brujack/math/commits/<PR head sha>/check-runs` (not only on the base SHA); if it is not, `ci-gate.sh` would time out on every PR once the context is listed, so stop and re-plan.
    Then a small follow-up PR adds `mutation-gate-items` to `.github/required-status-checks` (R36 amendment), and V4 confirms the file equals `gh api repos/brujack/math/branches/master/protection/required_status_checks --jq .contexts`.
 2. **V4.** Use throwaway draft PRs:
    - add an equivalents entry: red; green after the operator's signed commit; red again after a further edit;
