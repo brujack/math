@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
-# Runs `make mutants-diff` on each Rust crate a PR touches and owns every red rule.
+# Runs a Rust crate's mutants through `make` and owns every red rule, in two modes.
 #
 # Usage: mutation-pr-run.sh <base-ref> [--min-caught N] [--shard k/n [--expect N]] <crate-dir>...
+#        mutation-pr-run.sh --whole [--shard k/n [--expect N]] <crate-dir>...
 #        (run from repo root)
 #
-# Per crate: build the crate-relative PR diff, run `make -C <dir> mutants-diff`
+# Diff mode (first form), per crate: build the crate-relative PR diff, run `make -C <dir> mutants-diff`
 # on it, then classify the exit code in <dir>/mutants.out/exit-code with limit 0
 # (any missed mutant is red) and N as the minimum caught count. A crate selected
 # with an empty diff, or one that leaves no exit-code file, is red: both mean the
 # run measured nothing. Every verdict goes to stdout; a red crate does not stop
 # the loop. Exit 0 when all are green, 1 when any is red, 2 on bad usage.
 #
-# --shard k/n passes MUTANT_SHARD=k/n to mutants-diff (same grammar as the Makefile:
+# --shard k/n passes MUTANT_SHARD=k/n to make (an unsharded run passes it empty, overriding any
+# MUTANT_SHARD exported in the environment) (same grammar as the Makefile:
 # k < n, both without leading zeros). --expect N, which needs --shard, compares the
 # shard's outcomes.json total_mutants with the planner's count before classifying; a
 # mismatch is red and the classifier does not run. --shard and --expect may each be
@@ -91,10 +93,9 @@ judge_crate() {
     fi
 
     # A failing make is judged by mutants.out/exit-code below, not by its own status.
-    local make_args=(-C "${dir}" "${target}" "$@")
-    if [[ -n "${shard}" ]]; then
-        make_args+=(MUTANT_SHARD="${shard}")
-    fi
+    # MUTANT_SHARD is always passed, empty when unsharded: a command-line variable beats the
+    # environment, so an exported MUTANT_SHARD cannot silently shrink an unsharded run to one shard.
+    local make_args=(-C "${dir}" "${target}" "$@" MUTANT_SHARD="${shard}")
     make "${make_args[@]}" || true
 
     # The shared reader owns the missing-file and integer rules; its one red line comes
