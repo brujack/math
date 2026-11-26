@@ -47,6 +47,13 @@ elif [[ "$1" == "run" && "$2" == "download" && -n "${MOCK_GH_ARTIFACT_ROOT:-}" ]
     done
     mkdir -p "${_dest}"
     cp -R "${MOCK_GH_ARTIFACT_ROOT}/$3/." "${_dest}/"
+elif [[ "$*" == *"required_status_checks"* ]]; then
+    # Branch-protection required contexts, one per line (MOCK_GH_REQUIRED, default none).
+    # MOCK_GH_EXIT_REQUIRED simulates the 403/404 a token without admin scope gets.
+    if [[ "${MOCK_GH_EXIT_REQUIRED:-0}" -ne 0 ]]; then
+        exit "${MOCK_GH_EXIT_REQUIRED}"
+    fi
+    printf '%s\n' "${MOCK_GH_REQUIRED:-}"
 elif [[ "$*" == *"check-runs"* ]]; then
     _counter_file="${MOCK_GH_COUNTER_FILE:-/tmp/gh_counter}"
     _count=$(cat "${_counter_file}" 2>/dev/null || printf "0")
@@ -70,6 +77,8 @@ elif [[ "$*" == *"actions/runs"* ]]; then
     else
         printf '%s\n' "${MOCK_GH_WORKFLOW_RUNS:-}"
     fi
+elif [[ "$*" == *"pulls"* && "$*" == *".base.ref"* ]]; then
+    printf '%s\n' "${MOCK_GH_PR_BASE:-master}"
 elif [[ "$*" == *"pulls"* ]]; then
     printf '%s\n' "${MOCK_GH_PR_SHA:-abc123def456}"
 elif [[ "$1" == "issue" ]]; then

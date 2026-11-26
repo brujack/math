@@ -251,3 +251,65 @@ setup() {
     [ "$status" -eq 0 ]
     command grep -F "actions/runs" "${MOCK_CALLS_FILE}" | command grep -qF "event: .event"
 }
+
+# Required-context tests (R36): the gate waits for every context branch protection
+# requires on the base branch, even one that registers after all other checks finish.
+
+@test "required context registering late (pull_request_target) is waited for → exit 0 on poll 2" {
+    export MOCK_GH_REQUIRED='mutation-gate-items'
+    export MOCK_GH_CHECK_RUNS_1='{"name":"Test pi-rs","status":"completed","conclusion":"success"}'
+    export MOCK_GH_CHECK_RUNS_2='{"name":"Test pi-rs","status":"completed","conclusion":"success"}
+{"name":"mutation-gate-items","status":"completed","conclusion":"success"}'
+    run "${REPO_ROOT}/scripts/ci-gate.sh" 42
+    [ "$status" -eq 0 ]
+    [ "$(cat "${MOCK_GH_COUNTER_FILE}")" -eq 2 ]
+}
+
+@test "required context that never registers ends red at the poll timeout → exit 1 naming it" {
+    export MOCK_GH_REQUIRED='mutation-gate-items'
+    export MOCK_GH_CHECK_RUNS='{"name":"Test pi-rs","status":"completed","conclusion":"success"}'
+    export CI_GATE_MAX_POLLS=3
+    run "${REPO_ROOT}/scripts/ci-gate.sh" 42 2>&1
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"imeout"* ]]
+    [[ "$output" == *"mutation-gate-items"* ]]
+    [ "$(cat "${MOCK_GH_COUNTER_FILE}")" -eq 3 ]
+}
+
+@test "late-registering required context that fails → exit 1 naming it" {
+    export MOCK_GH_REQUIRED='mutation-gate-items'
+    export MOCK_GH_CHECK_RUNS_1='{"name":"Test pi-rs","status":"completed","conclusion":"success"}'
+    export MOCK_GH_CHECK_RUNS_2='{"name":"Test pi-rs","status":"completed","conclusion":"success"}
+{"name":"mutation-gate-items","status":"completed","conclusion":"failure"}'
+    run "${REPO_ROOT}/scripts/ci-gate.sh" 42 2>&1
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"mutation-gate-items"* ]]
+}
+
+@test "required-contexts lookup failure (403/404) fails closed → exit 1 with message" {
+    export MOCK_GH_EXIT_REQUIRED=1
+    export MOCK_GH_CHECK_RUNS_1='{"name":"Test pi-rs","status":"completed","conclusion":"success"}'
+    run "${REPO_ROOT}/scripts/ci-gate.sh" 42 2>&1
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"required status checks"* ]]
+    # fails before polling: no check-runs call was made
+    [ ! -e "${MOCK_GH_COUNTER_FILE}" ]
+}
+
+@test "required list names the PR base branch" {
+    export MOCK_GH_PR_BASE='main'
+    export MOCK_GH_CHECK_RUNS_1='{"name":"Test pi-rs","status":"completed","conclusion":"success"}'
+    run "${REPO_ROOT}/scripts/ci-gate.sh" 42
+    [ "$status" -eq 0 ]
+    grep -q 'branches/main/protection/required_status_checks' "${MOCK_CALLS_FILE}"
+}
+
+@test "required self-checks and advisory checks are not waited for → exit 0" {
+    export MOCK_GH_REQUIRED='secret-scan
+auto-merge
+snyk-scan'
+    export MOCK_GH_CHECK_RUNS_1='{"name":"Test pi-rs","status":"completed","conclusion":"success"}'
+    run "${REPO_ROOT}/scripts/ci-gate.sh" 42
+    [ "$status" -eq 0 ]
+    [ "$(cat "${MOCK_GH_COUNTER_FILE}")" -eq 1 ]
+}
