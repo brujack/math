@@ -21,6 +21,9 @@ setup() {
 #!/usr/bin/env bash
 # Mock make: `make -C <dir> mutants-diff-plan DIFF=<file>`.
 dir="$2"
+for arg in "$@"; do
+    [[ "${arg}" == DIFF=* ]] && cp "${arg#DIFF=}" "${FIX}/${dir}.seen" 2>/dev/null
+done
 [[ -f "${FIX}/${dir}.out" ]] && cat "${FIX}/${dir}.out"
 [[ -f "${FIX}/${dir}.err" ]] && cat "${FIX}/${dir}.err" >&2
 rc=0
@@ -385,9 +388,14 @@ for line in open(sys.argv[2]):
     [ "$(weak_n pi 6600 1)" = "11" ]
 }
 
-@test "fractional suite seconds round up before sizing" {
-    # s=0.5 -> 1: K=6600 -> 11
-    [ "$(weak_n pi 6600 0.5)" = "11" ]
+@test "sub-second suite time is kept in milliseconds, not rounded up first" {
+    # K=6600, s=0.5 -> ceil(3300000/600000)=6 -> clamped to 10 (rounding s to 1 would give 11)
+    [ "$(weak_n pi 6600 0.5)" = "10" ]
+    # K=12100, s=0.5 -> ceil(6050000/600000)=11
+    [ "$(weak_n pi 12100 0.5)" = "11" ]
+    # one millisecond over the boundary: K=6000, s=1.001 -> 6006000/600000 -> 11
+    [ "$(weak_n pi 6000 1.001)" = "11" ]
+    [ "$(weak_n pi 6000 1.000)" = "10" ]
 }
 
 @test "weakening rows carry the exact shape and the plan line keeps the pinned text" {
@@ -493,4 +501,119 @@ assert len(w) == 10 and {x["mode"] for x in w} == {"weakening"}
 
 @test "leading-zero K and s are read as decimal" {
     [ "$(weak_n pi 08 09)" = "10" ]
+}
+
+@test "K with a fractional part fails closed with the named message" {
+    weak_fix pi 1.5 1
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"pi: mutant count is not a non-negative number"* ]]
+}
+
+@test "PY_TEST_DIRS with a dir and its trailing-slash twin plans 10 rows once" {
+    weak_fix pi 100 1
+    PY_TEST_DIRS="pi pi/" run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -eq 0 ]
+    [ "$(wc -l <"${PLAN_OUT}/plan.txt")" -eq 1 ]
+    run python3 -I -c 'import json,sys; assert len(json.load(open(sys.argv[1])))==10' "${PLAN_OUT}/units.json"
+    [ "${status}" -eq 0 ]
+}
+
+# Real K path: the seam is unset, so the planner builds the whole-module diff and runs the (mock) make.
+real_k_setup() {
+    unset MUTATION_PR_WEAKENING_K
+    WORKDIR="${BATS_TEST_TMPDIR}/work"
+    mkdir -p "${WORKDIR}/pi"
+    printf 'a = 1\nb = 2\n' >"${WORKDIR}/pi/pi.py"
+    printf '[[equivalent]]\nline = 1\n' >"${WORKDIR}/pi/mutants-equivalent.toml"
+    printf '5' >"${FIX}/pi.s"
+    cd "${WORKDIR}" || return 1
+}
+
+@test "real K path hands mutants-diff-plan a whole-module diff with the toml" {
+    real_k_setup
+    printf 'excluded 2 of 102 (re-confirm: diff, 2 on changed lines)\nkept 100 of 102 (lines 3)\n' >"${FIX}/pi.out"
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -eq 0 ]
+    [ "$(cat "${PLAN_OUT}/plan.txt")" = "$(printf 'pi\tgreen\t100 mutants in 10 shards')" ]
+    grep -qxF -- '+++ b/pi.py' "${FIX}/pi.seen"
+    grep -qxF -- '+++ b/mutants-equivalent.toml' "${FIX}/pi.seen"
+    grep -qxF -- '@@ -0,0 +1,2 @@' "${FIX}/pi.seen"
+}
+
+@test "real K path rejects a duplicated excluded line" {
+    real_k_setup
+    printf 'excluded 0 of 5 (re-confirm: diff, 0 on changed lines)\nexcluded 0 of 5 (re-confirm: diff, 0 on changed lines)\nkept 5 of 5 (lines 2)\n' >"${FIX}/pi.out"
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"pi: mutant count"* ]]
+}
+
+@test "real K path rejects kept greater than total" {
+    real_k_setup
+    printf 'excluded 0 of 5 (re-confirm: diff, 0 on changed lines)\nkept 6 of 5 (lines 2)\n' >"${FIX}/pi.out"
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -ne 0 ]
+}
+
+@test "real K path rejects kept before excluded" {
+    real_k_setup
+    printf 'kept 5 of 5 (lines 2)\nexcluded 0 of 5 (re-confirm: diff, 0 on changed lines)\n' >"${FIX}/pi.out"
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -ne 0 ]
+}
+
+@test "real K path fails closed when make fails" {
+    real_k_setup
+    printf 'excluded 0 of 5 (re-confirm: diff, 0 on changed lines)\nkept 5 of 5 (lines 2)\n' >"${FIX}/pi.out"
+    printf '1' >"${FIX}/pi.rc"
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -ne 0 ]
+}
+
+@test "real K path fails closed when the module is missing" {
+    real_k_setup
+    rm pi/pi.py
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"pi: mutant count"* ]]
+}
+
+# Real suite-time path: stub python3 (and timeout) on PATH.
+real_s_setup() {
+    unset MUTATION_PR_SUITE_SECONDS
+    WORKDIR="${BATS_TEST_TMPDIR}/work"
+    mkdir -p "${WORKDIR}/pi"
+    printf '100' >"${FIX}/pi.k"
+    cd "${WORKDIR}" || return 1
+    cat >"${BATS_TEST_TMPDIR}/bin/python3" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s %s %s %s\n' "${PYTHONHASHSEED-unset}" "${PYTHONDONTWRITEBYTECODE-unset}" "$(basename "${PWD}")" "$*" >"${FIX}/python3.seen"
+exit "${STUB_PY_RC:-0}"
+MOCK
+    chmod +x "${BATS_TEST_TMPDIR}/bin/python3"
+}
+
+@test "real suite-time path runs the suite under the shard's environment" {
+    real_s_setup
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -eq 0 ]
+    [ "$(cat "${FIX}/python3.seen")" = "0 1 pi -m unittest test_pi" ]
+    run python3 -I -c 'import json,sys; assert len(json.load(open(sys.argv[1])))==10' "${PLAN_OUT}/units.json"
+}
+
+@test "real suite-time path fails closed when the suite fails" {
+    real_s_setup
+    STUB_PY_RC=1 PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"pi: suite time"* ]]
+}
+
+@test "real suite-time path fails closed on a timeout (rc 124) naming the dir" {
+    real_s_setup
+    printf '#!/usr/bin/env bash\nexit 124\n' >"${BATS_TEST_TMPDIR}/bin/timeout"
+    chmod +x "${BATS_TEST_TMPDIR}/bin/timeout"
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"pi: suite timed out"* ]]
 }

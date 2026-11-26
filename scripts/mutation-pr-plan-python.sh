@@ -23,11 +23,12 @@ readonly SHARD_SIZE=150
 readonly MAX_SHARDS=10
 readonly WEAK_MIN_SHARDS=10
 readonly WEAK_MAX_SHARDS=40
-readonly WEAK_BUDGET_SECONDS=600
+readonly WEAK_BUDGET_MS=600000
 readonly TAB=$'\t'
 readonly FENCE=$'\x60\x60\x60'
 
 # Overridable so tests can substitute the diff writer.
+readonly WHOLE_MODULE_DIFF="${MUTATION_WHOLE_MODULE_DIFF:-$(dirname "${BASH_SOURCE[0]}")/mutation-whole-module-diff.sh}"
 readonly DIFF_SCRIPT="${MUTATION_PR_DIFF:-$(dirname "${BASH_SOURCE[0]}")/mutation-pr-diff.sh}"
 
 # Shard count: min(MAX_SHARDS, max(1, ceil(K / SHARD_SIZE))).
@@ -56,6 +57,38 @@ json_escape() {
     printf '%s' "${s}"
 }
 
+# Strict parse of the prune summary (stdout of `make mutants-diff-plan`): exactly one `excluded`
+# line, then exactly one `kept K of T (lines L)` line, K <= T. Sets P_KEPT, P_TOTAL, P_LINES
+# (decimal, leading zeros stripped); returns 1 on anything else.
+parse_prune_summary() {
+    local out="$1" line bad=0 excl_n=0 kept_n=0
+    local re_kept='^kept ([0-9]+) of ([0-9]+) \(lines ([0-9]+)\)$'
+    local re_excl='^excluded [0-9]+ of [0-9]+ \(re-confirm: .*\)$'
+    P_KEPT="" P_TOTAL="" P_LINES=""
+    while IFS= read -r line; do
+        line="${line//$'\r'/}"
+        if [[ "${line}" =~ ${re_kept} ]]; then
+            # Exactly one kept line, and only after the excluded line.
+            ((kept_n > 0 || excl_n == 0)) && bad=1
+            ((kept_n++))
+            P_KEPT="${BASH_REMATCH[1]}"
+            P_TOTAL="${BASH_REMATCH[2]}"
+            P_LINES="${BASH_REMATCH[3]}"
+        elif [[ "${line}" =~ ${re_excl} ]]; then
+            ((excl_n > 0 || kept_n > 0)) && bad=1
+            ((excl_n++))
+        fi
+    done <<<"${out}"
+    ((bad == 0 && (excl_n != 1 || kept_n != 1))) && bad=1
+    ((bad == 0 && 10#${P_KEPT} > 10#${P_TOTAL})) && bad=1
+    ((bad != 0)) && return 1
+    # Force base 10: a leading zero must not read as octal.
+    P_KEPT=$((10#${P_KEPT}))
+    P_TOTAL=$((10#${P_TOTAL}))
+    P_LINES=$((10#${P_LINES}))
+    return 0
+}
+
 # Plans one dir. Sets PLAN_LINE (without dir) and appends to UNITS.
 # Full stderr goes to the summary through SUMMARY_BODY.
 plan_dir() {
@@ -80,30 +113,10 @@ plan_dir() {
         return 0
     fi
 
-    local kept="" total="" lines="" line bad=0 excl_n=0 kept_n=0
-    local re_kept='^kept ([0-9]+) of ([0-9]+) \(lines ([0-9]+)\)$'
-    local re_excl='^excluded [0-9]+ of [0-9]+ \(re-confirm: .*\)$'
-    while IFS= read -r line; do
-        line="${line//$'\r'/}"
-        if [[ "${line}" =~ ${re_kept} ]]; then
-            # Exactly one kept line, and only after the excluded line.
-            ((kept_n > 0 || excl_n == 0)) && bad=1
-            ((kept_n++))
-            kept="${BASH_REMATCH[1]}"
-            total="${BASH_REMATCH[2]}"
-            lines="${BASH_REMATCH[3]}"
-        elif [[ "${line}" =~ ${re_excl} ]]; then
-            ((excl_n > 0 || kept_n > 0)) && bad=1
-            ((excl_n++))
-        fi
-    done <<<"${out}"
-
-    if ((bad == 0 && (excl_n != 1 || kept_n != 1))); then
-        bad=1
-    fi
-    if ((bad == 0 && 10#${kept} > 10#${total})); then
-        bad=1
-    fi
+    local kept lines bad=0
+    parse_prune_summary "${out}" || bad=1
+    kept="${P_KEPT}"
+    lines="${P_LINES}"
     if ((bad != 0)); then
         SUMMARY_BODY+="${dir}: unparseable prune output:"$'\n'"${out}"$'\n'
         PLAN_LINE="red${TAB}unparseable prune output: $(flatten "${out}")"
@@ -114,9 +127,6 @@ plan_dir() {
         return 0
     fi
 
-    # Force base 10: a leading zero must not read as octal.
-    kept=$((10#${kept}))
-    lines=$((10#${lines}))
     if ((lines == 0)); then
         PLAN_LINE="red${TAB}lines 0"
         if [[ -n "${err}" ]]; then
@@ -136,38 +146,41 @@ plan_dir() {
     return 0
 }
 
-# Real K measurement: the head prune over a diff that adds the whole module, so every
-# non-equivalent mutant is "on a changed line". Prints K.
+# Real K measurement: the head prune over the whole-module diff (mutation-whole-module-diff.sh,
+# shared with the weakening head session), so every non-equivalent mutant counts. Prints K.
 whole_module_mutant_count() {
-    local dir="$1" module diff_file out empty_tree
-    module="${dir//-/_}.py"
+    local dir="$1" diff_file out
     diff_file="${WORK}/${dir//\//_}.whole.diff"
-    empty_tree="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git hash-object -t tree /dev/null)" || return 1
-    env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
-        git -c core.quotePath=false diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ \
-        --relative="${dir}/" "${empty_tree}" HEAD -- "${dir}/${module}" >"${diff_file}" || return 1
+    "${WHOLE_MODULE_DIFF}" "${dir}" "${diff_file}" || return 1
     out="$(make -C "${dir}" mutants-diff-plan DIFF="${diff_file}")" || return 1
-    local re_kept='^kept ([0-9]+) of [0-9]+ \(lines [0-9]+\)$' line count=""
-    while IFS= read -r line; do
-        [[ "${line//$'\r'/}" =~ ${re_kept} ]] && count="${BASH_REMATCH[1]}"
-    done <<<"${out}"
-    [[ -n "${count}" ]] || return 1
-    printf '%s\n' "${count}"
+    parse_prune_summary "${out}" || {
+        printf '%s: unparseable prune output: %s\n' "${dir}" "$(flatten "${out}")" >&2
+        return 1
+    }
+    printf '%s\n' "${P_KEPT}"
 }
 
-# Real s measurement: wall seconds of the head suite on the unmutated module. Prints seconds.
+# Real s measurement: wall time of the head suite on the unmutated module, under the shard's
+# environment (fixed hash seed, no bytecode writes), capped at 600 s. Prints seconds as S.mmm.
 head_suite_seconds() {
-    local dir="$1" start end
-    start="${EPOCHREALTIME}"
-    (cd "${dir}" && python3 -m unittest "test_${dir//-/_}" >/dev/null 2>&1 </dev/null) || return 1
-    end="${EPOCHREALTIME}"
-    printf '%s\n' "$(((${end/./} - ${start/./}) / 1000000)).$((((${end/./} - ${start/./}) % 1000000 + 999999) / 1000000))"
+    local dir="$1" start end rc ms
+    start="${EPOCHREALTIME/[.,]/}"
+    (cd "${dir}" && env PYTHONHASHSEED=0 PYTHONDONTWRITEBYTECODE=1 timeout 600 python3 -m unittest "test_${dir//-/_}" >/dev/null 2>&1 </dev/null)
+    rc=$?
+    if ((rc == 124)); then
+        printf '%s: suite timed out after 600 s\n' "${dir}" >&2
+        return 1
+    fi
+    ((rc == 0)) || return 1
+    end="${EPOCHREALTIME/[.,]/}"
+    ms=$(((end - start + 999) / 1000))
+    printf '%s.%03d\n' "$((ms / 1000))" "$((ms % 1000))"
 }
 
 # Runs a seam (the env override, else the real measurement) and validates its output as a
 # non-negative decimal. Prints it; returns 1 with a message naming the dir and the quantity.
 measure() {
-    local what="$1" dir="$2" seam="$3" fallback="$4" value
+    local what="$1" dir="$2" seam="$3" fallback="$4" re="$5" value
     if [[ -n "${seam}" ]]; then
         value="$("${seam}" "${dir}")" || {
             printf '%s: %s command failed\n' "${dir}" "${what}" >&2
@@ -179,27 +192,30 @@ measure() {
             return 1
         }
     fi
-    if [[ ! "${value}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    if [[ ! "${value}" =~ ${re} ]]; then
         printf '%s: %s is not a non-negative number: %q\n' "${dir}" "${what}" "${value}" >&2
         return 1
     fi
     printf '%s\n' "${value}"
 }
 
-# Whole seconds, rounded up: "0.4" -> 1, "3.0" -> 3, "08" -> 8.
-ceil_seconds() {
+# Decimal seconds to whole milliseconds, rounded up: "0.5" -> 500, "1.0005" -> 1001, "08" -> 8000.
+seconds_to_ms() {
     local value="$1" whole frac=""
     whole="${value%%.*}"
     [[ "${value}" == *.* ]] && frac="${value#*.}"
-    whole=$((10#${whole}))
-    [[ "${frac}" =~ [1-9] ]] && ((whole++))
-    printf '%s\n' "${whole}"
+    local head="${frac:0:3}" rest="${frac:3}"
+    head="${head}000"
+    head="${head:0:3}"
+    local ms=$((10#${whole} * 1000 + 10#${head}))
+    [[ "${rest}" =~ [1-9] ]] && ((ms++))
+    printf '%s\n' "${ms}"
 }
 
-# Shard count: min(40, max(10, ceil(K * s / 600))), integer arithmetic only.
+# Shard count per R6: min(40, max(10, ceil(K * s / 600))) with s in integer milliseconds.
 weakening_shard_count() {
-    local kept="$1" secs="$2" n
-    n=$(((kept * secs + WEAK_BUDGET_SECONDS - 1) / WEAK_BUDGET_SECONDS))
+    local kept="$1" ms="$2" n
+    n=$(((kept * ms + WEAK_BUDGET_MS - 1) / WEAK_BUDGET_MS))
     ((n < WEAK_MIN_SHARDS)) && n="${WEAK_MIN_SHARDS}"
     ((n > WEAK_MAX_SHARDS)) && n="${WEAK_MAX_SHARDS}"
     printf '%s\n' "${n}"
@@ -209,11 +225,10 @@ weakening_shard_count() {
 # Returns 1 (fail closed) when K or s cannot be measured.
 plan_weakening_dir() {
     local dir="$1" kept secs n k
-    kept="$(measure 'mutant count' "${dir}" "${MUTATION_PR_WEAKENING_K:-}" whole_module_mutant_count)" || return 1
-    secs="$(measure 'suite time' "${dir}" "${MUTATION_PR_SUITE_SECONDS:-}" head_suite_seconds)" || return 1
+    kept="$(measure 'mutant count' "${dir}" "${MUTATION_PR_WEAKENING_K:-}" whole_module_mutant_count '^[0-9]+$')" || return 1
+    secs="$(measure 'suite time' "${dir}" "${MUTATION_PR_SUITE_SECONDS:-}" head_suite_seconds '^[0-9]+(\.[0-9]+)?$')" || return 1
     kept=$((10#${kept}))
-    secs="$(ceil_seconds "${secs}")"
-    n="$(weakening_shard_count "${kept}" "${secs}")" || return 1
+    n="$(weakening_shard_count "${kept}" "$(seconds_to_ms "${secs}")")" || return 1
     PLAN_LINE="green${TAB}${kept} mutants in ${n} shards"
     for ((k = 0; k < n; k++)); do
         UNITS+=("{\"dir\":\"$(json_escape "${dir}")\",\"k\":${k},\"n\":${n},\"mode\":\"weakening\"}")
