@@ -25,6 +25,11 @@
 #      loads no PATH-based git mock (load_mocks() is opt-in per-test, not
 #      global), so tests/scripts/bash_coverage.bats invokes the script
 #      directly rather than through a PATH-strip wrapper.
+#   6. The hook-copy alias (ADR-0099 2A): the trace filter also passes
+#      `/covalias/` paths, and `_covalias_target` / `_merge_alias_traces`
+#      credit them to the tracked file, intersected with its static coverable
+#      lines. A wholesale re-copy from dotfiles must keep this or the hook's
+#      coverage drops to the copy-blind figure.
 # Everything else — the coverable-line heuristic, the trace filter, the
 # union/disagreement computation, the red-suite refusal — is unchanged from
 # the source and should be re-copied wholesale on the next defect fix there,

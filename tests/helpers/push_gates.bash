@@ -3,7 +3,8 @@
 # from a COPY whose `_pcg_fetch` is a fake, so no test reaches the network while the
 # push-gates wiring (ADR-0099 2A) still executes. The fake serves the ai-config master
 # commit JSON and a recorder `push_gates_run` for the gates paths, falls through to the
-# real fetch (the gh stub fails it) only for the push-content gate library, and fails
+# real fetch only for the push-content gate library, which only a master/main push asks
+# for (pre_push.bats' gh mock fails it; pre_push_budget.bats never pushes master), and fails
 # every other path. Every fetched path is appended to FETCH_LOG.
 #
 # The copy is LINE-PRESERVING and lives at <dir>/covalias/scripts/pre-push: every line is
