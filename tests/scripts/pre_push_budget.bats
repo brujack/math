@@ -16,6 +16,10 @@ setup() {
 
     REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
     REAL_GIT="$(command -v git)"
+    # A line-preserving copy of the hook whose _pcg_fetch is a fake, so no test reaches GitHub.
+    source "${REPO_ROOT}/tests/helpers/push_gates.bash"
+    pg_env "${BATS_TEST_TMPDIR}" || return 1
+    PG_HOOK="$(pg_hook_copy "${REPO_ROOT}/scripts/pre-push")" || return 1
     export MOCK_CALLS_FILE="${BATS_TEST_TMPDIR}/make_calls"
     : > "${MOCK_CALLS_FILE}"
 
@@ -45,7 +49,7 @@ head_sha() { "${REAL_GIT}" -C "${FIX}" rev-parse HEAD; }
 # Runs the hook in the fixture with a one-ref (or multi-line) push on stdin.
 run_hook() {
     cd "${FIX}" || return 1
-    PATH="${STUBS}:${PATH}" run bash "${REPO_ROOT}/scripts/pre-push" <<< "$1"
+    PATH="${STUBS}:${PATH}" run bash "${PG_HOOK}" <<< "$1"
 }
 
 @test "CLAUDE.md-only push over 30000 bytes is refused" {
@@ -65,6 +69,7 @@ run_hook() {
     sha="$(head_sha)"
     run_hook "refs/heads/feat ${sha} refs/heads/feat ${ZEROS}"
     [ "$status" -eq 1 ]
+    [[ "${output}" == *"refusing ${sha}"* ]]
     [ ! -s "${MOCK_CALLS_FILE}" ]
 }
 
