@@ -1,0 +1,8 @@
+Self-check: Riemann–Siegel and Euler–Maclaurin agree on [200, 300] (8 points)
+Turing bound: N(g_M) <= M+1 established at g_M = 10000000.349478
+Isolating zeros in 0 < t <= 10000000 (48 threads)...
+
+RH verified: all 21136125 nontrivial zeros with 0 < Im s <= 10000000 lie on Re s = 1/2 and are simple
+Gram blocks: 17946632   Rosser exceptions: 1   max precision: 128 bits
+Saved zeta_1e7.txt
+Elapsed: 3724.0 s

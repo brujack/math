@@ -1,0 +1,35 @@
+Self-check: Riemann–Siegel and Euler–Maclaurin agree on [200, 300] (8 points)
+Turing bound: N(g_M) <= M+1 established at g_M = 10000000.349478
+Isolating zeros in 0 < t <= 10000000 (48 threads)...
+
+RH verified: all 21136125 nontrivial zeros with 0 < Im s <= 10000000 lie on Re s = 1/2 and are simple
+Gram blocks: 17946632   Rosser exceptions: 1   max precision: 128 bits
+Saved zeta_1e7.txt
+Elapsed: 129126.8 s
+
+Spacing histogram: delta_n = (t_(n+1) - t_n) ln(t_n / 2 pi) / 2 pi, 21136124 spacings
+  s            count  observed   Wigner p(s)
+  0.00-0.15    67702    0.0214        0.0181
+  0.15-0.30   456883    0.1441        0.1539
+  0.30-0.45  1136198    0.3584        0.3812
+  0.45-0.60  1928338    0.6082        0.6292
+  0.60-0.75  2610083    0.8233        0.8270
+  0.75-0.90  2996149    0.9450        0.9277
+  0.90-1.05  3008626    0.9490        0.9188
+  1.05-1.20  2682246    0.8460        0.8191
+  1.20-1.35  2157970    0.6807        0.6652
+  1.35-1.50  1581339    0.4988        0.4962
+  1.50-1.65  1062415    0.3351        0.3418
+  1.65-1.80   661811    0.2087        0.2183
+  1.80-1.95   384579    0.1213        0.1297
+  1.95-2.10   208292    0.0657        0.0718
+  2.10-2.25   105930    0.0334        0.0371
+  2.25-2.40    50704    0.0160        0.0180
+  2.40-2.55    22404    0.0071        0.0081
+  2.55-2.70     9387    0.0030        0.0035
+  2.70-2.85     3510    0.0011        0.0014
+  2.85-3.00     1169    0.0004        0.0005
+KS distance to the Wigner surmise CDF: 0.0092
+Largest w_n: 3.89e-3
+The Wigner surmise approximates the exact GUE spacing law to within about 1%;
+independent random points (Poisson) would instead peak at s = 0.

@@ -1,0 +1,111 @@
+progress: 26399/1747147 Gram points, t = 1360.750
+progress: 47395/1747147 Gram points, t = 2001.098
+progress: 69625/1747147 Gram points, t = 2956.508
+progress: 93097/1747147 Gram points, t = 3755.141
+progress: 118079/1747147 Gram points, t = 4653.555
+progress: 143056/1747147 Gram points, t = 5525.305
+progress: 168141/1747147 Gram points, t = 6342.604
+progress: 193214/1747147 Gram points, t = 7018.828
+progress: 218656/1747147 Gram points, t = 7923.988
+progress: 245639/1747147 Gram points, t = 8801.842
+progress: 271749/1747147 Gram points, t = 9648.052
+progress: 297515/1747147 Gram points, t = 10449.520
+progress: 323232/1747147 Gram points, t = 11228.509
+progress: 349040/1747147 Gram points, t = 11977.881
+progress: 375284/1747147 Gram points, t = 12700.457
+progress: 400274/1747147 Gram points, t = 13332.396
+progress: 425267/1747147 Gram points, t = 13753.965
+progress: 451967/1747147 Gram points, t = 14402.286
+progress: 479333/1747147 Gram points, t = 15023.435
+progress: 505094/1747147 Gram points, t = 15665.402
+progress: 532217/1747147 Gram points, t = 16349.571
+progress: 560718/1747147 Gram points, t = 17018.988
+progress: 588055/1747147 Gram points, t = 17679.553
+progress: 614994/1747147 Gram points, t = 18372.455
+progress: 642171/1747147 Gram points, t = 19138.879
+progress: 668923/1747147 Gram points, t = 19767.366
+progress: 695633/1747147 Gram points, t = 20384.833
+progress: 723210/1747147 Gram points, t = 20964.371
+progress: 750690/1747147 Gram points, t = 21545.029
+progress: 778570/1747147 Gram points, t = 22155.312
+progress: 806703/1747147 Gram points, t = 22916.056
+progress: 835298/1747147 Gram points, t = 23498.915
+progress: 862861/1747147 Gram points, t = 37912.853
+progress: 891495/1747147 Gram points, t = 38573.343
+progress: 919501/1747147 Gram points, t = 39916.302
+progress: 946441/1747147 Gram points, t = 40350.858
+progress: 972873/1747147 Gram points, t = 40937.307
+progress: 1001096/1747147 Gram points, t = 42475.889
+progress: 1028745/1747147 Gram points, t = 43275.862
+progress: 1055804/1747147 Gram points, t = 98640.087
+progress: 1081543/1747147 Gram points, t = 103069.827
+progress: 1106860/1747147 Gram points, t = 103418.067
+progress: 1132672/1747147 Gram points, t = 103852.227
+progress: 1158814/1747147 Gram points, t = 104325.643
+progress: 1184182/1747147 Gram points, t = 104693.486
+progress: 1210275/1747147 Gram points, t = 105231.114
+progress: 1235811/1747147 Gram points, t = 105765.231
+progress: 1260994/1747147 Gram points, t = 106287.455
+progress: 1286765/1747147 Gram points, t = 106767.487
+progress: 1312669/1747147 Gram points, t = 107325.311
+progress: 1333655/1747147 Gram points, t = 107754.600
+progress: 1351640/1747147 Gram points, t = 180407.972
+progress: 1376069/1747147 Gram points, t = 180863.313
+progress: 1400781/1747147 Gram points, t = 181160.081
+progress: 1424206/1747147 Gram points, t = 181527.151
+progress: 1446351/1747147 Gram points, t = 181947.358
+progress: 1468508/1747147 Gram points, t = 182416.385
+progress: 1491060/1747147 Gram points, t = 182828.445
+progress: 1513633/1747147 Gram points, t = 183276.474
+progress: 1536004/1747147 Gram points, t = 183607.078
+progress: 1558465/1747147 Gram points, t = 183919.908
+progress: 1580742/1747147 Gram points, t = 719011.699
+progress: 1602692/1747147 Gram points, t = 719324.565
+progress: 1624766/1747147 Gram points, t = 719653.600
+progress: 1647372/1747147 Gram points, t = 719964.284
+progress: 1669546/1747147 Gram points, t = 720266.327
+progress: 1692651/1747147 Gram points, t = 721045.115
+progress: 1715074/1747147 Gram points, t = 721362.759
+progress: 1740045/1747147 Gram points, t = 721888.542
+progress: 1747147/1747147 Gram points, t = 1000000.258
+progress: 139575/1512390 Gram blocks, t = 12645.133
+progress: 242135/1512390 Gram blocks, t = 18918.618
+progress: 333503/1512390 Gram blocks, t = 85802.908
+progress: 420509/1512390 Gram blocks, t = 89059.529
+progress: 511953/1512390 Gram blocks, t = 92465.467
+progress: 597617/1512390 Gram blocks, t = 94584.911
+progress: 683369/1512390 Gram blocks, t = 96576.253
+progress: 767949/1512390 Gram blocks, t = 109205.541
+progress: 848120/1512390 Gram blocks, t = 114270.767
+progress: 922246/1512390 Gram blocks, t = 181216.981
+progress: 989722/1512390 Gram blocks, t = 322717.710
+progress: 1062547/1512390 Gram blocks, t = 323640.372
+progress: 1141139/1512390 Gram blocks, t = 324680.320
+progress: 1219360/1512390 Gram blocks, t = 326072.421
+progress: 1297159/1512390 Gram blocks, t = 342561.799
+progress: 1372107/1512390 Gram blocks, t = 369799.471
+progress: 1445438/1512390 Gram blocks, t = 639221.322
+progress: 1512390/1512390 Gram blocks, t = 1000000.258
+	Command being timed: "zeta-f935b23 6 --refine"
+	User time (seconds): 162371.16
+	System time (seconds): 74.82
+	Percent of CPU this job got: 4180%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:04:45
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 403988
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 186218
+	Voluntary context switches: 4440
+	Involuntary context switches: 16960293
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 0
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

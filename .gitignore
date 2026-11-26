@@ -56,6 +56,7 @@ descartes_1e*.txt
 sq_1e*.txt
 twin-primes_1e*.txt
 zeta_1e*.txt
+!tests/fixtures/zeta_results/**/zeta_1e3.txt
 e_*_digits.txt
 factorial_*.txt
 perfect-numbers_1e*.txt

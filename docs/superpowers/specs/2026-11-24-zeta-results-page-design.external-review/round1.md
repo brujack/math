@@ -27,7 +27,7 @@ All five have bracket widths between 5.9e-6 and 7.3e-5, which is far wider than 
 - The N = 3 fixture pins S = 0, and every rule gives 0 there.
 - The synthetic test sits at g₀ ≈ 17.85, where the tolerance is only 1.8e-8.
 
-**Measurement.** I wrote my own Newton-on-θ plus bisect script (Python 3.15.2, Linux, over `/home/bruce/zeta-runs/{tr3,tr4,r5}`). Shares and counts match the spec exactly. S at N = 5 under each rule:
+**Measurement.** I wrote my own Newton-on-θ plus bisect script (Python 3.15.2, Linux, over the operator's run store (tr3, tr4, r5) [path redacted 2026-11-26, N7]). Shares and counts match the spec exactly. S at N = 5 under each rule:
 
 | Rule | S | Gram points snapped to an endpoint |
 |---|---|---|
@@ -45,7 +45,7 @@ The one case the tolerance exists for is g = 15789.05, which is 1.8e-12 from `a`
 
 ## F1.2 The run store lacks the refined N = 6 and N = 7 runs that R18, V2 and V4 require
 
-**Defect.** Facts says every run directory the page needs lives in `~/zeta-runs/`. The store actually holds t2, t3, t4, n5, n6, n7, tr3, tr4 and r5. It has no r6 and no r7. The review's "settled by `r6/rc.txt`" points to a directory that is not in the durable store. If it still exists, it is presumably in RAM-backed scratch.
+**Defect.** Facts says every run directory the page needs lives in the operator's run store [path redacted 2026-11-26, N7]. The store actually holds t2, t3, t4, n5, n6, n7, tr3, tr4 and r5. It has no r6 and no r7. The review's "settled by `r6/rc.txt`" points to a directory that is not in the durable store. If it still exists, it is presumably in RAM-backed scratch.
 
 **Failure.**
 - R18 (refined N = 3–7) cannot be generated.
