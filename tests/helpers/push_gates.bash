@@ -49,7 +49,8 @@ WRAP
 }
 
 # pg_hook_copy <hook> -- writes an executable line-preserving copy of <hook> and prints
-# its path. The original `_pcg_fetch` body goes into the fake file as `_pcg_fetch_real`.
+# its path. The original `_pcg_fetch` body stays in the copy, verbatim, under the name
+# `_pcg_fetch_real` (only its header line is rewritten), so its lines trace as the real hook's.
 # Fails loudly when the markers or header are not where expected, or the line counts differ.
 pg_hook_copy() {
   local hook="${1}" copy="${PG_DIR}/covalias/scripts/pre-push" start end
@@ -88,14 +89,14 @@ _pg_fake_fetch() {
   esac
 }
 FAKE
-    awk -v s="${start}" -v e="${end}" 'NR > s && NR < e { sub(/^_pcg_fetch\(\)/, "_pcg_fetch_real()"); print }' "${hook}"
   } > "${PG_FAKE_FETCH}" || return 1
-  awk -v s="${start}" -v e="${end}" -v t="${tramp}" 'NR == s { print t; next } NR > s && NR < e { print ""; next } { print }' "${hook}" > "${copy}" || return 1
-  # Same line count, the trampoline exactly on the opening marker line, every line up to the
-  # closing marker empty, and the closing marker line unchanged.
+  awk -v s="${start}" -v e="${end}" -v t="${tramp}" 'NR == s { print t; next } NR == s + 1 { print "_pcg_fetch_real() {"; next } { print }' "${hook}" > "${copy}" || return 1
+  # Same line count, the trampoline exactly on the opening marker line, the header line renamed,
+  # every body line up to the closing marker byte-identical, and the closing marker unchanged.
   if [[ "$(wc -l < "${copy}")" -ne "$(wc -l < "${hook}")" ]] \
     || [[ "$(sed -n "${start}p" "${copy}")" != "${tramp}" ]] \
-    || [[ -n "$(sed -n "$((start + 1)),$((end - 1))p" "${copy}" | tr -d '\n')" ]] \
+    || [[ "$(sed -n "$((start + 1))p" "${copy}")" != "_pcg_fetch_real() {" ]] \
+    || ! cmp -s <(sed -n "$((start + 2)),$((end - 1))p" "${copy}") <(sed -n "$((start + 2)),$((end - 1))p" "${hook}") \
     || [[ "$(sed -n "${end}p" "${copy}")" != "$(sed -n "${end}p" "${hook}")" ]]; then
     printf 'pg_hook_copy: copy of %s is not line-preserving\n' "${hook}" >&2
     return 1

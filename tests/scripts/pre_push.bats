@@ -729,7 +729,7 @@ run_in_pgroup() {
     ' _ "$1"
 }
 
-@test "wiring: a feature-only push makes no gh call" {
+@test "wiring: on a feature-only push the content-gate wiring makes no gh call" {
     wiring_setup
     run bash "${PG_HOOK}" \
         <<< "refs/heads/feat ${WIRING_LOCAL} refs/heads/feat ${WIRING_REMOTE}"
@@ -806,7 +806,7 @@ run_in_pgroup() {
 # watchdog rather than by hanging the suite.
 @test "wiring: an unreadable stdin refuses before any gh call" {
     wiring_setup
-    run_in_pgroup "bash -p '${REPO_ROOT}/scripts/pre-push' <&- 2>&1"
+    run_in_pgroup "bash '${PG_HOOK}' <&- 2>&1"
     [ "$status" -eq 1 ]
     [[ "${output}" == *"cannot read the pushed refs"* ]]
     assert_no_match "^gh "
