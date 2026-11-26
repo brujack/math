@@ -299,7 +299,7 @@ write_required() {
     export MOCK_GH_CHECK_RUNS_1='{"name":"Test pi-rs","status":"completed","conclusion":"success"}'
     run "${REPO_ROOT}/scripts/ci-gate.sh" 42 2>&1
     [ "$status" -eq 1 ]
-    [[ "$output" == *"required-checks file"* ]]
+    [[ "$output" == *"Cannot read"* ]]
     [ ! -e "${MOCK_GH_COUNTER_FILE}" ]
 }
 
@@ -320,8 +320,17 @@ write_required() {
     [ "$(cat "${MOCK_GH_COUNTER_FILE}")" -eq 1 ]
 }
 
+@test "default required-checks path is the tracked file: unregistered mutation-pr times out → exit 1" {
+    unset REQUIRED_CHECKS_FILE
+    export MOCK_GH_CHECK_RUNS='{"name":"Test pi-rs","status":"completed","conclusion":"success"}'
+    export CI_GATE_MAX_POLLS=2
+    run "${REPO_ROOT}/scripts/ci-gate.sh" 42 2>&1
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"mutation-pr"* ]]
+}
+
 @test "the tracked required-checks file lists secret-scan and mutation-pr only" {
-    run grep -v -e '^#' -e '^[[:space:]]*$' "${REPO_ROOT}/.github/required-status-checks"
+    run bash -c "sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*\$//' '${REPO_ROOT}/.github/required-status-checks' | awk 'NF'"
     [ "$status" -eq 0 ]
     [ "$output" = "secret-scan
 mutation-pr" ]
