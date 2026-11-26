@@ -11,13 +11,23 @@ breaks a later assertion looks identical to the unmutated module. This runner re
 every assertion statement so a failure is recorded and execution continues, then
 reduces each test to a signature that contains no exception messages:
 
-    {test_id: {"outcome": ..., "sites": [[line, params, nth, exc_type]], "error": [type, line] | null}}
+    {test_id: {"outcome": ..., "sites": [[line, params, nth, exc_type], ...],
+               "error": [[exc_type, line], ...]}}
 
-`record` writes the signature of the unmutated module. `compare` exits 1 when a test's
-outcome or error differs from the recording, or a failure site absent from the
-recording appears; a site that already failed in the recording never counts, whatever
-its message. The rewritten tree is compiled under the original filename, so every line
+- `outcome` is one of pass, fail, error, skip, expected-failure, unexpected-success.
+- `sites` is the sorted set of failure sites; `nth` is the n-th execution of that line
+  in the test (0 for a failure not raised inside a rewritten statement).
+- `error` is the sorted list of distinct (type, innermost base-file line) pairs for
+  errors raised outside assertion statements; empty when there were none.
+
+The test file is loaded under its absolute path, so `__file__` is usable and every line
 number refers to the base test file.
+
+Exit codes: 0 = record written, or compare found no change; 1 = compare found a test
+whose outcome or error differs, a test that appeared or disappeared, or a failure site
+absent from the recording (a site that already failed in the recording never counts,
+whatever its message); 2 = usage error; 3 = internal error (unreadable or invalid
+signature file, unwritable output, runner crash), with one line on stderr.
 """
 
 from __future__ import annotations
@@ -26,6 +36,7 @@ import ast
 import contextlib
 import json
 import os
+import re
 import sys
 import textwrap
 import traceback
@@ -51,19 +62,60 @@ OUTCOME_RANK = {
 # Outcome unittest reports for a test whose failing assertions were all continued.
 CONTINUED_FAILURE_OUTCOME = {"pass": "fail", "unexpected-success": "expected-failure"}
 MODES = ("record", "compare")
+EXIT_CHANGED = 1
+EXIT_USAGE = 2
+EXIT_INTERNAL = 3
 NO_MESSAGE = object()
 RUNTIME_NAME = "_mbr_rt"
+# An author handler naming one of these also catches the failure of an assertion.
+BROAD_EXCEPTIONS = frozenset({"AssertionError", "Exception", "BaseException"})
+# Context managers whose body is expected to raise: their body is left unrewritten.
+EXPECTING_PREFIXES = ("assertRaises", "assertWarns")
+ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+")
 
 
-def is_self_assert_call(node: ast.AST) -> bool:
-    """True for a call of the form `self.assert...(...)`."""
-    return (
+class SignatureError(ValueError):
+    """The signature file is missing its shape."""
+
+
+class PlaceholderError(Exception):
+    """Stands in for the exception a failed `assertRaises` block never captured."""
+
+
+class PlaceholderWarning(Warning):
+    """Stands in for the warning a failed `assertWarns` block never captured."""
+
+
+def self_assert_name(node: ast.AST) -> str | None:
+    """Name `X` of a call `self.X(...)` with X starting `assert`, else None."""
+    if (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and isinstance(node.func.value, ast.Name)
         and node.func.value.id == "self"
         and node.func.attr.startswith("assert")
-    )
+    ):
+        return node.func.attr
+    return None
+
+
+def is_broad_exception(node: ast.expr | None) -> bool:
+    """True for a handler type that catches AssertionError (a bare handler is None)."""
+    if node is None:
+        return True
+    if isinstance(node, ast.Tuple):
+        return any(is_broad_exception(element) for element in node.elts)
+    name = node.id if isinstance(node, ast.Name) else getattr(node, "attr", "")
+    return name in BROAD_EXCEPTIONS
+
+
+def catches_assertions(node: ast.Try | ast.TryStar) -> bool:
+    return any(is_broad_exception(handler.type) for handler in node.handlers)
+
+
+def expects_exception(node: ast.With) -> bool:
+    names = (self_assert_name(item.context_expr) or "" for item in node.items)
+    return any(name.startswith(EXPECTING_PREFIXES) for name in names)
 
 
 def guard(node: ast.stmt, bound_names: list[str]) -> list[ast.stmt]:
@@ -90,27 +142,114 @@ def assert_with_names(node: ast.With) -> list[str]:
     return [
         item.optional_vars.id
         for item in node.items
-        if is_self_assert_call(item.context_expr)
+        if self_assert_name(item.context_expr)
         and isinstance(item.optional_vars, ast.Name)
     ]
 
 
 class AssertionRewriter(ast.NodeTransformer):
-    """Rewrite assertion statements into record-and-continue blocks."""
+    """Rewrite assertion statements into record-and-continue blocks.
+
+    A statement whose failure the test author handles or expects stays unrewritten:
+    inside the body of a `try` with a handler that catches AssertionError, and inside
+    a `with self.assertRaises*` / `assertWarns*` block.
+    """
+
+    def __init__(self) -> None:
+        self.protected = 0
+
+    def visit_block(self, statements: list[ast.stmt], protect: bool) -> list[ast.stmt]:
+        """Visit `statements`, flattening the lists a rewritten statement returns."""
+        self.protected += protect
+        try:
+            result: list[ast.stmt] = []
+            for statement in statements:
+                visited = self.visit(statement)
+                result.extend(visited if isinstance(visited, list) else [visited])
+            return result
+        finally:
+            self.protected -= protect
 
     def visit_Expr(self, node: ast.Expr) -> ast.stmt | list[ast.stmt]:
         self.generic_visit(node)
-        return guard(node, []) if is_self_assert_call(node.value) else node
-
-    def visit_Assert(self, node: ast.Assert) -> list[ast.stmt]:
-        self.generic_visit(node)
+        if self.protected or not self_assert_name(node.value):
+            return node
         return guard(node, [])
 
-    def visit_With(self, node: ast.With) -> ast.stmt | list[ast.stmt]:
+    def visit_Assert(self, node: ast.Assert) -> ast.stmt | list[ast.stmt]:
         self.generic_visit(node)
-        if any(is_self_assert_call(item.context_expr) for item in node.items):
-            return guard(node, assert_with_names(node))
+        return node if self.protected else guard(node, [])
+
+    def visit_With(self, node: ast.With) -> ast.stmt | list[ast.stmt]:
+        body, node.body = node.body, []
+        self.generic_visit(node)
+        node.body = self.visit_block(body, expects_exception(node))
+        if self.protected or not any(
+            self_assert_name(i.context_expr) for i in node.items
+        ):
+            return node
+        return guard(node, assert_with_names(node))
+
+    def visit_Try(self, node: ast.Try | ast.TryStar) -> ast.stmt:
+        body, node.body = node.body, []
+        self.generic_visit(node)
+        node.body = self.visit_block(body, catches_assertions(node))
         return node
+
+    def visit_TryStar(self, node: ast.TryStar) -> ast.stmt:
+        return self.visit_Try(node)
+
+    def visit_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> ast.stmt:
+        """A nested function is judged on its own, outside any enclosing protection."""
+        saved, self.protected = self.protected, 0
+        self.generic_visit(node)
+        self.protected = saved
+        return node
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.stmt:
+        return self.visit_function(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.stmt:
+        return self.visit_function(node)
+
+
+def canonical_repr(value: object) -> str:
+    """`repr` that does not depend on hash order or object addresses."""
+    if isinstance(value, (set, frozenset)):
+        body = ", ".join(sorted(canonical_repr(element) for element in value))
+        if not value:
+            return "set()" if isinstance(value, set) else "frozenset()"
+        return f"{{{body}}}" if isinstance(value, set) else f"frozenset({{{body}}})"
+    if isinstance(value, dict):
+        items = (f"{canonical_repr(k)}: {canonical_repr(v)}" for k, v in value.items())
+        return "{" + ", ".join(items) + "}"
+    if isinstance(value, (list, tuple)):
+        inner = ", ".join(canonical_repr(element) for element in value)
+        if isinstance(value, list):
+            return f"[{inner}]"
+        return f"({inner},)" if len(value) == 1 else f"({inner})"
+    return ADDRESS.sub(" at 0x?", repr(value))
+
+
+def params_key(frames: list[dict[str, object]]) -> str:
+    """Canonical text of the subTest parameters active in `frames`."""
+    merged: dict[str, object] = {}
+    for frame in frames:
+        merged.update(frame)
+    return repr(sorted((name, canonical_repr(value)) for name, value in merged.items()))
+
+
+def type_name(exc: BaseException) -> str:
+    return type(exc).__qualname__
+
+
+def reraised_types() -> tuple[type[BaseException], ...]:
+    """Exceptions that control the test run and must never be recorded as a site."""
+    try:
+        from hypothesis.errors import UnsatisfiedAssumption
+    except ImportError:
+        return (unittest.SkipTest,)
+    return (unittest.SkipTest, UnsatisfiedAssumption)
 
 
 @dataclass
@@ -121,7 +260,7 @@ class TestRecord:
 
     outcome: str | None = None
     sites: set[Site] = field(default_factory=set)
-    error: tuple[str, int] | None = None
+    errors: set[tuple[str, int]] = field(default_factory=set)
 
     def note(self, outcome: str) -> None:
         if self.outcome is None or OUTCOME_RANK[outcome] > OUTCOME_RANK[self.outcome]:
@@ -131,11 +270,10 @@ class TestRecord:
         outcome = self.outcome or "pass"
         if self.sites:
             outcome = CONTINUED_FAILURE_OUTCOME.get(outcome, outcome)
-        error = list(self.error) if self.error else None
         return {
             "outcome": outcome,
             "sites": sorted(list(s) for s in self.sites),
-            "error": error,
+            "error": sorted(list(e) for e in self.errors),
         }
 
 
@@ -155,23 +293,23 @@ class Recorder(unittest.TestResult):
         self._counts[line] = self._counts.get(line, 0) + 1
 
     def fail(self, line: int, exc: Exception) -> None:
-        if isinstance(exc, unittest.SkipTest) or self._current is None:
+        if isinstance(exc, reraised_types()) or self._current is None:
             raise exc
-        nth = self._counts[line]
-        self._current.sites.add(
-            (line, self.params_key(self._params), nth, type_name(exc))
-        )
+        site = (line, params_key(self._params), self._counts[line], type_name(exc))
+        self._current.sites.add(site)
 
     @staticmethod
     def placeholder() -> types.SimpleNamespace:
-        return types.SimpleNamespace(exception=PlaceholderError("placeholder"))
-
-    @staticmethod
-    def params_key(frames: list[dict[str, object]]) -> str:
-        merged: dict[str, object] = {}
-        for frame in frames:
-            merged.update(frame)
-        return repr(sorted((k, repr(v)) for k, v in merged.items()))
+        """Stand-in for the watcher a failed `with self.assert* as name` never bound."""
+        return types.SimpleNamespace(
+            exception=PlaceholderError("placeholder"),
+            output=[],
+            records=[],
+            warning=PlaceholderWarning("placeholder"),
+            warnings=[],
+            filename="",
+            lineno=0,
+        )
 
     def push_params(self, params: dict[str, object]) -> None:
         self._params.append(params)
@@ -200,34 +338,42 @@ class Recorder(unittest.TestResult):
         self._record(test).note("skip")
 
     def addExpectedFailure(self, test: unittest.case.TestCase, err: Any) -> None:
-        self._record(test).note("expected-failure")
+        record = self._record(test)
+        record.note("expected-failure")
+        if issubclass(err[0], test.failureException):
+            self.add_site(record, err, "")
+        else:
+            self.add_error(record, err)
 
     def addUnexpectedSuccess(self, test: unittest.case.TestCase) -> None:
         self._record(test).note("unexpected-success")
 
     def addFailure(self, test: unittest.case.TestCase, err: Any) -> None:
-        self.note_failure(self._record(test), err, "")
+        record = self._record(test)
+        record.note("fail")
+        self.add_site(record, err, "")
 
     def addError(self, test: unittest.case.TestCase, err: Any) -> None:
-        self.note_error(self._record(test), err)
+        record = self._record(test)
+        record.note("error")
+        self.add_error(record, err)
 
     def addSubTest(self, test: Any, subtest: Any, err: Any) -> None:
         if err is None:
             return
         record = self._record(test)
         if issubclass(err[0], test.failureException):
-            self.note_failure(record, err, self.params_key([dict(subtest.params)]))
+            record.note("fail")
+            self.add_site(record, err, params_key([dict(subtest.params)]))
         else:
-            self.note_error(record, err)
+            record.note("error")
+            self.add_error(record, err)
 
-    def note_failure(self, record: TestRecord, err: Any, params: str) -> None:
-        record.note("fail")
+    def add_site(self, record: TestRecord, err: Any, params: str) -> None:
         record.sites.add((self.innermost_line(err[2]), params, 0, type_name(err[1])))
 
-    def note_error(self, record: TestRecord, err: Any) -> None:
-        record.note("error")
-        if record.error is None:
-            record.error = (type_name(err[1]), self.innermost_line(err[2]))
+    def add_error(self, record: TestRecord, err: Any) -> None:
+        record.errors.add((type_name(err[1]), self.innermost_line(err[2])))
 
     def innermost_line(self, tb: types.TracebackType | None) -> int:
         """Line of the deepest traceback frame inside the base test file, else 0."""
@@ -242,15 +388,8 @@ class Recorder(unittest.TestResult):
         record = self.records.setdefault(
             f"unittest.loader._FailedTest.{stem}", TestRecord()
         )
-        self.note_error(record, (type(exc), exc, exc.__traceback__))
-
-
-class PlaceholderError(Exception):
-    """Stands in for the exception a failed `assertRaises` block never captured."""
-
-
-def type_name(exc: BaseException) -> str:
-    return type(exc).__qualname__
+        record.note("error")
+        self.add_error(record, (type(exc), exc, exc.__traceback__))
 
 
 @contextlib.contextmanager
@@ -278,7 +417,7 @@ def tracked_subtests(recorder: Recorder) -> Iterator[None]:
 
 
 def load_suite(path: str, recorder: Recorder) -> unittest.TestSuite:
-    """Rewrite and load the test file; a load failure is recorded, not raised."""
+    """Rewrite and load the test file at absolute `path`; a load failure is recorded."""
     stem = Path(path).stem
     module = types.ModuleType(stem)
     module.__file__ = path
@@ -296,6 +435,7 @@ def load_suite(path: str, recorder: Recorder) -> unittest.TestSuite:
 
 def run_tests(path: str) -> Signature:
     """Run every test in `path` and return its signature."""
+    path = os.path.abspath(path)
     recorder = Recorder(path)
     suite = load_suite(path, recorder)
     with tracked_subtests(recorder):
@@ -304,6 +444,36 @@ def run_tests(path: str) -> Signature:
         test_id: record.finalize()
         for test_id, record in sorted(recorder.records.items())
     }
+
+
+def is_pair_list(value: object, second: type) -> bool:
+    return isinstance(value, list) and all(
+        isinstance(item, list) and len(item) == 2 and isinstance(item[1], second)
+        for item in value
+    )
+
+
+def validate_entry(test_id: str, entry: object) -> None:
+    ok = (
+        isinstance(entry, dict)
+        and entry.get("outcome") in OUTCOME_RANK
+        and isinstance(entry.get("sites"), list)
+        and all(isinstance(s, list) and len(s) == 4 for s in entry["sites"])
+        and isinstance(entry.get("error"), list)
+        and is_pair_list(entry["error"], int)
+    )
+    if not ok:
+        raise SignatureError(f"invalid signature entry for {test_id!r}")
+
+
+def load_signature(path: str) -> Signature:
+    """Read and validate a recorded signature file."""
+    data = json.loads(Path(path).read_text())
+    if not isinstance(data, dict):
+        raise SignatureError("signature file is not a JSON object")
+    for test_id, entry in data.items():
+        validate_entry(test_id, entry)
+    return data
 
 
 def diff_test(test_id: str, old: dict[str, Any], new: dict[str, Any]) -> list[str]:
@@ -328,23 +498,34 @@ def compare_signatures(recorded: Signature, current: Signature) -> list[str]:
     return diffs
 
 
+def execute(mode: str, sig_path: str, test_path: str) -> int:
+    """Run `mode`; raises OSError, ValueError or SignatureError on internal errors."""
+    recorded = load_signature(sig_path) if mode == "compare" else None
+    sys.path.insert(0, os.getcwd())
+    current = run_tests(test_path)
+    if recorded is None:
+        Path(sig_path).write_text(json.dumps(current, indent=1, sort_keys=True) + "\n")
+        return 0
+    diffs = compare_signatures(recorded, current)
+    for diff in diffs:
+        print(diff, file=sys.stderr)
+    return EXIT_CHANGED if diffs else 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 4 or argv[1] not in MODES:
         print(
             f"usage: {argv[0]} record|compare <sig.json> <test_file.py>",
             file=sys.stderr,
         )
-        return 2
-    mode, sig_path, test_path = argv[1:]
-    sys.path.insert(0, os.getcwd())
-    current = run_tests(test_path)
-    if mode == "record":
-        Path(sig_path).write_text(json.dumps(current, indent=1, sort_keys=True) + "\n")
-        return 0
-    diffs = compare_signatures(json.loads(Path(sig_path).read_text()), current)
-    for diff in diffs:
-        print(diff, file=sys.stderr)
-    return 1 if diffs else 0
+        return EXIT_USAGE
+    try:
+        return execute(*argv[1:])
+    except Exception as exc:  # noqa: BLE001 - any internal error must exit 3, never 1
+        print(
+            f"mutation_base_runner: internal error: {type_name(exc)}", file=sys.stderr
+        )
+        return EXIT_INTERNAL
 
 
 if __name__ == "__main__":

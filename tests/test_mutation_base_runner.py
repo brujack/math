@@ -17,15 +17,18 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 RUNNER = REPO_ROOT / "scripts" / "mutation_base_runner.py"
 TEST_FILE = "test_mod_base.py"
 TEST_ID = "test_mod_base.T.test_a"
+FAILED_LOAD_ID = "unittest.loader._FailedTest.test_mod_base"
 RUN_TIMEOUT_S = 120
+PASSING_MODULE = "def f(x):\n    return x\n"
+NO_PARAMS = "[]"
 
 HEADER = "import unittest\n\nimport mod\n\n\nclass T(unittest.TestCase):\n"
 
 
-def make_test_source(body):
-    """Wrap an indented test body in the standard header and one test method."""
+def make_test_source(body, header=HEADER):
+    """Wrap an indented test body in a header and one test method."""
     return (
-        HEADER
+        header
         + "    def test_a(self):\n"
         + textwrap.indent(textwrap.dedent(body), "        ")
     )
@@ -49,10 +52,13 @@ class RunnerCase(unittest.TestCase):
         (self.dir / "mod.py").write_text(textwrap.dedent(module_src))
         (self.dir / TEST_FILE).write_text(test_src)
 
-    def run_runner(self, mode):
-        env = {**os.environ, "PYTHONHASHSEED": "0", "PYTHONDONTWRITEBYTECODE": "1"}
+    def run_args(self, args, hash_seed: str | None = "0"):
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONHASHSEED"}
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        if hash_seed is not None:
+            env["PYTHONHASHSEED"] = hash_seed
         return subprocess.run(
-            [sys.executable, str(RUNNER), mode, str(self.sig), TEST_FILE],
+            [sys.executable, str(RUNNER), *args],
             cwd=self.dir,
             env=env,
             capture_output=True,
@@ -62,9 +68,12 @@ class RunnerCase(unittest.TestCase):
             check=False,
         )
 
-    def record(self, module_src, test_src):
+    def run_runner(self, mode, hash_seed: str | None = "0"):
+        return self.run_args([mode, str(self.sig), TEST_FILE], hash_seed)
+
+    def record(self, module_src, test_src, hash_seed: str | None = "0"):
         self.write(module_src, test_src)
-        proc = self.run_runner("record")
+        proc = self.run_runner("record", hash_seed)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return json.loads(self.sig.read_text())
 
@@ -92,9 +101,9 @@ class AssertionContinuationTests(RunnerCase):
             self.assertEqual(mod.missing.x, 1)  # L1
             self.assertEqual(mod.f(1), 99)  # L2
             """)
-        sig = self.record("def f(x):\n    return x\n", src)[TEST_ID]
+        sig = self.record(PASSING_MODULE, src)[TEST_ID]
         self.assertEqual(sig["outcome"], "fail")
-        self.assertIsNone(sig["error"])
+        self.assertEqual(sig["error"], [])
         by_line = {s[0]: s[3] for s in sig["sites"]}
         self.assertEqual(by_line[line_of(src, "# L1")], "AttributeError")
         self.assertEqual(by_line[line_of(src, "# L2")], "AssertionError")
@@ -105,7 +114,7 @@ class AssertionContinuationTests(RunnerCase):
                 mod.f(1)
             self.assertEqual(mod.f(1), 99)  # L2
             """)
-        sig = self.record("def f(x):\n    return x\n", src)[TEST_ID]
+        sig = self.record(PASSING_MODULE, src)[TEST_ID]
         self.assertEqual(sig["outcome"], "fail")
         self.assertEqual(
             sorted(s[0] for s in sig["sites"]),
@@ -119,15 +128,64 @@ class AssertionContinuationTests(RunnerCase):
             self.assertEqual(cm.exception.args, ("x",))  # L2
             self.assertEqual(1, 2)  # L3
             """)
-        sig = self.record("def f(x):\n    return x\n", src)[TEST_ID]
-        self.assertIsNone(sig["error"])
+        sig = self.record(PASSING_MODULE, src)[TEST_ID]
+        self.assertEqual(sig["error"], [])
         self.assertEqual(sig["outcome"], "fail")
-        lines = sorted(s[0] for s in sig["sites"])
-        self.assertIn(line_of(src, "# L3"), lines)
+        self.assertIn(line_of(src, "# L3"), [s[0] for s in sig["sites"]])
         self.assertEqual(
             {s[3] for s in sig["sites"]},
             {"AssertionError"},
             "reading cm.exception must not raise AttributeError",
+        )
+
+    def test_failed_assert_logs_block_binds_every_watcher_attribute(self):
+        src = make_test_source("""\
+            with self.assertLogs("never-logged") as cm:  # L1
+                pass
+            seen = (cm.output, cm.records)
+            self.assertEqual(1, 2)  # L2
+            """)
+        sig = self.record(PASSING_MODULE, src)[TEST_ID]
+        self.assertEqual(sig["error"], [])
+        self.assertEqual(sig["outcome"], "fail")
+        self.assertIn(line_of(src, "# L2"), [s[0] for s in sig["sites"]])
+
+    def test_failed_assert_warns_block_binds_warning_attributes(self):
+        src = make_test_source("""\
+            with self.assertWarns(UserWarning) as cm:  # L1
+                pass
+            seen = (cm.warning, cm.filename, cm.lineno)
+            self.assertEqual(1, 2)  # L2
+            """)
+        sig = self.record(PASSING_MODULE, src)[TEST_ID]
+        self.assertEqual(sig["error"], [])
+        self.assertIn(line_of(src, "# L2"), [s[0] for s in sig["sites"]])
+
+    def test_multi_item_with_binds_every_named_item(self):
+        src = make_test_source("""\
+            with self.assertRaises(ValueError) as a, self.assertRaises(KeyError) as b:  # L1
+                mod.f(1)
+            seen = (a.exception.args, b.exception.args)
+            self.assertEqual(1, 2)  # L2
+            """)
+        sig = self.record(PASSING_MODULE, src)[TEST_ID]
+        self.assertEqual(sig["error"], [])
+        self.assertEqual(
+            sorted(s[0] for s in sig["sites"]),
+            [line_of(src, "# L1"), line_of(src, "# L2")],
+        )
+
+    def test_assertion_in_nested_function_is_continued(self):
+        src = make_test_source("""\
+            def helper():
+                self.assertEqual(1, 2)  # L1
+            helper()
+            self.assertEqual(1, 3)  # L2
+            """)
+        sig = self.record(PASSING_MODULE, src)[TEST_ID]
+        self.assertEqual(
+            sorted(s[0] for s in sig["sites"]),
+            [line_of(src, "# L1"), line_of(src, "# L2")],
         )
 
     def test_bare_assert_statement_is_a_site(self):
@@ -135,7 +193,7 @@ class AssertionContinuationTests(RunnerCase):
             assert mod.f(1) == 99  # L1
             self.assertEqual(mod.f(1), 98)  # L2
             """)
-        sig = self.record("def f(x):\n    return x\n", src)[TEST_ID]
+        sig = self.record(PASSING_MODULE, src)[TEST_ID]
         self.assertEqual(
             sorted(s[0] for s in sig["sites"]),
             [line_of(src, "# L1"), line_of(src, "# L2")],
@@ -143,8 +201,72 @@ class AssertionContinuationTests(RunnerCase):
 
     def test_passing_test_has_no_sites(self):
         src = make_test_source("self.assertEqual(mod.f(1), 1)\n")
-        sig = self.record("def f(x):\n    return x\n", src)[TEST_ID]
-        self.assertEqual(sig, {"outcome": "pass", "sites": [], "error": None})
+        sig = self.record(PASSING_MODULE, src)[TEST_ID]
+        self.assertEqual(sig, {"outcome": "pass", "sites": [], "error": []})
+
+
+class AuthorHandlerTests(RunnerCase):
+    def site_lines(self, body):
+        src = make_test_source(body)
+        sig = self.record(PASSING_MODULE, src)[TEST_ID]
+        return src, [s[0] for s in sig["sites"]]
+
+    def test_broad_author_handlers_leave_their_body_unrewritten(self):
+        for handler in (
+            "except AssertionError:",
+            "except Exception:",
+            "except BaseException:",
+            "except (ValueError, AssertionError):",
+            "except:",
+        ):
+            with self.subTest(handler=handler):
+                src, lines = self.site_lines(
+                    "try:\n"
+                    "    self.assertEqual(1, 2)  # L1\n"
+                    f"{handler}\n"
+                    "    pass\n"
+                    "self.assertEqual(1, 3)  # L2\n"
+                )
+                self.assertEqual(lines, [line_of(src, "# L2")])
+
+    def test_narrow_author_handler_does_not_protect_its_body(self):
+        src, lines = self.site_lines(
+            "try:\n    self.assertEqual(1, 2)  # L1\nexcept ValueError:\n    pass\n"
+        )
+        self.assertEqual(lines, [line_of(src, "# L1")])
+
+    def test_assertion_inside_assert_raises_block_is_left_alone(self):
+        for ctx in (
+            "self.assertRaises(AssertionError)",
+            "self.assertRaisesRegex(AssertionError, '.')",
+        ):
+            with self.subTest(ctx=ctx):
+                src, lines = self.site_lines(
+                    f"with {ctx}:\n    self.assertEqual(1, 2)  # L1\nself.assertEqual(1, 3)  # L2\n"
+                )
+                self.assertEqual(lines, [line_of(src, "# L2")])
+
+    def test_assertion_inside_assert_warns_block_is_left_alone(self):
+        src, lines = self.site_lines(
+            "import warnings\n"
+            "with self.assertWarns(UserWarning):  # L0\n"
+            "    warnings.warn('w', UserWarning)\n"
+            "    self.assertEqual(1, 2)  # L1\n"
+            "self.assertEqual(1, 3)  # L2\n"
+        )
+        # Left alone, the inner failure escapes the block and the OUTER guard records it.
+        self.assertEqual(lines, [line_of(src, "# L0"), line_of(src, "# L2")])
+
+    def test_nested_function_inside_protected_try_is_still_rewritten(self):
+        src, lines = self.site_lines(
+            "try:\n"
+            "    def helper():\n"
+            "        self.assertEqual(1, 2)  # L1\n"
+            "    helper()\n"
+            "except Exception:\n"
+            "    pass\n"
+        )
+        self.assertEqual(lines, [line_of(src, "# L1")])
 
 
 class SiteKeyTests(RunnerCase):
@@ -154,14 +276,16 @@ class SiteKeyTests(RunnerCase):
         """)
 
     def test_later_loop_iteration_failing_is_a_new_site(self):
-        self.record(
-            "def f(x):\n    return 1 if x == 1 else 0\n",
-            self.LOOP_SRC,
-        )
+        self.record("def f(x):\n    return 1 if x == 1 else 0\n", self.LOOP_SRC)
         proc = self.compare(
             "def f(x):\n    return 1 if x in (1, 3) else 0\n", self.LOOP_SRC
         )
-        self.assertNotEqual(proc.returncode, 0)
+        line = line_of(self.LOOP_SRC, "# L1")
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(
+            proc.stderr.splitlines(),
+            [f"{TEST_ID}: new failure site {[line, NO_PARAMS, 3, 'AssertionError']}"],
+        )
 
     def test_loop_with_same_failures_compares_clean(self):
         module = "def f(x):\n    return 1 if x == 1 else 0\n"
@@ -181,6 +305,35 @@ class SiteKeyTests(RunnerCase):
         self.assertIn("i", params)
         self.assertIn("2", params)
 
+    def test_subtest_failure_outside_a_guarded_statement_is_a_site(self):
+        src = make_test_source("""\
+            with self.subTest(i=7):
+                self.fail("x")  # L1
+            """)
+        sig = self.record(PASSING_MODULE, src)[TEST_ID]
+        self.assertEqual(sig["outcome"], "fail")
+        self.assertEqual(len(sig["sites"]), 1)
+        line, params, nth, exc_type = sig["sites"][0]
+        self.assertEqual(
+            (line, nth, exc_type), (line_of(src, "# L1"), 0, "AssertionError")
+        )
+        self.assertIn("7", params)
+
+    def test_params_key_is_stable_across_hash_seeds_and_object_addresses(self):
+        src = make_test_source("""\
+            for s in ({"a", "b", "c", "d", "e"}, frozenset({"p", "q", "r", "s"})):
+                with self.subTest(s=s, o=object()):
+                    self.assertEqual(1, 2)  # L1
+            """)
+        recordings = []
+        for _ in range(4):
+            self.record(PASSING_MODULE, src, hash_seed=None)
+            recordings.append(self.sig.read_text())
+        self.assertEqual(len(set(recordings)), 1)
+        self.assertNotIn("0x", recordings[0].replace("0x?", ""))
+
+
+class ErrorRecordingTests(RunnerCase):
     def test_error_outside_assertion_records_type_and_line_not_message(self):
         src = make_test_source("""\
             mod.boom()  # L1
@@ -189,7 +342,7 @@ class SiteKeyTests(RunnerCase):
         module = "def boom():\n    raise KeyError('secret-message')\n"
         sig = self.record(module, src)[TEST_ID]
         self.assertEqual(sig["outcome"], "error")
-        self.assertEqual(sig["error"], ["KeyError", line_of(src, "# L1")])
+        self.assertEqual(sig["error"], [["KeyError", line_of(src, "# L1")]])
         self.assertNotIn("secret-message", self.sig.read_text())
 
     def test_error_line_is_the_innermost_base_file_frame(self):
@@ -200,35 +353,90 @@ class SiteKeyTests(RunnerCase):
         )
         module = "def boom():\n    raise KeyError('x')\n"
         sig = self.record(module, src)[TEST_ID]
-        self.assertEqual(sig["error"], ["KeyError", line_of(src, "# L1")])
+        self.assertEqual(sig["error"], [["KeyError", line_of(src, "# L1")]])
+
+    def test_distinct_errors_in_different_subtests_are_all_recorded(self):
+        src = make_test_source("""\
+            for i in (1, 2, 1):
+                with self.subTest(i=i):
+                    mod.boom(i)  # L1
+            """)
+        module = (
+            "def boom(i):\n    raise KeyError('x') if i == 1 else ValueError('y')\n"
+        )
+        sig = self.record(module, src)[TEST_ID]
+        line = line_of(src, "# L1")
+        self.assertEqual(sig["outcome"], "error")
+        self.assertEqual(sig["error"], [["KeyError", line], ["ValueError", line]])
+
+    def test_error_in_expected_failure_test_is_recorded(self):
+        src = (
+            HEADER
+            + "    @unittest.expectedFailure\n    def test_a(self):\n"
+            + "        mod.boom()  # L1\n"
+        )
+        module = "def boom():\n    raise KeyError('x')\n"
+        sig = self.record(module, src)[TEST_ID]
+        self.assertEqual(sig["outcome"], "expected-failure")
+        self.assertEqual(sig["error"], [["KeyError", line_of(src, "# L1")]])
 
 
 class CompareTests(RunnerCase):
     SRC = make_test_source("self.assertEqual(mod.f(1), 2)  # L1\n")
+    TWO_SRC = make_test_source("""\
+        self.assertEqual(mod.f(1), 2)  # L1
+        self.assertEqual(mod.g(1), 2)  # L2
+        """)
 
     def test_message_only_change_at_known_site_is_invisible(self):
         self.record("def f(x):\n    return 5\n", self.SRC)
         proc = self.compare("def f(x):\n    return 7\n", self.SRC)
         self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stderr, "")
 
-    def test_new_site_beside_known_failure_exits_nonzero(self):
-        src = make_test_source("""\
-            self.assertEqual(mod.f(1), 2)  # L1
-            self.assertEqual(mod.g(1), 2)  # L2
-            """)
-        self.record("def f(x):\n    return 5\n\ndef g(x):\n    return 2\n", src)
-        proc = self.compare("def f(x):\n    return 5\n\ndef g(x):\n    return 9\n", src)
-        self.assertNotEqual(proc.returncode, 0)
+    def test_new_site_beside_known_failure_exits_one_naming_the_site(self):
+        self.record(
+            "def f(x):\n    return 5\n\ndef g(x):\n    return 2\n", self.TWO_SRC
+        )
+        proc = self.compare(
+            "def f(x):\n    return 5\n\ndef g(x):\n    return 9\n", self.TWO_SRC
+        )
+        line = line_of(self.TWO_SRC, "# L2")
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(
+            proc.stderr.splitlines(),
+            [f"{TEST_ID}: new failure site {[line, NO_PARAMS, 1, 'AssertionError']}"],
+        )
 
-    def test_outcome_change_exits_nonzero(self):
+    def test_outcome_change_exits_one_with_outcome_and_site_lines(self):
         self.record("def f(x):\n    return 2\n", self.SRC)
         proc = self.compare("def f(x):\n    raise RuntimeError('x')\n", self.SRC)
-        self.assertNotEqual(proc.returncode, 0)
+        line = line_of(self.SRC, "# L1")
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(
+            proc.stderr.splitlines(),
+            [
+                f"{TEST_ID}: outcome pass -> fail",
+                f"{TEST_ID}: new failure site {[line, NO_PARAMS, 1, 'RuntimeError']}",
+            ],
+        )
 
-    def test_fixed_failure_exits_nonzero(self):
+    def test_fixed_failure_exits_one(self):
         self.record("def f(x):\n    return 5\n", self.SRC)
         proc = self.compare("def f(x):\n    return 2\n", self.SRC)
-        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(proc.stderr.splitlines(), [f"{TEST_ID}: outcome fail -> pass"])
+
+    def test_error_only_change_at_same_line_exits_one(self):
+        src = make_test_source("mod.boom()  # L1\n")
+        self.record("def boom():\n    raise KeyError('x')\n", src)
+        proc = self.compare("def boom():\n    raise ValueError('x')\n", src)
+        line = line_of(src, "# L1")
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(
+            proc.stderr.splitlines(),
+            [f"{TEST_ID}: error {[['KeyError', line]]} -> {[['ValueError', line]]}"],
+        )
 
     def test_identical_run_exits_zero(self):
         module = "def f(x):\n    return 2\n"
@@ -240,7 +448,41 @@ class CompareTests(RunnerCase):
         proc = self.compare(
             "def f(x):\n    raise RuntimeError('leaky-message')\n", self.SRC
         )
-        self.assertNotIn("leaky-message", proc.stderr)
+        line = line_of(self.SRC, "# L1")
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(
+            proc.stderr.splitlines(),
+            [
+                f"{TEST_ID}: outcome pass -> fail",
+                f"{TEST_ID}: new failure site {[line, NO_PARAMS, 1, 'RuntimeError']}",
+            ],
+        )
+
+    def test_import_error_under_compare_changes_the_test_set(self):
+        self.record(PASSING_MODULE, self.SRC)
+        proc = self.compare(PASSING_MODULE, "import no_such_module_xyz\n")
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(
+            set(proc.stderr.splitlines()),
+            {
+                f"{TEST_ID}: test set changed",
+                f"{FAILED_LOAD_ID}: test set changed",
+            },
+        )
+
+    def test_set_up_class_error_under_compare_changes_the_test_set(self):
+        self.record(PASSING_MODULE, self.SRC)
+        broken = (
+            HEADER
+            + "    @classmethod\n    def setUpClass(cls):\n        raise RuntimeError('x')\n\n"
+            + "    def test_a(self):\n        pass\n"
+        )
+        proc = self.compare(PASSING_MODULE, broken)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn(f"{TEST_ID}: test set changed", proc.stderr.splitlines())
+        self.assertIn(
+            "setUpClass (test_mod_base.T): test set changed", proc.stderr.splitlines()
+        )
 
 
 class OutcomeKindTests(RunnerCase):
@@ -285,12 +527,11 @@ class OutcomeKindTests(RunnerCase):
         self.assertEqual(sig["outcome"], "expected-failure")
 
     def test_import_failure_is_recorded_as_a_failed_test(self):
-        src = "import no_such_module_xyz\n"
-        sig = self.record("", src)
-        self.assertEqual(list(sig), ["unittest.loader._FailedTest.test_mod_base"])
-        record = next(iter(sig.values()))
+        sig = self.record("", "import no_such_module_xyz\n")
+        self.assertEqual(list(sig), [FAILED_LOAD_ID])
+        record = sig[FAILED_LOAD_ID]
         self.assertEqual(record["outcome"], "error")
-        self.assertEqual(record["error"][0], "ModuleNotFoundError")
+        self.assertEqual(record["error"][0][0], "ModuleNotFoundError")
 
     def test_skip_test_inside_assert_block_still_skips(self):
         src = make_test_source("""\
@@ -300,12 +541,111 @@ class OutcomeKindTests(RunnerCase):
         sig = self.record("", src)[TEST_ID]
         self.assertEqual(sig["outcome"], "skip")
 
+    def test_assertion_in_set_up_class_is_reraised_not_recorded(self):
+        src = (
+            HEADER
+            + "    @classmethod\n    def setUpClass(cls):\n"
+            + "        self = cls()\n        self.assertEqual(1, 2)  # L1\n\n"
+            + "    def test_a(self):\n        pass\n"
+        )
+        sig = self.record("", src)
+        holder = sig["setUpClass (test_mod_base.T)"]
+        self.assertEqual(holder["outcome"], "error")
+        self.assertEqual(holder["sites"], [])
+        self.assertEqual(holder["error"], [["AssertionError", line_of(src, "# L1")]])
+
+
+class RelativePathTests(RunnerCase):
+    def test_file_dunder_is_absolute_when_the_path_is_relative(self):
+        src = make_test_source(
+            """\
+            self.addCleanup(os.chdir, os.getcwd())
+            os.chdir("/")
+            self.assertTrue((pathlib.Path(__file__).parent / "mod.py").exists())
+            """,
+            header="import os\nimport pathlib\nimport unittest\n\n\nclass T(unittest.TestCase):\n",
+        )
+        sig = self.record(PASSING_MODULE, src)[TEST_ID]
+        self.assertEqual(sig, {"outcome": "pass", "sites": [], "error": []})
+
+    def test_failure_lines_still_match_with_an_absolute_filename(self):
+        src = make_test_source("self.assertEqual(1, 2)  # L1\n")
+        self.write(PASSING_MODULE, src)
+        proc = self.run_args(["record", str(self.sig), str(self.dir / TEST_FILE)])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        sig = json.loads(self.sig.read_text())[TEST_ID]
+        self.assertEqual([s[0] for s in sig["sites"]], [line_of(src, "# L1")])
+
+
+class HypothesisTests(RunnerCase):
+    GIVEN_SRC = (
+        "import unittest\n\n"
+        "from hypothesis import assume, given, settings, strategies as st\n\n\n"
+        "class T(unittest.TestCase):\n"
+        "    @settings(derandomize=True, database=None, deadline=None)\n"
+        "    @given(st.integers(min_value=-5, max_value=5))\n"
+        "    def test_a(self, n):\n"
+        "        self.assertLess(n, 2)  # L1\n"
+        "        with self.assertRaises(ValueError):\n"
+        "            assume(n > 0)\n"
+        "            raise ValueError\n"
+    )
+
+    def test_given_recording_is_deterministic_and_reraises_unsatisfied_assumption(self):
+        first = self.record("", self.GIVEN_SRC)[TEST_ID]
+        first_text = self.sig.read_text()
+        self.record("", self.GIVEN_SRC)
+        self.assertEqual(self.sig.read_text(), first_text)
+        self.assertEqual(first["outcome"], "fail")
+        self.assertEqual(
+            {s[0] for s in first["sites"]}, {line_of(self.GIVEN_SRC, "# L1")}
+        )
+        self.assertEqual(first["error"], [])
+        self.assertEqual(self.compare("", self.GIVEN_SRC).returncode, 0)
+
 
 class CliTests(RunnerCase):
     def test_unknown_mode_exits_two(self):
         self.write("", make_test_source("pass\n"))
-        proc = self.run_runner("bogus")
-        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(self.run_runner("bogus").returncode, 2)
+
+    def test_wrong_argument_count_exits_two(self):
+        self.write("", make_test_source("pass\n"))
+        for args in (
+            [],
+            ["record"],
+            ["record", str(self.sig)],
+            ["record", "a", "b", "c"],
+        ):
+            with self.subTest(args=args):
+                self.assertEqual(self.run_args(args).returncode, 2)
+
+    def test_missing_signature_file_exits_three_with_one_line(self):
+        self.write("", make_test_source("pass\n"))
+        proc = self.run_runner("compare")
+        self.assertEqual(proc.returncode, 3)
+        self.assertEqual(len(proc.stderr.splitlines()), 1)
+
+    def test_corrupt_signature_file_exits_three_with_one_line(self):
+        self.write("", make_test_source("pass\n"))
+        for text in (
+            "{not json",
+            '{"a": 1}',
+            '{"a": {"outcome": "bogus", "sites": [], "error": []}}',
+            "[]",
+        ):
+            with self.subTest(text=text):
+                self.sig.write_text(text)
+                proc = self.run_runner("compare")
+                self.assertEqual(proc.returncode, 3)
+                self.assertEqual(len(proc.stderr.splitlines()), 1)
+
+    def test_unwritable_signature_path_exits_three_in_record_mode(self):
+        self.write("", make_test_source("pass\n"))
+        self.sig.mkdir()
+        proc = self.run_runner("record")
+        self.assertEqual(proc.returncode, 3)
+        self.assertEqual(len(proc.stderr.splitlines()), 1)
 
 
 if __name__ == "__main__":
