@@ -6,6 +6,7 @@
   (shard the Rust runs), `specs/2026-11-05-worldclass-slice5-rust-pr-mutation-ratchet-design.md`,
   `specs/2026-11-07-worldclass-slice8-python-pr-mutation-gate-design.md` ("Known gap, not closed here")
 
+- **Approved:** 2026-11-26
 ## Summary
 
 Both per-PR mutation gates judge only mutants on lines a PR changes. A PR that deletes or weakens
@@ -524,14 +525,14 @@ Report: [round1.md](2026-11-26-pr-mutation-test-weakening-design.external-review
 
 | finding | disposition | evidence | reviewer verdict | operator (Step 9) |
 | ------- | ----------- | -------- | ---------------- | ----------------- |
-| F1.1 | Fixed | Design step 5 and R11: rewritten assertion statements and `with self.assert*` blocks record the site on any `Exception` raised inside them and continue; the site key gains the exception type; R33 adds the `AttributeError`-first case; V6 prints kills from sites after an earlier error; the Facts split for 68a2f8a (14 failures, 99 errors, at least 77 inside assertion statements) is recorded. | unjudged | |
-| F1.2 | Fixed | Bootstrap sets expected source GitHub Actions on `mutation-gate-items`, `mutation-pr` and `secret-scan`; R25 and the gate rule make any other workflow declaring a job id or `name:` equal to a required context a `gate` item; V4 adds the posted-status case. | unjudged | |
-| F1.3 | Fixed | Design step 1 and R6 define `K` as the dir's whole-module mutant count after the head prune. | unjudged | |
-| F1.4 | Fixed | Design step 10 lists the same four canary pairs as R18. | unjudged | |
-| F1.5 | Fixed | Known limits now names module-level functions, `self.fail(...)` and `raise AssertionError`, and says `self.assert*` statements in helper methods are rewritten. | unjudged | |
-| F1.6 | Fixed | New R36: `scripts/ci-gate.sh` waits for every required context, including the `pull_request_target` run, with a bats case for a late-registering `mutation-gate-items`. | unjudged | |
-| F1.7 | Measured | Scoped review probe at `7d3a7d4` (cargo-mutants 27.1.0, Linux `claude`): `cargo mutants --list` with `-d`, `RUSTUP_TOOLCHAIN=stable` and a fresh empty `CARGO_HOME` listed 32 mutants of a copy of `sq/sq-rs` in 0.05 s and downloaded no registry; R29 stays advisory. | unjudged | |
-| F1.8 | Fixed | Known limits records that `enforce_admins` is false, so only the local branch guard and the agent instructions keep a session with the operator's credentials from pushing the allowed-signers file to master. | unjudged | |
-| F1.9 | Fixed | R1 and Design step 1 exempt the `[package]` `version` line of `Cargo.toml`; the Facts count is 18 of the last 100 PRs by path (2 of 7 `Cargo.toml` PRs were version-only). | unjudged | |
+| F1.1 | Fixed | Design step 5 and R11: rewritten assertion statements and `with self.assert*` blocks record the site on any `Exception` raised inside them and continue; the site key gains the exception type; R33 adds the `AttributeError`-first case; V6 prints kills from sites after an earlier error; the Facts split for 68a2f8a (14 failures, 99 errors, at least 77 inside assertion statements) is recorded. | unjudged | accepted (operator, 2026-11-26) |
+| F1.2 | Fixed | Bootstrap sets expected source GitHub Actions on `mutation-gate-items`, `mutation-pr` and `secret-scan`; R25 and the gate rule make any other workflow declaring a job id or `name:` equal to a required context a `gate` item; V4 adds the posted-status case. | unjudged | accepted (operator, 2026-11-26) |
+| F1.3 | Fixed | Design step 1 and R6 define `K` as the dir's whole-module mutant count after the head prune. | unjudged | accepted (operator, 2026-11-26) |
+| F1.4 | Fixed | Design step 10 lists the same four canary pairs as R18. | unjudged | accepted (operator, 2026-11-26) |
+| F1.5 | Fixed | Known limits now names module-level functions, `self.fail(...)` and `raise AssertionError`, and says `self.assert*` statements in helper methods are rewritten. | unjudged | accepted (operator, 2026-11-26) |
+| F1.6 | Fixed | New R36: `scripts/ci-gate.sh` waits for every required context, including the `pull_request_target` run, with a bats case for a late-registering `mutation-gate-items`. | unjudged | accepted (operator, 2026-11-26) |
+| F1.7 | Measured | Scoped review probe at `7d3a7d4` (cargo-mutants 27.1.0, Linux `claude`): `cargo mutants --list` with `-d`, `RUSTUP_TOOLCHAIN=stable` and a fresh empty `CARGO_HOME` listed 32 mutants of a copy of `sq/sq-rs` in 0.05 s and downloaded no registry; R29 stays advisory. | unjudged | accepted (operator, 2026-11-26) |
+| F1.8 | Fixed | Known limits records that `enforce_admins` is false, so only the local branch guard and the agent instructions keep a session with the operator's credentials from pushing the allowed-signers file to master. | unjudged | accepted (operator, 2026-11-26) |
+| F1.9 | Fixed | R1 and Design step 1 exempt the `[package]` `version` line of `Cargo.toml`; the Facts count is 18 of the last 100 PRs by path (2 of 7 `Cargo.toml` PRs were version-only). | unjudged | accepted (operator, 2026-11-26) |
 
 Stopped: reviewer recommended stopping in round 1
