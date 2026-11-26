@@ -1,0 +1,95 @@
+progress: 35813/1747147 Gram points, t = 1485.891
+progress: 72690/1747147 Gram points, t = 2727.341
+progress: 109717/1747147 Gram points, t = 3894.303
+progress: 146673/1747147 Gram points, t = 4812.901
+progress: 176127/1747147 Gram points, t = 5517.889
+progress: 203626/1747147 Gram points, t = 6301.709
+progress: 225261/1747147 Gram points, t = 6889.744
+progress: 245374/1747147 Gram points, t = 7404.979
+progress: 264112/1747147 Gram points, t = 7987.315
+progress: 282211/1747147 Gram points, t = 8497.566
+progress: 315025/1747147 Gram points, t = 9462.823
+progress: 350018/1747147 Gram points, t = 10402.062
+progress: 385039/1747147 Gram points, t = 11238.577
+progress: 420333/1747147 Gram points, t = 12188.106
+progress: 455667/1747147 Gram points, t = 13081.088
+progress: 491075/1747147 Gram points, t = 13815.217
+progress: 525609/1747147 Gram points, t = 14716.117
+progress: 560364/1747147 Gram points, t = 15512.672
+progress: 594800/1747147 Gram points, t = 16396.701
+progress: 628948/1747147 Gram points, t = 17286.610
+progress: 662539/1747147 Gram points, t = 18028.790
+progress: 696522/1747147 Gram points, t = 18767.150
+progress: 730332/1747147 Gram points, t = 19537.057
+progress: 763670/1747147 Gram points, t = 20391.827
+progress: 796930/1747147 Gram points, t = 21231.361
+progress: 829880/1747147 Gram points, t = 22019.104
+progress: 862811/1747147 Gram points, t = 22829.469
+progress: 895487/1747147 Gram points, t = 23616.495
+progress: 928226/1747147 Gram points, t = 116529.785
+progress: 961146/1747147 Gram points, t = 131613.691
+progress: 994132/1747147 Gram points, t = 132164.236
+progress: 1027233/1747147 Gram points, t = 133552.206
+progress: 1059283/1747147 Gram points, t = 142255.779
+progress: 1091219/1747147 Gram points, t = 145372.842
+progress: 1123012/1747147 Gram points, t = 146377.889
+progress: 1154284/1747147 Gram points, t = 148322.285
+progress: 1185095/1747147 Gram points, t = 148872.548
+progress: 1215839/1747147 Gram points, t = 149423.233
+progress: 1246606/1747147 Gram points, t = 149986.184
+progress: 1277655/1747147 Gram points, t = 150538.955
+progress: 1308769/1747147 Gram points, t = 173391.560
+progress: 1339522/1747147 Gram points, t = 181060.347
+progress: 1369304/1747147 Gram points, t = 181589.546
+progress: 1398853/1747147 Gram points, t = 182075.175
+progress: 1428252/1747147 Gram points, t = 182604.697
+progress: 1457945/1747147 Gram points, t = 183116.345
+progress: 1487724/1747147 Gram points, t = 184575.338
+progress: 1517330/1747147 Gram points, t = 426178.668
+progress: 1547117/1747147 Gram points, t = 426579.090
+progress: 1577078/1747147 Gram points, t = 426950.114
+progress: 1607358/1747147 Gram points, t = 427329.579
+progress: 1637872/1747147 Gram points, t = 428495.453
+progress: 1669062/1747147 Gram points, t = 428888.907
+progress: 1699877/1747147 Gram points, t = 429280.070
+progress: 1730328/1747147 Gram points, t = 435170.758
+progress: 1747147/1747147 Gram points, t = 1000000.258
+progress: 146233/1512390 Gram blocks, t = 12844.809
+progress: 262504/1512390 Gram blocks, t = 20203.652
+progress: 372649/1512390 Gram blocks, t = 72241.140
+progress: 472846/1512390 Gram blocks, t = 77012.025
+progress: 567570/1512390 Gram blocks, t = 96993.943
+progress: 657709/1512390 Gram blocks, t = 100271.707
+progress: 748201/1512390 Gram blocks, t = 103665.904
+progress: 839325/1512390 Gram blocks, t = 106664.273
+progress: 929735/1512390 Gram blocks, t = 109594.826
+progress: 1020695/1512390 Gram blocks, t = 116423.014
+progress: 1113471/1512390 Gram blocks, t = 119808.647
+progress: 1206063/1512390 Gram blocks, t = 124088.893
+progress: 1301688/1512390 Gram blocks, t = 130952.352
+progress: 1392787/1512390 Gram blocks, t = 427894.203
+progress: 1486020/1512390 Gram blocks, t = 473649.625
+progress: 1512390/1512390 Gram blocks, t = 1000000.258
+	Command being timed: "zeta-f935b23 6"
+	User time (seconds): 6270.28
+	System time (seconds): 1.14
+	Percent of CPU this job got: 4350%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 2:24.14
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 404516
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 173580
+	Voluntary context switches: 1553
+	Involuntary context switches: 274123
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 0
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

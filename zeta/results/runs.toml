@@ -1,0 +1,71 @@
+[[run]]
+id = "t2"
+binary_sha = "f935b233046fa0905c3198efc93a15fb2412677a"
+machine = "Threadripper 3960X, 48 threads, Ubuntu 26.04"
+date = "2026-11-24"
+
+[[run]]
+id = "t3"
+binary_sha = "f935b233046fa0905c3198efc93a15fb2412677a"
+machine = "Threadripper 3960X, 48 threads, Ubuntu 26.04"
+date = "2026-11-24"
+
+[[run]]
+id = "t4"
+binary_sha = "f935b233046fa0905c3198efc93a15fb2412677a"
+machine = "Threadripper 3960X, 48 threads, Ubuntu 26.04"
+date = "2026-11-24"
+
+[[run]]
+id = "n5"
+binary_sha = "f935b233046fa0905c3198efc93a15fb2412677a"
+machine = "Threadripper 3960X, 48 threads, Ubuntu 26.04"
+date = "2026-11-24"
+note = "machine also running other jobs"
+
+[[run]]
+id = "n6"
+binary_sha = "f935b233046fa0905c3198efc93a15fb2412677a"
+machine = "Threadripper 3960X, 48 threads, Ubuntu 26.04"
+date = "2026-11-24"
+note = "machine also running other jobs"
+
+[[run]]
+id = "n7"
+binary_sha = "f935b233046fa0905c3198efc93a15fb2412677a"
+machine = "Threadripper 3960X, 48 threads, Ubuntu 26.04"
+date = "2026-11-24"
+note = "machine also running other jobs"
+
+[[run]]
+id = "tr3"
+binary_sha = "f935b233046fa0905c3198efc93a15fb2412677a"
+machine = "Threadripper 3960X, 48 threads, Ubuntu 26.04"
+date = "2026-11-24"
+
+[[run]]
+id = "tr4"
+binary_sha = "f935b233046fa0905c3198efc93a15fb2412677a"
+machine = "Threadripper 3960X, 48 threads, Ubuntu 26.04"
+date = "2026-11-24"
+
+[[run]]
+id = "r5"
+binary_sha = "f935b233046fa0905c3198efc93a15fb2412677a"
+machine = "Threadripper 3960X, 48 threads, Ubuntu 26.04"
+date = "2026-11-24"
+note = "machine also running other jobs"
+
+[[run]]
+id = "r6"
+binary_sha = "f935b233046fa0905c3198efc93a15fb2412677a"
+machine = "Threadripper 3960X, 48 threads, Ubuntu 26.04"
+date = "2026-11-24"
+note = "machine also running other jobs"
+
+[[run]]
+id = "r7"
+binary_sha = "f935b233046fa0905c3198efc93a15fb2412677a"
+machine = "Threadripper 3960X, 48 threads, Ubuntu 26.04"
+date = "2026-11-24"
+note = "machine also running other jobs"

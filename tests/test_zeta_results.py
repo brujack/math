@@ -1573,3 +1573,129 @@ class TestCanonicalTargets(_FixtureCopy):
                     sorted(p.name for p in self.s.iterdir()),
                     sorted(["deep", "link", "t2", "t3", "tr3", "runs.toml"]),
                 )
+
+
+_BAR_RE = re.compile(
+    r'<g id="hist-bar-(\d+)">\s*<path d="M [-\d.]+ ([-\d.]+) \s*'
+    r"L [-\d.]+ [-\d.]+ \s*L [-\d.]+ ([-\d.]+)"
+)
+_COMMITTED = REPO_ROOT / "zeta" / "results"
+
+
+def _committed_runs(root: Path) -> list["zr.RunData"]:
+    """Rebuild every run from `runs.toml` and the committed `out.txt`/`err.txt`."""
+    metas = zr.load_runs_toml(root / "runs.toml")
+    on_disk = sorted(p.name for p in (root / "runs").iterdir() if p.is_dir())
+    if on_disk != sorted(metas):
+        raise AssertionError(f"runs.toml ids {sorted(metas)} != run copies {on_disk}")
+    runs = []
+    for run_id, meta in metas.items():
+        err = (root / "runs" / run_id / "err.txt").read_text()
+        out_text = (root / "runs" / run_id / "out.txt").read_text()
+        rep = zr.parse_time_report(err, run_id)
+        zr.check_binary(meta, rep, run_id)
+        out = zr.parse_out(out_text, run_id, rep.n, refine=rep.refine)
+        runs.append(zr.RunData(meta, rep, out, out_text, err, None))
+    runs.sort(key=lambda r: (r.report.n, r.report.refine, r.meta.id))
+    return runs
+
+
+def _svg_counts(svg: str) -> list[float]:
+    """Bar heights from the SVG, regrouped into the CLI's 20 bins (pixel units)."""
+    heights = [abs(float(y0) - float(y1)) for _, y0, y1 in _BAR_RE.findall(svg)]
+    if not heights or len(heights) % zr.HISTOGRAM_BINS:
+        raise AssertionError(f"{len(heights)} histogram bars")
+    step = len(heights) // zr.HISTOGRAM_BINS
+    return [sum(heights[i : i + step]) for i in range(0, len(heights), step)]
+
+
+def _figure_mismatches(site: Path, run: "zr.RunData", page: str) -> list[str]:
+    n, out, name = run.report.n, run.out, f"gaps-N{run.report.n}.svg"
+    problems = []
+    alt = f"Histogram of {out.spacings:,} normalised gaps for N = {n} against"
+    if alt not in page:
+        problems.append(f"{run.meta.id}: page does not show {out.spacings:,} gaps")
+    svg = (site / name).read_text()
+    for needle in (
+        f"<!-- {out.spacings:,} gaps -->",
+        f"<!-- KS Wigner {out.cli_ks} -->",
+    ):
+        if needle not in svg:
+            problems.append(f"{run.meta.id}: {name} lacks {needle}")
+    cli = list(out.cli_counts or ())
+    heights = _svg_counts(svg)
+    scale = sum(heights) / sum(cli)
+    if any(abs(h / scale - c) >= 0.5 for h, c in zip(heights, cli, strict=True)):
+        problems.append(f"{run.meta.id}: {name} bars differ from the 20 CLI counts")
+    return problems
+
+
+def _site_mismatches(root: Path) -> list[str]:
+    """Every way the committed page disagrees with the committed run copies."""
+    runs = _committed_runs(root)
+    site = root / "site"
+    page = (site / "index.html").read_text()
+    problems = []
+    for label, table in (
+        ("counts table", zr._counts_html(runs)),
+        ("run table", zr._runs_html(runs)),
+    ):
+        if table not in page:
+            problems.append(f"page {label} differs from the one rebuilt")
+    refined = [r for r in runs if r.report.refine]
+    expected_rows = 2 * (len(runs) + 1) + len(refined) + 1
+    if page.count("<tr>") != expected_rows:
+        problems.append(f"page has {page.count('<tr>')} rows, expected {expected_rows}")
+    figures = sorted(p.name for p in site.glob("gaps-N*.svg"))
+    if figures != sorted(f"gaps-N{r.report.n}.svg" for r in refined):
+        problems.append(f"gap figures {figures} do not match the refined runs")
+    for run in refined:
+        problems += _figure_mismatches(site, run, page)
+    return problems
+
+
+class TestCommittedSiteConsistency(unittest.TestCase):
+    """The committed page shows exactly what the committed run copies say."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.copy = Path(tmp.name) / "results"
+        shutil.copytree(_COMMITTED, self.copy)
+
+    def test_committed_site_matches_run_copies(self) -> None:
+        self.assertEqual(_site_mismatches(_COMMITTED), [])
+
+    def test_run_table_covers_all_eleven_runs(self) -> None:
+        self.assertEqual(len(_committed_runs(_COMMITTED)), 11)
+
+    def test_changed_histogram_count_in_a_copy_fails(self) -> None:
+        out = self.copy / "runs" / "tr3" / "out.txt"
+        text = out.read_text()
+        match = zr._BIN_RE.search(text)
+        assert match is not None
+        bumped = str(int(match.group(1)) + 1)
+        out.write_text(text[: match.start(1)] + bumped + text[match.end(1) :])
+        problems = _site_mismatches(self.copy)
+        self.assertTrue(any("bars differ" in p for p in problems), problems)
+
+    def test_changed_ks_in_a_copy_fails(self) -> None:
+        out = self.copy / "runs" / "r5" / "out.txt"
+        text = out.read_text()
+        match = zr._KS_RE.search(text)
+        assert match is not None
+        out.write_text(text[: match.start(1)] + "0.5000" + text[match.end(1) :])
+        problems = _site_mismatches(self.copy)
+        self.assertTrue(any("KS Wigner 0.5000" in p for p in problems), problems)
+
+    def test_extra_run_on_the_page_is_reported(self) -> None:
+        page = self.copy / "site" / "index.html"
+        text = page.read_text()
+        page.write_text(text.replace("</table>", "<tr><td>9</td></tr></table>", 1))
+        problems = _site_mismatches(self.copy)
+        self.assertTrue(any("rows" in p or "differs" in p for p in problems), problems)
+
+    def test_run_copy_missing_from_runs_toml_is_refused(self) -> None:
+        shutil.copytree(self.copy / "runs" / "t2", self.copy / "runs" / "zz")
+        with self.assertRaisesRegex(AssertionError, "run copies"):
+            _site_mismatches(self.copy)

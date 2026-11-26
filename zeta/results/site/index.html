@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zeta results</title>
+<style>body{font-family:sans-serif;max-width:50rem;margin:1rem auto;padding:0 1rem;line-height:1.5}img{max-width:100%;height:auto}table{border-collapse:collapse}th,td{border:1px solid #888;padding:.25rem .5rem;text-align:right}figcaption{font-size:.85rem;color:#444}figure{margin:1rem 0}</style>
+</head>
+<body>
+<main>
+<h1>zeta results</h1>
+<p class="claim"><code>zeta</code> re-verified, with certified interval arithmetic, that every nontrivial zero of ζ(s) with 0 &lt; Im s ≤ 10^N lies on the critical line and is simple, for each N shown. This is an independent re-computation of a known result, not a new one. Platt and Trudgian (2021) verified the same property up to 3·10^12, and Odlyzko's tables give the zeros themselves.</p>
+<h2>Verified counts</h2>
+<p>Published counts: OEIS A072080.</p>
+<div style="overflow-x:auto">
+<table>
+<tr><th>N</th><th>mode</th><th>zeros found L</th><th>published N(10^N)</th><th>result</th></tr>
+<tr><td>2</td><td>plain</td><td>29</td><td>29</td><td>equal</td></tr>
+<tr><td>3</td><td>plain</td><td>649</td><td>649</td><td>equal</td></tr>
+<tr><td>3</td><td>refine</td><td>649</td><td>649</td><td>equal</td></tr>
+<tr><td>4</td><td>plain</td><td>10142</td><td>10142</td><td>equal</td></tr>
+<tr><td>4</td><td>refine</td><td>10142</td><td>10142</td><td>equal</td></tr>
+<tr><td>5</td><td>plain</td><td>138069</td><td>138069</td><td>equal</td></tr>
+<tr><td>5</td><td>refine</td><td>138069</td><td>138069</td><td>equal</td></tr>
+<tr><td>6</td><td>plain</td><td>1747146</td><td>1747146</td><td>equal</td></tr>
+<tr><td>6</td><td>refine</td><td>1747146</td><td>1747146</td><td>equal</td></tr>
+<tr><td>7</td><td>plain</td><td>21136125</td><td>21136125</td><td>equal</td></tr>
+<tr><td>7</td><td>refine</td><td>21136125</td><td>21136125</td><td>equal</td></tr>
+</table>
+</div>
+<h2>Gap spacings</h2>
+<p>The normalised gap is δ_n = (m_(n+1) − m_n)·ln(m_n/2π)/2π, which rescales the spacings between consecutive zeros to mean 1; m_n is the midpoint of the certified bracket.</p>
+<p>The contrast with Poisson is the lesson: independent points would pile up near zero gap, while the zeros repel each other. A small KS distance to the Wigner surmise can still be a statistical rejection at a large gap count, because the surmise is an approximation and convergence with height is slow.</p>
+<figure>
+<img src="gaps-N3.svg" alt="Histogram of 648 normalised gaps for N = 3 against the Wigner surmise and the Poisson curve">
+<figcaption class="provenance">command: zeta 3 --refine; binary commit: f935b23; machine: Threadripper 3960X, 48 threads, Ubuntu 26.04; date: 2026-11-24</figcaption>
+</figure>
+<figure>
+<img src="gaps-N4.svg" alt="Histogram of 10,141 normalised gaps for N = 4 against the Wigner surmise and the Poisson curve">
+<figcaption class="provenance">command: zeta 4 --refine; binary commit: f935b23; machine: Threadripper 3960X, 48 threads, Ubuntu 26.04; date: 2026-11-24</figcaption>
+</figure>
+<figure>
+<img src="gaps-N5.svg" alt="Histogram of 138,068 normalised gaps for N = 5 against the Wigner surmise and the Poisson curve">
+<figcaption class="provenance">command: zeta 5 --refine; binary commit: f935b23; machine: Threadripper 3960X, 48 threads, Ubuntu 26.04; date: 2026-11-24</figcaption>
+</figure>
+<figure>
+<img src="gaps-N6.svg" alt="Histogram of 1,747,145 normalised gaps for N = 6 against the Wigner surmise and the Poisson curve">
+<figcaption class="provenance">command: zeta 6 --refine; binary commit: f935b23; machine: Threadripper 3960X, 48 threads, Ubuntu 26.04; date: 2026-11-24</figcaption>
+</figure>
+<figure>
+<img src="gaps-N7.svg" alt="Histogram of 21,136,124 normalised gaps for N = 7 against the Wigner surmise and the Poisson curve">
+<figcaption class="provenance">command: zeta 7 --refine; binary commit: f935b23; machine: Threadripper 3960X, 48 threads, Ubuntu 26.04; date: 2026-11-24</figcaption>
+</figure>
+<h2>Gram's law</h2>
+<p>A Gram point g_n is the solution of θ(t) = nπ, where θ is the Riemann–Siegel theta function.</p>
+<div style="overflow-x:auto">
+<table>
+<tr><th>N</th><th>0 zeros</th><th>1 zero</th><th>2 zeros</th><th>3 zeros</th><th>4+ zeros</th><th>exactly one</th><th>S</th></tr>
+<tr><td>3</td><td>22</td><td>604</td><td>22</td><td>0</td><td>0</td><td>0.9321</td><td>0</td></tr>
+<tr><td>4</td><td>822</td><td>8504</td><td>810</td><td>6</td><td>0</td><td>0.8385</td><td>1</td></tr>
+<tr><td>5</td><td>14568</td><td>109064</td><td>14304</td><td>132</td><td>0</td><td>0.7899</td><td>6</td></tr>
+<tr><td>6</td><td>207322</td><td>1334838</td><td>202648</td><td>2337</td><td>0</td><td>0.7640</td><td>12</td></tr>
+<tr><td>7</td><td>2698866</td><td>15771510</td><td>2632632</td><td>33117</td><td>0</td><td>0.7462</td><td>29</td></tr>
+</table>
+</div>
+<p>The zero brackets are certified. The Gram points are computed in double precision, not certified; S counts the brackets with a Gram point strictly inside, which bounds how much that matters. The zero above the last Gram point g_K ≤ 10^N falls in no interval.</p>
+<figure>
+<img src="gram-share.svg" alt="Share of Gram intervals holding exactly one zero, against N">
+<figcaption class="provenance">command: zeta 3 --refine; binary commit: f935b23; machine: Threadripper 3960X, 48 threads, Ubuntu 26.04; date: 2026-11-24 | command: zeta 4 --refine; binary commit: f935b23; machine: Threadripper 3960X, 48 threads, Ubuntu 26.04; date: 2026-11-24 | command: zeta 5 --refine; binary commit: f935b23; machine: Threadripper 3960X, 48 threads, Ubuntu 26.04; date: 2026-11-24 | command: zeta 6 --refine; binary commit: f935b23; machine: Threadripper 3960X, 48 threads, Ubuntu 26.04; date: 2026-11-24 | command: zeta 7 --refine; binary commit: f935b23; machine: Threadripper 3960X, 48 threads, Ubuntu 26.04; date: 2026-11-24</figcaption>
+</figure>
+<h2>Runs</h2>
+<p>Machine: Threadripper 3960X, 48 threads, Ubuntu 26.04</p>
+<div style="overflow-x:auto">
+<table>
+<tr><th>N</th><th>refine</th><th>elapsed</th><th>peak RSS</th><th>binary commit</th><th>date</th><th>note</th></tr>
+<tr><td>2</td><td>no</td><td>0.53 s</td><td>9.2 MiB</td><td>f935b23</td><td>2026-11-24</td><td></td></tr>
+<tr><td>3</td><td>no</td><td>0.71 s</td><td>9.2 MiB</td><td>f935b23</td><td>2026-11-24</td><td></td></tr>
+<tr><td>3</td><td>yes</td><td>2.45 s</td><td>9.2 MiB</td><td>f935b23</td><td>2026-11-24</td><td></td></tr>
+<tr><td>4</td><td>no</td><td>1.86 s</td><td>10.7 MiB</td><td>f935b23</td><td>2026-11-24</td><td></td></tr>
+<tr><td>4</td><td>yes</td><td>19.89 s</td><td>10.3 MiB</td><td>f935b23</td><td>2026-11-24</td><td></td></tr>
+<tr><td>5</td><td>no</td><td>6.87 s</td><td>35.1 MiB</td><td>f935b23</td><td>2026-11-24</td><td>machine also running other jobs</td></tr>
+<tr><td>5</td><td>yes</td><td>0:02:05</td><td>40.4 MiB</td><td>f935b23</td><td>2026-11-24</td><td>machine also running other jobs</td></tr>
+<tr><td>6</td><td>no</td><td>0:02:24</td><td>395.0 MiB</td><td>f935b23</td><td>2026-11-24</td><td>machine also running other jobs</td></tr>
+<tr><td>6</td><td>yes</td><td>1:04:45</td><td>394.5 MiB</td><td>f935b23</td><td>2026-11-24</td><td>machine also running other jobs</td></tr>
+<tr><td>7</td><td>no</td><td>1:02:23</td><td>4654.9 MiB</td><td>f935b23</td><td>2026-11-24</td><td>machine also running other jobs</td></tr>
+<tr><td>7</td><td>yes</td><td>35:52:45</td><td>4647.1 MiB</td><td>f935b23</td><td>2026-11-24</td><td>machine also running other jobs</td></tr>
+</table>
+</div>
+</main>
+<footer><p><a href="deployed-from.txt">deployed-from.txt</a> names the commit this page was deployed from.</p></footer>
+</body>
+</html>

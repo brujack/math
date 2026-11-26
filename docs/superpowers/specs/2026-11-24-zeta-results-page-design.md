@@ -99,7 +99,9 @@ This spec turns it into a page whose every figure traces to a command and a comm
   | 5 | 0.7899 | 14568 / 109064 / 14304 / 132 | 6 |
 - **`--refine` cost.**
   - `zeta 5 --refine`: 124.9 s (verification alone 6.6 s), 41,344 kB peak RSS.
-  - `zeta 6 --refine` and `zeta 7 --refine` were running when this was written (V4).
+  - `zeta 6 --refine` (V4): 1:04:45 wall clock (zeta's own line `Elapsed: 3882.3 s`), 403,988 kB peak RSS, 4180% CPU.
+  - `zeta 7 --refine` (V4): 35:52:45 wall clock (zeta's own line `Elapsed: 129126.8 s`), 4,758,656 kB peak RSS, 4396% CPU. Both exited 0 (read from `/usr/bin/time -v` on the operator's run store, 2026-11-26).
+  - V2: the generator exited 0 over the eleven real runs (t2 t3 t4 n5 n6 n7 tr3 tr4 r5 r6 r7), so every refined cross-check passed and every counts row reads `equal`. Generating took 4:01.35 wall clock and 6,053,788 kB peak RSS.
 - **Gap counts.** N = 3 has 648 gaps and N = 4 has 10,141 (`tr4`).
 - **Run storage.** Every run directory needed for the page lives outside the repo, on the
   operator's machine in a durable directory chosen by the operator (2026-11-24: `~/zeta-runs/`).
