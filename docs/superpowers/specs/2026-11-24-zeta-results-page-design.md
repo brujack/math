@@ -626,3 +626,35 @@ Report: [round1.md](2026-11-24-zeta-results-page-design.external-review/round1.m
 
 Stopped: reviewer recommended stopping in round 1
 
+
+## Amendments
+
+- finding R1 (2026-11-26, reviewer both): DIFFERS — The parser makes a fourth flag --runs-out required (add_argument('--runs-out', ..., required=True)), so the R1 invocation `--runs-toml <file> --run <id>=<dir> ... --out <dir>` exits 2 from argparse instead of writing the site and exiting 0; tests/test_zeta_results.py test_runs_out_is_required pins that refusal.
+- R1 -> `scripts/zeta_results.py --runs-toml <file> --run <id>=<dir> ... --out <dir> --runs-out <dir>` writes `<dir>/index.html` and one `.svg` per figure under `--out` and the run copies under `--runs-out`, and exits 0. — the run copies of R20 need their own output target, so `--runs-out` is required and the generator exits 2 without it.
+- finding R15 (2026-11-26, reviewer A): DIFFERS — Every other pinned value and coverage item is present (KS 0.0448/0.3260, 648 gaps, WIGNER_20 and DISPLAY_60 equal the spec lists, Gram 22/604/22/0/0, share 0.9321, S=0, '3 refine 649 649 equal', g0 straddle 1 and start-at-g0 0, AST import check, both elapsed formats, R4/R5 failure cases, R10, R9, SVG set, committed-site regeneration with no extra run), but the high-up straddle case takes the last Gram point at or below 9.3e4 (gram_points_upto(9.3e4)[-1], about 93,000), not one near 9.2·10^4 as the requirement states.
+- R15 -> `tests/test_zeta_results.py` pins, on the N = 3 refined fixture: KS 0.0448 to Wigner and 0.3260 to Poisson; 648 gaps; the 20 counts 0, 7, 26, 58, 96, 92, 109, 80, 58, 57, 28, 19, 8, 9, 1, 0, 0, 0, 0, 0; with the bin threshold set to 0, the 60 counts 0, 0, 0, 0, 4, 3, 3, 13, 10, 12, 22, 24, 26, 27, 43, 34, 22, 36, 37, 41, 31, 31, 19, 30, 22, 23, 13, 20, 21, 16, 8, 9, 11, 6, 5, 8, 5, 3, 0, 7, 2, 0, 0, 0, 1 followed by 15 zeros; Gram counts 22 / 604 / 22 / 0 and 4+ = 0 with share 0.9321 and S = 0; and the N = 3 counts row reading 649 `equal`. It also covers: S = 1 for a synthetic bracket straddling g₀ and S = 0 for one starting at g₀; S = 1 for a width-2e-5 bracket with a Gram point near 9.3·10^4 1e-5 inside it and S = 0 when the end is 5e-9 from it; an AST check that the script's only third-party top-level import is `matplotlib`; both elapsed formats; every R4 and R5 failure case; R10; R9; the SVG set equal to the `<img>` sources, each SVG with a bar and both curves; and, from the committed `zeta/results/runs.toml` and `zeta/results/runs/<id>/{out,err}.txt` alone, the counts table, the run table and each refined run's CLI gap count, 20 counts and KS regenerating equal to the committed `index.html`, with no extra run. — the high-up straddle test takes the last Gram point at or below 9.3·10^4 (about 93,000); any point near 10^5 serves the purpose, so the text follows the test.
+
+## Spec alignment (2026-11-26)
+
+- spec: docs/superpowers/specs/2026-11-24-zeta-results-page-design.md
+- anchor: 71fa9f9ce1f638bde181138072d54934dc2b1ac6
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16, R17, R18, R19, R20
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+| R1 | both | DIFFERS | The parser makes a fourth flag --runs-out required (add_argument('--runs-out', ..., required=True)), so the R1 invocation `--runs-toml <file> --run <id>=<dir> ... --out <dir>` exits 2 from argparse instead of writing the site and exiting 0; tests/test_zeta_results.py test_runs_out_is_required pins that refusal. | - R1 -> `scripts/zeta_results.py --runs-toml <file> --run <id>=<dir> ... --out <dir> --runs-out <dir>` writes `<dir>/index.html` and one `.svg` per figure under `--out` and the run copies under `--runs-out`, and exits 0. — the run copies of R20 need their own output target, so `--runs-out` is required and the generator exits 2 without it. |
+| R15 | A | DIFFERS | Every other pinned value and coverage item is present (KS 0.0448/0.3260, 648 gaps, WIGNER_20 and DISPLAY_60 equal the spec lists, Gram 22/604/22/0/0, share 0.9321, S=0, '3 refine 649 649 equal', g0 straddle 1 and start-at-g0 0, AST import check, both elapsed formats, R4/R5 failure cases, R10, R9, SVG set, committed-site regeneration with no extra run), but the high-up straddle case takes the last Gram point at or below 9.3e4 (gram_points_upto(9.3e4)[-1], about 93,000), not one near 9.2·10^4 as the requirement states. | - R15 -> `tests/test_zeta_results.py` pins, on the N = 3 refined fixture: KS 0.0448 to Wigner and 0.3260 to Poisson; 648 gaps; the 20 counts 0, 7, 26, 58, 96, 92, 109, 80, 58, 57, 28, 19, 8, 9, 1, 0, 0, 0, 0, 0; with the bin threshold set to 0, the 60 counts 0, 0, 0, 0, 4, 3, 3, 13, 10, 12, 22, 24, 26, 27, 43, 34, 22, 36, 37, 41, 31, 31, 19, 30, 22, 23, 13, 20, 21, 16, 8, 9, 11, 6, 5, 8, 5, 3, 0, 7, 2, 0, 0, 0, 1 followed by 15 zeros; Gram counts 22 / 604 / 22 / 0 and 4+ = 0 with share 0.9321 and S = 0; and the N = 3 counts row reading 649 `equal`. It also covers: S = 1 for a synthetic bracket straddling g₀ and S = 0 for one starting at g₀; S = 1 for a width-2e-5 bracket with a Gram point near 9.3·10^4 1e-5 inside it and S = 0 when the end is 5e-9 from it; an AST check that the script's only third-party top-level import is `matplotlib`; both elapsed formats; every R4 and R5 failure case; R10; R9; the SVG set equal to the `<img>` sources, each SVG with a bar and both curves; and, from the committed `zeta/results/runs.toml` and `zeta/results/runs/<id>/{out,err}.txt` alone, the counts table, the run table and each refined run's CLI gap count, 20 counts and KS regenerating equal to the committed `index.html`, with no extra run. — the high-up straddle test takes the last Gram point at or below 9.3·10^4 (about 93,000); any point near 10^5 serves the purpose, so the text follows the test. |
+
+### Reviewed
+
+- none
+
+### Verifications
+
+- V1: no evidence recorded
+- V2: Generator exited 0 over the eleven real runs (t2 t3 t4 n5 n6 n7 tr3 tr4 r5 r6 r7) on 2026-11-26, so every R5 cross-check passed and every counts row reads equal; 4:01.35 wall, 6,053,788 kB peak RSS. Recorded in the spec Facts and commit 6f531e6.
+- V3: Local 3.15 venv installs requirements-dev.txt (matplotlib 3.11.2) and make test is green; CI's Python 3.14 install is pending the PR's scripts.yml run.
+- V4: zeta 6 --refine: 1:04:45 wall, 403,988 kB peak RSS; zeta 7 --refine: 35:52:45 wall, 4,758,656 kB peak RSS (both exit 0), in the committed run table and spec Facts; Backlog row removed.
