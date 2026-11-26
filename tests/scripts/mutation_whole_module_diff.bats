@@ -103,3 +103,75 @@ setup() {
     PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" run bash "${SCRIPT}" pi "${OUT}" </dev/null
     [ "${status}" -eq 0 ]
 }
+
+@test "failing only the module diff call (no toml) is red and leaves no output file" {
+    cd "${WORK}"
+    rm "${WORK}/pi/mutants-equivalent.toml"
+    mkdir -p "${BATS_TEST_TMPDIR}/bin"
+    cat >"${BATS_TEST_TMPDIR}/bin/git" <<'MOCK'
+#!/usr/bin/env bash
+[[ "${*: -1}" == "pi.py" ]] && exit 129
+exit 0
+MOCK
+    chmod +x "${BATS_TEST_TMPDIR}/bin/git"
+    PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" run bash "${SCRIPT}" pi "${OUT}" </dev/null
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"git diff failed for pi.py"* ]]
+    [ ! -e "${OUT}" ]
+}
+
+@test "failing only the toml diff call is red and leaves no output file" {
+    cd "${WORK}"
+    mkdir -p "${BATS_TEST_TMPDIR}/bin"
+    cat >"${BATS_TEST_TMPDIR}/bin/git" <<'MOCK'
+#!/usr/bin/env bash
+[[ "${*: -1}" == "mutants-equivalent.toml" ]] && exit 129
+printf '+++ b/pi.py\n'
+exit 1
+MOCK
+    chmod +x "${BATS_TEST_TMPDIR}/bin/git"
+    PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" run bash "${SCRIPT}" pi "${OUT}" </dev/null
+    [ "${status}" -ne 0 ]
+    [ ! -e "${OUT}" ]
+}
+
+@test "an absolute dir derives the module from its last component" {
+    cd "${BATS_TEST_TMPDIR}"
+    run bash "${SCRIPT}" "${WORK}/pi" "${OUT}" </dev/null
+    [ "${status}" -eq 0 ]
+    grep -qxF -- '+++ b/pi.py' "${OUT}"
+}
+
+@test "a nested dir with a hyphen derives the module from its last component" {
+    cd "${WORK}"
+    mkdir -p sub/perfect-numbers
+    printf 'y = 2\n' >sub/perfect-numbers/perfect_numbers.py
+    run bash "${SCRIPT}" sub/perfect-numbers "${OUT}" </dev/null
+    [ "${status}" -eq 0 ]
+    grep -qxF -- '+++ b/perfect_numbers.py' "${OUT}"
+}
+
+@test "user git config (noprefix, forced colour) does not change the diff format" {
+    cd "${WORK}"
+    printf '[diff]\n\tnoprefix = true\n[color]\n\tui = always\n' >"${BATS_TEST_TMPDIR}/gitconfig"
+    GIT_CONFIG_GLOBAL="${BATS_TEST_TMPDIR}/gitconfig" run bash "${SCRIPT}" pi "${OUT}" </dev/null
+    [ "${status}" -eq 0 ]
+    grep -qxF -- '+++ b/pi.py' "${OUT}"
+    grep -qxF -- '+++ b/mutants-equivalent.toml' "${OUT}"
+    ! command grep -q $'\x1b' "${OUT}"
+}
+
+@test "extra arguments exit 2" {
+    cd "${WORK}"
+    run bash "${SCRIPT}" pi "${OUT}" extra </dev/null
+    [ "${status}" -eq 2 ]
+    [ ! -e "${OUT}" ]
+}
+
+@test "a relative out-diff is written relative to the caller's cwd, not the dir" {
+    cd "${WORK}"
+    run bash "${SCRIPT}" pi rel.diff </dev/null
+    [ "${status}" -eq 0 ]
+    [ -s "${WORK}/rel.diff" ]
+    [ ! -e "${WORK}/pi/rel.diff" ]
+}

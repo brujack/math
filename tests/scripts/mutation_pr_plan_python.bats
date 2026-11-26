@@ -617,3 +617,73 @@ MOCK
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"pi: suite timed out"* ]]
 }
+
+# Clock seam: prints a scripted microsecond reading per call (start, then end).
+clock_stub() {
+    # clock_stub <start_us> <end_us>
+    printf '%s\n%s\n' "$1" "$2" >"${FIX}/clock.seq"
+    cat >"${BATS_TEST_TMPDIR}/bin/mock-clock" <<'MOCK'
+#!/usr/bin/env bash
+head -n1 "${FIX}/clock.seq"
+tail -n +2 "${FIX}/clock.seq" >"${FIX}/clock.seq.new"
+mv "${FIX}/clock.seq.new" "${FIX}/clock.seq"
+MOCK
+    chmod +x "${BATS_TEST_TMPDIR}/bin/mock-clock"
+    export MUTATION_PR_CLOCK_US="${BATS_TEST_TMPDIR}/bin/mock-clock"
+}
+
+@test "real suite time is end minus start, rounded up to a millisecond" {
+    real_s_setup
+    # 1000500 us -> 1001 ms (ceil). K=6000: 6000*1001/600000 -> 11; floor (1000 ms) would give 10.
+    printf '6000' >"${FIX}/pi.k"
+    clock_stub 5000000000 5001000500
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -eq 0 ]
+    [ "$(cat "${PLAN_OUT}/plan.txt")" = "$(printf 'pi\tgreen\t6000 mutants in 11 shards')" ]
+}
+
+@test "real suite time on an exact millisecond is not rounded up" {
+    real_s_setup
+    printf '6000' >"${FIX}/pi.k"
+    clock_stub 5000000000 5001000000
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "$(cat "${PLAN_OUT}/plan.txt")" = "$(printf 'pi\tgreen\t6000 mutants in 10 shards')" ]
+}
+
+@test "real suite time uses the start reading, not zero" {
+    real_s_setup
+    printf '6000' >"${FIX}/pi.k"
+    clock_stub 5000000000 5002000000
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    # 2.000 s -> 12000000/600000 = 20 shards
+    [ "$(cat "${PLAN_OUT}/plan.txt")" = "$(printf 'pi\tgreen\t6000 mutants in 20 shards')" ]
+}
+
+@test "the suite runs with stdin from /dev/null" {
+    real_s_setup
+    cat >"${BATS_TEST_TMPDIR}/bin/python3" <<'MOCK'
+#!/usr/bin/env bash
+cat >"${FIX}/python3.stdin"
+exit 0
+MOCK
+    chmod +x "${BATS_TEST_TMPDIR}/bin/python3"
+    run bash -c 'printf "SENTINEL\n" | PY_TEST_DIRS=pi bash "$0" base' "${SCRIPT}"
+    [ "${status}" -eq 0 ]
+    [ ! -s "${FIX}/python3.stdin" ]
+}
+
+@test "trailing garbage in s fails closed with the named message" {
+    weak_fix pi 100 1.5x
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"pi: suite time is not a non-negative number"* ]]
+}
+
+@test "seconds_to_ms itself rejects a non-decimal value" {
+    run bash -c 'source "$1"; seconds_to_ms 1.5x' _ "${SCRIPT}"
+    [ "${status}" -ne 0 ]
+    run bash -c 'source "$1"; seconds_to_ms ""' _ "${SCRIPT}"
+    [ "${status}" -ne 0 ]
+    run bash -c 'source "$1"; seconds_to_ms 1.0005' _ "${SCRIPT}"
+    [ "${output}" = "1001" ]
+}

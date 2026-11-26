@@ -68,7 +68,8 @@ parse_prune_summary() {
     while IFS= read -r line; do
         line="${line//$'\r'/}"
         if [[ "${line}" =~ ${re_kept} ]]; then
-            # Exactly one kept line, and only after the excluded line.
+            # Exactly one excluded line, then exactly one kept line: the order checks reject
+            # duplicates and kept-before-excluded, the final count check a missing kept line.
             ((kept_n > 0 || excl_n == 0)) && bad=1
             ((kept_n++))
             P_KEPT="${BASH_REMATCH[1]}"
@@ -79,7 +80,7 @@ parse_prune_summary() {
             ((excl_n++))
         fi
     done <<<"${out}"
-    ((bad == 0 && (excl_n != 1 || kept_n != 1))) && bad=1
+    ((kept_n != 1)) && bad=1
     ((bad == 0 && 10#${P_KEPT} > 10#${P_TOTAL})) && bad=1
     ((bad != 0)) && return 1
     # Force base 10: a leading zero must not read as octal.
@@ -160,11 +161,23 @@ whole_module_mutant_count() {
     printf '%s\n' "${P_KEPT}"
 }
 
+# Microsecond clock reading. MUTATION_PR_CLOCK_US (an executable printing one integer) replaces it in tests.
+now_us() {
+    local reading
+    if [[ -n "${MUTATION_PR_CLOCK_US:-}" ]]; then
+        reading="$("${MUTATION_PR_CLOCK_US}")" || return 1
+    else
+        reading="${EPOCHREALTIME/[.,]/}"
+    fi
+    [[ "${reading}" =~ ^[0-9]+$ ]] || return 1
+    printf '%s\n' "${reading}"
+}
+
 # Real s measurement: wall time of the head suite on the unmutated module, under the shard's
 # environment (fixed hash seed, no bytecode writes), capped at 600 s. Prints seconds as S.mmm.
 head_suite_seconds() {
     local dir="$1" start end rc ms
-    start="${EPOCHREALTIME/[.,]/}"
+    start="$(now_us)" || return 1
     (cd "${dir}" && env PYTHONHASHSEED=0 PYTHONDONTWRITEBYTECODE=1 timeout 600 python3 -m unittest "test_${dir//-/_}" >/dev/null 2>&1 </dev/null)
     rc=$?
     if ((rc == 124)); then
@@ -172,7 +185,7 @@ head_suite_seconds() {
         return 1
     fi
     ((rc == 0)) || return 1
-    end="${EPOCHREALTIME/[.,]/}"
+    end="$(now_us)" || return 1
     ms=$(((end - start + 999) / 1000))
     printf '%s.%03d\n' "$((ms / 1000))" "$((ms % 1000))"
 }
@@ -202,6 +215,7 @@ measure() {
 # Decimal seconds to whole milliseconds, rounded up: "0.5" -> 500, "1.0005" -> 1001, "08" -> 8000.
 seconds_to_ms() {
     local value="$1" whole frac=""
+    [[ "${value}" =~ ^[0-9]+(\.[0-9]+)?$ ]] || return 1
     whole="${value%%.*}"
     [[ "${value}" == *.* ]] && frac="${value#*.}"
     local head="${frac:0:3}" rest="${frac:3}"
@@ -224,11 +238,15 @@ weakening_shard_count() {
 # Plans one py_test_dirs dir as whole-module weakening shards. Sets PLAN_LINE and appends to UNITS.
 # Returns 1 (fail closed) when K or s cannot be measured.
 plan_weakening_dir() {
-    local dir="$1" kept secs n k
+    local dir="$1" kept secs ms n k
     kept="$(measure 'mutant count' "${dir}" "${MUTATION_PR_WEAKENING_K:-}" whole_module_mutant_count '^[0-9]+$')" || return 1
     secs="$(measure 'suite time' "${dir}" "${MUTATION_PR_SUITE_SECONDS:-}" head_suite_seconds '^[0-9]+(\.[0-9]+)?$')" || return 1
     kept=$((10#${kept}))
-    n="$(weakening_shard_count "${kept}" "$(seconds_to_ms "${secs}")")" || return 1
+    ms="$(seconds_to_ms "${secs}")" || {
+        printf '%s: suite time is not a non-negative number: %q\n' "${dir}" "${secs}" >&2
+        return 1
+    }
+    n="$(weakening_shard_count "${kept}" "${ms}")" || return 1
     PLAN_LINE="green${TAB}${kept} mutants in ${n} shards"
     for ((k = 0; k < n; k++)); do
         UNITS+=("{\"dir\":\"$(json_escape "${dir}")\",\"k\":${k},\"n\":${n},\"mode\":\"weakening\"}")
