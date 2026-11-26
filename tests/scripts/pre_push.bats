@@ -1020,7 +1020,7 @@ assert_log_lacks() { # <file> <fixed string>
 }
 
 @test "gates: the push-gates block is the template, pinned to ai-config docs/templates/pre-push-gates" {
-    local hash expected="a177991056f5626989d70e9513a7b2531314e87bd5f2eeceee5121e1f1ecd030"
+    local hash expected="e38c2b5fa6a5de641a421a1e1e71fe10061ab6d6ccf4c7aa4749de9156794689"
     hash="$(sed -n '/^# >>> push-gates wiring$/,/^# <<< push-gates wiring$/p' "${REPO_ROOT}/scripts/pre-push" | sha256sum | cut -d' ' -f1)"
     if [ "${hash}" != "${expected}" ]; then
         printf 'the push-gates block in scripts/pre-push (sha256 %s) is not the ai-config docs/templates/pre-push-gates block (sha256 %s); paste the template byte for byte\n' \
@@ -1088,7 +1088,10 @@ assert_log_lacks() { # <file> <fixed string>
     fi
 }
 
-@test "gates: a docs-only push reaches the recorder" {
+# The next two tests run against the mocked git, whose `remote get-url` prints nothing, so the
+# R17 exemption (which needs origin's one URL to equal the URL argument) cannot apply and the
+# gates run. The exempt behaviour is covered below against a real fixture repository.
+@test "gates: a docs-only push reaches the recorder when the exemption does not apply" {
     export MOCK_GIT_DIFF_NAMES="README.md"
     run bash "${PG_HOOK}" origin "${PUSH_URL}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
@@ -1097,7 +1100,7 @@ assert_log_lacks() { # <file> <fixed string>
     assert_log_has "${ORDER_LOG}" "gates"
 }
 
-@test "gates: a branch deletion push reaches the recorder, and still blocks when the gates cannot load" {
+@test "gates: a branch deletion push reaches the recorder when the exemption does not apply, and blocks when the gates cannot load" {
     run bash "${PG_HOOK}" origin "${PUSH_URL}" \
         <<< "refs/heads/feat ${ZEROS} refs/heads/feat abc123"
     [ "$status" -eq 0 ]
@@ -1167,4 +1170,137 @@ _assert_copy_refused() { # <hook body>
     run bash -c '. "$1"; _pg_fake_fetch "repos/brujack/ai-config/contents/other"' _ "${PG_FAKE_FETCH}"
     [ "$status" -eq 1 ]
     assert_log_has "${FETCH_LOG}" "repos/brujack/ai-config/contents/other"
+}
+
+# --- R17 exemption: docs-only and deletion pushes skip the gates, offline -------
+# These run the real hook copy against a real fixture repository (the mocked git cannot
+# answer `remote get-url` or the ref and tree queries the exemption makes). The fixture
+# has origin (one URL, equal to PUSH_URL), refs/remotes/origin/HEAD, and a tracking ref
+# for the pushed branch equal to the remote sha. FAKE_MASTER_FAIL=1 makes any GitHub
+# fetch fail, so a push that is not exempt blocks and one that is exempt passes offline.
+EXEMPT_LINE="pre-push: gates: every pushed ref is a deletion or a docs-only branch; gates not run"
+GATES_BLOCK_LINE="pre-push: gates: cannot load push gates from GitHub; push blocked"
+
+# Builds ${FX} on branch feat (tracking ref at FX_BASE) and sets NO_MOCK_PATH, a PATH with
+# the git mock removed so the hook sees real git.
+exempt_fixture() {
+    local g
+    FX="${BATS_TEST_TMPDIR}/fx"
+    mkdir -p "${FX}" || return 1
+    g=(git -C "${FX}" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false)
+    NO_MOCK_PATH="$(printf '%s' "${PATH}" | tr ':' '\n' | command grep -vxF "${REPO_ROOT}/tests/mocks" | tr '\n' ':' | sed 's/:$//')"
+    PATH="${NO_MOCK_PATH}" "${g[@]}" init -q -b master || return 1
+    printf 'readme\n' > "${FX}/README.md"
+    printf 'int x;\n' > "${FX}/code.c"
+    PATH="${NO_MOCK_PATH}" "${g[@]}" add README.md code.c || return 1
+    PATH="${NO_MOCK_PATH}" "${g[@]}" commit -q -m base || return 1
+    FX_BASE="$(PATH="${NO_MOCK_PATH}" git -C "${FX}" rev-parse HEAD)" || return 1
+    PATH="${NO_MOCK_PATH}" git -C "${FX}" remote add origin "${PUSH_URL}" || return 1
+    PATH="${NO_MOCK_PATH}" git -C "${FX}" update-ref refs/remotes/origin/master "${FX_BASE}" || return 1
+    PATH="${NO_MOCK_PATH}" git -C "${FX}" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/master || return 1
+    PATH="${NO_MOCK_PATH}" git -C "${FX}" update-ref refs/remotes/origin/feat "${FX_BASE}" || return 1
+    PATH="${NO_MOCK_PATH}" git -C "${FX}" checkout -q -b feat || return 1
+}
+
+# exempt_commit <path> <content> -- commits that file on feat; sets FX_LOCAL to the new sha.
+exempt_commit() {
+    mkdir -p "$(dirname "${FX}/${1}")" || return 1
+    printf '%s\n' "$2" > "${FX}/${1}"
+    PATH="${NO_MOCK_PATH}" git -C "${FX}" add -- "$1" || return 1
+    PATH="${NO_MOCK_PATH}" git -C "${FX}" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false commit -q -m "change $1" || return 1
+    FX_LOCAL="$(PATH="${NO_MOCK_PATH}" git -C "${FX}" rev-parse HEAD)" || return 1
+}
+
+# run_exempt_hook <refs text> -- runs the hook copy inside the fixture with real git and a failing fetch.
+run_exempt_hook() {
+    export FAKE_MASTER_FAIL=1
+    cd "${FX}" || return 1
+    run env PATH="${NO_MOCK_PATH}" bash "${PG_HOOK}" origin "${PUSH_URL}" <<< "$1"
+}
+
+# Fails when the fake fetch was ever called: an exempt push must read nothing from GitHub.
+assert_no_fetch() {
+    if [ -s "${FETCH_LOG}" ]; then
+        printf 'expected no GitHub fetch, the fetch log holds:\n%s\n' "$(cat "${FETCH_LOG}")" >&2
+        return 1
+    fi
+}
+
+@test "exempt: a docs-only update of an existing branch passes offline and fetches nothing" {
+    exempt_fixture
+    exempt_commit docs/notes.md "more notes"
+    run_exempt_hook "refs/heads/feat ${FX_LOCAL} refs/heads/feat ${FX_BASE}"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"${EXEMPT_LINE}"* ]]
+    assert_no_fetch
+    if [ -e "${ORDER_LOG}" ]; then
+        printf 'the recorder or make ran on an exempt push: %s\n' "$(cat "${ORDER_LOG}")" >&2
+        return 1
+    fi
+}
+
+@test "exempt: a deletion-only push passes offline and fetches nothing" {
+    exempt_fixture
+    run_exempt_hook "refs/heads/feat ${ZEROS} refs/heads/feat ${FX_BASE}"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"${EXEMPT_LINE}"* ]]
+    assert_no_fetch
+}
+
+@test "exempt: a docs-only ref pushed with a new-branch ref blocks when the gates cannot load" {
+    exempt_fixture
+    exempt_commit docs/notes.md "more notes"
+    run_exempt_hook "refs/heads/feat ${FX_LOCAL} refs/heads/feat ${FX_BASE}
+refs/heads/other ${FX_LOCAL} refs/heads/other ${ZEROS}"
+    [ "$status" -eq 1 ]
+    [ "${output}" = "${GATES_BLOCK_LINE}" ]
+    assert_log_has "${FETCH_LOG}" "repos/brujack/ai-config/commits/master"
+}
+
+@test "exempt: a docs-only ref pushed with a code-changing ref blocks when the gates cannot load" {
+    exempt_fixture
+    exempt_commit docs/notes.md "more notes"
+    PATH="${NO_MOCK_PATH}" git -C "${FX}" update-ref refs/remotes/origin/code "${FX_BASE}"
+    docs_sha="${FX_LOCAL}"
+    exempt_commit code.c "int y;"
+    run_exempt_hook "refs/heads/feat ${docs_sha} refs/heads/feat ${FX_BASE}
+refs/heads/code ${FX_LOCAL} refs/heads/code ${FX_BASE}"
+    [ "$status" -eq 1 ]
+    [ "${output}" = "${GATES_BLOCK_LINE}" ]
+}
+
+@test "exempt: a .sh file under docs/ blocks when the gates cannot load" {
+    exempt_fixture
+    exempt_commit docs/run.sh "echo hi"
+    run_exempt_hook "refs/heads/feat ${FX_LOCAL} refs/heads/feat ${FX_BASE}"
+    [ "$status" -eq 1 ]
+    [ "${output}" = "${GATES_BLOCK_LINE}" ]
+}
+
+@test "exempt: a .md file that starts with a shebang blocks when the gates cannot load" {
+    exempt_fixture
+    exempt_commit docs/trojan.md "#!/bin/sh"
+    run_exempt_hook "refs/heads/feat ${FX_LOCAL} refs/heads/feat ${FX_BASE}"
+    [ "$status" -eq 1 ]
+    [ "${output}" = "${GATES_BLOCK_LINE}" ]
+}
+
+@test "exempt: a tracking ref that differs from the remote sha blocks the docs-only push" {
+    exempt_fixture
+    exempt_commit docs/notes.md "more notes"
+    PATH="${NO_MOCK_PATH}" git -C "${FX}" update-ref refs/remotes/origin/feat "${FX_LOCAL}"
+    run_exempt_hook "refs/heads/feat ${FX_LOCAL} refs/heads/feat ${FX_BASE}"
+    [ "$status" -eq 1 ]
+    [ "${output}" = "${GATES_BLOCK_LINE}" ]
+}
+
+@test "exempt: a push to a remote that is not named origin blocks" {
+    exempt_fixture
+    exempt_commit docs/notes.md "more notes"
+    export FAKE_MASTER_FAIL=1
+    cd "${FX}" || return 1
+    run env PATH="${NO_MOCK_PATH}" bash "${PG_HOOK}" upstream "${PUSH_URL}" \
+        <<< "refs/heads/feat ${FX_LOCAL} refs/heads/feat ${FX_BASE}"
+    [ "$status" -eq 1 ]
+    [ "${output}" = "${GATES_BLOCK_LINE}" ]
 }
