@@ -105,7 +105,8 @@ rs_setup() {
     [ "${lines[2]}" = "rs_dirs=fib/fib-rs" ]
     [ "${lines[3]}" = "has_rs=true" ]
     [ "${lines[4]}" = "rs_canary=false" ]
-    [ "${#lines[@]}" -eq 7 ]
+    [ "${#lines[@]}" -eq 8 ]
+    [ "${lines[7]}" = "py_test_dirs=" ]
 }
 
 @test "rust nested source selects its crate" {
@@ -116,10 +117,10 @@ rs_setup() {
     [ "${lines[3]}" = "has_rs=true" ]
 }
 
-@test "non-source rust paths select nothing" {
+@test "rust paths outside src, tests, .cargo, build.rs and Cargo.toml select nothing" {
     rs_setup
     local p
-    for p in fib/fib-rs/Cargo.toml fib/fib-rs/.cargo/mutants.toml fib/fib-rs/tests/cli.rs fib/fib-rs/src/notes.txt; do
+    for p in fib/fib-rs/README.md fib/fib-rs/benches/b.rs fib/fib-rs/src.rs fib/fib-rs/Cargo.lock; do
         export MOCK_GIT_DIFF_NAMES="${p}"
         run -0 bash "${SCRIPT}" origin/master
         [ "${lines[2]}" = "rs_dirs=" ]
@@ -426,4 +427,181 @@ _detect_readonly() {
         run git -C "${REPO_ROOT}" ls-files --error-unmatch -- "${d}/${d//-/_}.py"
         [ "${status}" -eq 0 ] || { printf 'no module for dir: %s\n' "${d}" >&2; return 1; }
     done
+}
+
+# R1: whole-crate trigger. Each helper builds a real-git fixture holding the fib crate.
+rs_cargo_toml() {
+    printf '[package]\nname = "fib"\nversion = "%s"\nedition = "2024"\n\n[dependencies]\nrug = "%s"\n\n[dev-dependencies]\nproptest = "1.0"\n%s' "$1" "$2" "${3:-}"
+}
+
+rs_fixture_repo() {
+    FIX="${BATS_TEST_TMPDIR}/fixture"
+    mkdir -p "${FIX}/fib/fib-rs/src"
+    rs_cargo_toml 0.1.0 1.0 > "${FIX}/fib/fib-rs/Cargo.toml"
+    printf 'fn main() {}\n' > "${FIX}/fib/fib-rs/src/main.rs"
+    fixture_repo
+}
+
+# Args: path (relative to the fixture) and its new content.
+rs_change() {
+    rs_fixture_repo
+    mkdir -p "$(dirname "${FIX}/$1")"
+    printf '%s' "$2" > "${FIX}/$1"
+    fix_commit "change"
+    fix_run
+}
+
+@test "a crate tests/ fixture of any extension selects the crate" {
+    rs_change fib/fib-rs/tests/data/input.txt $'1 2 3\n'
+    [ "${lines[2]}" = "rs_dirs=fib/fib-rs" ]
+    [ "${lines[3]}" = "has_rs=true" ]
+}
+
+@test "a non-rs src file selects the crate" {
+    rs_change fib/fib-rs/src/table.txt $'x\n'
+    [ "${lines[2]}" = "rs_dirs=fib/fib-rs" ]
+}
+
+@test "a .cargo/mutants.toml change selects the crate" {
+    rs_change fib/fib-rs/.cargo/mutants.toml $'exclude_re = []\n'
+    [ "${lines[2]}" = "rs_dirs=fib/fib-rs" ]
+}
+
+@test "build.rs selects the crate" {
+    rs_change fib/fib-rs/build.rs $'fn main() {}\n'
+    [ "${lines[2]}" = "rs_dirs=fib/fib-rs" ]
+}
+
+@test "a build.rs in another directory of the crate does not select it" {
+    rs_change fib/fib-rs/other/build.rs $'fn main() {}\n'
+    [ "${lines[2]}" = "rs_dirs=" ]
+}
+
+@test "a Cargo.toml [[test]] addition selects the crate" {
+    rs_change fib/fib-rs/Cargo.toml "$(rs_cargo_toml 0.1.0 1.0 $'\n[[test]]\nname = "x"\n')"
+    [ "${lines[2]}" = "rs_dirs=fib/fib-rs" ]
+}
+
+@test "a Cargo.toml [package] edition change selects the crate" {
+    rs_change fib/fib-rs/Cargo.toml "$(rs_cargo_toml 0.1.0 1.0 | sed 's/2024/2021/')"
+    [ "${lines[2]}" = "rs_dirs=fib/fib-rs" ]
+}
+
+@test "a Cargo.toml [dependencies] version change alone does not select the crate" {
+    rs_change fib/fib-rs/Cargo.toml "$(rs_cargo_toml 0.1.0 1.1)"
+    [ "${lines[2]}" = "rs_dirs=" ]
+    [ "${lines[3]}" = "has_rs=false" ]
+}
+
+@test "a Cargo.toml [dev-dependencies] change alone does not select the crate" {
+    rs_change fib/fib-rs/Cargo.toml "$(rs_cargo_toml 0.1.0 1.0 | sed 's/proptest = "1.0"/proptest = "1.1"/')"
+    [ "${lines[2]}" = "rs_dirs=" ]
+}
+
+@test "a Cargo.toml [package] version change alone does not select the crate" {
+    rs_change fib/fib-rs/Cargo.toml "$(rs_cargo_toml 0.2.0 1.0)"
+    [ "${lines[2]}" = "rs_dirs=" ]
+}
+
+@test "a Cargo.toml dependency removal alone does not select the crate" {
+    rs_change fib/fib-rs/Cargo.toml $'[package]\nname = "fib"\nversion = "0.1.0"\nedition = "2024"\n\n[dependencies]\n\n[dev-dependencies]\nproptest = "1.0"\n'
+    [ "${lines[2]}" = "rs_dirs=" ]
+}
+
+@test "a Cargo.toml version bump plus a [[test]] addition selects the crate" {
+    rs_change fib/fib-rs/Cargo.toml "$(rs_cargo_toml 0.2.0 1.0 $'\n[[test]]\nname = "x"\n')"
+    [ "${lines[2]}" = "rs_dirs=fib/fib-rs" ]
+}
+
+@test "a Cargo.toml diff failure exits non-zero" {
+    rs_fixture_repo
+    printf '%s' "$(rs_cargo_toml 0.1.0 1.1)" > "${FIX}/fib/fib-rs/Cargo.toml"
+    fix_commit "dep"
+    local shim="${BATS_TEST_TMPDIR}/shim"
+    mkdir -p "${shim}"
+    local real
+    real="$(command -v git)"
+    printf '#!/usr/bin/env bash\ncase "$*" in *-U1000000*) exit 1 ;; esac\nexec "%s" "$@"\n' "${real}" > "${shim}/git"
+    chmod +x "${shim}/git"
+    export PATH="${shim}:${PATH}"
+    cd "${FIX}" || return 1
+    run ! bash "${SCRIPT}" main
+}
+
+# R5: py_test_dirs, line 7 of the output.
+@test "an added test line selects py_test_dirs" {
+    fixture_repo
+    printf 'def test_y():\n    pass\n' >> "${FIX}/fib/test_fib.py"
+    fix_commit "add"
+    fix_run
+    [ "${lines[7]}" = "py_test_dirs=fib" ]
+}
+
+@test "a deleted-only test line selects py_test_dirs" {
+    fixture_repo
+    printf 'def test_x():\n' > "${FIX}/fib/test_fib.py"
+    fix_commit "del"
+    git -C "${FIX}" show --numstat --format= HEAD | grep -q '^0'
+    fix_run
+    [ "${lines[7]}" = "py_test_dirs=fib" ]
+}
+
+@test "a deleted test file selects py_test_dirs" {
+    fixture_repo
+    git -C "${FIX}" rm -q fib/test_fib.py
+    fix_commit "rm"
+    fix_run
+    [ "${lines[7]}" = "py_test_dirs=fib" ]
+}
+
+@test "a cosmic-ray.toml change selects py_test_dirs" {
+    fixture_repo
+    printf 'k = 1\n' > "${FIX}/sq/cosmic-ray.toml"
+    fix_commit "cr"
+    fix_run
+    [ "${lines[7]}" = "py_test_dirs=sq" ]
+}
+
+@test "a mutants-equivalent.toml change selects py_test_dirs" {
+    fixture_repo
+    printf 'k = 1\n' > "${FIX}/pi/mutants-equivalent.toml"
+    fix_commit "eq"
+    fix_run
+    [ "${lines[7]}" = "py_test_dirs=pi" ]
+}
+
+@test "a module change alone does not select py_test_dirs" {
+    fixture_repo
+    printf 'd = 4\n' >> "${FIX}/fib/fib.py"
+    fix_commit "mod"
+    fix_run
+    [ "${lines[5]}" = "py_src_dirs=fib" ]
+    [ "${lines[7]}" = "py_test_dirs=" ]
+}
+
+@test "a mode-only test file change does not select py_test_dirs" {
+    fixture_repo
+    chmod +x "${FIX}/fib/test_fib.py"
+    fix_commit "mode"
+    fix_run
+    [ "${lines[7]}" = "py_test_dirs=" ]
+}
+
+@test "py_test_dirs is sorted and unique across dirs" {
+    fixture_repo
+    printf 'x = 1\n' >> "${FIX}/sq/test_sq.py"
+    printf 'x = 1\n' >> "${FIX}/fib/test_fib.py"
+    printf 'k = 1\n' > "${FIX}/fib/cosmic-ray.toml"
+    fix_commit "many"
+    fix_run
+    [ "${lines[7]}" = "py_test_dirs=fib sq" ]
+}
+
+@test "a test file of another directory does not select a dir" {
+    fixture_repo
+    mkdir -p "${FIX}/fib/fib-rs"
+    printf 'x = 1\n' > "${FIX}/fib/fib-rs/test_fib.py"
+    fix_commit "nested"
+    fix_run
+    [ "${lines[7]}" = "py_test_dirs=" ]
 }
