@@ -269,6 +269,38 @@ class TestParsing(_FixtureCopy):
             ):
                 self.load()
 
+    def test_toml_id_must_be_a_plain_name(self) -> None:
+        for bad in (
+            "../escape",
+            "a/b",
+            "",
+            ".",
+            "..",
+            "-x",
+            "_x",
+            " t2",
+            "t2.",
+            "t\u00e92",
+        ):
+            path = self.root / "runs.toml"
+            text = (FIXTURES / "runs.toml").read_text()
+            path.write_text(
+                text.replace('id = "t2"', f"id = {bad!r}".replace("'", '"'), 1)
+            )
+            with (
+                self.subTest(bad=bad),
+                self.assertRaisesRegex(zr.ResultsError, r"^run\[0\]: id "),
+            ):
+                self.load()
+
+    def test_toml_id_boundary_names_are_accepted(self) -> None:
+        for good in ("a", "Z", "9", "r7_b-1"):
+            path = self.root / "runs.toml"
+            text = (FIXTURES / "runs.toml").read_text()
+            path.write_text(text.replace('id = "t2"', f'id = "{good}"', 1))
+            with self.subTest(good=good):
+                self.assertIn(good, self.load())
+
     def test_toml_duplicate_id(self) -> None:
         self.edit("runs.toml", 'id = "t3"', 'id = "t2"')
         with self.assertRaisesRegex(zr.ResultsError, "^t2: "):
@@ -1263,6 +1295,14 @@ class TestTargetSafety(_FixtureCopy):
         self.stderr = io.StringIO()
         with contextlib.redirect_stderr(self.stderr):
             return zr.main(argv)
+
+    def test_run_id_escaping_the_runs_tree_writes_nothing(self) -> None:
+        self.edit("runs.toml", 'id = "t2"', 'id = "../escape"')
+        dirs = {("../escape" if k == "t2" else k): v for k, v in self.dirs.items()}
+        before = _tree(self.work)
+        self.assertNotEqual(self.run_main(self.site, self.runs, dirs), 0)
+        self.assertIn("run[0]: id ", self.stderr.getvalue())
+        self.assertEqual(_tree(self.work), before)
 
     def victim(self, name: str) -> Path:
         """A directory of someone else's, with content and no marker."""

@@ -33,6 +33,8 @@ T_TOLERANCE = 1e-9
 
 _ELAPSED_RE = re.compile(r"^(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)$")
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+# A run id names its run-copy directory, so it must be one plain path component.
+_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
 _COMMAND_RE = re.compile(
     r'^\s*Command being timed: "(?:.*/)?zeta-([0-9a-f]{7}) ([2-7])( --refine)?"\s*$',
     re.MULTILINE,
@@ -186,12 +188,18 @@ def _run_from_table(table: dict[str, object], index: int) -> RunMeta:
     for key, value in table.items():
         if not isinstance(value, str):
             raise ResultsError(f"{label}: runs.toml key {key} is not a string")
+    run_id = str(table["id"])
+    if _ID_RE.fullmatch(run_id) is None:
+        raise ResultsError(
+            f"run[{index}]: id {run_id!r} is not ASCII letters, digits, '-' or '_'"
+            " starting with a letter or digit"
+        )
     sha = str(table["binary_sha"])
     if _SHA_RE.match(sha) is None:
         raise ResultsError(f"{label}: binary_sha is not 40 lowercase hex digits")
     note = table.get("note")
     return RunMeta(
-        id=str(table["id"]),
+        id=run_id,
         binary_sha=sha,
         machine=str(table["machine"]),
         date=str(table["date"]),
@@ -827,7 +835,8 @@ def render_site(plt: ModuleType, runs: list[RunData]) -> dict[str, bytes]:
 
 
 # Empty file at the top of every tree this generator writes; without it a
-# directory is someone else's and must never be replaced or deleted.
+# non-empty directory is someone else's and must never be replaced or deleted.
+# An empty, unmarked directory is accepted as a target: it holds nothing to lose.
 MARKER = ".zeta-results"
 
 
@@ -889,7 +898,8 @@ def _has_marker(member: Path) -> bool:
 
 
 def _check_owned(flag: str, member: Path, allow_empty: bool) -> None:
-    """Refuse an existing path the generator did not write (no MARKER at its top)."""
+    """Refuse an existing path the generator did not write (no MARKER at its top),
+    except an empty directory when `allow_empty`."""
     if not member.exists():
         return
     if not member.is_dir():
