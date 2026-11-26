@@ -39,6 +39,49 @@ MOCK
     chmod +x "${BATS_TEST_TMPDIR}/bin/make" "${BATS_TEST_TMPDIR}/bin/mock-diff"
     export PATH="${BATS_TEST_TMPDIR}/bin:${PATH}"
     export MUTATION_PR_DIFF="${BATS_TEST_TMPDIR}/bin/mock-diff"
+
+    # Weakening seams: `<cmd> <dir>` prints K (whole-module mutants after the prune) or s (suite seconds).
+    # Fixtures: ${FIX}/<dir>.k, .s (stdout) and .krc, .src (exit status).
+    cat >"${BATS_TEST_TMPDIR}/bin/mock-k" <<'MOCK'
+#!/usr/bin/env bash
+[[ -f "${FIX}/$1.k" ]] && cat "${FIX}/$1.k"
+rc=0
+[[ -f "${FIX}/$1.krc" ]] && rc="$(cat "${FIX}/$1.krc")"
+exit "${rc}"
+MOCK
+    cat >"${BATS_TEST_TMPDIR}/bin/mock-s" <<'MOCK'
+#!/usr/bin/env bash
+[[ -f "${FIX}/$1.s" ]] && cat "${FIX}/$1.s"
+rc=0
+[[ -f "${FIX}/$1.src" ]] && rc="$(cat "${FIX}/$1.src")"
+exit "${rc}"
+MOCK
+    chmod +x "${BATS_TEST_TMPDIR}/bin/mock-k" "${BATS_TEST_TMPDIR}/bin/mock-s"
+    export MUTATION_PR_WEAKENING_K="${BATS_TEST_TMPDIR}/bin/mock-k"
+    export MUTATION_PR_SUITE_SECONDS="${BATS_TEST_TMPDIR}/bin/mock-s"
+    unset PY_TEST_DIRS
+}
+
+weak_fix() {
+    # weak_fix <dir> <K> <s>
+    printf '%s' "$2" >"${FIX}/$1.k"
+    printf '%s' "$3" >"${FIX}/$1.s"
+}
+
+weak_n() {
+    # weak_n <dir> <K> <s>: runs the planner on a test-only dir and prints the planned n.
+    weak_fix "$1" "$2" "$3"
+    PY_TEST_DIRS="$1" run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -eq 0 ]
+    python3 -I -c '
+import json, sys
+u = json.load(open(sys.argv[1]))
+assert [x["shard"] for x in u] == list(range(len(u)))
+assert {x["mode"] for x in u} == {"weakening"} and {x["dir"] for x in u} == {sys.argv[2]}
+ns = {x["n"] for x in u}
+assert ns == {len(u)}, (ns, len(u))
+print(len(u))
+' "${PLAN_OUT}/units.json" "$1"
 }
 
 prune_out() {
@@ -61,28 +104,28 @@ prune_out() {
     run bash "${SCRIPT}" base pi </dev/null
     [ "${status}" -eq 0 ]
     [ "$(cat "${PLAN_OUT}/plan.txt")" = "$(printf 'pi\tgreen\t1 mutants in 1 shards')" ]
-    [ "$(cat "${PLAN_OUT}/units.json")" = '[{"dir":"pi","k":0,"n":1}]' ]
+    [ "$(cat "${PLAN_OUT}/units.json")" = '[{"dir":"pi","k":0,"n":1,"mode":"diff"}]' ]
 }
 
 @test "n for K=150 is 1" {
     prune_out pi 0 150 9
     run bash "${SCRIPT}" base pi </dev/null
     [ "$(cat "${PLAN_OUT}/plan.txt")" = "$(printf 'pi\tgreen\t150 mutants in 1 shards')" ]
-    [ "$(cat "${PLAN_OUT}/units.json")" = '[{"dir":"pi","k":0,"n":1}]' ]
+    [ "$(cat "${PLAN_OUT}/units.json")" = '[{"dir":"pi","k":0,"n":1,"mode":"diff"}]' ]
 }
 
 @test "n for K=151 is 2" {
     prune_out pi 0 151 9
     run bash "${SCRIPT}" base pi </dev/null
     [ "$(cat "${PLAN_OUT}/plan.txt")" = "$(printf 'pi\tgreen\t151 mutants in 2 shards')" ]
-    [ "$(cat "${PLAN_OUT}/units.json")" = '[{"dir":"pi","k":0,"n":2},{"dir":"pi","k":1,"n":2}]' ]
+    [ "$(cat "${PLAN_OUT}/units.json")" = '[{"dir":"pi","k":0,"n":2,"mode":"diff"},{"dir":"pi","k":1,"n":2,"mode":"diff"}]' ]
 }
 
 @test "n for K=1500 is 10" {
     prune_out pi 0 1500 9
     run bash "${SCRIPT}" base pi </dev/null
     [ "$(cat "${PLAN_OUT}/plan.txt")" = "$(printf 'pi\tgreen\t1500 mutants in 10 shards')" ]
-    run python3 -c 'import json,sys; u=json.load(open(sys.argv[1])); assert [x["k"] for x in u]==list(range(10)); assert {x["n"] for x in u}=={10}' "${PLAN_OUT}/units.json"
+    run python3 -c 'import json,sys; u=json.load(open(sys.argv[1])); assert [x["k"] for x in u]==list(range(10)); assert {x["n"] for x in u}=={10}; assert {x["mode"] for x in u}=={"diff"}' "${PLAN_OUT}/units.json"
     [ "${status}" -eq 0 ]
 }
 
@@ -198,7 +241,7 @@ for line in open(sys.argv[2]):
     run bash "${SCRIPT}" base pi e </dev/null
     [ "$(wc -l <"${PLAN_OUT}/plan.txt")" -eq 2 ]
     [ "$(sed -n 1p "${PLAN_OUT}/plan.txt")" = "$(printf 'pi\tgreen\t5 mutants in 1 shards')" ]
-    [ "$(cat "${PLAN_OUT}/units.json")" = '[{"dir":"pi","k":0,"n":1}]' ]
+    [ "$(cat "${PLAN_OUT}/units.json")" = '[{"dir":"pi","k":0,"n":1,"mode":"diff"}]' ]
 }
 
 @test "step summary is written when GITHUB_STEP_SUMMARY is set" {
@@ -314,4 +357,140 @@ for line in open(sys.argv[2]):
     export PLAN_OUT="/dev/null/nope"
     run bash "${SCRIPT}" base pi </dev/null
     [ "${status}" -eq 1 ]
+}
+
+@test "weakening n for K=100 s=1 is 10" {
+    [ "$(weak_n pi 100 1)" = "10" ]
+}
+
+@test "weakening n for K=3000 s=5 is 25" {
+    [ "$(weak_n pi 3000 5)" = "25" ]
+}
+
+@test "weakening n for K=10000 s=10 is 40" {
+    [ "$(weak_n pi 10000 10)" = "40" ]
+}
+
+@test "weakening n for K=0 is 10" {
+    [ "$(weak_n pi 0 7)" = "10" ]
+}
+
+@test "weakening n rounds up at the 600 boundary: 601 gives 11 shards of work" {
+    # K*s = 6001 -> ceil(6001/600) = 11
+    [ "$(weak_n pi 6001 1)" = "11" ]
+}
+
+@test "weakening n at exactly K*s=6000 is 10 and 6000 vs 6600 differ" {
+    [ "$(weak_n pi 6000 1)" = "10" ]
+    [ "$(weak_n pi 6600 1)" = "11" ]
+}
+
+@test "fractional suite seconds round up before sizing" {
+    # s=0.5 -> 1: K=6600 -> 11
+    [ "$(weak_n pi 6600 0.5)" = "11" ]
+}
+
+@test "weakening rows carry the exact shape and the plan line keeps the pinned text" {
+    weak_fix pi 100 1
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [[ "$(cat "${PLAN_OUT}/units.json")" == '[{"dir":"pi","shard":0,"n":10,"mode":"weakening"},{"dir":"pi","shard":1,'* ]]
+    [ "$(cat "${PLAN_OUT}/plan.txt")" = "$(printf 'pi\tgreen\t100 mutants in 10 shards')" ]
+}
+
+@test "dir in both src and test sets is planned once, in weakening mode" {
+    prune_out pi 0 5 5
+    weak_fix pi 100 1
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base pi </dev/null
+    [ "${status}" -eq 0 ]
+    [ "$(wc -l <"${PLAN_OUT}/plan.txt")" -eq 1 ]
+    run python3 -I -c '
+import json, sys
+u = json.load(open(sys.argv[1]))
+assert len(u) == 10 and {x["mode"] for x in u} == {"weakening"}
+' "${PLAN_OUT}/units.json"
+    [ "${status}" -eq 0 ]
+}
+
+@test "src-only dirs keep diff rows beside weakening rows" {
+    prune_out e 0 5 5
+    weak_fix pi 100 1
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base e </dev/null
+    [ "${status}" -eq 0 ]
+    [ "$(wc -l <"${PLAN_OUT}/plan.txt")" -eq 2 ]
+    run python3 -I -c '
+import json, sys
+u = json.load(open(sys.argv[1]))
+d = [x for x in u if x["dir"] == "e"]
+w = [x for x in u if x["dir"] == "pi"]
+assert d == [{"dir": "e", "k": 0, "n": 1, "mode": "diff"}], d
+assert len(w) == 10 and {x["mode"] for x in w} == {"weakening"}
+' "${PLAN_OUT}/units.json"
+    [ "${status}" -eq 0 ]
+}
+
+@test "weakening ignores the changed-line prune: no make call for a test-only dir" {
+    weak_fix pi 100 1
+    printf 'garbage\n' >"${FIX}/pi.out"
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -eq 0 ]
+}
+
+@test "non-numeric K fails closed" {
+    weak_fix pi abc 1
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"pi"*"mutant count"* ]]
+}
+
+@test "empty K fails closed" {
+    printf '' >"${FIX}/pi.k"
+    printf '1' >"${FIX}/pi.s"
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -ne 0 ]
+}
+
+@test "failed count command fails closed even when it printed a number" {
+    weak_fix pi 100 1
+    printf '3' >"${FIX}/pi.krc"
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"pi"*"mutant count"* ]]
+}
+
+@test "non-numeric suite time fails closed" {
+    weak_fix pi 100 fast
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"pi"*"suite time"* ]]
+}
+
+@test "failed timing command fails closed even when it printed a number" {
+    weak_fix pi 100 1
+    printf '1' >"${FIX}/pi.src"
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"pi"*"suite time"* ]]
+}
+
+@test "negative or signed numbers fail closed" {
+    weak_fix pi -5 1
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -ne 0 ]
+}
+
+@test "weakening failure leaves no units.json claiming success" {
+    weak_fix pi abc 1
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -ne 0 ]
+    [ ! -s "${PLAN_OUT}/units.json" ]
+}
+
+@test "empty PY_TEST_DIRS plans nothing in weakening mode" {
+    prune_out pi 0 5 5
+    PY_TEST_DIRS="" run bash "${SCRIPT}" base pi </dev/null
+    [ "$(cat "${PLAN_OUT}/units.json")" = '[{"dir":"pi","k":0,"n":1,"mode":"diff"}]' ]
+}
+
+@test "leading-zero K and s are read as decimal" {
+    [ "$(weak_n pi 08 09)" = "10" ]
 }
