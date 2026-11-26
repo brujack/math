@@ -23,6 +23,11 @@ setup() {
     REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
     source "${REPO_ROOT}/tests/helpers/common.bash"
     load_mocks
+    # Every end-to-end run goes through a line-preserving copy of the hook whose
+    # _pcg_fetch is a fake (tests/helpers/push_gates.bash), so no test reaches GitHub.
+    source "${REPO_ROOT}/tests/helpers/push_gates.bash"
+    pg_env "${BATS_TEST_TMPDIR}" || return 1
+    PG_HOOK="$(pg_hook_copy "${REPO_ROOT}/scripts/pre-push")" || return 1
     export MOCK_CALLS_FILE="${BATS_TEST_TMPDIR}/mock_calls"
     export MOCK_GIT_SHOW_TOPLEVEL="${BATS_TEST_TMPDIR}/fake-worktree"
     export MOCK_GIT_DIFF_NAMES=""
@@ -34,14 +39,14 @@ teardown() {
 }
 
 @test "branch deletion push skips make" {
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat ${ZEROS} refs/heads/feat abc123"
     [ "$status" -eq 0 ]
     assert_no_match "^make"
 }
 
 @test "no changed files in push range skips make" {
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     assert_no_match "^make"
@@ -50,7 +55,7 @@ teardown() {
 @test "changed file in pi/ uses worktree root in make path" {
     setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES="pi/pi.py"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi test" "${MOCK_CALLS_FILE}"
@@ -59,7 +64,7 @@ teardown() {
 @test "changed file in factorial/factorial-rs/ uses worktree root in make path" {
     setup_harness_stub # crate src also triggers the (stubbed) mutants exclusion check
     export MOCK_GIT_DIFF_NAMES="factorial/factorial-rs/src/main.rs"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/factorial/factorial-rs test" "${MOCK_CALLS_FILE}"
@@ -68,7 +73,7 @@ teardown() {
 @test "changed files in two twinned sub-projects calls make four times" {
     setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\ne/e.py'
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     [ "$(grep -c "^make" "${MOCK_CALLS_FILE}")" -eq 4 ]
@@ -79,7 +84,7 @@ teardown() {
     # <dir>/**/*.rs, so a change to the hooks themselves matched nothing and
     # pushed with no local test at all.
     export MOCK_GIT_DIFF_NAMES="scripts/pre-push"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
@@ -87,7 +92,7 @@ teardown() {
 
 @test "deny.toml-only push runs the root test target" {
     export MOCK_GIT_DIFF_NAMES="deny.toml"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
@@ -96,7 +101,7 @@ teardown() {
 @test "crate Cargo.toml-only push runs no make" {
     # Guard against widening the root-scope regex to every *.toml.
     export MOCK_GIT_DIFF_NAMES="pi/pi-rs/Cargo.toml"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     assert_no_match "^make"
@@ -104,7 +109,7 @@ teardown() {
 
 @test "bats-only change runs the root test target and no sub-project suite" {
     export MOCK_GIT_DIFF_NAMES="tests/scripts/pre_push.bats"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -qE "^make -C [^ ]+ test$" "${MOCK_CALLS_FILE}"
@@ -114,7 +119,7 @@ teardown() {
 @test "a passing suite prints an ok line" {
     setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES="pi/pi.py"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     [[ "${output}" == *"ok pi"* ]]
@@ -124,7 +129,7 @@ teardown() {
     setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\ne/e.py'
     export MOCK_MAKE_FAIL_DIR="fib"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 1 ]
     [[ "${output}" == *"FAIL fib"* ]]
@@ -138,7 +143,7 @@ teardown() {
     setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\ne/e.py'
     export MOCK_MAKE_KILL_DIR="e"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 1 ]
     [[ "${output}" == *"FAIL e"* ]]
@@ -149,7 +154,7 @@ teardown() {
 @test "seven changed Python sub-projects run all fourteen suites (Python plus crate)" {
     setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\nsq/sq.py\ne/e.py\nfactorial/factorial.py\ncollatz/collatz.py\namicable/amicable.py'
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     [[ "${output}" != *"skipping"* ]]
@@ -159,7 +164,7 @@ teardown() {
 @test "the hook locates the runner through a symlink" {
     setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES="pi/pi.py"
-    ln -s "${REPO_ROOT}/scripts/pre-push" "${BATS_TEST_TMPDIR}/pre-push-link"
+    ln -s "${PG_HOOK}" "${BATS_TEST_TMPDIR}/pre-push-link"
     run bash "${BATS_TEST_TMPDIR}/pre-push-link" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
@@ -172,7 +177,7 @@ teardown() {
     mkdir -p "${BATS_TEST_TMPDIR}/hooks"
     ln -s "../real/pre-push" "${BATS_TEST_TMPDIR}/hooks/pre-push"
     mkdir -p "${BATS_TEST_TMPDIR}/real"
-    cp "${REPO_ROOT}/scripts/pre-push" "${REPO_ROOT}/scripts/parallel-make-test.sh" "${BATS_TEST_TMPDIR}/real/"
+    cp "${PG_HOOK}" "${REPO_ROOT}/scripts/parallel-make-test.sh" "${BATS_TEST_TMPDIR}/real/"
     run bash "${BATS_TEST_TMPDIR}/hooks/pre-push" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
@@ -185,7 +190,7 @@ teardown() {
     export PRE_PUSH_JOBS=1
     export MOCK_MAKE_CONCURRENCY_DIR="${BATS_TEST_TMPDIR}/probe"
     mkdir -p "${MOCK_MAKE_CONCURRENCY_DIR}"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     local f max=0 n
@@ -202,7 +207,7 @@ teardown() {
     unset PRE_PUSH_JOBS
     export MOCK_MAKE_CONCURRENCY_DIR="${BATS_TEST_TMPDIR}/probe"
     mkdir -p "${MOCK_MAKE_CONCURRENCY_DIR}"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     local f max=0 n
@@ -216,7 +221,7 @@ teardown() {
 @test "make test failure exits non-zero" {
     export MOCK_GIT_DIFF_NAMES="pi/pi.py"
     export MOCK_MAKE_EXIT=1
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -ne 0 ]
 }
@@ -224,7 +229,7 @@ teardown() {
 @test "new branch push uses merge-base and calls make for changed files" {
     setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES="pi/pi.py"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat ${ZEROS}"
     [ "$status" -eq 0 ]
     grep -q "merge-base" "${MOCK_CALLS_FILE}"
@@ -241,7 +246,7 @@ teardown() {
     # gate it approximates.
     setup_harness_stub # crate src also triggers the (stubbed) mutants exclusion check
     export MOCK_GIT_DIFF_NAMES="pi/pi-rs/src/lib.rs"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi/pi-rs test" "${MOCK_CALLS_FILE}"
@@ -254,7 +259,7 @@ teardown() {
 @test "python-only change in a twinned dir also runs the rust sibling suite" {
     setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES="descartes/descartes.py"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/descartes test" "${MOCK_CALLS_FILE}"
@@ -263,7 +268,7 @@ teardown() {
 
 @test "python test file change in a twinned dir also runs the rust sibling suite" {
     export MOCK_GIT_DIFF_NAMES="descartes/test_descartes.py"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/descartes test" "${MOCK_CALLS_FILE}"
@@ -273,7 +278,7 @@ teardown() {
 @test "python change in another dir does not select the descartes crate" {
     setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES="pi/pi.py"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/pi test" "${MOCK_CALLS_FILE}"
@@ -286,7 +291,7 @@ teardown() {
     # "e/[^/]*\.py$" also matches triangle/triangle.py and runs e-rs.
     setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES="triangle/triangle.py"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree/triangle test" "${MOCK_CALLS_FILE}"
@@ -295,7 +300,7 @@ teardown() {
 
 @test "a doc-only change in a twinned dir runs neither suite" {
     export MOCK_GIT_DIFF_NAMES="descartes/README.md"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     assert_no_match "make -C ${BATS_TEST_TMPDIR}/fake-worktree/descartes"
@@ -303,7 +308,7 @@ teardown() {
 
 @test "scripts-only change reaches the root test target" {
     export MOCK_GIT_DIFF_NAMES="scripts/run-bash-coverage.sh"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -qE "^make -C [^ ]+ test$" "${MOCK_CALLS_FILE}" || {
@@ -315,7 +320,7 @@ teardown() {
 
 @test "repo-level python test change triggers the root suite" {
     export MOCK_GIT_DIFF_NAMES="tests/test_triage_log.py"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -qE "^make" "${MOCK_CALLS_FILE}" || {
@@ -331,7 +336,7 @@ teardown() {
     # tests/test_release_workflows.py — the contract test pinning all thirteen
     # release workflows — never runs on the change class it guards.
     export MOCK_GIT_DIFF_NAMES=".github/workflows/release-sq-rs.yml"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -qE "^make -C [^ ]+ test$" "${MOCK_CALLS_FILE}" || {
@@ -345,7 +350,7 @@ teardown() {
     # Regression guard: pyrightconfig.json changes what the root suite can
     # type-check, but the trigger pattern did not name it.
     export MOCK_GIT_DIFF_NAMES="pyrightconfig.json"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
@@ -355,7 +360,7 @@ teardown() {
     # Regression guard: requirements-dev.txt changes what the root suite can
     # import, but the trigger pattern did not name it.
     export MOCK_GIT_DIFF_NAMES="requirements-dev.txt"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
@@ -365,7 +370,7 @@ teardown() {
     # Regression guard: tests/test_gmpy2_stub.py is the only guard on the stub
     # and pyright accepts Any there, so a stub-only push must run it.
     export MOCK_GIT_DIFF_NAMES="typings/gmpy2/__init__.pyi"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
@@ -375,7 +380,7 @@ teardown() {
     # Regression guard: .claude/scripts/triage_log.py enters the type-check
     # denominator, but the trigger pattern did not name the directory.
     export MOCK_GIT_DIFF_NAMES=".claude/scripts/triage_log.py"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
@@ -386,7 +391,7 @@ teardown() {
     # file, so editing it can turn the root suite red while the hook stays
     # silent unless it is named in the trigger pattern.
     export MOCK_GIT_DIFF_NAMES=".github/workflows/scripts.yml"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
@@ -396,7 +401,7 @@ teardown() {
     # tests/test_automerge_bot_hold.py runs the hold step extracted from this
     # workflow, so a hold-step edit must run the root suite (ai-config ADR-0085).
     export MOCK_GIT_DIFF_NAMES=".github/workflows/auto-merge.yml"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
@@ -406,7 +411,7 @@ teardown() {
     # tests/test_renovate_automerge_policy.py asserts this file's auto-merge
     # policy, so editing it must run the root suite.
     export MOCK_GIT_DIFF_NAMES="renovate.json"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -q "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$" "${MOCK_CALLS_FILE}"
@@ -421,7 +426,7 @@ teardown() {
     # one names an ordinary sub-project-only change and asserts the root
     # target is never reached.
     export MOCK_GIT_DIFF_NAMES="pi/pi.py"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     assert_no_match "make -C ${BATS_TEST_TMPDIR}/fake-worktree test\$"
@@ -487,7 +492,7 @@ teardown() {
 # every tracked shell file and spawns no Python suite.
 @test "python install_deps.sh-only change runs root lint-hooks and nothing else" {
     export MOCK_GIT_DIFF_NAMES="amicable/install_deps.sh"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -qxF "make -C ${BATS_TEST_TMPDIR}/fake-worktree lint-hooks" "${MOCK_CALLS_FILE}"
@@ -496,7 +501,7 @@ teardown() {
 
 @test "rust install_deps.sh-only change runs root lint-hooks, not the crate suite" {
     export MOCK_GIT_DIFF_NAMES="pi/pi-rs/install_deps.sh"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -qxF "make -C ${BATS_TEST_TMPDIR}/fake-worktree lint-hooks" "${MOCK_CALLS_FILE}"
@@ -506,7 +511,7 @@ teardown() {
 @test "lint-hooks failure on a shell-only push exits non-zero" {
     export MOCK_GIT_DIFF_NAMES="amicable/install_deps.sh"
     export MOCK_MAKE_EXIT=1
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -ne 0 ]
     grep -qxF "make -C ${BATS_TEST_TMPDIR}/fake-worktree lint-hooks" "${MOCK_CALLS_FILE}"
@@ -515,7 +520,7 @@ teardown() {
 @test "scripts/*.sh change runs root test once and no separate lint-hooks" {
     # Root `make test` already runs `lint`, which runs `lint-hooks`.
     export MOCK_GIT_DIFF_NAMES="scripts/rust-check.sh"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -qxF "make -C ${BATS_TEST_TMPDIR}/fake-worktree test" "${MOCK_CALLS_FILE}"
@@ -525,7 +530,7 @@ teardown() {
 @test "install_deps.sh plus a python source change runs lint-hooks and the suite" {
     setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES=$'pi/install_deps.sh\npi/pi.py'
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -qxF "make -C ${BATS_TEST_TMPDIR}/fake-worktree lint-hooks" "${MOCK_CALLS_FILE}"
@@ -536,7 +541,7 @@ teardown() {
 @test "shell lint still runs alongside seven concurrent sub-project suites" {
     setup_harness_stub # a module change also triggers the (stubbed) equivalents check
     export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\nsq/sq.py\ne/e.py\nfactorial/factorial.py\ncollatz/collatz.py\namicable/amicable.py\namicable/install_deps.sh'
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     [[ "${output}" != *"skipping local tests"* ]]
@@ -546,7 +551,7 @@ teardown() {
 
 @test "a non-.sh file in a sub-project does not trigger lint-hooks" {
     export MOCK_GIT_DIFF_NAMES=$'amicable/README.md\namicable/install_deps.sh.bak'
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     assert_no_match "^make"
@@ -565,8 +570,14 @@ setup_harness_stub() {
     for d in ${HARNESS_PROJECTS}; do
         mkdir -p "${MOCK_GIT_SHOW_TOPLEVEL}/${d}"
     done
+    # The push-gates block parses the master commit JSON with `python3 -I -c`, under
+    # `env -i`: pass that one invocation to the real python3 (the next one on PATH,
+    # since this stub dir is first) before the stub records anything.
     cat > "${BATS_TEST_TMPDIR}/stub-bin/python3" <<'STUB'
 #!/usr/bin/env bash
+if [[ "${1:-}" == "-I" && "${2:-}" == "-c" ]]; then
+    PATH="${PATH#*:}" exec python3 "$@"
+fi
 printf "python3 cwd=%s args=%s\n" "$(basename "${PWD}")" "$*" >> "${MOCK_CALLS_FILE}"
 if [[ -n "${MOCK_PYTHON_FAIL_DIR:-}" && "$(basename "${PWD}")" = "${MOCK_PYTHON_FAIL_DIR}" ]]; then
     exit 1
@@ -599,7 +610,7 @@ STUB
 @test "harness-only push runs the harness over all 10 CLIs and no project suite" {
     setup_harness_stub
     export MOCK_GIT_DIFF_NAMES="scripts/cli_contract.py"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     [ "$(grep -c '^python3 ' "${MOCK_CALLS_FILE}")" -eq 10 ]
@@ -612,7 +623,7 @@ STUB
 @test "harness still runs alongside seven concurrent sub-project suites" {
     setup_harness_stub
     export MOCK_GIT_DIFF_NAMES=$'pi/pi.py\nfib/fib.py\nsq/sq.py\ne/e.py\nfactorial/factorial.py\ncollatz/collatz.py\namicable/amicable.py\nscripts/cli_contract.py'
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     [[ "${output}" != *"skipping local tests"* ]]
@@ -626,7 +637,7 @@ STUB
 @test "a push not touching the harness runs no harness" {
     setup_harness_stub
     export MOCK_GIT_DIFF_NAMES="pi/pi.py"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     # The module change runs the equivalents check but never the CLI harness.
@@ -637,7 +648,7 @@ STUB
     setup_harness_stub
     export MOCK_GIT_DIFF_NAMES="scripts/cli_contract.py"
     export MOCK_PYTHON_FAIL_DIR="fib"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -ne 0 ]
     [[ "${output}" == *"CLI contract harness failed for fib"* ]]
@@ -661,7 +672,7 @@ fi
 exec "${REPO_ROOT}/tests/mocks/git" "\$@"
 STUB
     chmod +x "${BATS_TEST_TMPDIR}/stub-bin/git"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     [ "$(grep -c '^python3 ' "${MOCK_CALLS_FILE}")" -eq 10 ]
@@ -670,7 +681,7 @@ STUB
 @test "paths merely resembling the harness do not trigger it" {
     setup_harness_stub
     export MOCK_GIT_DIFF_NAMES=$'scripts/cli_contract.pyc\ntests/scripts/cli_contract.py'
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     assert_no_match "^python3 "
@@ -720,7 +731,7 @@ run_in_pgroup() {
 
 @test "wiring: a feature-only push makes no gh call" {
     wiring_setup
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat ${WIRING_LOCAL} refs/heads/feat ${WIRING_REMOTE}"
     [ "$status" -eq 0 ]
     assert_no_match "^gh "
@@ -728,7 +739,7 @@ run_in_pgroup() {
 
 @test "wiring: a master push whose gate cannot load is refused before make" {
     wiring_setup
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/master ${WIRING_LOCAL} refs/heads/master ${WIRING_REMOTE}"
     [ "$status" -eq 1 ]
     [[ "${output}" == *"cannot load the push-content gate"* ]]
@@ -739,7 +750,7 @@ run_in_pgroup() {
 
 @test "wiring: a main push whose gate cannot load is refused before make" {
     wiring_setup
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/main ${WIRING_LOCAL} refs/heads/main ${WIRING_REMOTE}"
     [ "$status" -eq 1 ]
     [[ "${output}" == *"cannot load the push-content gate"* ]]
@@ -752,7 +763,7 @@ run_in_pgroup() {
 # remote ref; the wiring must key on the remote ref (field 3).
 @test "wiring: a feature branch pushed onto master is judged by the gate" {
     wiring_setup
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat ${WIRING_LOCAL} refs/heads/master ${WIRING_REMOTE}"
     [ "$status" -eq 1 ]
     [[ "${output}" == *"cannot load the push-content gate"* ]]
@@ -761,7 +772,7 @@ run_in_pgroup() {
 
 @test "wiring: master on a later ref line is still judged" {
     wiring_setup
-    run bash "${REPO_ROOT}/scripts/pre-push" <<< \
+    run bash "${PG_HOOK}" <<< \
         "refs/heads/feat ${WIRING_LOCAL} refs/heads/feat ${WIRING_REMOTE}"$'\n'"refs/heads/master ${WIRING_LOCAL} refs/heads/master ${WIRING_REMOTE}"
     [ "$status" -eq 1 ]
     [[ "${output}" == *"cannot load the push-content gate"* ]]
@@ -780,7 +791,7 @@ run_in_pgroup() {
         printf '#!/usr/bin/env bash\n%s\n' "${stub#*:}" > "${shim}/${name}"
         chmod +x "${shim}/${name}"
         rm -f "${MOCK_CALLS_FILE}"
-        PATH="${shim}:${PATH}" run bash "${REPO_ROOT}/scripts/pre-push" \
+        PATH="${shim}:${PATH}" run bash "${PG_HOOK}" \
             <<< "refs/heads/master ${WIRING_LOCAL} refs/heads/master ${WIRING_REMOTE}"
         rm -f "${shim}/${name}"
         [ "$status" -eq 1 ]
@@ -816,12 +827,12 @@ run_in_pgroup() {
     printf 'case "$0" in */scripts/pre-push) printf x > "%s" ;; esac\n' "${marker}" > "${env_file}"
 
     rm -f "${marker}"
-    run env BASH_ENV="${env_file}" bash "${REPO_ROOT}/scripts/pre-push" < /dev/null
+    run env BASH_ENV="${env_file}" bash "${PG_HOOK}" < /dev/null
     [ "$status" -eq 0 ]
     [ -e "${marker}" ]
 
     rm -f "${marker}"
-    run env BASH_ENV="${env_file}" "${REPO_ROOT}/scripts/pre-push" < /dev/null
+    run env BASH_ENV="${env_file}" "${PG_HOOK}" < /dev/null
     [ "$status" -eq 0 ]
     [ ! -e "${marker}" ]
 }
@@ -839,7 +850,7 @@ run_in_pgroup() {
 @test "harness runs triangle's CLI contract" {
     setup_harness_stub
     export MOCK_GIT_DIFF_NAMES="scripts/cli_contract.py"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -qxF "python3 cwd=triangle args=../scripts/cli_contract.py triangle.py" "${MOCK_CALLS_FILE}"
@@ -848,7 +859,7 @@ run_in_pgroup() {
 @test "harness runs descartes's CLI contract" {
     setup_harness_stub
     export MOCK_GIT_DIFF_NAMES="scripts/cli_contract.py"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -qxF "python3 cwd=descartes args=../scripts/cli_contract.py descartes.py" "${MOCK_CALLS_FILE}"
@@ -860,7 +871,7 @@ run_in_pgroup() {
 @test "crate src push runs the mutants exclusion check" {
     setup_harness_stub
     export MOCK_GIT_DIFF_NAMES="pi/pi-rs/src/lib.rs"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     grep -qxF "python3 cwd=$(basename "${MOCK_GIT_SHOW_TOPLEVEL}") args=-m unittest tests.test_mutants_exclusions" "${MOCK_CALLS_FILE}"
@@ -869,7 +880,7 @@ run_in_pgroup() {
 @test "mutants.toml push runs the mutants exclusion check" {
     setup_harness_stub
     export MOCK_GIT_DIFF_NAMES="e/e-rs/.cargo/mutants.toml"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     [ "$(grep -c 'args=-m unittest tests.test_mutants_exclusions' "${MOCK_CALLS_FILE}")" -eq 1 ]
@@ -878,7 +889,7 @@ run_in_pgroup() {
 @test "unrelated push does not run the mutants exclusion check" {
     setup_harness_stub
     export MOCK_GIT_DIFF_NAMES="README.md"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     assert_no_match "tests.test_mutants_exclusions"
@@ -889,7 +900,7 @@ run_in_pgroup() {
     export MOCK_GIT_DIFF_NAMES="pi/pi-rs/src/lib.rs"
     MOCK_PYTHON_FAIL_DIR="$(basename "${MOCK_GIT_SHOW_TOPLEVEL}")"
     export MOCK_PYTHON_FAIL_DIR
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 1 ]
     [[ "${output}" == *"mutants exclusion check failed"* ]]
@@ -901,7 +912,7 @@ run_in_pgroup() {
 @test "mutants-equivalent.toml push runs the equivalents check" {
     setup_harness_stub
     export MOCK_GIT_DIFF_NAMES="pi/mutants-equivalent.toml"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     [ "$(grep -c 'args=-m unittest tests.test_mutants_equivalent' "${MOCK_CALLS_FILE}")" -eq 1 ]
@@ -910,7 +921,7 @@ run_in_pgroup() {
 @test "python module push runs the equivalents check" {
     setup_harness_stub
     export MOCK_GIT_DIFF_NAMES="perfect-numbers/perfect_numbers.py"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     [ "$(grep -c 'args=-m unittest tests.test_mutants_equivalent' "${MOCK_CALLS_FILE}")" -eq 1 ]
@@ -919,7 +930,7 @@ run_in_pgroup() {
 @test "python test file push does not run the equivalents check" {
     setup_harness_stub
     export MOCK_GIT_DIFF_NAMES="pi/test_pi.py"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     assert_no_match "tests.test_mutants_equivalent"
@@ -928,7 +939,7 @@ run_in_pgroup() {
 @test "unrelated push does not run the equivalents check" {
     setup_harness_stub
     export MOCK_GIT_DIFF_NAMES="README.md"
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     assert_no_match "tests.test_mutants_equivalent"
@@ -939,7 +950,7 @@ run_in_pgroup() {
     export MOCK_GIT_DIFF_NAMES="pi/mutants-equivalent.toml"
     MOCK_PYTHON_FAIL_DIR="$(basename "${MOCK_GIT_SHOW_TOPLEVEL}")"
     export MOCK_PYTHON_FAIL_DIR
-    run bash "${REPO_ROOT}/scripts/pre-push" \
+    run bash "${PG_HOOK}" \
         <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 1 ]
     [[ "${output}" == *"mutants equivalents check failed"* ]]
@@ -956,7 +967,7 @@ run_in_pgroup() {
         module="${entry##*:}"
         : > "${MOCK_CALLS_FILE}"
         export MOCK_GIT_DIFF_NAMES="${dir}/${module}.py"
-        run bash "${REPO_ROOT}/scripts/pre-push" \
+        run bash "${PG_HOOK}" \
             <<< "refs/heads/feat abc123 refs/heads/feat abc456"
         [ "$status" -eq 0 ]
         [ "$(grep -c 'args=-m unittest tests.test_mutants_equivalent' "${MOCK_CALLS_FILE}")" -eq 1 ]
@@ -982,4 +993,145 @@ run_in_pgroup() {
     done < <(PATH="${clean_path}" git -C "${REPO_ROOT}" ls-files '*/cosmic-ray.toml' | command grep -E '^[^/]+/cosmic-ray\.toml$' | command grep -vE '^(scripts|tests)/')
     [ "$(printf '%s' "${alternation}" | tr '|' '\n' | sort)" = "$(printf '%s' "${expected}" | sort)" ]
     [ "$(printf '%s' "${expected}" | grep -c .)" -eq 10 ]
+}
+
+# --- Push-time gates stub (ADR-0099 2A, spec R7/R8/R16) ----------------------
+# The stub loads ai-config's push-gates driver at master's SHA and runs it on every
+# pushed ref. tests/helpers/push_gates.bash serves a recorder for the driver, so these
+# tests see what the hook handed it and in what order relative to `make`.
+
+PUSH_URL="https://github.com/brujack/math.git"
+
+# Fails (naming the log) unless the file holds the line; a bare `!` is not used anywhere.
+assert_log_has() { # <file> <fixed string>
+    if ! grep -qxF -- "$2" "$1" 2>/dev/null; then
+        printf 'expected %s to hold the line %s, it holds:\n%s\n' "$1" "$2" "$(cat "$1" 2>/dev/null)" >&2
+        return 1
+    fi
+}
+
+assert_log_lacks() { # <file> <fixed string>
+    if grep -qF -- "$2" "$1" 2>/dev/null; then
+        printf 'expected %s to lack %s, it holds:\n%s\n' "$1" "$2" "$(cat "$1")" >&2
+        return 1
+    fi
+}
+
+@test "gates: the push-gates block is the template, pinned to ai-config docs/templates/pre-push-gates" {
+    local hash expected="a177991056f5626989d70e9513a7b2531314e87bd5f2eeceee5121e1f1ecd030"
+    hash="$(sed -n '/^# >>> push-gates wiring$/,/^# <<< push-gates wiring$/p' "${REPO_ROOT}/scripts/pre-push" | sha256sum | cut -d' ' -f1)"
+    if [ "${hash}" != "${expected}" ]; then
+        printf 'the push-gates block in scripts/pre-push (sha256 %s) is not the ai-config docs/templates/pre-push-gates block (sha256 %s); paste the template byte for byte\n' \
+            "${hash}" "${expected}" >&2
+        return 1
+    fi
+}
+
+@test "gates: the block sits directly after the push-content-gate wiring" {
+    local close open
+    close="$(grep -n '^# <<< push-content-gate wiring$' "${REPO_ROOT}/scripts/pre-push" | cut -d: -f1)"
+    open="$(grep -n '^# >>> push-gates wiring$' "${REPO_ROOT}/scripts/pre-push" | cut -d: -f1)"
+    [[ "${close}" =~ ^[0-9]+$ ]]
+    [[ "${open}" =~ ^[0-9]+$ ]]
+    if [ "${open}" -ne "$((close + 1))" ]; then
+        printf 'the push-gates block opens on line %s, expected %s (directly after the push-content-gate wiring)\n' "${open}" "$((close + 1))" >&2
+        return 1
+    fi
+}
+
+@test "gates: a feature push reaches the recorder with url, refs and master sha before the first make" {
+    setup_harness_stub # a module change also triggers the (stubbed) equivalents check
+    export MOCK_GIT_DIFF_NAMES="pi/pi.py"
+    run bash "${PG_HOOK}" origin "${PUSH_URL}" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    assert_log_has "${GATES_LOG}" "url=${PUSH_URL}"
+    assert_log_has "${GATES_LOG}" "sha=${FAKE_MASTER_SHA}"
+    assert_log_has "${GATES_LOG}" "refs=refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$(head -n 1 "${ORDER_LOG}")" = "gates" ]
+    assert_log_has "${ORDER_LOG}" "make"
+}
+
+@test "gates: the driver is fetched at the master sha the commits endpoint returned" {
+    run bash "${PG_HOOK}" origin "${PUSH_URL}" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    assert_log_has "${FETCH_LOG}" "repos/brujack/ai-config/commits/master"
+    assert_log_has "${FETCH_LOG}" "repos/brujack/ai-config/contents/.claude/hooks/push-gates.sh?ref=${FAKE_MASTER_SHA}"
+}
+
+@test "gates: a recorder that returns 1 blocks the push and no make runs" {
+    setup_harness_stub
+    export MOCK_GIT_DIFF_NAMES="pi/pi.py"
+    export GATES_RC=1
+    run bash "${PG_HOOK}" origin "${PUSH_URL}" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 1 ]
+    [ "$(cat "${ORDER_LOG}")" = "gates" ]
+    assert_no_match "^make"
+}
+
+@test "gates: a failed master lookup blocks with the verbatim message and no make runs" {
+    setup_harness_stub
+    export MOCK_GIT_DIFF_NAMES="pi/pi.py"
+    export FAKE_MASTER_FAIL=1
+    run bash "${PG_HOOK}" origin "${PUSH_URL}" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 1 ]
+    [ "${output}" = "pre-push: gates: cannot load push gates from GitHub; push blocked" ]
+    assert_no_match "^make"
+    if [ -e "${ORDER_LOG}" ]; then
+        printf 'the recorder ran although the master lookup failed: %s\n' "$(cat "${ORDER_LOG}")" >&2
+        return 1
+    fi
+}
+
+@test "gates: a docs-only push reaches the recorder" {
+    export MOCK_GIT_DIFF_NAMES="README.md"
+    run bash "${PG_HOOK}" origin "${PUSH_URL}" \
+        <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    assert_log_has "${GATES_LOG}" "url=${PUSH_URL}"
+    assert_log_has "${ORDER_LOG}" "gates"
+}
+
+@test "gates: a branch deletion push reaches the recorder, and still blocks when the gates cannot load" {
+    run bash "${PG_HOOK}" origin "${PUSH_URL}" \
+        <<< "refs/heads/feat ${ZEROS} refs/heads/feat abc123"
+    [ "$status" -eq 0 ]
+    assert_log_has "${GATES_LOG}" "url=${PUSH_URL}"
+    assert_log_has "${ORDER_LOG}" "gates"
+    export FAKE_MASTER_FAIL=1
+    run bash "${PG_HOOK}" origin "${PUSH_URL}" \
+        <<< "refs/heads/feat ${ZEROS} refs/heads/feat abc123"
+    [ "$status" -eq 1 ]
+    [ "${output}" = "pre-push: gates: cannot load push gates from GitHub; push blocked" ]
+}
+
+@test "gates: a refused main push fetches the push-content gate and never the driver" {
+    wiring_setup
+    run bash "${PG_HOOK}" origin "${PUSH_URL}" \
+        <<< "refs/heads/main ${WIRING_LOCAL} refs/heads/main ${WIRING_REMOTE}"
+    [ "$status" -eq 1 ]
+    assert_log_has "${FETCH_LOG}" "repos/brujack/ai-config/contents/.claude/hooks/push-content-gate.sh?ref=master"
+    assert_log_lacks "${FETCH_LOG}" "push-gates.sh"
+    assert_log_lacks "${FETCH_LOG}" "commits/master"
+    if [ -e "${ORDER_LOG}" ]; then
+        printf 'the recorder ran on a refused main push: %s\n' "$(cat "${ORDER_LOG}")" >&2
+        return 1
+    fi
+}
+
+@test "gates: the helper fails loudly when the _pcg_fetch markers are missing" {
+    local bad="${BATS_TEST_TMPDIR}/no-markers"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "${bad}"
+    run pg_hook_copy "${bad}"
+    [ "$status" -ne 0 ]
+    [[ "${output}" == *"_pcg_fetch markers not found"* ]]
+}
+
+@test "gates: the fake fetch returns 1 for any path it does not serve" {
+    run bash -c '. "$1"; _pg_fake_fetch "repos/brujack/ai-config/contents/other"' _ "${PG_FAKE_FETCH}"
+    [ "$status" -eq 1 ]
+    assert_log_has "${FETCH_LOG}" "repos/brujack/ai-config/contents/other"
 }

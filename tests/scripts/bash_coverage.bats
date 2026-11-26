@@ -305,3 +305,119 @@ FIXTURE
     [ "${status}" -eq 2 ]
     [[ "${output}" == *"no such readable log file"* ]]
 }
+
+# --- covalias: a hook copy run outside REPO_ROOT counts against the tracked file ---
+# tests/helpers/push_gates.bash runs scripts/pre-push from <tmp>/covalias/scripts/pre-push.
+# A trace there is attributed to the tracked file of the same relative path and counts only
+# on lines the real file's static heuristic counts; a covalias path that is not a tracked
+# file is ignored. Each fixture is its own git repo holding a copy of the runner, because
+# the runner derives its REPO_ROOT from its own location and runs that repo's whole suite.
+
+# _alias_fixture <dir> -- a git repo with the runner, the tracer and scripts/sample.sh (line 1
+# a shebang, line 2 a comment, lines 3-5 commands); no test is written yet.
+_alias_fixture() {
+    local dir="$1"
+    mkdir -p "${dir}/scripts" "${dir}/tests"
+    cp "${REPO_ROOT}/scripts/run-bash-coverage.sh" "${REPO_ROOT}/scripts/bash-tracer.sh" "${dir}/scripts/"
+    printf '#!/usr/bin/env bash\n# a comment the heuristic does not count\nx=1\ny=2\n: "${x}${y}"\n' > "${dir}/scripts/sample.sh"
+    cp "${dir}/scripts/sample.sh" "${dir}/scripts/other.sh"
+    env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git -C "${dir}" init -q -b master
+}
+
+# _alias_commit <dir> <bats body> -- writes tests/sample.bats around the body and commits it all.
+_alias_commit() {
+    local dir="$1"
+    printf '#!/usr/bin/env bats\n@test "fixture" {\n%s\n}\n' "$2" > "${dir}/tests/sample.bats"
+    env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
+        GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null git -C "${dir}" add scripts tests
+    env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
+        GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null git -C "${dir}" \
+        -c user.name=Test -c user.email=test@example.com commit -q -m fixture
+}
+
+# The bats body that copies <name> to <tmp>/covalias/scripts/<name> and runs the copy, optionally
+# replacing line 2 of the copy with a command first.
+_alias_body() { # <dir> <name> [replacement for line 2]
+    local body
+    body="$(printf '  mkdir -p "$BATS_TEST_TMPDIR/covalias/scripts"\n  cp "%s/scripts/%s" "$BATS_TEST_TMPDIR/covalias/scripts/%s"' "$1" "$2" "$2")"
+    if [[ -n "${3:-}" ]]; then
+        body+="$(printf '\n  sed -i.bak "2s|.*|%s|" "$BATS_TEST_TMPDIR/covalias/scripts/%s"' "$3" "$2")"
+    fi
+    body+="$(printf '\n  run bash "$BATS_TEST_TMPDIR/covalias/scripts/%s"\n  [ "$status" -eq 0 ]' "$2")"
+    printf '%s' "${body}"
+}
+
+# _run_fixture <dir> -- runs the fixture's own copy of the runner; output in ${output}.
+_run_fixture() {
+    run env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
+        GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+        bash "$1/scripts/run-bash-coverage.sh" < /dev/null
+}
+
+# _row_field <file name> <field> -- one column of that file's report row (2 covered, 3 coverable).
+_row_field() {
+    printf '%s\n' "${output}" | grep -E "^$1 " | awk -v f="$2" '{print $f}'
+}
+
+@test "covalias: a trace of a copy at covalias/<tracked path> counts exactly as a direct run of the file" {
+    local alias_dir="${BATS_TEST_TMPDIR}/fixture-alias" direct_dir="${BATS_TEST_TMPDIR}/fixture-direct"
+    local alias_covered alias_coverable direct_covered direct_coverable
+    _alias_fixture "${alias_dir}"
+    _alias_commit "${alias_dir}" "$(_alias_body "${alias_dir}" sample.sh)"
+    _alias_fixture "${direct_dir}"
+    _alias_commit "${direct_dir}" "$(printf '  run bash "%s/scripts/sample.sh"\n  [ "$status" -eq 0 ]' "${direct_dir}")"
+    _run_fixture "${alias_dir}"
+    [ "$status" -eq 0 ]
+    alias_covered="$(_row_field sample.sh 2)"
+    alias_coverable="$(_row_field sample.sh 3)"
+    _run_fixture "${direct_dir}"
+    [ "$status" -eq 0 ]
+    direct_covered="$(_row_field sample.sh 2)"
+    direct_coverable="$(_row_field sample.sh 3)"
+    [ "${direct_covered}" -gt 0 ]
+    [ "${alias_covered}" -eq "${direct_covered}" ]
+    [ "${alias_coverable}" -eq "${direct_coverable}" ]
+}
+
+@test "covalias: a directly run file and an aliased file both report covered lines" {
+    local dir="${BATS_TEST_TMPDIR}/fixture-both"
+    _alias_fixture "${dir}"
+    _alias_commit "${dir}" "$(printf '  run bash "%s/scripts/sample.sh"\n  [ "$status" -eq 0 ]\n%s' "${dir}" "$(_alias_body "${dir}" other.sh)")"
+    _run_fixture "${dir}"
+    [ "$status" -eq 0 ]
+    [ "$(_row_field sample.sh 2)" -gt 0 ]
+    [ "$(_row_field other.sh 2)" -gt 0 ]
+}
+
+@test "covalias: a covalias path that is not a tracked file is ignored" {
+    local dir="${BATS_TEST_TMPDIR}/fixture-ghost"
+    _alias_fixture "${dir}"
+    # Untracked, but present on disk, so only the instrumented-set membership check can drop it.
+    cp "${dir}/scripts/sample.sh" "${dir}/scripts/ghost.sh"
+    _alias_commit "${dir}" "$(_alias_body "${dir}" ghost.sh)"
+    env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
+        git -C "${dir}" rm -q --cached scripts/ghost.sh
+    [ -f "${dir}/scripts/ghost.sh" ]
+    _run_fixture "${dir}"
+    # Nothing tracked was traced, so the run refuses for lack of trace data.
+    [ "$status" -eq 1 ]
+    [[ "${output}" == *"no trace data produced"* ]]
+}
+
+@test "covalias: an alias trace on a non-coverable line adds to neither covered nor coverable" {
+    local plain="${BATS_TEST_TMPDIR}/fixture-plain" extra="${BATS_TEST_TMPDIR}/fixture-extra"
+    local covered_plain coverable_plain
+    _alias_fixture "${plain}"
+    _alias_commit "${plain}" "$(_alias_body "${plain}" sample.sh)"
+    _alias_fixture "${extra}"
+    _alias_commit "${extra}" "$(_alias_body "${extra}" sample.sh ': extra')"
+    _run_fixture "${plain}"
+    [ "$status" -eq 0 ]
+    covered_plain="$(_row_field sample.sh 2)"
+    coverable_plain="$(_row_field sample.sh 3)"
+    [ "${covered_plain}" -gt 0 ]
+    _run_fixture "${extra}"
+    [ "$status" -eq 0 ]
+    [ "$(_row_field sample.sh 2)" -eq "${covered_plain}" ]
+    [ "$(_row_field sample.sh 3)" -eq "${coverable_plain}" ]
+}
