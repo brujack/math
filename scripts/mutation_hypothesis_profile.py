@@ -18,8 +18,6 @@ import subprocess
 import sys
 import tempfile
 
-import hypothesis
-
 SITECUSTOMIZE = """\
 import hashlib
 
@@ -70,7 +68,10 @@ def write_sitecustomize(directory: pathlib.Path) -> None:
 
 def _preflight_env(directory: pathlib.Path) -> dict[str, str]:
     env = dict(os.environ)
-    env["PYTHONPATH"] = str(directory)
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = (
+        str(directory) + os.pathsep + existing if existing else str(directory)
+    )
     env["PYTHONHASHSEED"] = "0"
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     return env
@@ -94,11 +95,28 @@ def _profile_active(directory: pathlib.Path) -> bool:
     return result.returncode == 0
 
 
+def _hypothesis_version() -> str:
+    try:
+        import hypothesis
+    except ImportError:
+        return "unknown"
+    return hypothesis.__version__
+
+
+def _safe_profile_active(directory: pathlib.Path) -> bool:
+    # Fail closed: any parent-side fault (unwritable TMPDIR, missing executable)
+    # must read as "not active", never as a traceback or a pass.
+    try:
+        return _profile_active(directory)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def preflight(directory: pathlib.Path) -> int:
-    if _profile_active(directory):
+    if _safe_profile_active(directory):
         return 0
     print(
-        f"hypothesis profile not active (hypothesis {hypothesis.__version__})",
+        f"hypothesis profile not active (hypothesis {_hypothesis_version()})",
         file=sys.stderr,
     )
     return 1
