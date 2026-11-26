@@ -18,6 +18,11 @@
 # given once, and a sharded run takes exactly one crate (the repro line and the count label
 # name one shard of one crate); more than one crate is bad usage.
 # Every crate first prints a `repro:` line with the equivalent command.
+#
+# Whole mode: mutation-pr-run.sh --whole [--shard k/n [--expect N]] <crate-dir>...
+# takes no base ref and no diff: it runs `make -C <dir> mutants` (the crate's whole mutant
+# set, optionally one shard) and applies the same red rules, classifying with limits `0 1`
+# (no missed mutant, at least one caught; ADR-0042). --min-caught is refused: the limit is fixed.
 
 readonly COUNT_PATTERN='^(0|[1-9][0-9]{0,8})$'
 readonly SHARD_PATTERN='^(0|[1-9][0-9]{0,3})/([1-9][0-9]{0,3})$'
@@ -25,6 +30,7 @@ readonly EXPECT_PATTERN='^[1-9][0-9]{0,8}$'
 
 _usage() {
     printf 'Usage: %s <base-ref> [--min-caught N] [--shard k/n [--expect N]] <crate-dir>...\n' "${0##*/}" >&2
+    printf '       %s --whole [--shard k/n [--expect N]] <crate-dir>...\n' "${0##*/}" >&2
 }
 
 # Prints `red: <crate> - <reason>` to stdout and returns 1. Every caller follows it with
@@ -64,6 +70,20 @@ run_crate() {
         return 1
     fi
 
+    judge_crate "${script_dir}" "${min_caught}" "${shard}" "${expect}" "${dir}" mutants-diff DIFF="${diff_file}"
+}
+
+# judge_crate <script-dir> <min-caught-or-empty> <shard-or-empty> <expect-or-empty> <crate-dir> <make-target> [make-var...]
+# Runs the crate's make target, then applies the shared red rules to what it left in mutants.out.
+judge_crate() {
+    local script_dir="$1"
+    local min_caught="$2"
+    local shard="$3"
+    local expect="$4"
+    local dir="$5"
+    local target="$6"
+    shift 6
+
     # Clear leftovers so a make that never reaches its recipe cannot pass on a stale run.
     if ! rm -rf -- "${dir}/mutants.out"; then
         _red "${dir}" "cannot clear mutants.out"
@@ -71,7 +91,7 @@ run_crate() {
     fi
 
     # A failing make is judged by mutants.out/exit-code below, not by its own status.
-    local make_args=(-C "${dir}" mutants-diff DIFF="${diff_file}")
+    local make_args=(-C "${dir}" "${target}" "$@")
     if [[ -n "${shard}" ]]; then
         make_args+=(MUTANT_SHARD="${shard}")
     fi
@@ -102,16 +122,41 @@ run_crate() {
     "${script_dir}/mutation-classify.sh" "${classify_args[@]}" 2>&1
 }
 
+# run_crate_whole <script-dir> <shard-or-empty> <expect-or-empty> <crate-dir>
+run_crate_whole() {
+    local script_dir="$1"
+    local shard="$2"
+    local expect="$3"
+    local dir="${4%/}"
+
+    local repro="repro: scripts/mutation-pr-run.sh --whole"
+    if [[ -n "${shard}" ]]; then
+        repro+=" --shard ${shard}"
+    fi
+    if [[ -n "${expect}" ]]; then
+        repro+=" --expect ${expect}"
+    fi
+    printf '%s %s\n' "${repro}" "${dir}"
+
+    judge_crate "${script_dir}" 1 "${shard}" "${expect}" "${dir}" mutants
+}
+
 main() {
     local script_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || return 2
 
+    local whole=0
     local base_ref="${1-}"
-    if [[ -z "${base_ref}" || "${base_ref}" == -* ]]; then
+    if [[ "${base_ref}" == "--whole" ]]; then
+        whole=1
+        base_ref=""
+        shift
+    elif [[ -z "${base_ref}" || "${base_ref}" == -* ]]; then
         _usage
         return 2
+    else
+        shift
     fi
-    shift
 
     local min_caught=""
     local shard=""
@@ -119,7 +164,7 @@ main() {
     local dirs=()
     while [[ $# -gt 0 ]]; do
         if [[ "$1" == "--min-caught" ]]; then
-            if [[ $# -lt 2 || ! "$2" =~ ${COUNT_PATTERN} ]]; then
+            if [[ "${whole}" -eq 1 || $# -lt 2 || ! "$2" =~ ${COUNT_PATTERN} ]]; then
                 _usage
                 return 2
             fi
@@ -165,7 +210,11 @@ main() {
         local dir
         for dir in "${dirs[@]}"; do
             index=$((index + 1))
-            run_crate "${script_dir}" "${base_ref}" "${min_caught}" "${shard}" "${expect}" "${tmp}" "${index}" "${dir}" || any_red=1
+            if [[ "${whole}" -eq 1 ]]; then
+                run_crate_whole "${script_dir}" "${shard}" "${expect}" "${dir}" || any_red=1
+            else
+                run_crate "${script_dir}" "${base_ref}" "${min_caught}" "${shard}" "${expect}" "${tmp}" "${index}" "${dir}" || any_red=1
+            fi
         done
         exit "${any_red}"
     )
