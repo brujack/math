@@ -130,6 +130,53 @@ class ZetaResultsPagesWorkflowTest(unittest.TestCase):
         self.assertLess(exit_at, fi_at)
         self.assertLess(fi_at, commit_at)
 
+    def _step_index(self, name: str) -> int:
+        return next(
+            i for i, step in enumerate(self.job["steps"]) if step.get("name") == name
+        )
+
+    def test_guard_step_is_pinned_between_replace_and_push(self) -> None:
+        steps = self.job["steps"]
+        replace_at = self._step_index("Replace zeta/ on gh-pages")
+        guard_at = self._step_index("Refuse changes outside zeta/")
+        push_at = self._step_index("Commit and push")
+        self.assertLess(replace_at, guard_at)
+        self.assertLess(guard_at, push_at)
+        guard = steps[guard_at]
+        self.assertEqual(
+            guard["run"].strip(), "scripts/gh-pages-zeta-guard.sh gh-pages"
+        )
+        self.assertNotIn("continue-on-error", guard)
+        self.assertNotIn("if", guard)
+
+    def test_push_and_add_lines_are_exact(self) -> None:
+        step = self.job["steps"][self._step_index("Commit and push")]
+        lines = [line.strip() for line in str(step["run"]).splitlines()]
+        self.assertIn("git -C gh-pages push origin HEAD:gh-pages", lines)
+        self.assertIn("git -C gh-pages add zeta", lines)
+        pushes = [line for line in lines if "push" in line]
+        self.assertEqual(pushes, ["git -C gh-pages push origin HEAD:gh-pages"])
+        adds = [line for line in lines if " add" in line]
+        self.assertEqual(adds, ["git -C gh-pages add zeta"])
+
+    def test_replace_step_lines_and_env_are_exact(self) -> None:
+        step = self.job["steps"][self._step_index("Replace zeta/ on gh-pages")]
+        self.assertEqual(step["env"], {"DEPLOY_SHA": "${{ github.sha }}"})
+        lines = [
+            line.strip()
+            for line in str(step["run"]).splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        self.assertEqual(
+            lines,
+            [
+                "rm -rf gh-pages/zeta",
+                "cp -R zeta/results/site gh-pages/zeta",
+                "rm -f gh-pages/zeta/.zeta-results",
+                "printf '%s\\n' \"${DEPLOY_SHA}\" > gh-pages/zeta/deployed-from.txt",
+            ],
+        )
+
 
 class BenchmarksConcurrencyTest(unittest.TestCase):
     def test_benchmark_job_shares_gh_pages_group(self) -> None:

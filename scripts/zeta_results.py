@@ -530,14 +530,17 @@ def command_text(rep: TimeReport) -> str:
     return f"zeta {rep.n}" + (" --refine" if rep.refine else "")
 
 
-def strip_command_path(err_text: str, binary_sha: str) -> str:
-    """Reduce the timed binary's path to `zeta-<first 7 of binary_sha>`."""
+def strip_command_path(err_text: str) -> str:
+    """Remove the directory prefix of the timed binary's path.
+
+    The binary hash is not checked here; `published_err` does that.
+    """
     return _COMMAND_PATH_RE.sub("", err_text)
 
 
 def published_err(err_text: str, rep: TimeReport, binary_sha: str, run_id: str) -> str:
     """The err.txt to publish; fails closed unless the command line is path-free."""
-    stripped = strip_command_path(err_text, binary_sha)
+    stripped = strip_command_path(err_text)
     expected = f'Command being timed: "zeta-{binary_sha[:7]} {command_text(rep)[5:]}"'
     commands = [ln for ln in stripped.splitlines() if "Command being timed" in ln]
     if len(commands) != 1 or commands[0].strip() != expected:
@@ -977,12 +980,6 @@ def _undo_swap(tmp: Path, final: Path) -> None:
     final.rename(tmp)
     if old.exists():
         old.rename(final)
-
-
-def _swap_in(tmp: Path, out: Path) -> None:
-    """Swap one staged tree in and drop the old one."""
-    _keep_swap(tmp, out)
-    shutil.rmtree(_sibling(out, "old"), ignore_errors=True)
 
 
 def _stage(final: Path, files: dict[str, bytes]) -> Path:

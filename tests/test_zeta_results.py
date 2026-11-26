@@ -596,9 +596,51 @@ class TestComputations(_FixtureCopy):
             {2: 29, 3: 649, 4: 10142, 5: 138069, 6: 1747146, 7: 21136125},
         )
 
+    def test_runs_table_shows_each_machine_when_machines_differ(self) -> None:
+        runs = zr.load_runs(
+            self.root / "runs.toml", {i: self.root / i for i in RUN_IDS}
+        )
+        names = ["Alpha box", "Beta box", "Alpha box"]
+        runs = [
+            dataclasses.replace(r, meta=dataclasses.replace(r.meta, machine=name))
+            for r, name in zip(runs, names, strict=True)
+        ]
+        table = zr._runs_html(runs)
+        self.assertNotIn("Machine:", table)
+        self.assertIn("<tr><th>machine</th><th>N</th>", table)
+        cells = re.findall(r"<tr><td>([^<]*)</td><td>\d+</td>", table)
+        self.assertEqual(cells, names)
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_runs_table_has_one_machine_line_when_machines_agree(self) -> None:
+        runs = zr.load_runs(
+            self.root / "runs.toml", {i: self.root / i for i in RUN_IDS}
+        )
+        table = zr._runs_html(runs)
+        self.assertEqual(table.count("Machine:"), 1)
+        self.assertNotIn("<th>machine</th>", table)
+
+    def test_parse_runs_rejects_an_empty_id_or_directory(self) -> None:
+        for spec in ("=x", "x=", "x", "="):
+            with (
+                self.subTest(spec=spec),
+                self.assertRaisesRegex(zr.ResultsError, r"expected <id>=<dir>"),
+            ):
+                zr._parse_runs([spec])
+        self.assertEqual(zr._parse_runs(["a=b"]), {"a": Path("b")})
+
+    def test_table_row_tolerance_is_relative_to_t(self) -> None:
+        def row(t: float) -> str:
+            return f"1 1.0 2.0 {t!r} 0.5"
+
+        for t in (2.0 * (1 + 0.5e-9), 1.0 * (1 - 0.5e-9)):
+            with self.subTest(inside=t):
+                self.assertEqual(zr._table_row(row(t), 1, "x"), (1.0, 2.0))
+        for t in (2.0 * (1 + 2e-9), 1.0 * (1 - 2e-9)):
+            with (
+                self.subTest(outside=t),
+                self.assertRaisesRegex(zr.ResultsError, "outside"),
+            ):
+                zr._table_row(row(t), 1, "x")
 
 
 SPEC = (
@@ -792,15 +834,25 @@ class TestRendering(_FixtureCopy):
 
     def test_the_working_directory_is_refused_as_a_target(self) -> None:
         self.require_matplotlib()
+        # A marked tree passes the ownership check, so only the working-directory
+        # guard can refuse these.
         cwd = self.root.parent / "cwd2"
         (cwd / "sub").mkdir(parents=True)
+        (cwd / zr.MARKER).write_bytes(b"")
         previous = Path.cwd()
         os.chdir(cwd)
         self.addCleanup(os.chdir, previous)
-        with contextlib.redirect_stderr(self.stderr):
-            rc = zr.main([*self.argv()[:-4], "--out", str(cwd), "--runs-out", "r"])
-        self.assertEqual(rc, 1)
-        self.assertTrue((cwd / "sub").is_dir())
+        for out in (cwd, cwd.parent):
+            with self.subTest(out=out.name):
+                self.stderr = io.StringIO()
+                with contextlib.redirect_stderr(self.stderr):
+                    rc = zr.main(
+                        [*self.argv()[:-4], "--out", str(out), "--runs-out", "r"]
+                    )
+                self.assertEqual(rc, 1)
+                self.assertIn("holds the working directory", self.stderr.getvalue())
+                self.assertTrue((cwd / "sub").is_dir())
+                self.assertTrue((cwd / zr.MARKER).is_file())
 
     def data_dir(self) -> Path:
         """A private copy of the inputs, so a slip would have something to wipe."""
@@ -872,13 +924,15 @@ class TestRendering(_FixtureCopy):
         parent = self.root.parent
         held = parent / "siteX.old"
         shutil.copytree(self.root / "t2", held)
+        # A marked tree is owned, so only the input-overlap check can refuse it.
+        (held / zr.MARKER).write_bytes(b"")
         before = _snapshot(held)
         dirs = {"t2": held, "t3": self.root / "t3", "tr3": self.root / "tr3"}
         rc = self.run_main(
             self.root / "runs.toml", dirs, parent / "siteX", self.runs_dir
         )
         self.assertEqual(rc, 1)
-        self.assertIn("refusing", self.stderr.getvalue())
+        self.assertIn("siteX.old overlaps an input", self.stderr.getvalue())
         self.assertEqual(_snapshot(held), before)
 
     def test_out_and_runs_out_siblings_may_not_collide(self) -> None:
@@ -1074,11 +1128,10 @@ class TestRendering(_FixtureCopy):
     def test_strip_command_path_leaves_other_lines_alone(self) -> None:
         text = 'x ../y\n\tCommand being timed: "/a/b/zeta-1234567 3 --refine"\nz /q/\n'
         want = 'x ../y\n\tCommand being timed: "zeta-1234567 3 --refine"\nz /q/\n'
-        self.assertEqual(zr.strip_command_path(text, "1234567" + "0" * 33), want)
-        self.assertEqual(zr.strip_command_path("no command", "1234567"), "no command")
+        self.assertEqual(zr.strip_command_path(text), want)
+        self.assertEqual(zr.strip_command_path("no command"), "no command")
 
     def test_strip_command_path_handles_absolute_and_spaced_paths(self) -> None:
-        sha = "1234567" + "0" * 33
         for path in (
             "/home/u/zeta-1234567",
             "/home/u/my runs/zeta-1234567",
@@ -1087,7 +1140,7 @@ class TestRendering(_FixtureCopy):
             with self.subTest(path=path):
                 text = f'\tCommand being timed: "{path} 3"\n'
                 self.assertEqual(
-                    zr.strip_command_path(text, sha),
+                    zr.strip_command_path(text),
                     '\tCommand being timed: "zeta-1234567 3"\n',
                 )
 
@@ -1139,6 +1192,9 @@ class TestRendering(_FixtureCopy):
 
     def test_failed_runs_swap_rolls_the_site_back(self) -> None:
         self.assertEqual(self.generate(), 0)
+        # A sentinel makes a regenerated site differ from the existing one, so a
+        # missing rollback cannot pass by rewriting identical content.
+        (self.site / "sentinel.txt").write_text("keep me")
         before = (_snapshot(self.site), _snapshot(self.runs_dir))
         real = Path.rename
 
@@ -1149,7 +1205,11 @@ class TestRendering(_FixtureCopy):
 
         with mock.patch.object(Path, "rename", flaky):
             self.assertEqual(self.generate(), 1)
+        self.assertEqual((self.site / "sentinel.txt").read_text(), "keep me")
         self.assertEqual((_snapshot(self.site), _snapshot(self.runs_dir)), before)
+        for leftover in ("site.old", "site.tmp", "runs.old", "runs.tmp"):
+            with self.subTest(leftover=leftover):
+                self.assertFalse((self.site.parent / leftover).exists())
 
     def test_published_err_requires_exactly_one_command_line(self) -> None:
         rep = zr.parse_time_report(self.err(), "tr3")
@@ -1193,7 +1253,7 @@ class TestRendering(_FixtureCopy):
             return real(src, target)
 
         with mock.patch.object(Path, "rename", flaky), self.assertRaises(OSError):
-            zr._swap_in(tmp, site)
+            zr._keep_swap(tmp, site)
         self.assertEqual((site / "old.txt").read_text(), "old")
         self.assertFalse((self.root.parent / "swap.old").exists())
 
@@ -1202,7 +1262,7 @@ class TestRendering(_FixtureCopy):
         tmp = self.root.parent / "fresh.tmp"
         tmp.mkdir()
         (tmp / "new.txt").write_text("new")
-        zr._swap_in(tmp, site)
+        zr._keep_swap(tmp, site)
         self.assertEqual((site / "new.txt").read_text(), "new")
         self.assertFalse(tmp.exists())
 
@@ -1739,3 +1799,7 @@ class TestCommittedSiteConsistency(unittest.TestCase):
         shutil.copytree(self.copy / "runs" / "t2", self.copy / "runs" / "zz")
         with self.assertRaisesRegex(AssertionError, "run copies"):
             _site_mismatches(self.copy)
+
+
+if __name__ == "__main__":
+    unittest.main()
