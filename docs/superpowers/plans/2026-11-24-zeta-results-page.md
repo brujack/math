@@ -2,6 +2,8 @@
 
 spec: docs/superpowers/specs/2026-11-24-zeta-results-page-design.md
 
+> **Status: DONE** — Implemented 2026-11-26 in math#250 (dae0593); site deployed to gh-pages `zeta/` from dae0593.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A static, script-generated page at `brujack.github.io/math/zeta/` showing zeta's verified counts, gap histograms against Wigner and Poisson, and Gram's law, with every value cross-checked against the CLI's own output.
