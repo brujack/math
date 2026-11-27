@@ -432,8 +432,17 @@ assert len(u) == 10 and {x["mode"] for x in u} == {"weakening"}
     [ "$(cat "${FIX}/pi.seen")" = "diff for pi" ]
 }
 
+@test "dir in both sets whose diff plan is lines 0 is red and emits no weakening row" {
+    weak_fix pi 100 1
+    printf 'excluded 164 of 164 (re-confirm: diff, 0 on changed lines)\nkept 0 of 164 (lines 0)\n' >"${FIX}/pi.out"
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base pi </dev/null
+    [ "${status}" -eq 0 ]
+    [ "$(cat "${PLAN_OUT}/plan.txt")" = "$(printf 'pi\tred\tlines 0')" ]
+    [ "$(cat "${PLAN_OUT}/units.json")" = "[]" ]
+}
+
 @test "dir in both sets with no covered line changed stays green weakening" {
-    prune_out pi 2 0 0
+    prune_out pi 2 0 2
     weak_fix pi 100 1
     PY_TEST_DIRS=pi run bash "${SCRIPT}" base pi </dev/null
     [ "${status}" -eq 0 ]

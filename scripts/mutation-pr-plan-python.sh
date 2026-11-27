@@ -266,13 +266,13 @@ plan_weakening_dir() {
 
 # A dir in both lists: run the diff-mode plan (the real PR diff and prune, so a re-confirm refusal
 # is the same red line as in diff mode) and discard its shard units. Leaves PLAN_LINE set only when
-# that plan is red; `lines 0` is not a refusal here (a module edit with no mutable line, covered by
-# the weakening shards), so it falls through to the weakening plan.
+# that plan is red; every red line counts, `lines 0` included (detect lists the dir only when the
+# module has added lines, so zero means the planner's diff or base is wrong).
 recheck_dir() {
     local base="$1" dir="$2" kept_units=${#UNITS[@]}
     plan_dir "${base}" "${dir}" || return 1
     UNITS=("${UNITS[@]:0:${kept_units}}")
-    if [[ "${PLAN_LINE}" != "red${TAB}"* || "${PLAN_LINE}" == "red${TAB}lines 0" ]]; then
+    if [[ "${PLAN_LINE}" != "red${TAB}"* ]]; then
         PLAN_LINE=""
     fi
     return 0

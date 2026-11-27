@@ -2360,6 +2360,46 @@ class PrWeakeningWiringTests(unittest.TestCase):
             "${{ needs.mutation-py-plan.outputs.py_test_dirs }}",
         )
 
+    def _run_verdict_step(self, plan_text):
+        step = named_step("mutation-pr", "Python verdict")
+        with tempfile.TemporaryDirectory() as tmp:
+            work = pathlib.Path(tmp)
+            (work / "scripts").symlink_to(REPO_ROOT / "scripts")
+            (work / "plan").mkdir()
+            (work / "plan" / "plan.txt").write_text(plan_text)
+            summary = work / "summary.md"
+            env = dict(os.environ)
+            env.update(
+                PY_SRC_DIRS="triangle",
+                PY_TEST_DIRS="triangle",
+                GITHUB_STEP_SUMMARY=str(summary),
+            )
+            proc = subprocess.run(
+                ["bash", "-e", "-c", step["run"]],
+                cwd=work,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+                stdin=subprocess.DEVNULL,
+            )
+            text = summary.read_text() if summary.exists() else ""
+        return proc, text
+
+    def test_verdict_fails_on_a_recheck_red_line(self):
+        red = (
+            "mutants-diff-plan failed: cosmic_ray_prune: entry 3 excludes a "
+            "mutant on a changed line (triangle.py:9); re-confirm it in this PR"
+        )
+        proc, summary = self._run_verdict_step(f"triangle\tred\t{red}\n")
+        self.assertNotEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn(f"triangle: red: plan step failed: {red}", proc.stdout)
+        self.assertIn(red, summary)
+
+    def test_verdict_passes_without_a_recheck_red_line(self):
+        proc, _ = self._run_verdict_step("triangle\tgreen\t100 mutants in 10 shards\n")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

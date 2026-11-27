@@ -565,7 +565,10 @@ jobs:
           mkdir -p status
           # A py_test_dirs dir runs as weakening shards, judged by their own job
           # result above; the changed-line verdict covers only the other dirs.
-          # A dir in both lists is planned once, as weakening.
+          # A dir in both lists is planned once, as weakening, but the planner's
+          # diff-mode recheck may leave a red line for it: that line is dropped
+          # from diff-plan.txt, so it is reported and fails the verdict here.
+          recheck_red=0
           diff_dirs=""
           for d in ${PY_SRC_DIRS}; do
             case " ${PY_TEST_DIRS} " in
@@ -577,8 +580,24 @@ jobs:
           while IFS= read -r line || [ -n "${line}" ]; do
             d="${line%%$'\t'*}"
             case " ${PY_TEST_DIRS} " in
-              *" ${d} "*) ;;
+              *" ${d} "*)
+                case "${line}" in
+                  *$'\t'red$'\t'*)
+                    recheck_red=1
+                    msg="${d}: red: plan step failed: ${line#*$'\t'red$'\t'}"
+                    printf '%s\n' "${msg}"
+                    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+                      printf '%s\n' "${msg}" >> "${GITHUB_STEP_SUMMARY}"
+                    fi
+                    ;;
+                esac
+                ;;
               *) printf '%s\n' "${line}" >> plan/diff-plan.txt ;;
             esac
           done < plan/plan.txt
-          scripts/mutation-pr-verdict-python.sh --expected-dirs "${diff_dirs}" plan/diff-plan.txt status
+          rc=0
+          scripts/mutation-pr-verdict-python.sh --expected-dirs "${diff_dirs}" plan/diff-plan.txt status || rc=$?
+          if [ "${recheck_red}" -ne 0 ] && [ "${rc}" -eq 0 ]; then
+            rc=1
+          fi
+          exit "${rc}"
