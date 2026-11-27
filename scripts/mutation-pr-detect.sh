@@ -32,6 +32,11 @@ readonly RS_CANARY_PATHS=".github/workflows/mutation-pr.yml scripts/mutation-pr-
 
 readonly PY_CANARY_PATHS=".github/workflows/mutation-pr.yml scripts/mutation-pr-detect.sh scripts/mutation-pr-diff.sh scripts/mutation-pr-plan-python.sh scripts/mutation-pr-verdict-python.sh scripts/cosmic_ray_prune.py scripts/cosmic_ray_cell_status.py scripts/crate_templates/python/Makefile sq/sq.py sq/mutants-equivalent.toml"
 
+# The test-weakening gate's own files, kept apart from PY_CANARY_PATHS (whose
+# test requires every entry tracked) and matched with the fixture prefix below.
+readonly PY_WEAKENING_PATHS="scripts/mutation_weakening.py scripts/mutation_base_runner.py scripts/mutation_hypothesis_profile.py scripts/mutation-whole-module-diff.sh tests/test_mutation_weakening_canary.py"
+readonly PY_WEAKENING_FIXTURE_PREFIX="tests/fixtures/mutation_weakening/"
+
 # Stdin is `git diff --numstat --no-renames` output (added<TAB>deleted<TAB>path).
 # Prints the sorted, space-joined Python dirs whose module gained lines. A binary
 # file shows `-` for added and is not selected.
@@ -156,6 +161,10 @@ detect() {
         for _c in ${PY_CANARY_PATHS}; do
             [[ "${_path}" == "${_c}" ]] && _py_canary=true
         done
+        for _c in ${PY_WEAKENING_PATHS}; do
+            [[ "${_path}" == "${_c}" ]] && _py_canary=true
+        done
+        [[ "${_path}" == "${PY_WEAKENING_FIXTURE_PREFIX}"* ]] && _py_canary=true
         for _c in "$@"; do
             case "${_path}" in
                 "${_c}/src/"* | "${_c}/tests/"* | "${_c}/.cargo/"* | "${_c}/build.rs") _rs+=("${_c}") ;;

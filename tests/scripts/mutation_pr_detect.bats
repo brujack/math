@@ -356,6 +356,30 @@ fix_run() {
     done
 }
 
+@test "each weakening path sets py_canary true" {
+    local p
+    for p in scripts/mutation_weakening.py scripts/mutation_base_runner.py scripts/mutation_hypothesis_profile.py scripts/mutation-whole-module-diff.sh tests/test_mutation_weakening_canary.py; do
+        export MOCK_GIT_DIFF_NAMES="${p}"
+        run -0 bash "${SCRIPT}" origin/master
+        [ "${lines[6]}" = "py_canary=true" ]
+    done
+}
+@test "any file under the weakening fixtures sets py_canary true" {
+    local p
+    for p in tests/fixtures/mutation_weakening/a/sq.py tests/fixtures/mutation_weakening/pair1/test_sq.py; do
+        export MOCK_GIT_DIFF_NAMES="${p}"
+        run -0 bash "${SCRIPT}" origin/master
+        [ "${lines[6]}" = "py_canary=true" ]
+    done
+}
+@test "a path that only resembles a weakening path leaves py_canary false" {
+    local p
+    for p in tests/fixtures/mutation_weakening_other/x.py scripts/mutation_weakening.pyc; do
+        export MOCK_GIT_DIFF_NAMES="${p}"
+        run -0 bash "${SCRIPT}" origin/master
+        [ "${lines[6]}" = "py_canary=false" ]
+    done
+}
 @test "an unrelated path leaves py_canary false" {
     export MOCK_GIT_DIFF_NAMES="README.md"
     run -0 bash "${SCRIPT}" origin/master
