@@ -684,9 +684,9 @@ def make_session(
             )
 
 
-def sentinel_of(command: str) -> pathlib.Path:
+def verdict_of(command: str) -> pathlib.Path:
     parts = shlex.split(command)
-    return pathlib.Path(parts[parts.index("--sentinel") + 1])
+    return pathlib.Path(parts[parts.index("--verdict") + 1])
 
 
 def result(test: str | None, output: str = "", worker: str = "normal") -> WorkResult:
@@ -701,13 +701,25 @@ def result(test: str | None, output: str = "", worker: str = "normal") -> WorkRe
 class FakeMutate:
     """A mutate_and_test seam: `script(command, timeout)` returns a WorkResult."""
 
-    def __init__(self, script) -> None:
+    def __init__(self, script, auto_verdict: bool = True) -> None:
         self.script = script
+        self.auto_verdict = auto_verdict
         self.calls: list[tuple[str, float]] = []
+
+    @staticmethod
+    def record_verdict(command: str, outcome: WorkResult) -> None:
+        """What the real wrapper records for a non-timeout kill or survival."""
+        path = verdict_of(command)
+        if path.exists() or outcome.output == "timeout" or outcome.test_outcome is None:
+            return
+        path.write_text("1" if outcome.test_outcome == TestOutcome.KILLED else "0")
 
     def __call__(self, mutations, command, timeout):
         self.calls.append((command, timeout))
-        return self.script(command, timeout)
+        outcome = self.script(command, timeout)
+        if self.auto_verdict and is_base(command):
+            self.record_verdict(command, outcome)
+        return outcome
 
 
 def is_base(command: str) -> bool:
@@ -747,8 +759,10 @@ class ReplayCase(FixtureCase):
             *extra,
         ]
 
-    def run_replay(self, script, *extra: str) -> tuple[int, str, FakeMutate]:
-        fake = FakeMutate(script)
+    def run_replay(
+        self, script, *extra: str, auto_verdict: bool = True
+    ) -> tuple[int, str, FakeMutate]:
+        fake = FakeMutate(script, auto_verdict)
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
             code = weakening.main(self.argv(*extra), fake)
@@ -778,12 +792,25 @@ class TestReplayVerdicts(ReplayCase):
         self.assertEqual(30.0, fake.calls[0][1])
         self.assertTrue(is_base(fake.calls[0][0]))
 
-    def test_killed_block_includes_clearance_command_with_pr(self) -> None:
-        self.setup_replay({"j1": "survived"})
+    def test_killed_block_with_pr_ends_with_clearance_command_once(self) -> None:
+        fx = self.setup_replay({"j1": "survived"})
         code, out, _ = self.run_replay(lambda c, t: result("killed"), "--pr", "7")
         self.assertEqual(1, code)
-        self.assertIn("Mutation-Gate-Reviewed: #7 sq: <reason>", out)
-        self.assertIn("<key from .github/mutation-gate-allowed-signers>", out)
+        expected = (
+            "weakened: 1 mutants killed by base tests survive head tests\n"
+            "j1\n"
+            f"  operator: {MUL_ADD}\n"
+            "  occurrence: 0\n"
+            f"{DIFF}\n"
+            f"  repro: make -C sq mutants-weakening BASE={fx.base} JOB=j1\n"
+            "git -c gpg.format=ssh -c user.signingkey="
+            "'key::<key from .github/mutation-gate-allowed-signers>' \\\n"
+            "  commit --allow-empty -S -m 'chore: mutation gate review' \\\n"
+            "  -m 'Mutation-Gate-Reviewed: #7 sq: <reason>'\n"
+            "After signing, merge master into the branch; do not rebase "
+            "(a rebase drops the signature).\n"
+        )
+        self.assertEqual(expected, out)
 
     def test_head_killed_jobs_are_not_replayed(self) -> None:
         self.setup_replay({"j1": "killed", "j2": "survived"})
@@ -817,7 +844,7 @@ class TestReplayVerdicts(ReplayCase):
         self.setup_replay({"j1": "survived"})
 
         def fault(command: str, timeout: float) -> WorkResult:
-            sentinel_of(command).write_text("3")
+            verdict_of(command).write_text("fault:runner exit 3")
             return result("killed")
 
         code, out, _ = self.run_replay(fault)
@@ -825,14 +852,76 @@ class TestReplayVerdicts(ReplayCase):
         self.assertIn("replay failed: runner fault\n  job j1\n", out)
         self.assertNotIn("weakened", out)
 
-    def test_stale_sentinel_does_not_poison_next_job(self) -> None:
+    def test_missing_verdict_is_runner_fault_not_kill(self) -> None:
+        self.setup_replay({"j1": "survived"})
+        code, out, _ = self.run_replay(
+            lambda c, t: result("killed"), auto_verdict=False
+        )
+        self.assertEqual(1, code)
+        self.assertIn("replay failed: runner fault\n  job j1\n", out)
+        self.assertNotIn("weakened", out)
+
+    def test_verdict_disagreeing_with_outcome_is_runner_fault(self) -> None:
+        self.setup_replay({"j1": "survived", "j2": "survived"})
+
+        def script(command: str, timeout: float) -> WorkResult:
+            kill = verdict_of(command).name == "runner-verdict"
+            verdict_of(command).write_text("0")  # killed outcome, survived verdict
+            return result("killed") if kill else result("survived")
+
+        code, out, _ = self.run_replay(script)
+        self.assertEqual(1, code)
+        self.assertEqual(2, out.count("replay failed: runner fault"))
+
+    def test_survived_with_kill_verdict_is_runner_fault(self) -> None:
+        self.setup_replay({"j1": "survived"})
+
+        def script(command: str, timeout: float) -> WorkResult:
+            verdict_of(command).write_text("1")
+            return result("survived")
+
+        code, out, _ = self.run_replay(script)
+        self.assertEqual(1, code)
+        self.assertIn("replay failed: runner fault", out)
+
+    def test_two_survivors_count_only_the_base_kill(self) -> None:
+        self.setup_replay({"j1": "survived", "j2": "survived"})
+        calls: list[str] = []
+
+        def script(command: str, timeout: float) -> WorkResult:
+            calls.append(command)
+            return result("killed") if len(calls) == 1 else result("survived")
+
+        code, out, _ = self.run_replay(script)
+        self.assertEqual(1, code)
+        self.assertTrue(out.startswith("weakened: 1 mutants killed"))
+        self.assertIn("j1\n", out)
+        self.assertNotIn("j2", out)
+
+    def test_replay_forces_head_env_without_leaking(self) -> None:
+        self.setup_replay({"j1": "survived"})
+        seen: dict[str, str | None] = {}
+
+        def script(command: str, timeout: float) -> WorkResult:
+            seen["hash"] = os.environ.get("PYTHONHASHSEED")
+            seen["bytecode"] = os.environ.get("PYTHONDONTWRITEBYTECODE")
+            return result("survived")
+
+        with mock.patch.dict(os.environ, {"PYTHONHASHSEED": "7"}):
+            os.environ.pop("PYTHONDONTWRITEBYTECODE", None)
+            self.run_replay(script)
+            self.assertEqual("7", os.environ["PYTHONHASHSEED"])
+            self.assertNotIn("PYTHONDONTWRITEBYTECODE", os.environ)
+        self.assertEqual({"hash": "0", "bytecode": "1"}, seen)
+
+    def test_stale_verdict_does_not_poison_next_job(self) -> None:
         self.setup_replay({"j1": "survived", "j2": "survived"})
         calls: list[str] = []
 
         def script(command: str, timeout: float) -> WorkResult:
             calls.append(command)
             if len(calls) == 1:
-                sentinel_of(command).write_text("3")
+                verdict_of(command).write_text("fault:runner exit 3")
             return result("survived")
 
         code, out, _ = self.run_replay(script)
@@ -895,6 +984,19 @@ class TestTimeoutRerun(ReplayCase):
         self.assertEqual(1, code)
         self.assertIn("replay failed: incompetent", out)
 
+    def test_base_alone_fails_at_double_is_replay_failed(self) -> None:
+        self.setup_replay({"j1": "survived"})
+
+        def script(command: str, timeout: float) -> WorkResult:
+            if timeout == 30.0:
+                return result("killed", "timeout")
+            return result("incompetent") if is_base(command) else result("survived")
+
+        code, out, _ = self.run_replay(script)
+        self.assertEqual(1, code)
+        self.assertIn("replay failed: incompetent\n  job j1\n", out)
+        self.assertNotIn("weakened", out)
+
     def test_ordinary_kill_does_not_rerun(self) -> None:
         self.setup_replay({"j1": "survived"})
         _, _, fake = self.run_replay(lambda c, t: result("killed", "FAIL"))
@@ -951,8 +1053,15 @@ class TestClearance(ReplayCase):
         )
         self.assertEqual([], fake.calls)
 
+    def commit_signers(self, fx: Fixture) -> None:
+        (fx.repo / ".github").mkdir()
+        (fx.repo / SIGNERS).write_text("op sk-ssh-ed25519@openssh.com AAAAKEY\n")
+        git(fx.repo, "add", SIGNERS)
+        git(fx.repo, "commit", "-q", "-m", "signers")
+        fx.base = git(fx.repo, "rev-parse", "HEAD")
+
     def test_pr_absent_makes_no_clearance_lookup(self) -> None:
-        self.setup_replay({"j1": "survived"})
+        self.commit_signers(self.setup_replay({"j1": "survived"}))
         with mock.patch.object(
             weakening, "clearance_module", side_effect=AssertionError("looked up")
         ):
@@ -989,6 +1098,32 @@ class TestClearance(ReplayCase):
             seen,
         )
         self.assertTrue(out.endswith("REMEDY\n"))
+
+    def test_head_option_survives_later_master_edit_of_module(self) -> None:
+        fx = self.setup_replay({"j1": "survived"})
+        self.commit_signers(fx)
+        git(fx.repo, "checkout", "-q", "-b", "pr")
+        (fx.repo / "sq" / "note.txt").write_text("pr work\n")
+        git(fx.repo, "add", "sq/note.txt")
+        git(fx.repo, "commit", "-q", "-m", "pr")
+        pr_head = git(fx.repo, "rev-parse", "HEAD")
+        git(fx.repo, "checkout", "-q", "-b", "main2", fx.base)
+        (fx.repo / "sq" / "sq.py").write_text(MODULE + "\n# master edit\n")
+        git(fx.repo, "add", "sq/sq.py")
+        git(fx.repo, "commit", "-q", "-m", "master edit")
+        git(fx.repo, "merge", "-q", "--no-edit", "pr")
+        clearance = weakening.clearance_module()
+        found = [clearance.Clearance(pr_head, "sq", "a good reason")]
+        with mock.patch.object(clearance, "trailers", return_value=(found, [])):
+            code, out, fake = self.run_replay(
+                lambda c, t: result("killed"), "--pr", "5", "--head", pr_head
+            )
+            self.assertEqual(
+                (0, f"cleared by Mutation-Gate-Reviewed {pr_head}\n", []),
+                (code, out, fake.calls),
+            )
+            code, out, _ = self.run_replay(lambda c, t: result("survived"), "--pr", "5")
+            self.assertNotIn("cleared by", out)
 
     def test_first_signer_key(self) -> None:
         text = '# c\n\nop namespaces="git" sk-ssh-ed25519@openssh.com AAAA x\n'
@@ -1074,6 +1209,75 @@ class TestRealMutateAndTest(FixtureCase):
         self.assertIn("replay failed: runner fault\n  job j1\n", out)
         self.assertNotIn("weakened", out)
 
+    def replay_with_command(self, case: ReplayCase, rewrite) -> tuple[int, str]:
+        def mutate(mutations, command, timeout):
+            return weakening.mutate_and_test(mutations, rewrite(command), timeout)
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = weakening.main(case.argv(), mutate)
+        return code, out.getvalue()
+
+    def assert_runner_fault(self, code: int, out: str) -> None:
+        self.assertEqual(1, code)
+        self.assertIn("replay failed: runner fault\n  job j1\n", out)
+        self.assertNotIn("weakened", out)
+
+    def test_missing_work_dir_is_runner_fault(self) -> None:
+        case = self.prepare(STRONG_TEST)
+        shutil.rmtree(case.fx.work)
+        self.assert_runner_fault(*self.replay(case))
+
+    def test_wrapper_usage_error_is_runner_fault(self) -> None:
+        case = self.prepare(STRONG_TEST)
+        self.assert_runner_fault(
+            *self.replay_with_command(
+                case, lambda c: c.replace("compare-wrapper", "compare-wrapper --bogus")
+            )
+        )
+
+    def test_wrapper_import_error_exit_1_is_runner_fault(self) -> None:
+        case = self.prepare(STRONG_TEST)
+        crash = shlex.join(
+            [sys.executable, "-c", "import module_that_does_not_exist_xyz"]
+        )
+        self.assert_runner_fault(*self.replay_with_command(case, lambda c: crash))
+
+    def test_unwritable_verdict_path_is_runner_fault(self) -> None:
+        case = self.prepare(STRONG_TEST)
+        self.assert_runner_fault(
+            *self.replay_with_command(
+                case,
+                lambda c: c.replace(
+                    str(case.fx.work / "runner-verdict"), "/nonexistent-dir/verdict"
+                ),
+            )
+        )
+
+    def test_wrapper_runs_runner_with_pinned_env_and_null_stdin(self) -> None:
+        fx = self.make({"sq.py": MODULE}, {"sq.py": MODULE})
+        stub = fx.tmp / "stub_runner.py"
+        dump = fx.tmp / "dump.json"
+        stub.write_text(
+            "import json, os, sys\n"
+            f"json.dump({{'hash': os.environ.get('PYTHONHASHSEED'),"
+            " 'bytecode': os.environ.get('PYTHONDONTWRITEBYTECODE'),"
+            " 'null': os.fstat(0).st_rdev == os.stat(os.devnull).st_rdev},"
+            f" open({str(dump)!r}, 'w'))\n"
+        )
+        args = weakening.build_parser().parse_args(
+            ["compare-wrapper", "--verdict", str(fx.tmp / "v"), "sig", "t"]
+        )
+        env = {"PYTHONHASHSEED": "5", "PYTHONDONTWRITEBYTECODE": ""}
+        with (
+            mock.patch.object(weakening, "RUNNER", stub),
+            mock.patch.dict(os.environ, env),
+        ):
+            self.assertEqual(0, weakening.compare_wrapper(args))
+        self.assertEqual(
+            {"hash": "0", "bytecode": "1", "null": True}, json.loads(dump.read_text())
+        )
+
     def test_wrapper_maps_exit_codes(self) -> None:
         fx = self.make({"sq.py": MODULE}, {"sq.py": MODULE})
         stub = fx.tmp / "stub_runner.py"
@@ -1084,13 +1288,17 @@ class TestRealMutateAndTest(FixtureCase):
             (2, 3, True),
             (3, 3, True),
         ):
-            sentinel = fx.tmp / f"sentinel-{code}"
+            verdict = fx.tmp / f"verdict-{code}"
             args = weakening.build_parser().parse_args(
-                ["compare-wrapper", "--sentinel", str(sentinel), "sig", str(code)]
+                ["compare-wrapper", "--verdict", str(verdict), "sig", str(code)]
             )
             with mock.patch.object(weakening, "RUNNER", stub):
                 self.assertEqual(want, weakening.compare_wrapper(args), code)
-            self.assertEqual(fault, sentinel.exists(), code)
+            text = verdict.read_text()
+            self.assertEqual(fault, text.startswith("fault:"), code)
+            self.assertEqual(
+                str(code) if not fault else "fault:runner exit " + str(code), text
+            )
 
 
 if __name__ == "__main__":

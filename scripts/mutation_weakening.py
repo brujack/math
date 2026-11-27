@@ -14,16 +14,21 @@ failure (`base suite unjudgeable: infrastructure: <cause>`, a bad `--base` or gi
 failure, or a malformed signature after the runner exited 0).
 
 `replay --dir <work copy> --session <head sqlite> --shard <k>/<n> --planned <a> --base <sha>
---work <dir> [--pr <n>] [--repo <root>]` replays the shard's head survivors under the base
+--work <dir> [--pr <n>] [--head <sha>] [--repo <root>]` replays the shard's head survivors under the base
 tests (R13), re-runs a timed-out base kill at twice the timeout (R14), prints the weakened
 verdict (R15) and checks shard completeness (R19). Exit codes: 0 green, 1 red, 2 usage.
-When `--pr` is given and a verified commit clears the dir (R27) only the replay is skipped.
+When `--pr` is given and a verified commit clears the dir (R27) only the replay is skipped;
+`--head` is the PR head sha used for that lookup (CI's HEAD is a synthetic merge commit),
+default HEAD of the repo.
 
 cosmic-ray treats any non-zero exit of the test command as a kill, so the replay runs the
 base runner through `compare-wrapper`: it maps runner exit 0 to 0 and 1 to 1, and for any
-other runner exit (usage 2, internal error 3, a signal) writes a sentinel file and exits 3.
-The driver checks the sentinel after every run and reports `replay failed: runner fault`
-for that job, so an infrastructure fault is never counted as a kill.
+other runner exit (usage 2, internal error 3, a signal) exits 3. On every path it first
+writes `<work>/runner-verdict` (temp file, then rename): the runner's exit code, or
+`fault:<reason>`. The driver deletes the file before each call and accepts a non-timeout
+KILLED only if the file reads `1`, a SURVIVED only if it reads `0`; a timeout needs no file.
+Anything else (a wrapper crash, usage error or import error leaves no file) is
+`replay failed: runner fault`, so an infrastructure fault is never counted as a kill.
 """
 
 import argparse
@@ -36,7 +41,7 @@ import signal
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -56,6 +61,8 @@ SIGNERS_PLACEHOLDER = "<key from .github/mutation-gate-allowed-signers>"
 TIMEOUT_OUTPUT = "timeout"
 TIMEOUT_RERUN_FACTOR = 2
 WRAPPER_FAULT_EXIT = 3
+VERDICT_FILE = "runner-verdict"
+HEAD_ENV = {"PYTHONHASHSEED": "0", "PYTHONDONTWRITEBYTECODE": "1"}
 SHARD_RE = re.compile(r"^\d+/\d+$")
 
 Signature = dict[str, Any]
@@ -251,13 +258,12 @@ def resolve_repo(args: argparse.Namespace) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
-def judge(args: argparse.Namespace) -> int:
-    work_dir = Path(args.dir)
+def judge_precheck(
+    args: argparse.Namespace, work_dir: Path, repo: str
+) -> tuple[str, float] | int:
+    """(base test source, merge-base timeout), or the exit code of the first failed check."""
     subdir = work_dir.name
     module = subdir.replace("-", "_")
-    repo = resolve_repo(args)
-    if repo is None:
-        return infra_failure("not inside a git repository (pass --repo)")
     if git(repo, "cat-file", "-e", f"{args.base}^{{commit}}").returncode != 0:
         return infra_failure(f"base {args.base} is not a commit in {repo}")
     base_source = git_show(repo, args.base, f"{subdir}/test_{module}.py")
@@ -278,7 +284,19 @@ def judge(args: argparse.Namespace) -> int:
             f"{UNJUDGEABLE}merge-base cosmic-ray.toml has no positive numeric timeout"
         )
         return 1
-    test_name = f"test_{module}_base.py"
+    return base_source, timeout
+
+
+def judge(args: argparse.Namespace) -> int:
+    work_dir = Path(args.dir)
+    repo = resolve_repo(args)
+    if repo is None:
+        return infra_failure("not inside a git repository (pass --repo)")
+    checked = judge_precheck(args, work_dir, repo)
+    if isinstance(checked, int):
+        return checked
+    base_source, timeout = checked
+    test_name = f"test_{work_dir.name.replace('-', '_')}_base.py"
     (work_dir / test_name).write_text(base_source)
     work = Path(args.work)
     work.mkdir(parents=True, exist_ok=True)
@@ -317,19 +335,34 @@ class Tally:
     replayed: int = 0
     failures: list[tuple[str, str]] = field(default_factory=list)
     weakened: list[Survivor] = field(default_factory=list)
+    ran: int = 0
+    survivors: int = 0
+
+
+def write_verdict(path: Path, text: str) -> None:
+    """Atomically publish the wrapper's verdict: temp file, then rename."""
+    temp = path.with_name(path.name + ".tmp")
+    temp.write_text(text)
+    os.replace(temp, path)
 
 
 def compare_wrapper(args: argparse.Namespace) -> int:
-    """Run the base runner in compare mode; any exit other than 0 or 1 is a runner
-    fault: leave a sentinel so the driver can tell it from a kill (exit 1)."""
-    env = {**os.environ, "PYTHONHASHSEED": "0", "PYTHONDONTWRITEBYTECODE": "1"}
+    """Run the base runner in compare mode and record its verdict first: exit 0 or 1 pass
+    through; any other exit is a runner fault (exit 3, never a kill)."""
+    verdict = Path(args.verdict)
+    env = {**os.environ, **HEAD_ENV}
     cmd = [sys.executable, str(RUNNER), "compare", args.sig, args.test]
-    code = subprocess.run(
-        cmd, env=env, stdin=subprocess.DEVNULL, check=False
-    ).returncode
+    try:
+        code = subprocess.run(
+            cmd, env=env, stdin=subprocess.DEVNULL, check=False
+        ).returncode
+    except OSError as exc:
+        write_verdict(verdict, f"fault:{type(exc).__name__}")
+        return WRAPPER_FAULT_EXIT
     if code in (0, 1):
+        write_verdict(verdict, str(code))
         return code
-    Path(args.sentinel).write_text(str(code))
+    write_verdict(verdict, f"fault:runner exit {code}")
     return WRAPPER_FAULT_EXIT
 
 
@@ -367,33 +400,47 @@ class Replayer:
     mutate: Mutate
     base_command: str
     head_command: str
-    sentinel: Path
+    verdict: Path
     timeout: float
 
-    def run_arm(self, survivor: Survivor, command: str, timeout: float) -> Arm:
-        self.sentinel.unlink(missing_ok=True)
+    def verdict_problem(self, arm: Arm) -> Arm:
+        """A base-arm kill or survival counts only if the wrapper recorded the matching
+        runner exit; a timeout needs no file."""
+        if arm.failure or arm.timed_out:
+            return arm
+        try:
+            text = self.verdict.read_text()
+        except OSError:
+            return Arm(failure="runner fault")
+        if text != ("1" if arm.killed else "0"):
+            return Arm(failure="runner fault")
+        return arm
+
+    def run_arm(
+        self, survivor: Survivor, command: str, timeout: float, base: bool = False
+    ) -> Arm:
+        self.verdict.unlink(missing_ok=True)
         try:
             result = self.mutate(survivor.mutations, command, timeout)
         except Exception as exc:  # noqa: BLE001 - spec R13: any exception is a red replay
             print(f"mutation_weakening: {type(exc).__name__}: {exc}", file=sys.stderr)
             return Arm(failure="exception")
-        if self.sentinel.exists():
-            return Arm(failure="runner fault")
-        return arm_from_result(result)
+        arm = arm_from_result(result)
+        return self.verdict_problem(arm) if base else arm
 
     def timeout_rerun(self, survivor: Survivor) -> Verdict:
         """R14: a base kill by timeout counts only if, at twice the timeout, the base
         runner still kills it and the head tests do not."""
         longer = self.timeout * TIMEOUT_RERUN_FACTOR
         head = self.run_arm(survivor, self.head_command, longer)
-        base = self.run_arm(survivor, self.base_command, longer)
+        base = self.run_arm(survivor, self.base_command, longer, base=True)
         failure = head.failure or base.failure
         if failure:
             return Verdict(failure=failure)
         return Verdict(weakened=base.killed and not head.killed)
 
     def judge(self, survivor: Survivor) -> Verdict:
-        base = self.run_arm(survivor, self.base_command, self.timeout)
+        base = self.run_arm(survivor, self.base_command, self.timeout, base=True)
         if base.failure:
             return Verdict(failure=base.failure)
         if not base.killed:
@@ -404,6 +451,8 @@ class Replayer:
 
     def replay(self, survivors: Iterable[Survivor]) -> Tally:
         tally = Tally()
+        survivors = list(survivors)
+        tally.survivors = len(survivors)
         for survivor in survivors:
             verdict = self.judge(survivor)
             if verdict.failure:
@@ -432,7 +481,7 @@ def clearing_commit(
     if args.pr is None or signers_text is None:
         return None
     clearance = clearance_module()
-    head = git(repo, "rev-parse", "HEAD").stdout.strip()
+    head = args.head or git(repo, "rev-parse", "HEAD").stdout.strip()
     with tempfile.TemporaryDirectory() as tmp:
         signers = Path(tmp) / "allowed-signers"
         signers.write_text(signers_text)
@@ -489,8 +538,8 @@ def replayer_for(
         sys.executable,
         str(Path(__file__).resolve()),
         "compare-wrapper",
-        "--sentinel",
-        str(work / "runner-fault"),
+        "--verdict",
+        str(work / VERDICT_FILE),
         str(work / "base-sig.json"),
         f"test_{module}_base.py",
     ]
@@ -501,29 +550,40 @@ def replayer_for(
         mutate,
         shlex.join(base_cmd),
         str(head_command),
-        work / "runner-fault",
+        work / VERDICT_FILE,
         timeout,
     )
 
 
-def report_replay(
-    args: argparse.Namespace,
-    subdir: str,
-    tally: Tally,
-    ran: int,
-    survivors: int,
-    key: str,
-) -> int:
+def report_replay(args: argparse.Namespace, tally: Tally, key: str) -> int:
+    subdir = Path(args.dir).resolve().name
     for failure, job_id in tally.failures:
         print(f"replay failed: {failure}")
         print(f"  job {job_id}")
     if tally.weakened:
         print_weakened(tally, subdir, args.base, args.pr, key)
-    line = completeness_line(ran, args.planned, tally.replayed, survivors, True)
+    line = completeness_line(
+        tally.ran, args.planned, tally.replayed, tally.survivors, True
+    )
     if line:
         print(line)
     red = tally.failures or tally.weakened or line
     return 1 if red else 0
+
+
+@contextlib.contextmanager
+def forced_env(values: dict[str, str]) -> Iterator[None]:
+    """Set `values` in os.environ for the block and restore the caller's environment."""
+    saved = {key: os.environ.get(key) for key in values}
+    os.environ.update(values)
+    try:
+        yield
+    finally:
+        for key, old in saved.items():
+            if old is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = old
 
 
 def report_cleared(ran: int, planned: int) -> int:
@@ -557,11 +617,10 @@ def replay(args: argparse.Namespace, mutate: Mutate = mutate_and_test) -> int:
         )
         return 1
     replayer = replayer_for(args, work_dir, timeout, mutate)
-    with contextlib.chdir(work_dir):
+    with contextlib.chdir(work_dir), forced_env(HEAD_ENV):
         tally = replayer.replay(survivors)
-    return report_replay(
-        args, subdir, tally, ran, len(survivors), first_signer_key(signers_text)
-    )
+    tally.ran = ran
+    return report_replay(args, tally, first_signer_key(signers_text))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -581,9 +640,10 @@ def build_parser() -> argparse.ArgumentParser:
     replay_parser.add_argument("--base", required=True)
     replay_parser.add_argument("--work", required=True)
     replay_parser.add_argument("--pr", type=int)
+    replay_parser.add_argument("--head")
     replay_parser.add_argument("--repo")
     wrapper_parser = sub.add_parser("compare-wrapper")
-    wrapper_parser.add_argument("--sentinel", required=True)
+    wrapper_parser.add_argument("--verdict", required=True)
     wrapper_parser.add_argument("sig")
     wrapper_parser.add_argument("test")
     return parser
