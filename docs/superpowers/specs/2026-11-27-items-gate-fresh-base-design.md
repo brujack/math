@@ -1,4 +1,4 @@
-# Items gate runs master's current script and cannot merge on a stale run
+# Items gate runs master's current script
 
 - **Date:** 2026-11-27
 - **Backlog row:** P1 "mutation gate: items job runs the gate script from the PR's stale `base.sha`"
@@ -8,102 +8,90 @@
 
 `.github/workflows/mutation-gate-items.yml` checks out its gate script at
 `${{ github.event.pull_request.base.sha }}` and passes the same value to
-`scripts/mutation-gate-items.sh` as BASE.
+`scripts/mutation-gate-items.sh` as BASE. That value comes from the event payload, and the
+payload's base is not always master's tip.
 
-GitHub sets `pull_request.base.sha` when the PR's head is pushed; it does not move when master
-moves.
+Measured 2026-11-27 on math#238. Renovate last pushed its head (8a7d662) on 2026-11-23T07:08Z;
+base 19cdee3 is dated 2026-11-23T07:06:58Z.
 
-Measured 2026-11-27 on math#238:
+| Run         | Event                                           | Head    | `BASE_SHA`                        | Result                                                                |
+| ----------- | ----------------------------------------------- | ------- | --------------------------------- | --------------------------------------------------------------------- |
+| 46053939365 | `reopened` (19:03Z)                             | 8a7d662 | 19cdee3, 53 commits behind master | exit 127: `scripts/mutation-gate-items.sh: No such file or directory` |
+| 46055972031 | `edited`, a body edit (19:20Z)                  | 8a7d662 | 33e09a2, master's tip             | success                                                               |
+| 46056218964 | `synchronize`, after a Renovate rebase (19:22Z) | 777bb40 | cd8c48b, master's tip             | success                                                               |
 
-- Renovate last pushed the head on 2026-11-20. The PR was closed and reopened on 2026-11-27,
-  after math#252 and math#253 merged.
-- The `reopened` run (46053939365) still carried base 19cdee3, 53 commits behind master.
-- `scripts/mutation-gate-items.sh` did not exist there, so the run failed with exit 127.
-- After a Renovate rebase (head 777bb40) the payload carried a fresh base, and the check
-  passed.
-
-Population: one PR, one event type (`reopened`); the claim that a head push refreshes
-`base.sha` rests on that one rebase plus GitHub's payload semantics.
+So the payload's base is refreshed by some events and not others: `reopened` carried a base four
+days stale, while an `edited` event on the same head carried master's tip. Population: one PR,
+three events, one of each type.
 
 Two windows follow:
 
-1. **Event time.** A PR last pushed before a gate tightening is judged by the older script, so
-   it can pass an item the current gate flags. Example: a PR last pushed between math#252 and
-   math#253 that edits `.github/required-status-checks`. A PR older than the gate fails
-   closed, as #238 did.
+1. **Event time.** An event whose payload carries a stale base runs an older gate script. A PR
+   last refreshed before a gate tightening can then pass an item the current gate flags, for
+   example an edit to `.github/required-status-checks` judged by a script from before
+   math#253. A PR older than the gate fails closed, as #238 did.
 2. **Merge time.** A PR whose items run went green, followed by a gate-tightening merge to
-   master, still merges on that green check.
-   - Branch protection has `strict: false`, so nothing re-runs the check.
-   - `gh run rerun` would not help: it replays the original event payload.
+   master, still merges on that green check. Nothing re-runs the check, and `gh run rerun`
+   replays the original payload.
 
 The script itself is not at fault: `mutation_gate_items.py` diffs from
-`git merge-base <base> <head>`, so the item list does not depend on which master commit is
-passed as BASE, only on which script runs.
+`git merge-base <base> <head>`, so the item list depends only on which script runs, not on which
+master commit is passed as BASE.
 
 ## Design
 
 1. **Workflow: check out the base branch tip.**
    - The checkout step uses `ref: ${{ github.event.pull_request.base.ref }}`. The
      `branches: [master]` trigger filter makes that always `master`, resolved when the step
-     runs.
-   - The gate step passes `"$(git rev-parse HEAD)"` as BASE, so the script and BASE are the
-     same commit. `BASE_SHA` leaves the step's `env`.
-   - Every event then runs master's current gate, and a stale PR gets the real item list
-     instead of exit 127.
+     runs, whatever base the payload carries.
+   - The gate step passes `"$(git rev-parse HEAD)"` as BASE, so the script and BASE are the same
+     commit. `BASE_SHA` leaves the step's `env`.
+   - Every event then runs master's current gate, which closes window 1. A stale PR gets the
+     real item list instead of exit 127.
    - `pull_request_target` reads the workflow file from the base branch, so this takes effect
      only after the PR merges.
-2. **Branch protection `strict: true`.**
-   - A PR behind master cannot merge.
-   - Bringing it up to date pushes its head, which fires `synchronize` and re-runs the items
-     check on master's tip. That closes the merge-time window.
-   - This is a repository setting, applied with `gh api` after the PR merges (V1).
-3. **`scripts/ci-gate.sh` names the behind state.**
-   - The auto-merge job cannot update the branch itself: a push made with `GITHUB_TOKEN` fires
-     no workflows, so the checks would never re-run (N1).
-   - With strict on, its `gh pr merge` on a behind branch fails with GitHub's generic error.
-   - Only where `ci_gate` would otherwise return 0 (every required check passed, or none
-     triggered), it reads `mergeable_state` from `repos/<repo>/pulls/<pr>`. On `behind` it
-     fails with a message naming the remedy. A failing PR keeps its failure list, unmasked.
-   - Any other value proceeds, including `unknown`, which GitHub reports while it computes
-     the state; `gh pr merge` remains the final judge there.
-   - Assumption, settled by V2: with the required checks green and strict on, GitHub reports
-     a behind PR as `behind` rather than `blocked`. If it reports `blocked`, the message does
-     not fire and the merge fails with GitHub's generic error: less clear, not less safe.
-4. **Who updates a behind PR.**
-   - Renovate rebases its own PRs when they fall behind and automerge is on.
-   - Agent and operator PRs run `gh pr update-branch <n>` before marking ready, and again if
-     the auto-merge job reports the behind message.
-5. **Tests.**
-   - `tests/test_mutation_gate_items_workflow.py` pins the checkout ref and the new run line,
-     and asserts `base.sha` appears nowhere in the workflow text.
-   - `tests/scripts/ci_gate.bats` covers `behind`, `clean`, `unknown` and a failed read.
+2. **Re-judge open PRs after a gate change.**
+   - A gate tightening reaches master only through a gate-file PR, and the items check is red on
+     every such PR, so only the operator merges one, by admin override.
+   - After merging one, every open PR is closed and reopened. Each `reopened` event re-runs the
+     items check, which with item 1 uses the new gate. That closes window 2.
+   - On 2026-11-27 this would have touched one PR (#238). There are 0 open PRs now.
+   - This is a documented procedure, not a mechanism: ADR-0048 and the root `CLAUDE.md` items
+     line state it.
+3. **Tests.** `tests/test_mutation_gate_items_workflow.py` pins the checkout ref and the new run
+   line, and asserts `base.sha` appears nowhere in the workflow text.
 
-Both changed files are gate files (`mutation_gate_items.py` `GATE_FILES`), so this PR's own
-items check is red by design and the operator merges it by admin override.
+The workflow is a gate file, so this PR's own items check is red by design and the operator
+merges it by admin override.
 
 ## Rejected alternatives
 
+- **Branch protection `strict: true`.** This closes window 2 mechanically. Measured over the last
+  40 merged PRs:
+  - 29 had at least one master commit land while they were open, 180 commits in all, mostly
+    direct docs commits.
+  - Under strict, each of those PRs would need `gh pr update-branch` and a full CI rerun, and
+    `mutation-pr` alone can take 60 minutes.
+  - Renovate does not rebase a PR that falls behind: #238 saw 56 master commits with no
+    Renovate push between its scheduled push and the operator's reopen.
+  - All of that pays to close a window that opens only when a gate-file PR merges.
+- **Run master's items script inside the auto-merge job before `gh pr merge`.** This closes
+  window 2 with no operator step. But it puts cosmic-ray and cargo-mutants into the auto-merge
+  job, and adds a second, PR-controlled place where the gate runs.
 - **`ref: ${{ github.sha }}`.** For `pull_request_target`, GitHub documents `GITHUB_SHA` as the
-  last commit on the base branch, but the run API reports the PR head as the run's `head_sha`.
-  This could not be confirmed from a past run without a new probe. `base.ref` plus
-  `rev-parse` needs no such assumption.
-- **Re-trigger items on every open PR after a gate change.** This needs a new push-to-master
-  workflow and a token able to fire events, and the operator chose strict instead.
-- **Strict only, no workflow change.** Strict alone closes both windows, but then the gate's
-  freshness rests on a repository setting that nothing in the repository checks. The workflow
-  change makes event-time freshness hold whatever the setting.
+  last commit on the base branch, but this could not be confirmed from a past run without a new
+  probe. `base.ref` plus `rev-parse` needs no such assumption.
+- **A push-to-master workflow that re-triggers items on open PRs.** This needs a token able to
+  fire events, for a step the operator already performs at the only moment it matters.
 
 ## Requirements
 
 - **R1.** `.github/workflows/mutation-gate-items.yml`'s single `actions/checkout` step has `ref: ${{ github.event.pull_request.base.ref }}`, keeps `fetch-depth: 0` and `persist-credentials: false`, and the workflow text contains no `base.sha`.
 - **R2.** The gate step's `run` is exactly `scripts/mutation-gate-items.sh "$(git rev-parse HEAD)" "${HEAD_SHA}"`, its `env` holds `HEAD_SHA: ${{ github.event.pull_request.head.sha }}` and no `BASE_SHA`, and the workflow's set of `run` commands is otherwise unchanged.
 - **R3.** `tests/test_mutation_gate_items_workflow.py` asserts R1 and R2: the checkout ref equals `${{ github.event.pull_request.base.ref }}`, the allow-listed run set contains the R2 line in place of `scripts/mutation-gate-items.sh "${BASE_SHA}" "${HEAD_SHA}"`, the gate step's env has no `BASE_SHA`, and `base.sha` does not occur in the workflow text.
-- **R4.** Where `ci_gate` in `scripts/ci-gate.sh` would otherwise return 0 (before printing `All required checks passed.` or `No required checks triggered. Proceeding.`), it reads `gh api repos/<repo>/pulls/<pr> --jq .mergeable_state`. On `behind` it prints `PR <pr> is behind master: run gh pr update-branch <pr>` to stderr and returns 1. If the read fails, it returns 1. Any other value returns 0 as before. A timeout or a failed required check returns 1 without reading `mergeable_state`.
-- **R5.** `tests/scripts/ci_gate.bats` has cases where all required checks pass and `mergeable_state` is `behind` (exit 1, stderr contains `PR 42 is behind master: run gh pr update-branch 42`), `clean` (exit 0, `All required checks passed.`), `unknown` (exit 0) and where the `pulls/<pr>` read for `mergeable_state` fails (exit 1), plus a case where a required check failed and `mergeable_state` is `behind` (exit 1, stderr lists the failed check and does not contain `is behind master`).
-- **R6.** Root `CLAUDE.md`'s `mutation-gate-items.yml` line states that the script runs from `base.ref` (master's tip) and that protection is strict. Its Branch Workflow section says to run `gh pr update-branch <n>` when a PR is behind master. The file stays at or under 30,000 bytes.
-- **R7.** `docs/adr/0048-pr-mutation-gates-see-test-weakening.md` gains a dated line recording that the items job runs the script from `base.ref` and that protection is strict, with the reason (`pull_request.base.sha` is fixed at the PR's last head push), and `docs/superpowers/README.md` drops the P1 Backlog row "mutation gate: items job runs the gate script from the PR's stale `base.sha`".
-- **V1.** After merge, `gh api repos/brujack/math/branches/master/protection/required_status_checks --jq .strict` prints `true`, and `.checks` still lists `secret-scan`, `mutation-pr` and `mutation-gate-items` with app_id 15368.
-- **V2.** After merge and V1, open a throwaway docs-only PR from a branch based on 19cdee3. Its `mutation-gate-items` run checks out master's tip, finds the script (no exit 127) and passes, and its auto-merge job prints `PR <n> is behind master: run gh pr update-branch <n>` and does not merge. Then close the PR and delete the branch.
-- **N1.** No workflow or script updates a PR branch (`gh pr update-branch`, a merge or a push) on the PR's behalf.
-- **N2.** `scripts/mutation_gate_items.py` and `scripts/mutation-gate-items.sh` are unchanged.
-- **N3.** Branch protection changes only `strict`; the required contexts, their app ids and `enforce_admins` are unchanged.
+- **R4.** Root `CLAUDE.md`'s `mutation-gate-items.yml` line states that the script runs from `base.ref` (master's tip) and that after merging a gate-file PR every open PR is closed and reopened so the items check re-runs; the file stays at or under 30,000 bytes.
+- **R5.** `docs/adr/0048-pr-mutation-gates-see-test-weakening.md` gains a line dated 2026-11-27 recording that the items job runs the script from `base.ref`, the reason (math#238's `reopened` payload carried a base 53 commits behind master while an `edited` payload on the same head carried master's tip), and the close-and-reopen step after a gate-file merge; `docs/superpowers/README.md` drops the P1 Backlog row "mutation gate: items job runs the gate script from the PR's stale `base.sha`".
+- **V1.** After merge, open a throwaway docs-only PR, then land a direct docs commit on master, then close and reopen the PR. The `reopened` items run's checkout step resolves to master's tip at run time, which is the new commit and not the PR's opening base, and the run passes. Then close the PR and delete its branch.
+- **N1.** `scripts/mutation_gate_items.py` and `scripts/mutation-gate-items.sh` are unchanged.
+- **N2.** Branch protection is unchanged: `strict` stays `false`, and the required contexts, their app ids and `enforce_admins` are as before.
+- **N3.** No new workflow file is added, and `auto-merge.yml` and `scripts/ci-gate.sh` are unchanged.
