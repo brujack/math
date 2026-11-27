@@ -373,32 +373,44 @@ jobs:
       - name: Gate canary (amicable-rs)
         run: |
           # A change to the gate's own files selects no crate, so it would merge
-          # green untested. Prove the gate still catches a survivor: append a
-          # space to the one `m = 2 * d` line, commit that path alone so HEAD~1
-          # is the clean tree, and require at least one caught mutant. The canary
-          # goes through the planner, so a planner defect turns it red.
-          f=amicable/amicable-rs/src/lib.rs
+          # green untested. Run the real whole-crate path (R2): plan the crate whole,
+          # pick the shard that holds the `m = 2 * d` mutants and run it. Whole mode
+          # fixes its own limits (0 missed, at least 1 caught) and refuses
+          # --min-caught, so a gate that stops catching mutants goes red here.
+          crate=amicable/amicable-rs
+          f="${crate}/src/lib.rs"
           n=$(grep -c 'let mut m = 2 \* d;' "${f}") || n=0
           if [ "${n}" != "1" ]; then
             printf 'red: canary line count is %s, expected exactly 1 in %s\n' "${n}" "${f}" | tee -a "${GITHUB_STEP_SUMMARY}" >&2
             exit 1
           fi
-          sed -i 's/let mut m = 2 \* d;$/& /' "${f}"
-          git -c user.name=ci -c user.email=ci@localhost commit -q -m canary -- "${f}"
-          scripts/mutation-rs-plan.sh HEAD~1 amicable/amicable-rs > "${RUNNER_TEMP}/canary-units.json"
-          units=$(jq length "${RUNNER_TEMP}/canary-units.json")
-          if [ "${units}" != "1" ]; then
-            printf 'red: canary planned %s units, expected exactly 1\n' "${units}" | tee -a "${GITHUB_STEP_SUMMARY}" >&2
+          line=$(grep -n 'let mut m = 2 \* d;' "${f}" | cut -d: -f1)
+          units="${RUNNER_TEMP}/canary-units.json"
+          scripts/mutation-rs-plan.sh --whole "${crate}" > "${units}"
+          fault=$(jq -r '[.[] | select((.fault // "") != "") | .fault] | first // empty' "${units}")
+          if [ -n "${fault}" ]; then
+            printf 'red: canary plan fault: %s\n' "${fault}" | tee -a "${GITHUB_STEP_SUMMARY}" >&2
             exit 1
           fi
-          shard_k=$(jq -r '.[0].k' "${RUNNER_TEMP}/canary-units.json")
-          shard_n=$(jq -r '.[0].n' "${RUNNER_TEMP}/canary-units.json")
-          shard_count=$(jq -r '.[0].count' "${RUNNER_TEMP}/canary-units.json")
-          # The run's own repro line names HEAD~1, which exists only in this job.
-          printf 'canary repro: git checkout %s, append a space to the "let mut m = 2 * d;" line in %s, commit it, then scripts/mutation-pr-run.sh HEAD~1 --shard %s/%s --expect %s --min-caught 1 amicable/amicable-rs\n' \
-            "$(git rev-parse HEAD~1)" "${f}" "${shard_k}" "${shard_n}" "${shard_count}" >> "${GITHUB_STEP_SUMMARY}"
+          # cargo-mutants shards round-robin (mutant i is on shard i mod n), as the
+          # crate Makefile's --sharding round-robin does.
+          (cd "${crate}" && cargo mutants --list --json) > "${RUNNER_TEMP}/canary-list.json"
+          index=$(jq -r --argjson line "${line}" 'map(.span.start.line == $line) | index(true) // empty' "${RUNNER_TEMP}/canary-list.json")
+          shard_n=$(jq -r '.[0].n // empty' "${units}")
+          if [ -z "${index}" ] || [ -z "${shard_n}" ]; then
+            printf 'red: canary found no mutant on line %s of %s, or no planned shard\n' "${line}" "${f}" | tee -a "${GITHUB_STEP_SUMMARY}" >&2
+            exit 1
+          fi
+          shard_k=$((index % shard_n))
+          shard_count=$(jq -r --argjson k "${shard_k}" '.[] | select(.k == $k) | .count' "${units}")
+          if [ -z "${shard_count}" ]; then
+            printf 'red: canary shard %s/%s is not in the plan\n' "${shard_k}" "${shard_n}" | tee -a "${GITHUB_STEP_SUMMARY}" >&2
+            exit 1
+          fi
+          printf 'canary repro: scripts/mutation-pr-run.sh --whole --shard %s/%s --expect %s %s\n' \
+            "${shard_k}" "${shard_n}" "${shard_count}" "${crate}" >> "${GITHUB_STEP_SUMMARY}"
           set +e
-          scripts/mutation-pr-run.sh HEAD~1 --shard "${shard_k}/${shard_n}" --expect "${shard_count}" --min-caught 1 amicable/amicable-rs 2>&1 | tee "${RUNNER_TEMP}/canary.log"
+          scripts/mutation-pr-run.sh --whole --shard "${shard_k}/${shard_n}" --expect "${shard_count}" "${crate}" 2>&1 | tee "${RUNNER_TEMP}/canary.log"
           rc=${PIPESTATUS[0]}
           set -e
           {

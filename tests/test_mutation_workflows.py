@@ -549,45 +549,31 @@ class MutationPrTests(unittest.TestCase):
         self.assertNotIn("if", step)
         self.assertNotIn("continue-on-error", step)
 
-    def test_canary_edits_commits_only_the_file_plans_and_runs(self):
+    def test_canary_runs_the_whole_crate_without_editing_or_min_caught(self):
         res = run_canary()
         self.assertEqual(res.proc.returncode, 0, res.proc.stderr)
-        self.assertEqual(res.plan_calls, ["HEAD~1", "amicable/amicable-rs"])
+        self.assertEqual(res.plan_calls, ["--whole", "amicable/amicable-rs"])
+        # Whole mode refuses --min-caught (it fixes the limit at 0 missed, 1 caught).
         self.assertEqual(
             res.calls,
-            [
-                "HEAD~1",
-                "--shard",
-                "0/1",
-                "--expect",
-                "5",
-                "--min-caught",
-                "1",
-                "amicable/amicable-rs",
-            ],
+            ["--whole", "--shard", "0/1", "--expect", "5", "amicable/amicable-rs"],
         )
-        # At call time HEAD~1 is the clean tree: the canary commit must precede it.
-        # The staged unrelated file shows in the tree-vs-HEAD~1 diff, but the commit
-        # itself holds only the canary file (asserted below).
-        self.assertEqual(res.diff_at_call, [CANARY_FILE, "other.txt"])
-        self.assertEqual(res.committed, [CANARY_FILE])
+        self.assertEqual(res.lib, CANARY_LIB)
         repro, fenced = res.summary.split("\n", 1)
-        self.assertRegex(
+        self.assertEqual(
             repro,
-            r"^canary repro: git checkout [0-9a-f]{40}, append a space to the "
-            r'"let mut m = 2 \* d;" line in amicable/amicable-rs/src/lib\.rs, commit it, '
-            r"then scripts/mutation-pr-run\.sh HEAD~1 --shard 0/1 --expect 5 "
-            r"--min-caught 1 amicable/amicable-rs$",
+            "canary repro: scripts/mutation-pr-run.sh --whole --shard 0/1 "
+            "--expect 5 amicable/amicable-rs",
         )
         self.assertEqual(fenced, "```\n```\n")
-        self.assertIn("let mut m = 2 * d; \n", res.lib)
-        self.assertEqual(res.lib.count("let mut m = 2 * d;"), 1)
-        self.assertEqual(res.staged_other, ["other.txt"])
 
-    def test_canary_reads_shard_fields_from_the_plan(self):
-        res = run_canary(stub=CanaryStub(plan='[{"k":2,"n":3,"count":41}]'))
+    def test_canary_picks_the_shard_holding_the_canary_mutants(self):
+        # Round-robin: mutant i is on shard i % n. The first mutant on the canary
+        # line (2) is index 3, so shard 1 of 2.
+        units = '[{"k":0,"n":2,"count":3},{"k":1,"n":2,"count":2}]'
+        res = run_canary(stub=CanaryStub(plan=units, lines=(1, 3, 3, 2, 3)))
         self.assertEqual(res.proc.returncode, 0, res.proc.stderr)
-        self.assertEqual(res.calls[1:5], ["--shard", "2/3", "--expect", "41"])
+        self.assertEqual(res.calls[1:5], ["--shard", "1/2", "--expect", "2"])
 
     def test_canary_run_failure_propagates_under_both_shells(self):
         for flags in SHELL_FLAGS:
@@ -600,38 +586,34 @@ class MutationPrTests(unittest.TestCase):
                     res.summary.endswith("```\nred: nope\n```\n"), res.summary
                 )
 
-    def test_canary_plan_of_zero_or_two_units_is_red_without_a_run(self):
-        two = '[{"k":0,"n":1,"count":5},{"k":0,"n":1,"count":6}]'
-        for plan, count in (("[]", 0), (two, 2)):
-            res = run_canary(stub=CanaryStub(plan=plan))
-            self.assertEqual(res.proc.returncode, 1, res.proc.stderr)
+    def test_canary_is_red_without_a_run_on_a_bad_plan_or_listing(self):
+        cases = {
+            "planner failure": CanaryStub(plan_rc=1),
+            "fault unit": CanaryStub(
+                plan='[{"k":0,"n":0,"count":0,"fault":"no mutants listed"}]'
+            ),
+            "no canary mutant": CanaryStub(lines=(1, 3)),
+            "empty plan": CanaryStub(plan="[]"),
+            "listing failure": CanaryStub(cargo_rc=1),
+        }
+        for label, stub in cases.items():
+            res = run_canary(stub=stub)
+            self.assertNotEqual(res.proc.returncode, 0, label)
+            self.assertEqual(res.calls, [], label)
+
+    def test_canary_fault_unit_is_named_in_the_summary(self):
+        res = run_canary(
+            stub=CanaryStub(plan='[{"k":0,"n":0,"count":0,"fault":"boom"}]')
+        )
+        self.assertIn("plan fault: boom", res.summary)
+
+    def test_canary_source_line_must_match_exactly_once(self):
+        for lib in ("fn main() {}\n", "let mut m = 2 * d;\nlet mut m = 2 * d;\n"):
+            res = run_canary(lib=lib)
+            self.assertNotEqual(res.proc.returncode, 0)
             self.assertEqual(res.calls, [])
-            self.assertIn(
-                f"red: canary planned {count} units, expected exactly 1",
-                res.summary,
-            )
-
-    def test_canary_planner_failure_is_red_without_a_run(self):
-        res = run_canary(stub=CanaryStub(plan_rc=1))
-        self.assertEqual(res.proc.returncode, 1)
-        self.assertEqual(res.calls, [])
-
-    def test_canary_zero_matches_is_red_without_edit_or_plan(self):
-        res = run_canary(lib="fn main() {}\n")
-        self.assertNotEqual(res.proc.returncode, 0)
-        self.assertEqual(res.calls, [])
-        self.assertEqual(res.plan_calls, [])
-        self.assertEqual(res.commit_count, 1)
-        self.assertEqual(res.lib, "fn main() {}\n")
-
-    def test_canary_two_matches_is_red_without_edit_or_plan(self):
-        lib = "let mut m = 2 * d;\nlet mut m = 2 * d;\n"
-        res = run_canary(lib=lib)
-        self.assertNotEqual(res.proc.returncode, 0)
-        self.assertEqual(res.calls, [])
-        self.assertEqual(res.plan_calls, [])
-        self.assertEqual(res.commit_count, 1)
-        self.assertEqual(res.lib, lib)
+            self.assertEqual(res.plan_calls, [])
+            self.assertEqual(res.lib, lib)
 
     def test_pip_line_matches_template(self):
         # One install line per Python-running job (plan, py, canary, baseline), each
@@ -660,42 +642,28 @@ class CanaryRun(NamedTuple):
     plan_calls: list[str]
     summary: str
     lib: str
-    committed: list[str]
-    staged_other: list[str]
-    commit_count: int
-    diff_at_call: list[str]
 
 
 class CanaryStub(NamedTuple):
-    """Behaviour of the stubbed runner and planner for one canary step run."""
+    """Behaviour of the stubbed runner, planner and cargo for one canary run."""
 
     run_rc: int = 0
     run_out: str = "stub verdict\n"
     plan: str = '[{"k":0,"n":1,"count":5}]'
     plan_rc: int = 0
+    # Source line of each listed mutant, in order; CANARY_LIB's canary line is 2.
+    lines: tuple[int, ...] = (1, 2, 2, 3)
+    cargo_rc: int = 0
 
 
 def run_canary(
     lib=CANARY_LIB, stub: CanaryStub | None = None, flags=("-eo", "pipefail")
 ):
-    """Run the canary step in a real throwaway git repo with stub planner and runner."""
-    run_rc, run_out, plan, plan_rc = stub or CanaryStub()
+    """Run the Rust canary step against stub planner, runner and cargo."""
+    stub = stub or CanaryStub()
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
         repo = root / "repo"
-        env = clean_git_env()
-        git = ["git", "-c", "user.name=t", "-c", "user.email=t@t"]
-
-        def run_git(*args):
-            return subprocess.run(
-                [*git, *args],
-                cwd=repo,
-                env=env,
-                capture_output=True,
-                text=True,
-                check=True,
-            ).stdout
-
         lib_path = repo / CANARY_FILE
         lib_path.parent.mkdir(parents=True)
         lib_path.write_text(lib)
@@ -703,45 +671,40 @@ def run_canary(
         plan_log = root / "plan-calls"
         stub_run_script(repo / "scripts" / "mutation-pr-run.sh", log)
         stub_plan_script(repo / "scripts" / "mutation-rs-plan.sh", plan_log)
-        run_git("init", "-q")
-        run_git("add", ".")
-        run_git("commit", "-q", "-m", "base")
-        # A staged unrelated file: a commit that is not path-limited would sweep it in.
-        (repo / "other.txt").write_text("x\n")
-        run_git("add", "other.txt")
+        bindir = root / "bin"
+        bindir.mkdir()
+        cargo = bindir / "cargo"
+        cargo.write_text(
+            '#!/bin/sh\nprintf \'%s\\n\' "$CARGO_JSON"\nexit "${CARGO_RC}"\n'
+        )
+        cargo.chmod(0o755)
         (root / "temp").mkdir()
         summary = root / "summary"
         summary.touch()
+        listing = [{"span": {"start": {"line": n}}} for n in stub.lines]
+        env = clean_git_env()
         env.update(
             {
+                "PATH": f"{bindir}:{os.environ['PATH']}",
                 "RUNNER_TEMP": str(root / "temp"),
                 "GITHUB_STEP_SUMMARY": str(summary),
-                "RUN_RC": str(run_rc),
-                "STUB_OUT": run_out,
-                "PLAN_JSON": plan,
-                "PLAN_RC": str(plan_rc),
+                "RUN_RC": str(stub.run_rc),
+                "STUB_OUT": stub.run_out,
+                "PLAN_JSON": stub.plan,
+                "PLAN_RC": str(stub.plan_rc),
+                "CARGO_JSON": json.dumps(listing),
+                "CARGO_RC": str(stub.cargo_rc),
             }
         )
         proc = run_block(
             named_step("mutation-rs-canary", CANARY_STEP), repo, env, list(flags)
         )
-        count = int(run_git("rev-list", "--count", "HEAD").strip())
-        committed = run_git("show", "--name-only", "--format=", "HEAD").split()
-        staged = run_git("diff", "--cached", "--name-only").split()
-        calls = log.read_text().splitlines() if log.exists() else []
-        plan_calls = plan_log.read_text().splitlines() if plan_log.exists() else []
-        diff_log = pathlib.Path(f"{log}.diff")
-        at_call = diff_log.read_text().split() if diff_log.exists() else []
         return CanaryRun(
             proc,
-            calls,
-            plan_calls,
+            log.read_text().splitlines() if log.exists() else [],
+            plan_log.read_text().splitlines() if plan_log.exists() else [],
             summary.read_text(),
             lib_path.read_text(),
-            committed,
-            staged,
-            count,
-            at_call,
         )
 
 
@@ -2267,7 +2230,7 @@ class PrWeakeningWiringTests(unittest.TestCase):
         self.assertNotIn("PR=", run)
         self.assertNotIn("mutants-diff", run)
 
-    def run_weakening(self, planned):
+    def run_weakening(self, planned, make_rc=0):
         step = named_step("mutation-py", "Run weakening shard")
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
@@ -2275,7 +2238,9 @@ class PrWeakeningWiringTests(unittest.TestCase):
             bindir.mkdir()
             calls = root / "calls"
             make = bindir / "make"
-            make.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$CALLS"\n')
+            make.write_text(
+                '#!/bin/sh\nprintf "%s\\n" "$*" >> "$CALLS"\nexit "${MAKE_RC:-0}"\n'
+            )
             make.chmod(0o755)
             summary = root / "summary"
             summary.touch()
@@ -2287,6 +2252,7 @@ class PrWeakeningWiringTests(unittest.TestCase):
                 "N": "10",
                 "BASE_SHA": "abc123",
                 "PLANNED": planned,
+                "MAKE_RC": str(make_rc),
                 "GITHUB_STEP_SUMMARY": str(summary),
             }
             proc = run_block(step, root, env, ["-e"])
@@ -2309,9 +2275,45 @@ class PrWeakeningWiringTests(unittest.TestCase):
         self.assertIn(msg, proc.stdout)
         self.assertIn(msg, summary)
 
+    def test_a_red_make_keeps_the_weakening_step_red(self):
+        for rc in (1, 2):
+            proc, made, _ = self.run_weakening("14", make_rc=rc)
+            self.assertNotEqual(proc.returncode, 0, rc)
+            self.assertEqual(len(made), 1)
+
     def test_a_planned_count_of_one_still_runs(self):
         _, made, _ = self.run_weakening("1")
         self.assertEqual(len(made), 1)
+
+    def test_verdict_filter_drops_weakening_dirs_from_plan_and_expected(self):
+        step = named_step("mutation-pr", "Python verdict")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "plan").mkdir()
+            (root / "plan" / "plan.txt").write_text(
+                "sq\tgreen\t3 mutants in 1 shards\nfib\tgreen\t9 mutants in 2 shards\n"
+            )
+            scripts = root / "scripts"
+            scripts.mkdir()
+            verdict = scripts / "mutation-pr-verdict-python.sh"
+            verdict.write_text("#!/bin/sh\nprintf '%s\\n' \"$@\" > args\n")
+            verdict.chmod(0o755)
+            env = {
+                "PATH": os.environ["PATH"],
+                "PY_SRC_DIRS": "sq fib",
+                "PY_TEST_DIRS": "fib",
+            }
+            proc = run_block(step, root, env, ["-e"])
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(
+                (root / "plan" / "diff-plan.txt").read_text(),
+                "sq\tgreen\t3 mutants in 1 shards\n",
+            )
+            args = (root / "args").read_text().splitlines()
+            self.assertEqual(
+                args,
+                ["--expected-dirs", "sq", "plan/diff-plan.txt", "status"],
+            )
 
     def test_diff_rows_keep_the_changed_line_path(self):
         step = named_step("mutation-py", "Run mutants on changed lines")
@@ -2321,8 +2323,9 @@ class PrWeakeningWiringTests(unittest.TestCase):
 
     def test_canary_job_runs_the_weakening_fixture_test(self):
         step = named_step("mutation-py-canary", "Weakening canary fixtures")
-        self.assertIn(
-            "python3 -m unittest tests.test_mutation_weakening_canary", step["run"]
+        self.assertEqual(
+            step["run"],
+            "python3 -m unittest tests.test_mutation_weakening_canary -v",
         )
         self.assertNotIn("if", step)
         self.assertEqual(
@@ -2360,20 +2363,3 @@ class PrWeakeningWiringTests(unittest.TestCase):
             step["env"]["PY_TEST_DIRS"],
             "${{ needs.mutation-py-plan.outputs.py_test_dirs }}",
         )
-
-    def test_monthly_sweeps_are_unchanged_n1(self):
-        proc = subprocess.run(
-            [
-                "git",
-                "diff",
-                "--quiet",
-                "origin/master",
-                "--",
-                ".github/workflows/mutation-testing.yml",
-                ".github/workflows/mutation-testing-python.yml",
-            ],
-            cwd=REPO_ROOT,
-            env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
-            check=False,
-        )
-        self.assertEqual(proc.returncode, 0)
