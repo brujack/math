@@ -21,7 +21,7 @@ Write an ADR in `docs/adr/` (index `docs/adr/README.md`) before or alongside any
 ## 10-80-10 Execution Cycle
 
 Follow the 10-80-10 cycle of `ai-config` ADR-0009 (ADR-0010 wave dispatch): Phase 1 Architect (`brainstorming` → `writing-plans`, Opus), Phase 2 Execute (`subagent-driven-development`, Sonnet/Haiku per plan), Phase 3 Review (`finishing-a-development-branch`, Opus); plans use `yaml-task` blocks (`role`, `model`, `tdd`, `acceptance`, `max_retries`, `files_touched`, `depends_on`, `parallel_group`). → ai-config/docs/knowledge/math-overview.md § 10-80-10 cycle
-Run `make validate-plan PLAN=docs/superpowers/plans/<file>.md` before dispatching a plan (validator `~/.claude/scripts/validate-plan.py`, shared from ai-config). → ai-config/docs/knowledge/math-overview.md § 10-80-10 cycle
+Run `make validate-plan PLAN=docs/superpowers/plans/<file>.md` before dispatching a plan (validator `~/.claude/scripts/validate-plan.py` from ai-config). → ai-config/docs/knowledge/math-overview.md § 10-80-10 cycle
 
 ## Knowledge Directory
 
@@ -43,7 +43,7 @@ make install-hooks   # installs pre-commit and pre-push hooks
 make install-deps    # Python deps + actionlint
 ```
 
-`make install-deps` refuses on PEP 668 interpreters; its actionlint step (CI's pin) warns outside CI. Remedy: `python3 -m venv .venv && . .venv/bin/activate`. → ai-config/docs/knowledge/math-quick-reference.md § Setup
+`make install-deps` refuses on PEP 668 interpreters (its actionlint step warns outside CI). Remedy: `python3 -m venv .venv && . .venv/bin/activate`. → ai-config/docs/knowledge/math-quick-reference.md § Setup
 
 ### Python (`<project>/`)
 
@@ -71,9 +71,9 @@ make test       # lint, then cargo test
 
 All crates are treated identically (operator rule): each crate's `Makefile`, `rustfmt.toml`, `.config/nextest.toml`, `install_deps.sh`, `<crate>-rs.yml` and `release-<crate>-rs.yml` is rendered from `scripts/crate_templates/` by `scripts/render_crate_files.py`, and so are the Python projects' `Makefile`, `install_deps.sh`, `<project>-py.yml`, `pyrightconfig.json` and `cosmic-ray.toml` (from `scripts/crate_templates/python/`; `@CRATE@` is the directory, `@MODULE@` the module name, the only placeholders); edit the template and run `--write`, never one crate's copy, and `tests/test_crate_uniformity.py` fails on any drift.
 A single root `ruff.toml` serves every Python sub-project via ancestor discovery; keep one and never create per-subproject configs. It uses `extend-select` over ruff's default rule set (pinned by `tests/test_ruff_config.py`); new defaults arrive only with a deliberate ruff pin bump, gated by that PR's `make lint`. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
-Every `pip install` in every workflow and every Python `install_deps.sh` pins `name==X.Y.Z`, one version per package across all sites (`tests/test_tool_pins.py`); bump them together in the templates. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
+Every `pip install` in a workflow or Python `install_deps.sh` pins `name==X.Y.Z`, one version per package (`tests/test_tool_pins.py`); bump together in the templates. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 Root `make lint` runs `ruff check .`, `ruff format --check` on `git ls-files '*.py'` (never `.`: rewrites markdown), `lint-hooks` and `lint-workflows` (actionlint 1.7.12; skips if absent, fails if `CI=true`). → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
-`lint-python` exits 0 when ruff is missing (so a machine can still commit the fix); `scripts.yml` installs ruff so CI enforces it, and `tests/scripts/makefile.bats` asserts that. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
+`lint-python` exits 0 when ruff is missing (a machine can still commit the fix); `scripts.yml` installs ruff so CI enforces it (`tests/scripts/makefile.bats`). → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 The two `# noqa: C901` directives in `e/e.py` and `pi/pi.py` are load-bearing: `maintainability-review` runs `ruff check --select C901` on the CLI, which overrides config, so removing one without refactoring reads as a 0 → 12 regression. → ai-config/docs/knowledge/math-quick-reference.md § Ruff config
 
 Root `make test-rust` runs `make test` in every crate concurrently via `scripts/parallel-make-test.sh` (`JOBS` default 8, crate list derived from `git ls-files '*/*-rs/Makefile'`, exits non-zero on an empty list or any `FAIL <crate>`); covered by `tests/scripts/makefile.bats`.
@@ -84,7 +84,7 @@ All Rust crate `make lint` and `make test` go through `scripts/rust-check.sh`; `
 
 ## Language Standards
 
-Neither file is loaded at session start; read it before the work it governs:
+Neither file loads at session start; read it before the work it governs:
 
 - **Read `~/.claude/standards/python.md` before writing or changing any `.py` file or Python tooling config** (`ruff.toml`, `pyrightconfig.json`, `install_deps.sh`, `requirements-dev.txt`, a `*-py.yml` workflow, mutmut/cosmic-ray setup).
 - **Read `~/.claude/standards/rust.md` before writing or changing any `.rs` file, `Cargo.toml`, `.cargo/mutants.toml`, `rustfmt.toml`, `scripts/rust-check.sh` or a `*-rs.yml` workflow.** The trigger includes source on purpose. → ai-config/docs/knowledge/math-language-standards.md § Language standards triggers
@@ -98,7 +98,7 @@ Do not enable `missing_docs` in these crates (no cross-crate consumers). → ai-
 
 **TDD is required.** Write the failing test first, then the minimum implementation. Add tests in the same commit as the code.
 
-Every test must cover more than the happy path. Three categories are required for every function:
+Every test covers more than the happy path; three categories are required for every function:
 
 - **Boundary value tests** — empty/zero/null input, single vs multiple elements, min/max valid values, one above/below valid range
 - **Error path tests** — what happens on failure, dependency failure, partial failure
@@ -119,27 +119,28 @@ Every Python sub-project has a `pyrightconfig.json` and a `Run pyright` step in 
 Modes: all at `standard`, gmpy2 typed by `typings/gmpy2/__init__.pyi` (exact stub, no `Any`, guarded by `tests/test_gmpy2_stub.py`), every config sets `stubPath: ../typings`. → ai-config/docs/knowledge/math-testing-policy.md § Pyright modes
 
 Root-scope Python (`tests/`, `scripts/`, `.claude/scripts/`) is gated by a root `pyrightconfig.json` (`standard` mode, `include` `["scripts", "tests", ".claude/scripts"]`) over every tracked root-scope `.py` file (count: `git ls-files 'tests/*.py' 'scripts/*.py' '.claude/scripts/*.py' | wc -l`). → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
-Its `exclude` is pyright's default list minus `**/.*`, and the omission is load-bearing: exclude beats include, and `**/.*` would drop `.claude/scripts`. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
+Its `exclude` is pyright's default list minus `**/.*`, load-bearing: exclude beats include, so `**/.*` would drop `.claude/scripts`. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
 `pyright==1.1.411` is pinned at every install site (each `*-py.yml` workflow, both Python mutation workflows, each Python `install_deps.sh`, `requirements-dev.txt`, which `scripts.yml` installs), and every `cargo install` in a workflow or `install_deps.sh` carries `--locked --version`, and every `taiki-e/install-action` `tool:` is `name@X.Y.Z` with `fallback: none` at the installers' version; `tests/test_tool_pins.py` requires one version per tool, so bump them together. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
 `tests/test_root_pyright_scope.py` runs pyright under `make test-python`, which pre-push invokes on pushes touching `scripts/`, `tests/`, `.claude/scripts/` or `pyrightconfig.json`; it fails on any root error or an engine other than the `requirements-dev.txt` pin, and prints a skip line when pyright is absent outside CI; sub-project pyright stays CI-only. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
 pyright walks up the tree for its config like `ruff.toml`: deleting a sub-project's `pyrightconfig.json` falls through to the root config instead of removing type checking. → ai-config/docs/knowledge/math-testing-policy.md § Root-scope pyright
 Run pyright with `cd <sub-project> && pyright`, or `pyright` at the root for root scope.
 
-When adding a new Python sub-project, add `pyrightconfig.json` (copy from any `standard`-mode sub-project) and a `Run pyright` step to the CI workflow. Start with `standard`; if a dependency has no stubs, extend the shared stub in `typings/` rather than dropping to `basic`.
+A new Python sub-project gets `pyrightconfig.json` (copy a `standard`-mode one) and a `Run pyright` CI step; start at `standard`, and extend the shared `typings/` stub rather than dropping to `basic`.
 
 ### Mutation testing (Python)
 
 Python `make mutants` runs a capped `cosmic-ray baseline` (as Rust), then the session, then `scripts/cosmic_ray_cell_status.py`; cosmic-ray stores outcomes uppercase (`SURVIVED`).
 `mutation-testing-python.yml` runs 10 shards per project (`scripts/mutation-python-cell.sh`), reports survivors on the `mutation-report-python` issue (artifact `mutants-survivors-python`).
-Per-PR Python gate (ADR-0044; edit a line, own its mutants): `mutation-py` requires 0 survivors on changed lines, no grandfathering; repro `d=$(mktemp) && scripts/mutation-pr-diff.sh origin/master <dir> "$d" && make -C <dir> mutants-diff DIFF="$d" MUTANT_SHARD=<k>/<n>`.
+Per-PR Python gate (ADR-0044/0048): `mutation-py` needs 0 survivors on changed lines and, when `test_<module>.py`, `cosmic-ray.toml` or `mutants-equivalent.toml` changed, 0 `weakened` mutants (base tests kill, head tests miss); repro `make -C <dir> mutants-weakening BASE=<merge-base sha> JOB=<operator>@<occurrence>` (or `MUTANT_SHARD=<k>/<n>`); changed-line repro: see heading. → ai-config/docs/knowledge/math-testing-policy.md § PR test-weakening gate
 `<dir>/mutants-equivalent.toml` declares true equivalents only (`tests/test_mutants_equivalent.py`); an entry whose mutant sits on a changed line must be edited in the same PR (re-confirm).
 `scripts/cosmic_ray_prune.py` is vendored from ai-config (line 2 names the sha; drift test `tests/test_vendored_prune.py`): re-sync by copying and changing only line 2, one PR per change.
 
 ### Mutation testing (Rust)
 
 Rust mutation testing uses `cargo-mutants` (`cargo install cargo-mutants --locked`); run `make mutants` in a crate directory; a kill rate above 80% is good. → ai-config/docs/knowledge/math-testing-policy.md § Mutation testing
-Mutation CI is `mutation-testing.yml` (monthly, `workflow_dispatch`): `mutation-rs-plan.sh --whole` plans, then one `mutants` job per shard (B=75).
-`mutation-pr.yml`: `mutation-rs-plan` (crates from `mutation-pr-detect.sh`), then a `mutation-rs` job per shard (B=75, `--expect` per shard; aggregator `mutation-pr` stays the required check): missed limit 0 on changed-line mutants, timeouts green; `--min-caught 1` only on the amicable-rs canary. Repro `scripts/mutation-pr-run.sh origin/master [--shard <k>/<n> --expect <count>] <crate>`; one mutant: `cargo mutants --in-diff <diff> -F '<regex>'` from the crate dir. → docs/adr/0046-shard-the-rust-mutation-runs.md
+`mutation-testing.yml` (monthly, `workflow_dispatch`): `mutation-rs-plan.sh --whole`, then one `mutants` job per shard (B=75).
+`mutation-pr.yml`: any change under a crate's `src/`, `tests/`, `.cargo/` or `build.rs` runs the whole crate (`mutation-rs-plan.sh --whole`, B=75, `--expect` per shard; aggregator `mutation-pr` is required): 0 missed, timeouts green; `--min-caught 1` only on the amicable-rs canary. Repro `scripts/mutation-pr-run.sh --whole [--shard <k>/<n> --expect <count>] <crate>`. → docs/adr/0046-shard-the-rust-mutation-runs.md
+`mutation-gate-items.yml` (`pull_request_target`, required) lists new equivalents, exclusions, hidden code and gate-file edits; each needs a FIDO-signed `Mutation-Gate-Reviewed: #<pr> <target>: <reason>` commit by the operator only, never an agent; repro `scripts/mutation-gate-items.sh <base> <head> [--pr <n>]`. → docs/adr/0048-pr-mutation-gates-see-test-weakening.md
 
 Never put a fixed `--timeout` back (#95): keep `--timeout-multiplier 5 --minimum-test-timeout 30` in each crate's `Makefile` `mutants` target, not the workflow (a fixed value capped the baseline and tested zero mutants); `tests/scripts/makefile.bats` pins both halves. → ai-config/docs/knowledge/math-testing-policy.md § Mutation timeout
 
@@ -148,42 +149,42 @@ Keep `ulimit -v 8388608` in Rust `MUTANTS_SETUP`; both templates set `ulimit -c 
 A sweep leg is red when any mutant is missed, `caught < 1`, its count is off-plan, its listing faults, `outcomes.json` or `mutants.out/exit-code` is missing, the baseline fails or the runner dies; timeouts are green beside a catch (`scripts/mutation-classify.sh ... 0 1`, ADR-0042). → ai-config/docs/knowledge/math-testing-policy.md § Mutation green/red
 
 `notify` is separate (`needs: [setup, mutants], if: always()`), label `mutation-failure` (`-python` via `ISSUE_LABEL`); needs `FULL_SWEEP`; only a full sweep closes. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
-Add `mutants` to a new Rust crate's `Makefile` `.PHONY` list and target; every missed mutant on a changed line gets a killing test, glue included; `exclude_re` only for true equivalents. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
+A new Rust crate's `Makefile` gets a `mutants` `.PHONY` entry and target; each missed changed-line mutant gets a killing test, glue included; `exclude_re` only for true equivalents. → ai-config/docs/knowledge/math-testing-policy.md § Mutation notification
 
 Exclude equivalent mutants via the crate's `.cargo/mutants.toml` `exclude_re` regexes matched against `src/lib.rs:<line>:<col>: <description>`; only `#[mutants::skip]` on items works, not `// mutants::skip`; its patterns embed line numbers, so update them when code shifts; `tests/test_mutants_exclusions.py` checks drift (also pre-push). → ai-config/docs/knowledge/math-testing-policy.md § Equivalent mutations
 
 ## CI
 
 Project workflows run on PRs to `master` only; the pre-push hook gates branch pushes locally; a build job depends on its test job (`needs: [test]`). → ai-config/docs/knowledge/math-ci.md § Workflow table
-Workflows are `<project>-py.yml` (job `test`) and `<project>-rs.yml` (`test` → build + artifact), `release-<project>-rs.yml` (manual dispatch), plus `auto-merge.yml`, `mutation-pr.yml`, `mutation-testing.yml`, `mutation-testing-python.yml`, `gmp-cache.yml`, `cargo-deny.yml`, `scripts.yml` (`git ls-files .github/workflows/`). → ai-config/docs/knowledge/math-ci.md § Workflow table
+Workflows are `<project>-py.yml` (job `test`) and `<project>-rs.yml` (`test` → build + artifact), `release-<project>-rs.yml` (manual dispatch), plus `auto-merge.yml`, `mutation-pr.yml`, `mutation-gate-items.yml`, `mutation-testing.yml`, `mutation-testing-python.yml`, `gmp-cache.yml`, `cargo-deny.yml`, `scripts.yml` (`git ls-files .github/workflows/`). → ai-config/docs/knowledge/math-ci.md § Workflow table
 `auto-merge.yml` runs secret-scan (`.gitleaks.toml` extends defaults, `tests/test_gitleaks_config.py`), bash-coverage and claude-md-budget (gated), then ci-gate (polls required checks, merges on pass; a draft PR is held green and the `ready_for_review` run merges), then snyk-scan (advisory, not gated); `scripts.yml` runs `bats --jobs 8 --recursive tests/`. → ai-config/docs/knowledge/math-ci.md § Workflow table
 
 Crate jobs restore the GMP/MPFR build (`gmp-mpfr-sys`) read-only from `actions/cache`, failing open to a cold build via `scripts/gmp-cache-key.sh`; only `gmp-cache.yml` saves it (weekly on master), so dispatch it after a `gmp-mpfr-sys` bump on master (ADR-0034).
 
 Every `release-*-rs.yml` builds with `cargo auditable build --release` (plain: SBOM lists 1 package, not 13). → ai-config/docs/knowledge/math-ci.md § Atomic release publication
 MIT: root `LICENSE`, `license = "MIT"` per crate; root `deny.toml` is guarded by `tests/fixtures/cargo-deny` and `tests/test_deny_policy.py`; `scripts/cargo-deny-all.sh` checks every crate (`--locked`).
-Sign in the release job via the composite action `.github/actions/sbom-sign`; never reintroduce a separate signing job, and keep the `Create and push tag` step after the sbom-sign step (a failure after the tag leaves an unshippable version: `fatal: tag already exists`). → ai-config/docs/knowledge/math-ci.md § Atomic release publication
+Sign in the release job via `.github/actions/sbom-sign`; never add a separate signing job, and keep `Create and push tag` after sbom-sign (a failure after the tag leaves `fatal: tag already exists`). → ai-config/docs/knowledge/math-ci.md § Atomic release publication
 Every `softprops/action-gh-release` call sets `fail_on_unmatched_files: true`; `tests/test_release_workflows.py` pins all three invariants via `yaml.safe_load`. → ai-config/docs/knowledge/math-ci.md § Atomic release publication
 Release jobs run only from master (`if: github.ref == 'refs/heads/master'`, `tests/test_release_workflows.py`); every remote `uses:` pins a 40-hex SHA (`tests/test_workflow_actions_pinned.py`).
 Releases attach `THIRD-PARTY-NOTICES.txt` (`scripts/third-party-notices.sh`; fails before the tag). → ai-config/docs/knowledge/math-ci.md § Atomic release publication
-Release workflows use `workflow_dispatch` with a `version` input (no `v`) and create tag `{subproject}-v{version}` themselves. A `Validate version` step after checkout runs `scripts/check-release-version.sh <crate-dir> "${VERSION}"` (plain `MAJOR.MINOR.PATCH`, equal to `Cargo.toml`); every later step reads `steps.version.outputs.version`, never `inputs.version` (`tests/test_release_workflows.py` pins both).
+Release workflows use `workflow_dispatch` with a `version` input (no `v`) and create tag `{subproject}-v{version}` themselves. `Validate version` after checkout runs `scripts/check-release-version.sh <crate-dir> "${VERSION}"` (`MAJOR.MINOR.PATCH`, equal to `Cargo.toml`); later steps read `steps.version.outputs.version`, never `inputs.version` (`tests/test_release_workflows.py` pins both).
 Coverage jobs only upload `coverage-badge-<project>-<lang>`; `auto-merge.yml` publishes them post-merge (`scripts/publish-coverage-badges.sh`).
 
-Pre-commit: `scripts/pre-commit` (installed by `make install-hooks`) runs `make lint` on staged sub-projects and root `.py` and ggshield (absent or exit 3 warns `SECRET SCAN DID NOT RUN`; other failures block). → ai-config/docs/knowledge/math-ci.md § Pre-commit hook
+Pre-commit: `scripts/pre-commit` (`make install-hooks`) runs `make lint` on staged sub-projects and root `.py`, and ggshield (absent or exit 3 warns `SECRET SCAN DID NOT RUN`; other failures block). → ai-config/docs/knowledge/math-ci.md § Pre-commit hook
 
 Pre-push: `scripts/pre-push` runs `make test` concurrently (`scripts/parallel-make-test.sh`, `PRE_PUSH_JOBS` default 8, no skip at any count) for sub-projects with `.py`/`.rs` source changes, and the root `make test` when the push touches `scripts/`, `tests/`, `typings/`, `deny.toml` or the root `Makefile`, else root `make lint-hooks` when it touches any `.sh`, `scripts/cli_contract.py` alone over the Python CLIs when the push touches it, and `tests.test_mutants_exclusions` alone on crate `src/` or `mutants.toml` changes, and refuses a pushed commit that changes `CLAUDE.md` past the 30000-byte ceiling; docs-only and deletion pushes skip gates; it is permanent. → ai-config/docs/knowledge/math-ci.md § Pre-push hook
 
-Trigger pre-push tests on `.py`/`.rs` source changes only; Makefile, workflow and doc changes must not run the suites, and run each `make test < /dev/null` (the `resource_tracker` hang; measured not to recur concurrently, so there is no sub-project-count skip). → ai-config/docs/knowledge/math-ci.md § resource_tracker gotcha
+Pre-push suites trigger on `.py`/`.rs` source changes only (not Makefile, workflow or doc changes) and run each `make test < /dev/null` (the `resource_tracker` hang). → ai-config/docs/knowledge/math-ci.md § resource_tracker gotcha
 
 `scripts/pre-push` resolves the repo root with `git rev-parse --show-toplevel` first, `--git-common-dir` parent only as fallback, or worktrees test the shared checkout instead of the feature worktree. → ai-config/docs/knowledge/math-ci.md § Worktree compatibility
 
 **Shell script testing** — BATS (`bats --jobs 8 --recursive tests/` in CI) is the standard for all shell script tests in this repo. Run with `make test-hooks`. Requires system-installed bats-core: `brew install bats-core` (macOS) or `sudo apt-get install -y bats` (Linux).
 
-`make test-hooks` runs `bats --jobs ${JOBS:-8}` when GNU parallel is installed (`JOBS=N` overrides), else serially with a notice; tests must stay isolated in `BATS_TEST_TMPDIR`.
+`make test-hooks` runs `bats --jobs ${JOBS:-8}` with GNU parallel (`JOBS=N` overrides), else serially with a notice; tests stay isolated in `BATS_TEST_TMPDIR`.
 
 `make test-python` runs `python3 -m unittest discover -s tests -p 'test_*.py'` and `make test` runs `test-hooks` then `test-python`; `scripts.yml` runs `bats --jobs 8 --recursive tests/` and `make test-python` directly. → ai-config/docs/knowledge/math-ci.md § Repo-level Python tests
 
-`.claude/scripts/triage_log.py` is vendored per-repo because its `.resolve()` follows the `~/.claude/scripts/` symlink and would write this repo's triage log into ai-config; invoke the vendored copy, not the home path. → ai-config/docs/knowledge/math-ci.md § triage_log.py
+`.claude/scripts/triage_log.py` is vendored because `.resolve()` follows the `~/.claude/scripts/` symlink and would write this repo's triage log into ai-config; invoke the vendored copy. → ai-config/docs/knowledge/math-ci.md § triage_log.py
 
 Test helpers: `tests/helpers/common.bash` (REPO_ROOT, `load_mocks()`), PATH-injected mocks in `tests/mocks/` (`make`, `git`, `ggshield`, `gh`, `syft`, `cosign`), BATS files in `tests/scripts/` (one per script tested). → ai-config/docs/knowledge/math-ci.md § Test helpers and mocks
 `tests/mocks/*` are extensionless and linted via `$(wildcard tests/mocks/*)` in `SHELL_SOURCES`; verify a lint change by seeding a defect and watching `make lint-hooks` fail. → ai-config/docs/knowledge/math-ci.md § Test helpers and mocks
@@ -192,14 +193,14 @@ Test helpers: `tests/helpers/common.bash` (REPO_ROOT, `load_mocks()`), PATH-inje
 
 `scripts/run-bash-coverage.sh` is a per-repo copy of dotfiles' (`67417bc`, re-synced math#108); re-sync from dotfiles master when upstream changes (one PR per copy per change); its header lists math's divergences. → ai-config/docs/knowledge/math-ci.md § Bash coverage re-sync
 
-`make bash-coverage` runs the PS4 tracer over the bats suite (skipped if `bats` is missing; not in `make test` or `make lint`); inspect with `bash scripts/run-bash-coverage.sh --list-sources`, `--count-coverable <file>`, `--file-coverage <file> <trace>`; predicate tests in `tests/scripts/bash_coverage.bats`. → ai-config/docs/knowledge/math-ci.md § Bash Coverage
+`make bash-coverage` runs the PS4 tracer over the bats suite (skipped without `bats`; not in `make test` or `make lint`); inspect with `bash scripts/run-bash-coverage.sh --list-sources`, `--count-coverable <file>`, `--file-coverage <file> <trace>`; tests in `tests/scripts/bash_coverage.bats`. → ai-config/docs/knowledge/math-ci.md § Bash Coverage
 
 The instrumented set is derived from `git ls-files 'scripts/*.sh' '*/install_deps.sh' '*/*/install_deps.sh' scripts/pre-push scripts/pre-commit scripts/commit-msg` minus `scripts/bash-tracer.sh`; keep every `install_deps.sh` in the denominator (untested, not uncoverable). → ai-config/docs/knowledge/math-ci.md § Bash coverage predicate
 
 The `bash-coverage` job in `auto-merge.yml` gates at `FLOOR=24`, defined once in that step and set from CI's own measurement on `ubuntu-latest`, never a local run. → ai-config/docs/knowledge/math-ci.md § Bash coverage floor
-The floor is a regression ratchet over the reachable quarter of the denominator, not a quality bar for the repo's shell. → ai-config/docs/knowledge/math-ci.md § Bash coverage floor
+The floor is a regression ratchet over the reachable quarter of the denominator, not a quality bar. → ai-config/docs/knowledge/math-ci.md § Bash coverage floor
 
-`scripts/ci-gate.sh <PR>` polls the check-runs API (latest run per workflow and check name; ignores check-runs from `workflow_dispatch` and `schedule` runs) and fails on any non-advisory failure (`snyk-scan` is advisory; `secret-scan` and `auto-merge` are self-checks); tested via `tests/scripts/ci_gate.bats`. → ai-config/docs/knowledge/math-ci.md § Auto-merge gate
+`scripts/ci-gate.sh <PR>` waits for each `.github/required-status-checks` context, polls the check-runs API (latest run per workflow and check name; ignores check-runs from `workflow_dispatch` and `schedule` runs) and fails on any non-advisory failure (`snyk-scan` is advisory; `secret-scan` and `auto-merge` are self-checks); tested via `tests/scripts/ci_gate.bats`. → ai-config/docs/knowledge/math-ci.md § Auto-merge gate
 
 Every Rust test is bounded to 45 s (nextest `[profile.default]` `slow-timeout = { period = "15s", terminate-after = 3 }`, inherited by `ci`) and every `coverage` job to `timeout-minutes: 30` (`tests/test_rust_ci_jobs.py`); both come from the templates.
 Every `<crate>-rs.yml` runs `make test` with `NEXTEST_PROFILE: ci` (JUnit in `target/nextest/ci/junit.xml`) and publishes `test-metrics-<crate>-rs` via `scripts/test_metrics.py`, which needs `pip install defusedxml==0.7.1` (step `Install Python dependencies`, `if: always()`) immediately before `Generate test metrics`, or CI fails with `ModuleNotFoundError`. → ai-config/docs/knowledge/math-ci.md § test_metrics.py in Rust workflows
@@ -209,13 +210,13 @@ Every `<crate>-rs.yml` runs `make test` with `NEXTEST_PROFILE: ci` (JUnit in `ta
 `renovate.json`'s `packageRules` must begin with the five canonical rules of ai-config `renovate-presets/default.json` (`renovate_preset_sync.py` tests prefix equality and reports DRIFT; appended rules are deviations); rules 3-4 hold Python interpreter updates. → ai-config/docs/knowledge/math-ci.md § Renovate auto-merge policy
 Each of the ten `updateType`s must be auto-merged or declared in `_DELIBERATELY_HELD` in `tests/test_renovate_automerge_policy.py`; do not name held types in `renovate.json`. → ai-config/docs/knowledge/math-ci.md § Renovate auto-merge policy
 
-Project workflows are paths-filtered (`scripts.yml`: root `Makefile`, any workflow); release and `auto-merge.yml` are unconditional. → ai-config/docs/knowledge/math-ci.md § Paths-filtered workflows
+Project workflows are paths-filtered (`scripts.yml`: root `Makefile`, any workflow); release and `auto-merge.yml` are not. → ai-config/docs/knowledge/math-ci.md § Paths-filtered workflows
 
 `continue-on-error` is allowed only on the allow-list in `tests/test_workflow_continue_on_error.py`, each entry with its reason; pip-audit stays advisory (ADR-0016) through `scripts/pip_audit_advisory.py`, which warns on findings and fails when no audit ran.
 
 **snyk-scan** runs `snyk code test` (SAST) against the Python and Rust source. It is advisory — not in `needs` for `auto-merge`. Requires `SNYK_TOKEN` in repository secrets.
 
-A new project gets `.github/workflows/<project>.yml` triggered only by `pull_request: branches: [master]` (no `push:`) with a `paths:` block, a `test` job and a `build` job (`needs: [test]`) uploading an artifact, plus a README badge `badge.svg?event=pull_request` at the top and in the CI column. → ai-config/docs/knowledge/math-ci.md § Adding a new project workflow
+A new project gets `.github/workflows/<project>.yml` triggered only by `pull_request: branches: [master]` (no `push:`) with `paths:`, a `test` job and a `build` job (`needs: [test]`) uploading an artifact, plus a README badge `badge.svg?event=pull_request` at the top and in the CI column. → ai-config/docs/knowledge/math-ci.md § Adding a new project workflow
 
 ## Branch Workflow
 
@@ -230,9 +231,9 @@ git push -u origin <branch>
 gh pr create --title "..." --body "..."
 ```
 
-The pre-push hook runs `make test` for changed sub-projects locally before the push reaches GitHub. GitHub Actions CI runs on PRs only. The `auto-merge` workflow enables GitHub auto-merge when the PR is opened; it merges automatically once all required checks pass.
+The pre-push hook runs `make test` for changed sub-projects before the push reaches GitHub; CI runs on PRs only. `auto-merge` enables GitHub auto-merge when the PR opens and merges once all required checks pass.
 
-Auto-merge lands a PR once its required checks pass, so run Phase 3 (`finishing-a-development-branch`) before marking ready for review; open your changes as a draft PR.
+Auto-merge lands a PR once required checks pass, so run Phase 3 (`finishing-a-development-branch`) before marking ready; open changes as a draft PR.
 
 ### Multiprocessing fallback behavior
 
@@ -249,7 +250,7 @@ Sub-project `CLAUDE.md` files hold implementation detail; this file is the entry
 
 Verify rust-check wrapper changes with unit tests (`python3 scripts/test_rust_check.py`) plus a full online+offline crate matrix before merge. → ai-config/docs/knowledge/math-quick-reference.md § rust-offline-wrapper learnings
 
-- Generated output files (`pi_*_digits.txt`, `e_*_digits.txt`, `factorial_*.txt`, and `<name>_1e*.txt` from primes, twin-primes, fib, sq, amicable, collatz, perfect-numbers and descartes) are artifacts — `.gitignore` covers them; do not commit them.
+- Generated output files (`pi_*_digits.txt`, `e_*_digits.txt`, `factorial_*.txt`, `<name>_1e*.txt` from primes, twin-primes, fib, sq, amicable, collatz, perfect-numbers, descartes) are artifacts covered by `.gitignore`; never commit them.
 - See each project's `CLAUDE.md` for guidance, layout and editing rules.
 
 ## Definition of Done
