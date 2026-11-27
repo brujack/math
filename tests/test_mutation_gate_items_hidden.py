@@ -462,3 +462,67 @@ class MovedCodeTest(HiddenFixtureCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+PROC_MACRO_MANIFEST = (
+    '[package]\nname = "pm"\nversion = "0.1.0"\nedition = "2024"\n\n'
+    "[lib]\nproc-macro = true\n"
+)
+PLAIN_LIB_MANIFEST = (
+    '[package]\nname = "pm"\nversion = "0.1.0"\nedition = "2024"\n\n[lib]\n'
+    'name = "pm"\n'
+)
+
+
+class ProcMacroManifestTest(HiddenFixtureCase):
+    """A proc-macro crate generates code cargo-mutants cannot see (R24)."""
+
+    MANIFEST = "Cargo.toml"
+
+    def manifest_items(self) -> list[Any]:
+        return [i for i in self.hidden() if i.key[1] == self.MANIFEST]
+
+    def new_crate(self, text: str) -> None:
+        self.write(f"pm/pm-rs/{self.MANIFEST}", text)
+
+    def test_new_proc_macro_crate_is_an_item_keyed_by_manifest_and_blob(self) -> None:
+        self.new_crate(PROC_MACRO_MANIFEST)
+        found = self.manifest_items()
+        self.assertEqual(len(found), 1)
+        item = found[0]
+        self.assertEqual((item.target, item.kind), ("pm/pm-rs", "rust-hidden"))
+        self.assertEqual(item.key[:2], ("pm/pm-rs", self.MANIFEST))
+        self.assertIn("proc-macro", item.key[2])
+        self.assertIn(self.rev("HEAD:pm/pm-rs/Cargo.toml"), item.key[2])
+
+    def test_underscore_spelling_is_an_item(self) -> None:
+        self.new_crate(PROC_MACRO_MANIFEST.replace("proc-macro", "proc_macro"))
+        self.assertEqual(len(self.manifest_items()), 1)
+
+    def test_plain_lib_crate_is_not_an_item(self) -> None:
+        self.new_crate(PLAIN_LIB_MANIFEST)
+        self.assertEqual(self.manifest_items(), [])
+
+    def test_proc_macro_false_is_not_an_item(self) -> None:
+        self.new_crate(PROC_MACRO_MANIFEST.replace("true", "false"))
+        self.assertEqual(self.manifest_items(), [])
+
+    def test_unrelated_edit_of_existing_proc_macro_manifest_is_not_an_item(
+        self,
+    ) -> None:
+        self.write(f"pm/pm-rs/{self.MANIFEST}", PROC_MACRO_MANIFEST)
+        self.commit("add proc-macro crate")
+        self.base = self.rev("HEAD")
+        self.new_crate(PROC_MACRO_MANIFEST + '\n[dependencies]\nsyn = "2"\n')
+        self.assertEqual(self.manifest_items(), [])
+
+    def test_existing_lib_crate_turned_proc_macro_is_an_item(self) -> None:
+        self.write(f"pm/pm-rs/{self.MANIFEST}", PLAIN_LIB_MANIFEST)
+        self.commit("add lib crate")
+        self.base = self.rev("HEAD")
+        self.new_crate(PROC_MACRO_MANIFEST)
+        self.assertEqual(len(self.manifest_items()), 1)
+
+    def test_unparseable_head_manifest_fails_closed(self) -> None:
+        self.new_crate("[lib\nproc-macro = true\n")
+        self.assertEqual(len(self.manifest_items()), 1)

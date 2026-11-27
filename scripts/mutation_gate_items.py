@@ -1267,9 +1267,43 @@ def _hidden_for_crate(ctx: Context, crate: str) -> list[Item]:
     return items
 
 
+def _declares_proc_macro(text: str | None, unparseable: bool) -> bool:
+    """True when the manifest `text` declares a proc-macro library.
+
+    `unparseable` is the answer for text that is not valid TOML (fail closed for the head).
+    """
+    if text is None:
+        return False
+    try:
+        lib = tomllib.loads(text).get("lib")
+    except tomllib.TOMLDecodeError:
+        return unparseable
+    if not isinstance(lib, dict):
+        return False
+    return lib.get("proc-macro") is True or lib.get("proc_macro") is True
+
+
+def _proc_macro_items(ctx: Context) -> list[Item]:
+    """New or changed proc-macro declarations: their generated code is invisible (R24)."""
+    items = []
+    for path in ctx.changed:
+        if path.rsplit("/", 1)[-1] != "Cargo.toml":
+            continue
+        if not _declares_proc_macro(ctx.show(ctx.head, path), True):
+            continue
+        if _declares_proc_macro(ctx.show(ctx.base, path), False):
+            continue
+        crate = path.rsplit("/", 1)[0] if "/" in path else "."
+        blob = ctx.blob_id(ctx.head, path)
+        items.append(
+            Item(crate, HIDDEN_KIND, (crate, "Cargo.toml", f"proc-macro {blob}"))
+        )
+    return items
+
+
 def collect_rust_hidden(ctx: Context) -> list[Item]:
     crates = sorted({m.group(1) for p in ctx.changed if (m := RUST_FILE_RE.match(p))})
-    items: list[Item] = []
+    items: list[Item] = _proc_macro_items(ctx)
     for crate in crates:
         items += _hidden_for_crate(ctx, crate)
     return items

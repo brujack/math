@@ -5,6 +5,7 @@ name: mutation-gate-items
 # script as data; none is checked out, built, imported or run (spec R20, N4).
 on:
   pull_request_target:
+    branches: [master]
     types: [opened, synchronize, reopened, ready_for_review, edited]
 
 permissions:
@@ -19,8 +20,9 @@ jobs:
     name: mutation-gate-items
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # An edit matters only when it retargets the base branch.
-    if: github.event.action != 'edited' || github.event.changes.base != null
+    # Never add an `if` to this job or its steps. GitHub reports a skipped required check
+    # as Success, and `cancel-in-progress` above cancels the in-flight run, so a skipped
+    # run on a title or body edit would let the PR author mask a red check.
     steps:
       - name: Check out the base branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

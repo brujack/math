@@ -91,12 +91,18 @@ class TriggerAndPermissions(unittest.TestCase):
         self.assertIn("pull_request.number", conc["group"])
         self.assertIs(conc["cancel-in-progress"], True)
 
-    def test_edited_only_runs_when_the_base_branch_changed(self):
-        job = load()[1]["jobs"]["mutation-gate-items"]
-        self.assertEqual(
-            job["if"],
-            "github.event.action != 'edited' || github.event.changes.base != null",
-        )
+    def test_no_skip_condition_anywhere_so_every_edit_is_rejudged(self):
+        doc = load()[1]
+        job = doc["jobs"]["mutation-gate-items"]
+        self.assertNotIn("if", job)
+        self.assertEqual([s for s in job["steps"] if "if" in s], [])
+        on = doc.get("on", doc.get(True))
+        self.assertIn("edited", on["pull_request_target"]["types"])
+
+    def test_trigger_is_limited_to_the_master_base_branch(self):
+        doc = load()[1]
+        on = doc.get("on", doc.get(True))
+        self.assertEqual(on["pull_request_target"]["branches"], ["master"])
 
     def test_python_version_matches_mutation_pr(self):
         setups = [
