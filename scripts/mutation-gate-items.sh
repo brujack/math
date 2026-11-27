@@ -5,7 +5,7 @@
 #
 # Thin wrapper: scripts/mutation_gate_items.py does the work. It runs from the base branch's
 # checkout and never builds, imports or runs a PR file (N4). Exit 0 no items,
-# 1 red, 2 usage.
+# 1 red, 2 usage, 3 infrastructure error.
 
 main() {
     local here

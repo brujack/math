@@ -208,3 +208,22 @@ class HoldGuardTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CiGateBudget(unittest.TestCase):
+    """ci-gate now waits for the mutation checks, so its poll budget must cover them."""
+
+    def setUp(self):
+        self.text = WORKFLOW.read_text()
+        self.step = self.text.split("- name: Gate and merge", 1)[1]
+
+    def test_max_polls_gives_ninety_minutes(self):
+        m = re.search(r'CI_GATE_MAX_POLLS: "(\d+)"', self.step)
+        self.assertIsNotNone(m)
+        self.assertGreaterEqual(int(m.group(1)) * 30, 90 * 60)
+
+    def test_job_budget_outlasts_the_polls(self):
+        job = self.text.split("\n  auto-merge:", 1)[1]
+        for scope in (job.split("- name: Gate and merge", 1)[0], self.step):
+            for t in re.findall(r"timeout-minutes: (\d+)", scope):
+                self.assertGreaterEqual(int(t), 95)

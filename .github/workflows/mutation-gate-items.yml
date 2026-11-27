@@ -41,7 +41,7 @@ jobs:
           python-version: "3.14"
 
       - name: Install cosmic-ray
-        run: pip install cosmic-ray==8.7.0
+        run: pip install cosmic-ray==8.7.0 pyyaml==6.0.3
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec  # stable

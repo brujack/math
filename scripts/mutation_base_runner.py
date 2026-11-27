@@ -29,9 +29,9 @@ Known limit: `cm = self.assertRaises(X)` followed by `with cm:` is not recognise
 exception-expecting block, so assertions in its body are rewritten and a failure there is
 recorded as a site (only the inline `with self.assert*(...)` form is understood).
 
-Every stderr line starts with `mutation_base_runner: diff: ` (a change) or
-`mutation_base_runner: internal error: <ExceptionType>` (exit 3); the suite's own output
-carries neither prefix.
+The usage error (exit 2) prints a `usage:` line. Every other stderr line of the runner starts
+with `mutation_base_runner: diff: ` (a change) or `mutation_base_runner: internal error:
+<ExceptionType>` (exit 3); the suite's own output carries neither prefix.
 
 Exit codes: 0 = record written, or compare found no change; 1 = compare found a test
 whose outcome or error differs (except a test whose new outcome is skip, or whose
@@ -448,7 +448,7 @@ def tracked_setup(recorder: Recorder) -> Iterator[None]:
     """Wrap each class's own `_callSetUp` so an exception escaping setUp is recorded.
 
     `IsolatedAsyncioTestCase` overrides `_callSetUp` to run `asyncSetUp`, so both owners
-    are wrapped. A missing hook raises AttributeError (exit 3): fail closed.
+    are wrapped. A missing hook raises KeyError (exit 3): fail closed.
     """
     originals = {cls: cls.__dict__["_callSetUp"] for cls in SETUP_HOOK_OWNERS}
 

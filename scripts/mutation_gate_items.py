@@ -3,11 +3,12 @@
 
 An item is a change that could weaken the mutation gate without showing up as a
 survivor: an equivalents entry, a `cosmic-ray.toml` key, or gate-shaping content. Each
-item carries a key made of the content it approves, so a later edit produces a new key.
+item carries a key derived from its content, so a later edit is a new item.
 
 N4 is the core constraint: nothing from the PR head is ever built, imported or run.
 PR files are written only with `git show <sha>:<path>` into a scratch tree outside the
-repo; every subprocess runs in a fresh empty directory with a scrubbed environment;
+repo; every tool subprocess (`run_tool`) runs in a fresh empty directory with a scrubbed
+environment, and `git` calls read objects from the repo with GIT_* stripped;
 `cosmic-ray init` runs through its console script on a config this script generates.
 The only code imported besides the standard library is the base checkout's own
 `cosmic_ray_prune.py` (this file's directory).

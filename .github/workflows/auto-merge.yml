@@ -293,6 +293,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_REF: ${{ github.head_ref || github.ref_name }}
+          # 180 polls x 30 s = 90 min: mutation-pr alone can run 60 min.
+          CI_GATE_MAX_POLLS: "180"
         run: |
           PR=$(gh pr list --head "${HEAD_REF}" \
             --json number --jq '.[0].number' 2>/dev/null || echo "")

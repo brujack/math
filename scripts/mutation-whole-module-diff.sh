@@ -7,8 +7,8 @@
 # Paths are relative to <dir> (`+++ b/<module>.py`), the form `make mutants-diff-plan` expects, and
 # the content is the working tree, so a dirty checkout is honoured. Adding the toml as well keeps
 # cosmic_ray_prune.py's re-confirm rule satisfied: every entry sits on a changed line of an edited
-# toml. The weakening planner (K) uses this script now and the weakening head session (Task 7) will
-# reuse it, so their job sets match by construction. <dir> may be nested or absolute: the module
+# toml. The weakening planner (K) and the `mutants-weakening` head session both use this script, so
+# their job sets match by construction. <dir> may be nested or absolute: the module
 # is named from its last component. Exits 2 on bad usage, 1 on any failure (never a partial diff).
 
 # Appends the diff adding <file> (relative to the cwd) to ${tmp}. `git diff --no-index` exits 1

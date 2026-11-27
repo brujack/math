@@ -4,7 +4,9 @@ The workflow runs on pull_request_target, so it holds a privileged context. It m
 run the base branch's code and must treat the PR as data.
 """
 
+import ast
 import re
+import sys
 import unittest
 from pathlib import Path
 
@@ -19,7 +21,7 @@ WORKFLOW = (
 SHA_USES = re.compile(r"^[\w./-]+@[0-9a-f]{40}$")
 EXPECTED_RUNS = {
     'git fetch --no-tags origin "+refs/pull/${PR}/head"',
-    "pip install cosmic-ray==8.7.0",
+    "pip install cosmic-ray==8.7.0 pyyaml==6.0.3",
     'scripts/mutation-gate-items.sh "${BASE_SHA}" "${HEAD_SHA}"',
 }
 EXPECTED_CHECKOUT_KEYS = {"ref", "fetch-depth", "persist-credentials"}
@@ -195,7 +197,42 @@ class BaseOnlyExecution(unittest.TestCase):
 class PinnedTooling(unittest.TestCase):
     def test_cosmic_ray_pinned(self):
         runs = " ".join(s.get("run", "") for s in steps())
-        self.assertIn("pip install cosmic-ray==8.7.0", runs)
+        self.assertIn("cosmic-ray==8.7.0", runs)
+
+    def test_every_third_party_import_is_installed_by_the_pip_step(self):
+        scripts = WORKFLOW.parent.parent.parent / "scripts"
+        dist_for = {"yaml": "pyyaml", "cosmic_ray": "cosmic-ray"}
+        local = {p.stem for p in scripts.glob("*.py")}
+        pending, seen, needed = ["mutation_gate_items"], set(), set()
+        while pending:
+            name = pending.pop()
+            if name in seen:
+                continue
+            seen.add(name)
+            tree = ast.parse((scripts / f"{name}.py").read_text())
+            for node in tree.body:
+                mods = []
+                if isinstance(node, ast.Import):
+                    mods = [a.name.split(".")[0] for a in node.names]
+                elif (
+                    isinstance(node, ast.ImportFrom) and node.level == 0 and node.module
+                ):
+                    mods = [node.module.split(".")[0]]
+                for mod in mods:
+                    if mod in local:
+                        pending.append(mod)
+                    elif mod not in sys.stdlib_module_names:
+                        needed.add(mod)
+        self.assertIn("yaml", needed)
+        pip = " ".join(
+            s.get("run", "")
+            for s in steps()
+            if s.get("run", "").startswith("pip install")
+        )
+        for mod in sorted(needed):
+            self.assertIn(
+                dist_for.get(mod, mod) + "==", pip, f"{mod} not pip-installed"
+            )
 
     def test_cargo_mutants_pinned_with_no_fallback(self):
         installs = [
