@@ -491,7 +491,6 @@ class MutationPrTests(unittest.TestCase):
                 "K": "${{ matrix.k }}",
                 "N": "${{ matrix.n }}",
                 "COUNT": "${{ matrix.count }}",
-                "GITHUB_BASE_REF": "${{ github.base_ref }}",
             },
         )
         self.assertNotIn("if", step)
@@ -505,7 +504,7 @@ class MutationPrTests(unittest.TestCase):
             lines[:4],
             [
                 "set +e",
-                'scripts/mutation-pr-run.sh "origin/${GITHUB_BASE_REF}" --shard "${K}/${N}" --expect "${COUNT}" "${CRATE}" 2>&1 | tee "${RUNNER_TEMP}/rs.log"',
+                'scripts/mutation-pr-run.sh --whole --shard "${K}/${N}" --expect "${COUNT}" "${CRATE}" 2>&1 | tee "${RUNNER_TEMP}/rs.log"',
                 "rc=${PIPESTATUS[0]}",
                 "set -e",
             ],
@@ -518,7 +517,7 @@ class MutationPrTests(unittest.TestCase):
             self.assertEqual(res.proc.returncode, 0, res.proc.stderr)
             self.assertEqual(
                 res.calls,
-                ["origin/master", "--shard", "1/3", "--expect", "7", "a/a-rs"],
+                ["--whole", "--shard", "1/3", "--expect", "7", "a/a-rs"],
             )
 
     def test_shard_step_propagates_red_under_both_shells(self):
@@ -1468,7 +1467,7 @@ class PrJobGraphTests(unittest.TestCase):
     def test_timeouts(self):
         jobs = pr_jobs()
         expected = {
-            "mutation-py": 30,
+            "mutation-py": 60,
             "mutation-py-baseline": 30,
             "mutation-rs-plan": 30,
             "mutation-rs": 60,
@@ -1505,8 +1504,9 @@ class PrJobGraphTests(unittest.TestCase):
         units = json.loads('[{"crate":"a/a-rs","slug":"a-0","k":0,"n":1,"count":5}]')
         text = yaml.safe_dump(pr_jobs()["mutation-rs"])
         used = set(re.findall(r"matrix\.(\w+)", text))
-        self.assertEqual(used, {"crate", "slug", "k", "n", "count"})
-        self.assertTrue(used <= set(units[0]))
+        # `fault` exists only on a --whole fault unit; an absent matrix key reads as "".
+        self.assertEqual(used, {"crate", "slug", "k", "n", "count", "fault"})
+        self.assertTrue(used - {"fault"} <= set(units[0]))
 
     def test_aggregator_keeps_required_check_name(self):
         # The branch-protection context is the job id; a `name:` would rename it.
@@ -1544,7 +1544,15 @@ class PrPlanJobTests(unittest.TestCase):
         outs = pr_jobs()["mutation-py-plan"]["outputs"]
         self.assertEqual(
             set(outs),
-            {"units", "base", "py_src_dirs", "py_canary", "has_py", "py_dirs"},
+            {
+                "units",
+                "base",
+                "py_src_dirs",
+                "py_test_dirs",
+                "py_canary",
+                "has_py",
+                "py_dirs",
+            },
         )
         self.assertEqual(outs["has_py"], "${{ steps.detect.outputs.has_py }}")
         self.assertEqual(outs["py_dirs"], "${{ steps.detect.outputs.py_dirs }}")
@@ -1585,7 +1593,10 @@ class PrPlanJobTests(unittest.TestCase):
         self.assertIn("units.json", step["run"])
 
     def test_install_conditions_follow_py_src_dirs(self):
-        cond = "steps.detect.outputs.py_src_dirs != ''"
+        cond = (
+            "steps.detect.outputs.py_src_dirs != '' || "
+            "steps.detect.outputs.py_test_dirs != ''"
+        )
         for fragment in ("libgmp-dev", "pip install"):
             found = [
                 s for s in job_steps("mutation-py-plan") if fragment in s.get("run", "")
@@ -1662,7 +1673,7 @@ class PrRsPlanJobTests(unittest.TestCase):
         self.assertEqual(step["id"], "plan")
         self.assertNotIn("if", step)
         self.assertEqual(step["env"]["RS_DIRS"], "${{ steps.detect.outputs.rs_dirs }}")
-        self.assertEqual(step["env"]["GITHUB_BASE_REF"], "${{ github.base_ref }}")
+        self.assertNotIn("GITHUB_BASE_REF", step["env"])
 
     def test_plan_step_follows_detect_and_install(self):
         names = [s.get("name") for s in job_steps("mutation-rs-plan")]
@@ -1681,18 +1692,18 @@ class PrRsPlanJobTests(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertEqual(out, "units=[]\n")
 
-    def test_dirs_are_planned_against_the_base_and_units_come_from_stdout(self):
+    def test_dirs_are_planned_whole_and_units_come_from_stdout(self):
         units = '[{"crate":"a/a-rs","slug":"a-0","k":0,"n":1,"count":5}]'
         proc, calls, out = self.run_plan("a/a-rs b/b-rs", plan_json=units)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(calls, ["origin/master", "a/a-rs", "b/b-rs"])
+        self.assertEqual(calls, ["--whole", "a/a-rs", "b/b-rs"])
         # The planner's stderr lines never reach the output.
         self.assertEqual(out, f"units={units}\n")
 
     def test_red_plan_fails_the_step_without_writing_units(self):
         proc, calls, out = self.run_plan("a/a-rs", plan_json="[]", plan_rc=1)
         self.assertEqual(proc.returncode, 1)
-        self.assertEqual(calls, ["origin/master", "a/a-rs"])
+        self.assertEqual(calls, ["--whole", "a/a-rs"])
         self.assertEqual(out, "")
 
 
@@ -1718,13 +1729,13 @@ class PrPyJobTests(unittest.TestCase):
 
     def test_units_shape_supplies_every_matrix_key_the_job_uses(self):
         # The plan script writes units.json as an array of {dir, k, n} objects.
-        units = json.loads('[{"dir":"sq","k":0,"n":1}]')
+        units = json.loads('[{"dir":"sq","k":0,"n":1,"mode":"diff"}]')
         self.assertIsInstance(units, list)
         include = pr_jobs()["mutation-py"]["strategy"]["matrix"]["include"]
         self.assertIn("outputs.units", include)
         text = yaml.safe_dump(pr_jobs()["mutation-py"]["steps"])
         used = set(re.findall(r"matrix\.(\w+)", text))
-        self.assertEqual(used, {"dir", "k", "n"})
+        self.assertEqual(used, {"dir", "k", "n", "mode"})
         self.assertTrue(used <= set(units[0]))
 
     def test_checkout_full_depth_and_python_314(self):
@@ -1749,7 +1760,7 @@ class PrPyJobTests(unittest.TestCase):
         self.assertEqual(
             step["env"]["BASE_SHA"], "${{ needs.mutation-py-plan.outputs.base }}"
         )
-        self.assertNotIn("if", step)
+        self.assertEqual(step["if"], "matrix.mode != 'weakening'")
         run = step["run"]
         self.assertIn('scripts/mutation-pr-diff.sh "${BASE_SHA}" "${DIR}"', run)
         self.assertIn('make -C "${DIR}" mutants-diff', run)
@@ -1760,7 +1771,7 @@ class PrPyJobTests(unittest.TestCase):
         steps = job_steps("mutation-py")
         up = [s for s in steps if "upload-artifact" in s.get("uses", "")]
         self.assertEqual(len(up), 1)
-        self.assertEqual(up[0]["if"], "always()")
+        self.assertEqual(up[0]["if"], "always() && matrix.mode != 'weakening'")
         self.assertEqual(
             up[0]["with"]["name"], "mutants-pr-status-${{ matrix.dir }}-${{ matrix.k }}"
         )
@@ -2129,10 +2140,194 @@ class PrAggregatorTests(unittest.TestCase):
             step["env"]["PY_SRC_DIRS"], f"${{{{ {PLAN_OUT}.py_src_dirs }}}}"
         )
         self.assertIn("scripts/mutation-pr-verdict-python.sh", step["run"])
-        self.assertIn('--expected-dirs "${PY_SRC_DIRS}"', step["run"])
+        self.assertIn('--expected-dirs "${diff_dirs}"', step["run"])
         self.assertNotIn("--min-killed", step["run"])
         self.assertIn("plan/plan.txt", step["run"])
         self.assertEqual(step["if"], "${{ !cancelled() }}")
 
     def test_checkout_provides_scripts(self):
         self.assertIn("actions/checkout@", job_steps("mutation-pr")[0]["uses"])
+
+
+class PrWeakeningWiringTests(unittest.TestCase):
+    """Task 15: whole-crate Rust planning, weakening shards, canary, concurrency."""
+
+    def test_rs_plan_never_passes_in_diff_or_a_base_ref(self):
+        run = named_step("mutation-rs-plan", "Plan Rust mutation shards")["run"]
+        self.assertIn('scripts/mutation-rs-plan.sh --whole "${rs_dirs[@]}"', run)
+        self.assertNotIn("--in-diff", run)
+        self.assertNotIn("origin/", run)
+
+    def test_rs_shard_runs_whole(self):
+        run = named_step("mutation-rs", RS_RUN_STEP)["run"]
+        self.assertIn("scripts/mutation-pr-run.sh --whole --shard", run)
+        self.assertNotIn("origin/", run)
+
+    def test_rs_fault_unit_leg_goes_red_naming_crate_and_cause(self):
+        step = named_step("mutation-rs", "Report plan fault")
+        self.assertEqual(step["if"], "matrix.fault != ''")
+        names = [s.get("name") for s in job_steps("mutation-rs")]
+        self.assertLess(names.index("Report plan fault"), names.index(RS_RUN_STEP))
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = pathlib.Path(tmp) / "summary"
+            summary.touch()
+            env = {
+                "PATH": os.environ["PATH"],
+                "SLUG": "a-rs-plan",
+                "FAULT": "no mutants listed",
+                "GITHUB_STEP_SUMMARY": str(summary),
+            }
+            proc = run_block(step, pathlib.Path(tmp), env, ["-e"])
+            self.assertEqual(proc.returncode, 1)
+            self.assertIn(
+                "a-rs-plan - plan fault: no mutants listed", summary.read_text()
+            )
+
+    def test_aggregator_is_red_on_a_fault_unit_and_names_it(self):
+        check = named_step("mutation-pr", "Check job results")
+        fault = (
+            '[{"crate":"a/a-rs","slug":"a-rs-plan","k":0,"n":0,"count":0,'
+            '"fault":"no mutants listed"}]'
+        )
+        for units, expect_rc in (
+            (fault, 1),
+            ('[{"crate":"a/a-rs"}]', 0),
+            ("not json", 1),
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                summary = pathlib.Path(tmp) / "summary"
+                summary.touch()
+                env = {
+                    "PATH": os.environ["PATH"],
+                    "RS_PLAN_RESULT": "success",
+                    "RS_RESULT": "success",
+                    "RS_UNITS": units,
+                    "RS_CANARY_RESULT": "skipped",
+                    "RS_CANARY": "false",
+                    "PYB_RESULT": "skipped",
+                    "HAS_PY": "false",
+                    "PLAN_RESULT": "success",
+                    "PY_RESULT": "skipped",
+                    "CANARY_RESULT": "skipped",
+                    "UNITS": "[]",
+                    "PY_CANARY": "false",
+                    "GITHUB_STEP_SUMMARY": str(summary),
+                }
+                proc = run_block(check, pathlib.Path(tmp), env, ["-e"])
+                self.assertEqual(proc.returncode, expect_rc, (units, proc.stderr))
+                if units == fault:
+                    self.assertIn(
+                        "a/a-rs - plan fault: no mutants listed", summary.read_text()
+                    )
+
+    def test_plan_job_passes_py_test_dirs_to_the_planner(self):
+        outputs = pr_jobs()["mutation-py-plan"]["outputs"]
+        self.assertEqual(
+            outputs["py_test_dirs"], "${{ steps.detect.outputs.py_test_dirs }}"
+        )
+        step = named_step("mutation-py-plan", "Plan Python mutation units")
+        self.assertEqual(
+            step["env"]["PY_TEST_DIRS"], "${{ steps.detect.outputs.py_test_dirs }}"
+        )
+        for name in (
+            "Install GMP and MPFR",
+            "Set up Python",
+            "Install Python dependencies",
+        ):
+            cond = named_step("mutation-py-plan", name)["if"]
+            self.assertIn("py_test_dirs != ''", cond)
+            self.assertIn("py_src_dirs != ''", cond)
+
+    def test_py_job_timeout_is_60(self):
+        self.assertEqual(pr_jobs()["mutation-py"]["timeout-minutes"], 60)
+
+    def test_weakening_rows_route_to_the_make_target_through_env(self):
+        step = named_step("mutation-py", "Run weakening shard")
+        self.assertEqual(step["if"], "matrix.mode == 'weakening'")
+        self.assertEqual(
+            step["env"],
+            {
+                "DIR": "${{ matrix.dir }}",
+                "K": "${{ matrix.k }}",
+                "N": "${{ matrix.n }}",
+                "BASE_SHA": "${{ needs.mutation-py-plan.outputs.base }}",
+                "PR": "${{ github.event.pull_request.number }}",
+                "HEAD_SHA": "${{ github.event.pull_request.head.sha }}",
+            },
+        )
+        run = step["run"]
+        self.assertNotIn("${{", run)
+        self.assertIn('make -C "${DIR}" mutants-weakening', run)
+        for arg in (
+            'BASE="${BASE_SHA}"',
+            'MUTANT_SHARD="${K}/${N}"',
+            'PR="${PR}"',
+            'HEAD_SHA="${HEAD_SHA}"',
+        ):
+            self.assertIn(arg, run)
+        self.assertNotIn("mutants-diff", run)
+
+    def test_diff_rows_keep_the_changed_line_path(self):
+        step = named_step("mutation-py", "Run mutants on changed lines")
+        self.assertEqual(step["if"], "matrix.mode != 'weakening'")
+        self.assertIn('make -C "${DIR}" mutants-diff', step["run"])
+        self.assertNotIn("mutants-weakening", step["run"])
+
+    def test_canary_job_runs_the_weakening_fixture_test(self):
+        step = named_step("mutation-py-canary", "Weakening canary fixtures")
+        self.assertIn(
+            "python3 -m unittest tests.test_mutation_weakening_canary", step["run"]
+        )
+        self.assertNotIn("if", step)
+        self.assertEqual(
+            pr_jobs()["mutation-py-canary"]["if"],
+            "needs.mutation-py-plan.outputs.py_canary == 'true'",
+        )
+
+    def test_top_level_concurrency_is_the_r30_value(self):
+        self.assertEqual(
+            load(PR_WORKFLOW).get("concurrency"),
+            {
+                "group": "mutation-pr-${{ github.event.pull_request.number }}",
+                "cancel-in-progress": True,
+            },
+        )
+
+    def test_aggregator_needs_every_gate_job(self):
+        self.assertEqual(
+            set(pr_jobs()["mutation-pr"]["needs"]),
+            {
+                "mutation-py-plan",
+                "mutation-py",
+                "mutation-py-canary",
+                "mutation-py-baseline",
+                "mutation-rs-plan",
+                "mutation-rs",
+                "mutation-rs-canary",
+            },
+        )
+        self.assertEqual(pr_jobs()["mutation-pr"]["if"], "always()")
+
+    def test_verdict_leaves_weakening_dirs_to_their_shards(self):
+        step = named_step("mutation-pr", "Python verdict")
+        self.assertEqual(
+            step["env"]["PY_TEST_DIRS"],
+            "${{ needs.mutation-py-plan.outputs.py_test_dirs }}",
+        )
+
+    def test_monthly_sweeps_are_unchanged_n1(self):
+        proc = subprocess.run(
+            [
+                "git",
+                "diff",
+                "--quiet",
+                "origin/master",
+                "--",
+                ".github/workflows/mutation-testing.yml",
+                ".github/workflows/mutation-testing-python.yml",
+            ],
+            cwd=REPO_ROOT,
+            env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0)

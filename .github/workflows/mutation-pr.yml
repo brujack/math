@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+# A new push to a PR supersedes the run in flight: mutation shards are long and
+# only the newest head matters (R30).
+concurrency:
+  group: mutation-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -21,6 +27,7 @@ jobs:
       units: ${{ steps.plan.outputs.units }}
       base: ${{ steps.base.outputs.sha }}
       py_src_dirs: ${{ steps.detect.outputs.py_src_dirs }}
+      py_test_dirs: ${{ steps.detect.outputs.py_test_dirs }}
       py_canary: ${{ steps.detect.outputs.py_canary }}
       has_py: ${{ steps.detect.outputs.has_py }}
       py_dirs: ${{ steps.detect.outputs.py_dirs }}
@@ -44,27 +51,30 @@ jobs:
           GITHUB_BASE_REF: ${{ github.base_ref }}
 
       - name: Install GMP and MPFR
-        if: steps.detect.outputs.py_src_dirs != ''
+        if: steps.detect.outputs.py_src_dirs != '' || steps.detect.outputs.py_test_dirs != ''
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
 
       - name: Set up Python
-        if: steps.detect.outputs.py_src_dirs != ''
+        if: steps.detect.outputs.py_src_dirs != '' || steps.detect.outputs.py_test_dirs != ''
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.14"
 
       - name: Install Python dependencies
-        if: steps.detect.outputs.py_src_dirs != ''
+        if: steps.detect.outputs.py_src_dirs != '' || steps.detect.outputs.py_test_dirs != ''
         run: pip install mpmath==1.4.1 gmpy2==2.3.2 coverage==7.16.2 cosmic-ray==8.7.0 hypothesis==6.168.5 pytest==9.1.1 pytest-cov==7.1.0 ruff==0.17.4 pyright==1.1.411 pip-audit==2.10.1
 
       - name: Plan Python mutation units
         id: plan
         env:
           PY_SRC_DIRS: ${{ steps.detect.outputs.py_src_dirs }}
+          PY_TEST_DIRS: ${{ steps.detect.outputs.py_test_dirs }}
           BASE_SHA: ${{ steps.base.outputs.sha }}
         run: |
           # Runs with an empty dir list too: the plan is then empty and units is [].
-          # PY_SRC_DIRS is a space-separated list of validated project dirs.
+          # PY_SRC_DIRS is a space-separated list of validated project dirs planned
+          # on their changed lines; PY_TEST_DIRS (read by the planner from the
+          # environment) are planned as whole-module weakening shards, once each.
           mkdir -p plan
           read -ra py_dirs <<< "${PY_SRC_DIRS}"
           PLAN_OUT=plan scripts/mutation-pr-plan-python.sh "${BASE_SHA}" "${py_dirs[@]}"
@@ -78,12 +88,13 @@ jobs:
           path: plan/plan.txt
           overwrite: true
 
-  # One matrix leg per planned unit: the changed-line mutants of one shard.
+  # One matrix leg per planned unit: the changed-line mutants of one shard (mode
+  # diff) or a whole-module weakening shard (mode weakening, R6/R16/R19/R31).
   mutation-py:
     needs: [mutation-py-plan]
     if: needs.mutation-py-plan.outputs.units != '[]'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -107,6 +118,7 @@ jobs:
         run: pip install mpmath==1.4.1 gmpy2==2.3.2 coverage==7.16.2 cosmic-ray==8.7.0 hypothesis==6.168.5 pytest==9.1.1 pytest-cov==7.1.0 ruff==0.17.4 pyright==1.1.411 pip-audit==2.10.1
 
       - name: Run mutants on changed lines
+        if: matrix.mode != 'weakening'
         env:
           DIR: ${{ matrix.dir }}
           K: ${{ matrix.k }}
@@ -117,8 +129,21 @@ jobs:
           scripts/mutation-pr-diff.sh "${BASE_SHA}" "${DIR}" "${RUNNER_TEMP}/d.diff"
           make -C "${DIR}" mutants-diff DIFF="${RUNNER_TEMP}/d.diff" MUTANT_SHARD="${K}/${N}" STATUS_OUT="${RUNNER_TEMP}/status/${DIR}-${K}"
 
+      # PR and HEAD_SHA come from the event through env only, never ${{ }} in run.
+      - name: Run weakening shard
+        if: matrix.mode == 'weakening'
+        env:
+          DIR: ${{ matrix.dir }}
+          K: ${{ matrix.k }}
+          N: ${{ matrix.n }}
+          BASE_SHA: ${{ needs.mutation-py-plan.outputs.base }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          make -C "${DIR}" mutants-weakening BASE="${BASE_SHA}" MUTANT_SHARD="${K}/${N}" PR="${PR}" HEAD_SHA="${HEAD_SHA}"
+
       - name: Upload unit status
-        if: always()
+        if: always() && matrix.mode != 'weakening'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: mutants-pr-status-${{ matrix.dir }}-${{ matrix.k }}
@@ -148,6 +173,9 @@ jobs:
 
       - name: Install Python dependencies
         run: pip install mpmath==1.4.1 gmpy2==2.3.2 coverage==7.16.2 cosmic-ray==8.7.0 hypothesis==6.168.5 pytest==9.1.1 pytest-cov==7.1.0 ruff==0.17.4 pyright==1.1.411 pip-audit==2.10.1
+
+      - name: Weakening canary fixtures
+        run: python3 -m unittest tests.test_mutation_weakening_canary -v
 
       - name: Gate canary (sq)
         run: |
@@ -212,13 +240,11 @@ jobs:
         id: plan
         env:
           RS_DIRS: ${{ steps.detect.outputs.rs_dirs }}
-          GITHUB_BASE_REF: ${{ github.base_ref }}
         run: |
           # RS_DIRS is a space-separated list of crate dirs from git ls-files.
-          # Every Rust job re-resolves origin/${GITHUB_BASE_REF} after its own
-          # fetch. That is safe only because mutation-pr-diff.sh diffs three-dot
-          # against the fixed merge commit: a master that moved between jobs
-          # leaves the merge base, and so K and each shard's count, unchanged.
+          # Every selected crate is planned whole (R2): the PR's diff never narrows
+          # the mutant set, so no base ref is passed. A crate whose listing faults
+          # arrives as a unit with a "fault" field (R3); the aggregator reports it.
           # The planner prints units on stdout only; a red plan exits non-zero and
           # fails this step under bash -e before units is written.
           read -ra rs_dirs <<< "${RS_DIRS}"
@@ -226,7 +252,7 @@ jobs:
             printf 'units=[]\n' >> "${GITHUB_OUTPUT}"
             exit 0
           fi
-          scripts/mutation-rs-plan.sh "origin/${GITHUB_BASE_REF}" "${rs_dirs[@]}" > "${RUNNER_TEMP}/units.json"
+          scripts/mutation-rs-plan.sh --whole "${rs_dirs[@]}" > "${RUNNER_TEMP}/units.json"
           printf 'units=%s\n' "$(cat "${RUNNER_TEMP}/units.json")" >> "${GITHUB_OUTPUT}"
 
   # One matrix leg per planned shard: the changed-line mutants of one crate shard.
@@ -246,6 +272,16 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+
+      - name: Report plan fault
+        if: matrix.fault != ''
+        env:
+          SLUG: ${{ matrix.slug }}
+          FAULT: ${{ matrix.fault }}
+        run: |
+          # A crate whose mutant listing faulted has no shard to run (R3).
+          printf 'red: %s - plan fault: %s\n' "${SLUG}" "${FAULT}" | tee -a "${GITHUB_STEP_SUMMARY}" >&2
+          exit 1
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec  # stable
@@ -279,10 +315,9 @@ jobs:
           K: ${{ matrix.k }}
           N: ${{ matrix.n }}
           COUNT: ${{ matrix.count }}
-          GITHUB_BASE_REF: ${{ github.base_ref }}
         run: |
           set +e
-          scripts/mutation-pr-run.sh "origin/${GITHUB_BASE_REF}" --shard "${K}/${N}" --expect "${COUNT}" "${CRATE}" 2>&1 | tee "${RUNNER_TEMP}/rs.log"
+          scripts/mutation-pr-run.sh --whole --shard "${K}/${N}" --expect "${COUNT}" "${CRATE}" 2>&1 | tee "${RUNNER_TEMP}/rs.log"
           rc=${PIPESTATUS[0]}
           set -e
           {
@@ -446,6 +481,16 @@ jobs:
             red=1
           }
           [ "${RS_PLAN_RESULT}" = "success" ] || fail "mutation-rs-plan result is '${RS_PLAN_RESULT}'"
+          # A crate whose whole-set listing faulted arrives as a unit with a
+          # "fault" field (R3). Name each crate and cause, and fail closed when
+          # the units cannot be parsed.
+          if faults=$(printf '%s' "${RS_UNITS}" | jq -r '.[] | select((.fault // "") != "") | "\(.crate) - plan fault: \(.fault)"'); then
+            while IFS= read -r line; do
+              [ -z "${line}" ] || fail "${line}"
+            done <<< "${faults}"
+          else
+            fail "mutation-rs-plan units are not valid JSON: '${RS_UNITS}'"
+          fi
           case "${RS_RESULT}" in
             success) ;;
             skipped) [ "${RS_UNITS}" = "[]" ] || fail "mutation-rs skipped but units is '${RS_UNITS}'" ;;
@@ -499,6 +544,25 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           PY_SRC_DIRS: ${{ needs.mutation-py-plan.outputs.py_src_dirs }}
+          PY_TEST_DIRS: ${{ needs.mutation-py-plan.outputs.py_test_dirs }}
         run: |
           mkdir -p status
-          scripts/mutation-pr-verdict-python.sh --expected-dirs "${PY_SRC_DIRS}" plan/plan.txt status
+          # A py_test_dirs dir runs as weakening shards, judged by their own job
+          # result above; the changed-line verdict covers only the other dirs.
+          # A dir in both lists is planned once, as weakening.
+          diff_dirs=""
+          for d in ${PY_SRC_DIRS}; do
+            case " ${PY_TEST_DIRS} " in
+              *" ${d} "*) ;;
+              *) diff_dirs="${diff_dirs:+${diff_dirs} }${d}" ;;
+            esac
+          done
+          : > plan/diff-plan.txt
+          while IFS= read -r line || [ -n "${line}" ]; do
+            d="${line%%$'\t'*}"
+            case " ${PY_TEST_DIRS} " in
+              *" ${d} "*) ;;
+              *) printf '%s\n' "${line}" >> plan/diff-plan.txt ;;
+            esac
+          done < plan/plan.txt
+          scripts/mutation-pr-verdict-python.sh --expected-dirs "${diff_dirs}" plan/diff-plan.txt status
