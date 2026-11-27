@@ -10,7 +10,12 @@ from pathlib import Path
 
 import yaml
 
-WORKFLOW = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "mutation-gate-items.yml"
+WORKFLOW = (
+    Path(__file__).resolve().parent.parent
+    / ".github"
+    / "workflows"
+    / "mutation-gate-items.yml"
+)
 SHA_USES = re.compile(r"^[\w./-]+@[0-9a-f]{40}$")
 FORBIDDEN_RUN = re.compile(
     r"\bmake\b|pip\d?\s+install\s+(-\S+\s+)*-e\b|\bcargo\s+(build|test|run)\b"
@@ -69,7 +74,9 @@ class TriggerAndPermissions(unittest.TestCase):
 
 class BaseOnlyExecution(unittest.TestCase):
     def test_checkout_is_base_sha_without_credentials(self):
-        checkouts = [s for s in steps() if s.get("uses", "").startswith("actions/checkout@")]
+        checkouts = [
+            s for s in steps() if s.get("uses", "").startswith("actions/checkout@")
+        ]
         self.assertEqual(len(checkouts), 1)
         with_ = checkouts[0]["with"]
         self.assertEqual(with_["ref"], "${{ github.event.pull_request.base.sha }}")
@@ -94,7 +101,9 @@ class BaseOnlyExecution(unittest.TestCase):
         self.assertEqual(len(fetch), 1)
         self.assertIn("git fetch --no-tags origin", fetch[0]["run"])
         self.assertIn('"+refs/pull/${PR}/head"', fetch[0]["run"])
-        self.assertEqual(fetch[0]["env"]["PR"], "${{ github.event.pull_request.number }}")
+        self.assertEqual(
+            fetch[0]["env"]["PR"], "${{ github.event.pull_request.number }}"
+        )
 
     def test_run_step_invokes_gate_with_env_values(self):
         gate = [s for s in steps() if "mutation-gate-items.sh" in s.get("run", "")]
@@ -116,7 +125,9 @@ class PinnedTooling(unittest.TestCase):
 
     def test_cargo_mutants_pinned_with_no_fallback(self):
         installs = [
-            s for s in steps() if s.get("uses", "").startswith("taiki-e/install-action@")
+            s
+            for s in steps()
+            if s.get("uses", "").startswith("taiki-e/install-action@")
         ]
         self.assertEqual(len(installs), 1)
         self.assertEqual(installs[0]["with"]["tool"], "cargo-mutants@27.1.0")
@@ -124,7 +135,9 @@ class PinnedTooling(unittest.TestCase):
 
     def test_rust_toolchain_present(self):
         self.assertTrue(
-            any(s.get("uses", "").startswith("dtolnay/rust-toolchain@") for s in steps())
+            any(
+                s.get("uses", "").startswith("dtolnay/rust-toolchain@") for s in steps()
+            )
         )
 
 
