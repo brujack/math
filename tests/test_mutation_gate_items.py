@@ -135,8 +135,7 @@ class ItemsCase(RepoCase):
     def eq_entry(
         self,
         fragment: str,
-        operator: str,
-        function: str,
+        mutant: tuple[str, str],
         col: int,
         variant: int | None,
         directory: str = "sq",
@@ -147,6 +146,7 @@ class ItemsCase(RepoCase):
         above = next(
             lines[j].strip() for j in range(index - 1, -1, -1) if lines[j].strip()
         )
+        operator, function = mutant
         fields = {
             "operator": operator,
             "function": function,
@@ -162,14 +162,13 @@ class ItemsCase(RepoCase):
 
     def number_entry(self, variant: int | None) -> str:
         return self.eq_entry(
-            "k = 1", "core/NumberReplacer", "generate_squares", 8, variant
+            "k = 1", ("core/NumberReplacer", "generate_squares"), 8, variant
         )
 
     def and_entry(self, col: int) -> str:
         return self.eq_entry(
             "LARGE_RUN_THRESHOLD is not None and",
-            "core/ReplaceAndWithOr",
-            "refuse_large_run",
+            ("core/ReplaceAndWithOr", "refuse_large_run"),
             col,
             None,
         )
@@ -810,7 +809,7 @@ class NonAsciiDirTest(ItemsCase):
         self.write(
             f"{directory}/mutants-equivalent.toml",
             self.eq_entry(
-                "k = 1", "core/NumberReplacer", "generate_squares", 8, 0, directory
+                "k = 1", ("core/NumberReplacer", "generate_squares"), 8, 0, directory
             ),
         )
         self.commit("non-ascii dir")
