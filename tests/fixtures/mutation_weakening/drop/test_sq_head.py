@@ -1,3 +1,5 @@
+# pyright: reportAttributeAccessIssue=false
+# The canary copies this file beside its own sq.py; root pyright resolves `sq` to sq/sq.py instead.
 import unittest
 
 import sq
