@@ -2798,3 +2798,12 @@ _weak_make() {
     grep -qE '^preflight .*/\.mutants-tmp/weakening-[^/]*/fib$' "${CALLS}.profpwd"
     grep -qE '^write ' "${CALLS}.profpwd"
 }
+
+@test "make test-python strips the git variables a worktree pre-push hook exports" {
+    # pre-push runs the root `make test` with GIT_DIR (and in pre-commit GIT_INDEX_FILE)
+    # exported; a test that runs `git ls-files` or builds a fixture repo then resolves
+    # against the pushing worktree and fails, so the recipe must strip them.
+    run env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${REPO_ROOT}" -n test-python --no-print-directory
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE python3 -m unittest discover -s tests -p 'test_*.py'"* ]]
+}
