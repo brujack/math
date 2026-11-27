@@ -53,10 +53,14 @@ master commit is passed as BASE.
 2. **Hold open PRs across an items-gate change, then re-judge them.**
    - A change to the items gate reaches master only through a PR whose items check is red, so
      only the operator merges one, by admin override. The items gate is
-     `scripts/mutation_gate_items.py`, `scripts/mutation-gate-items.sh` and
-     `.github/workflows/mutation-gate-items.yml`.
+     `scripts/mutation_gate_items.py`, `scripts/mutation-gate-items.sh`,
+     `.github/workflows/mutation-gate-items.yml` and every module the script loads with
+     `_load_sibling`, today only `scripts/cosmic_ray_prune.py`. It is used in item computation
+     (`prune.load_entries`, `prune.resolve_entry`) and re-synced from ai-config one PR per
+     change.
    - **Before** the admin merge, the operator takes every other open non-draft PR and runs
-     `gh pr edit <n> --add-label gate-hold` and `gh pr ready --undo <n>`:
+     `gh pr ready --undo <n>`, then `gh pr edit <n> --add-label gate-hold`. Drafting first
+     means the `labeled` auto-merge run always finds a draft and holds:
      - Auto-merge holds drafts.
      - `gh pr merge` refuses a draft, so an auto-merge job already polling (up to 90 minutes)
        cannot merge one on its old items result. A bot PR labelled `automerge-ok` is held the
@@ -74,14 +78,16 @@ master commit is passed as BASE.
      prints `0`. This stops an agent that finishes Phase 3 mid-hold from re-running the old gate
      on its own PR. A draft marked ready after the hold runs the new gate.
    - **The reminder.** `run()` in `scripts/mutation_gate_items.py` prints the procedure, addressed
-     to the operator, whenever an item's path is one of the three items-gate files. It therefore
+     to the operator, whenever an item's path is one of the four items-gate files. It therefore
      appears in the red items log of exactly the PRs that need it. The pre-push advisory also
      shows it to the authoring agent, which the `operator:` prefix tells to leave it alone.
 3. **Tests.**
    - `tests/test_mutation_gate_items_workflow.py` pins the checkout ref and the new run line,
      and asserts `base.sha` appears nowhere in the workflow text.
-   - `tests/test_mutation_gate_items.py` pins the reminder line: present for an items-gate file,
-     absent for any other gate file and for non-gate items.
+   - `tests/test_mutation_gate_items.py` pins the reminder line: present for each items-gate
+     file, absent for any other gate file and for non-gate items. It also checks that the
+     items-gate path set matches the script's `_load_sibling` calls, so a new import cannot
+     drift out of it.
 
 Both changed files are gate files, so this PR's own items check is red by design and the
 operator merges it by admin override. The reminder line comes from master's script, so it
@@ -100,6 +106,8 @@ first appears on the gate-file PR after this one.
 - Marking a PR ready cancels its old auto-merge run through `cancel-in-progress`. An old job
   already past `ci-gate.sh` could still call `gh pr merge` in the seconds before the cancel
   lands.
+- A non-draft PR opened during the hold, such as a new Renovate PR, is judged by the old gate,
+  is never labelled, and can auto-merge before the admin merge lands.
 - How Renovate treats a PR the operator drafted is unmeasured: if it marks the PR ready again
   during the hold, that PR is judged by the old gate.
 
@@ -132,9 +140,9 @@ first appears on the gate-file PR after this one.
 - **R1.** `.github/workflows/mutation-gate-items.yml`'s single `actions/checkout` step has `ref: ${{ github.event.pull_request.base.ref }}`, keeps `fetch-depth: 0` and `persist-credentials: false`, and the workflow text contains no `base.sha`.
 - **R2.** The gate step's `run` is exactly `scripts/mutation-gate-items.sh "$(git rev-parse HEAD)" "${HEAD_SHA}"`, its `env` holds `HEAD_SHA: ${{ github.event.pull_request.head.sha }}` and no `BASE_SHA`, and the workflow's set of `run` commands is otherwise unchanged.
 - **R3.** `tests/test_mutation_gate_items_workflow.py` asserts R1 and R2: the checkout ref equals `${{ github.event.pull_request.base.ref }}`, the allow-listed run set contains the R2 line in place of `scripts/mutation-gate-items.sh "${BASE_SHA}" "${HEAD_SHA}"`, the gate step's env has no `BASE_SHA`, and `base.sha` does not occur in the workflow text.
-- **R4.** When any item has target `gate` and a path among `scripts/mutation_gate_items.py`, `scripts/mutation-gate-items.sh` and `.github/workflows/mutation-gate-items.yml`, `run()` in `scripts/mutation_gate_items.py` returns exit 1 with the line `operator: this PR changes the items gate; before the admin merge, run gh pr edit <n> --add-label gate-hold and gh pr ready --undo <n> for every other open non-draft PR; after it, run gh pr ready <n> and gh pr edit <n> --remove-label gate-hold for each PR in gh pr list --label gate-hold.` exactly once, after the last `uncleared item:` line and before the existing operator line; for any other set of items that line is absent; item computation is unchanged.
-- **R5.** `tests/test_mutation_gate_items.py` asserts R4 with four cases: a changed `scripts/mutation-gate-items.sh` yields exit 1 and the line once, between the last `uncleared item:` line and the operator line; a changed `.github/workflows/mutation-pr.yml` alone yields exit 1, an `uncleared item: gate` line and no such line; a change yielding only a non-`gate` item yields exit 1, an `uncleared item:` line and no such line; a change yielding no items returns exit 0 and `mutation-gate-items: no uncleared items`.
-- **R6.** Root `CLAUDE.md`'s `mutation-gate-items.yml` line states that the script runs from `base.ref` (master's tip), that around an items-gate admin merge every other open non-draft PR is labelled `gate-hold` and drafted before the merge and readied and unlabelled after it, and that an agent never marks a PR ready while `gh pr list --label gate-hold` lists any PR; the file stays at or under 30,000 bytes.
+- **R4.** When any item has target `gate` and a path among `scripts/mutation_gate_items.py`, `scripts/mutation-gate-items.sh`, `.github/workflows/mutation-gate-items.yml` and `scripts/cosmic_ray_prune.py`, `run()` in `scripts/mutation_gate_items.py` returns exit 1 with the line `operator: this PR changes the items gate; before the admin merge, run gh pr ready --undo <n> and then gh pr edit <n> --add-label gate-hold for every other open non-draft PR; after it, run gh pr ready <n> and gh pr edit <n> --remove-label gate-hold for each PR in gh pr list --label gate-hold.` exactly once, after the last `uncleared item:` line and before the existing operator line; for any other set of items that line is absent; item computation is unchanged.
+- **R5.** `tests/test_mutation_gate_items.py` asserts R4: for each of the four items-gate paths, a change to that path alone yields exit 1 and the line once, between the last `uncleared item:` line and the operator line; the items-gate path set equals `scripts/mutation_gate_items.py`, `scripts/mutation-gate-items.sh` and `.github/workflows/mutation-gate-items.yml` plus `scripts/<name>.py` for every `_load_sibling("<name>")` call in `scripts/mutation_gate_items.py`; a changed `.github/workflows/mutation-pr.yml` alone yields exit 1, an `uncleared item: gate` line and no such line; a change yielding only a non-`gate` item yields exit 1, an `uncleared item:` line and no such line; a change yielding no items returns exit 0 and `mutation-gate-items: no uncleared items`.
+- **R6.** Root `CLAUDE.md`'s `mutation-gate-items.yml` line states that the script runs from `base.ref` (master's tip), that around an items-gate admin merge every other open non-draft PR is drafted and labelled `gate-hold` before the merge and readied and unlabelled after it, and that an agent never marks a PR ready while `gh pr list --label gate-hold` lists any PR; the file stays at or under 30,000 bytes.
 - **R7.** `docs/adr/0048-pr-mutation-gates-see-test-weakening.md` gains a line dated 2026-11-27 recording that the items job runs the script from `base.ref`, the reason (math#238's `reopened` payload carried a base 53 commits behind master while an `edited` payload on the same head carried master's tip), the `gate-hold` procedure, and that a tightening of other gate files is not re-judged; `docs/superpowers/README.md` drops the P1 Backlog row "mutation gate: items job runs the gate script from the PR's stale `base.sha`".
 - **V1.** After merge, open a throwaway docs-only PR as a draft and record its API `base.sha`. Land a direct docs commit on master, then confirm `gh api repos/brujack/math/pulls/<n> --jq .base.sha` still equals the recorded value (otherwise record V1 as inconclusive and say so). Close and reopen the PR; it stays a draft, so auto-merge holds it. In the `reopened` items run's log, the line after `git log -1 --format=%H` equals master's tip at run time, not the recorded `base.sha`, and the run passes. Then close the PR and delete its branch.
 - **V2.** After merge, `gh label list --search gate-hold` shows the `gate-hold` label (create it with `gh label create gate-hold` if absent).
