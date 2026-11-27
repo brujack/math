@@ -519,7 +519,7 @@ class RunTest(ItemsCase):
 
 
 class ItemsGateReminderTest(ItemsCase):
-    """R4, R5, N1: an items-gate file item gets the draft-and-label hold line."""
+    """R4, R5: an items-gate file item gets the draft-and-label hold line."""
 
     def test_each_items_gate_file_adds_the_hold_line_before_operator_line(
         self,
@@ -542,6 +542,21 @@ class ItemsGateReminderTest(ItemsCase):
                 self.assertEqual(lines[-1], mgi.OPERATOR_LINE)
                 self.assertEqual(lines[-2], mgi.ITEMS_GATE_LINE)
                 self.assertTrue(lines[-3].startswith("uncleared item: "))
+
+    def test_two_items_gate_files_in_one_commit_give_one_hold_line(self) -> None:
+        self.write("scripts/mutation-gate-items.sh", "x\n")
+        self.write("scripts/cosmic_ray_prune.py", "x\n")
+        self.commit("change two items-gate files")
+        code, text = self.run_cli()
+        lines = text.split("\n")
+        self.assertEqual(code, 1)
+        self.assertEqual(text.count(mgi.ITEMS_GATE_LINE), 1)
+        self.assertEqual(lines[-1], mgi.OPERATOR_LINE)
+        self.assertEqual(lines[-2], mgi.ITEMS_GATE_LINE)
+        self.assertTrue(lines[-3].startswith("uncleared item: "))
+        self.assertGreaterEqual(
+            sum(line.startswith("uncleared item: gate") for line in lines), 2
+        )
 
     def test_other_gate_file_has_no_hold_line(self) -> None:
         self.write(
