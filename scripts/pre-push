@@ -256,19 +256,27 @@ check_claude_md_budget() {
 # Paths whose change can create a mutation-gate item (spec R29): equivalents and
 # cosmic-ray config, crate src and mutants config, workflows, the mutation scripts,
 # the allowed-signers file, the weakening fixtures and any Makefile.
-readonly MUTATION_ITEM_PATHS='^[^/]+/mutants-equivalent\.toml$|^[^/]+/cosmic-ray\.toml$|^[^/]+/[^/]+-rs/\.cargo/mutants\.toml$|^[^/]+/[^/]+-rs/src/.*\.rs$|^\.github/workflows/|^scripts/mutation[-_]|^scripts/cosmic_ray_|^\.github/mutation-gate-allowed-signers$|^tests/fixtures/mutation_weakening/|(^|/)Makefile$'
+readonly MUTATION_ITEM_PATHS='^[^/]+/mutants-equivalent\.toml$|^[^/]+/cosmic-ray\.toml$|^[^/]+/[^/]+-rs/(src/|\.cargo/|tests/|Cargo\.toml$|build\.rs$)|^\.github/workflows/|^scripts/mutation[-_]|^scripts/cosmic_ray_|^\.github/mutation-gate-allowed-signers$|^tests/test_mutation_gate_allowed_signers\.py$|^tests/fixtures/mutation_weakening/|(^|/)Makefile$'
 
 # Advisory only (spec R29, N3): prints the mutation-gate items for <sha> and whether
 # a verified trailer already clears them. It runs no mutant (the items script only
 # lists them) and always returns 0: an items finding, a usage or infra exit, a missing
 # script or a failed lookup prints one line and lets the push continue.
-# Usage: advise_mutation_items <local sha> <remote ref> <range>
+# Relevance is decided over merge-base..sha, not the incremental push range: the R26
+# signing push is an empty commit and must still list the items.
+# Usage: advise_mutation_items <local sha> <remote ref>
 advise_mutation_items() {
-    local sha="$1" rref="$2" range="$3"
+    local sha="$1" rref="$2"
     local items="${REPO_ROOT}/scripts/mutation-gate-items.sh"
     local base branch pr out rc=0
 
-    if ! git diff --no-renames --name-only "${range}" 2>/dev/null | grep -qE "${MUTATION_ITEM_PATHS}"; then
+    base="$(git merge-base "${sha}" origin/master 2>/dev/null)" || base=""
+    base="${base%%$'\n'*}"
+    if [[ -z "${base}" ]]; then
+        printf "pre-push: mutation gate items: no merge base with origin/master; push continues\n"
+        return 0
+    fi
+    if ! git diff --no-renames --name-only "${base}..${sha}" 2>/dev/null | grep -qE "${MUTATION_ITEM_PATHS}"; then
         return 0
     fi
     printf "mutation gate items (advisory; the push is not blocked):\n"
@@ -276,17 +284,13 @@ advise_mutation_items() {
         printf "pre-push: mutation gate items: script not found; push continues\n"
         return 0
     fi
-    base="$(git merge-base "${sha}" origin/master 2>/dev/null)" || base=""
-    base="${base%%$'\n'*}"
-    if [[ -z "${base}" ]]; then
-        printf "pre-push: mutation gate items: no merge base with origin/master; push continues\n"
-        return 0
-    fi
 
     pr=""
     branch="${rref#refs/heads/}"
-    if [[ "${branch}" != "${rref}" ]] && command -v gh > /dev/null 2>&1; then
-        pr="$(gh pr view "${branch}" --json number --jq .number < /dev/null 2>/dev/null)" || pr=""
+    # A hung gh must not hold the push: without `timeout` (macOS without coreutils) the
+    # lookup is skipped rather than risked.
+    if [[ "${branch}" != "${rref}" ]] && command -v gh > /dev/null 2>&1 && command -v timeout > /dev/null 2>&1; then
+        pr="$(timeout "${PRE_PUSH_GH_TIMEOUT:-15}" gh pr view "${branch}" --json number --jq .number < /dev/null 2>/dev/null)" || pr=""
     fi
     if [[ "${pr}" =~ ^[0-9]+$ ]]; then
         out="$("${items}" "${base}" "${sha}" --pr "${pr}" < /dev/null 2>&1)" || rc=$?
@@ -323,7 +327,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     fi
 
     # Advisory listing of mutation-gate items (R29); never changes the outcome.
-    advise_mutation_items "${local_sha}" "${remote_ref}" "${range}" || printf "pre-push: mutation gate items: advisory step failed; push continues\n"
+    advise_mutation_items "${local_sha}" "${remote_ref}" || printf "pre-push: mutation gate items: advisory step failed; push continues\n"
 
     for dir in pi pi/pi-rs prime/prime-rs fib fib/fib-rs sq sq/sq-rs twin-primes/twin-primes-rs e e/e-rs factorial factorial/factorial-rs perfect-numbers perfect-numbers/perfect-numbers-rs collatz collatz/collatz-rs goldbach/goldbach-rs amicable amicable/amicable-rs triangle descartes descartes/descartes-rs zeta/zeta-rs; do
         # Only trigger tests when Python or Rust source changed, not Makefiles

@@ -1427,7 +1427,9 @@ assert_no_mutants_run() {
     for p in sq/cosmic-ray.toml sq/sq-rs/.cargo/mutants.toml sq/sq-rs/src/main.rs \
         .github/workflows/sq-py.yml scripts/mutation-pr-run.sh scripts/mutation_gate_items.py \
         scripts/cosmic_ray_prune.py .github/mutation-gate-allowed-signers \
-        tests/fixtures/mutation_weakening/case.json Makefile sq/Makefile; do
+        tests/fixtures/mutation_weakening/case.json Makefile sq/Makefile \
+        sq/sq-rs/Cargo.toml sq/sq-rs/build.rs sq/sq-rs/tests/it.rs sq/sq-rs/.cargo/config.toml \
+        tests/test_mutation_gate_allowed_signers.py; do
         rm -f "${ITEMS_LOG}"
         export MOCK_GIT_DIFF_NAMES="${p}"
         run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
@@ -1436,10 +1438,107 @@ assert_no_mutants_run() {
     done
 }
 
-@test "items: a Cargo.toml-only push does not trigger the listing" {
+@test "items: a crate Cargo.toml-only push triggers the listing (the items script's own selector)" {
     items_fixture
     export MOCK_GIT_DIFF_NAMES="sq/sq-rs/Cargo.toml"
     run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
+    [ -e "${ITEMS_LOG}" ]
+}
+
+@test "items: a docs-only change under a crate does not trigger the listing" {
+    items_fixture
+    export MOCK_GIT_DIFF_NAMES="sq/sq-rs/README.md"
+    run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
     [ ! -e "${ITEMS_LOG}" ]
+}
+
+# R26: the signing push is an empty commit, so the incremental range is empty. Relevance
+# is decided over merge-base..sha. The git stub answers a diff only for that range.
+@test "items: an empty signing commit on a branch with earlier item changes still lists the items" {
+    items_fixture
+    mkdir -p "${BATS_TEST_TMPDIR}/range-bin"
+    cat > "${BATS_TEST_TMPDIR}/range-bin/git" <<'STUB'
+#!/usr/bin/env bash
+if [[ "$*" == *"diff"* ]]; then
+    [[ "$*" == *"base123..abc123"* ]] && printf '%s\n' "sq/mutants-equivalent.toml"
+    exit 0
+fi
+exec "${REAL_MOCK_GIT:?}" "$@"
+STUB
+    chmod +x "${BATS_TEST_TMPDIR}/range-bin/git"
+    export REAL_MOCK_GIT="${REPO_ROOT}/tests/mocks/git"
+    export PATH="${BATS_TEST_TMPDIR}/range-bin:${PATH}"
+    run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc123"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"uncleared item: sq/mutants-equivalent.toml"* ]]
+    [ -e "${ITEMS_LOG}" ]
+}
+
+@test "items: a hanging gh is cut off by the timeout and the push continues without --pr" {
+    items_fixture
+    command -v timeout > /dev/null || skip "timeout not installed"
+    cat > "${BATS_TEST_TMPDIR}/trap-bin/gh" <<'STUB'
+#!/usr/bin/env bash
+sleep 30
+STUB
+    chmod +x "${BATS_TEST_TMPDIR}/trap-bin/gh"
+    export PRE_PUSH_GH_TIMEOUT=1
+    export MOCK_GIT_DIFF_NAMES="sq/mutants-equivalent.toml"
+    run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"no PR yet: sign after opening it"* ]]
+    grep -q "^items base123 abc123$" "${ITEMS_LOG}"
+}
+
+@test "items: without timeout installed gh is not called and the notice is printed" {
+    items_fixture
+    local mini="${BATS_TEST_TMPDIR}/mini-bin" t
+    mkdir -p "${mini}"
+    for t in bash env grep dirname readlink mkdir cat rm mktemp sort ls cut sed tr sha256sum head basename; do
+        ln -sf "$(command -v "${t}")" "${mini}/${t}" 2> /dev/null || true
+    done
+    # The push-gates block calls the real python3: the first one outside the stub dirs.
+    local dir real=""
+    while IFS= read -r dir; do
+        [[ "${dir}" == "${BATS_TEST_TMPDIR}"* ]] && continue
+        [[ -x "${dir}/python3" ]] && { real="${dir}/python3"; break; }
+    done < <(tr ':' '\n' <<< "${PATH}")
+    [ -n "${real}" ]
+    ln -sf "${real}" "${mini}/python3"
+    export MOCK_GIT_DIFF_NAMES=".github/mutation-gate-allowed-signers"
+    run env PATH="${REPO_ROOT}/tests/mocks:${mini}" bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"no PR yet: sign after opening it"* ]]
+    assert_no_match "^gh pr view"
+    grep -q "^items base123 abc123$" "${ITEMS_LOG}"
+}
+
+@test "items: an empty merge base prints a notice and does not fail the push" {
+    items_fixture
+    # The git mock treats an empty MOCK_GIT_MERGE_BASE as unset, so fail the subcommand: no base either way.
+    export MOCK_GIT_EXIT_MERGE_BASE=1
+    export MOCK_GIT_DIFF_NAMES="sq/mutants-equivalent.toml"
+    run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"no merge base with origin/master; push continues"* ]]
+    [ ! -e "${ITEMS_LOG}" ]
+}
+
+@test "items: a gh and items stub that drain stdin do not swallow the second pushed ref" {
+    items_fixture
+    printf '#!/usr/bin/env bash\ncat > /dev/null\nprintf "123\\n"\n' > "${BATS_TEST_TMPDIR}/trap-bin/gh"
+    chmod +x "${BATS_TEST_TMPDIR}/trap-bin/gh"
+    cat > "${MOCK_GIT_SHOW_TOPLEVEL}/scripts/mutation-gate-items.sh" <<'STUB'
+#!/usr/bin/env bash
+cat > /dev/null
+printf 'items %s\n' "$*" >> "${ITEMS_LOG:?}"
+exit 1
+STUB
+    export MOCK_GIT_DIFF_NAMES="sq/mutants-equivalent.toml"
+    run bash "${PG_HOOK}" <<< $'refs/heads/one abc111 refs/heads/one abc000\nrefs/heads/two abc222 refs/heads/two abc000'
+    [ "$status" -eq 0 ]
+    grep -q "^items base123 abc111 --pr 123$" "${ITEMS_LOG}"
+    grep -q "^items base123 abc222 --pr 123$" "${ITEMS_LOG}"
 }
