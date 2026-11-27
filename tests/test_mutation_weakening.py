@@ -5,6 +5,7 @@ import json
 import os
 import pathlib
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -66,6 +67,44 @@ def write_tree(root: pathlib.Path, files: dict[str, str]) -> None:
         path.write_text(text)
 
 
+SURVIVORS: list[
+    int
+] = []  # pids still alive when their test finished; see tearDownModule
+
+
+def pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def reap(pid_log: pathlib.Path, *, escaped: bool = False) -> None:
+    """Kill every pid a test recorded in `pid_log`.
+
+    A pid still alive is noted in SURVIVORS unless `escaped`: a test that builds a
+    process outside the judge's group on purpose expects it to outlive the judge.
+    """
+    if not pid_log.exists():
+        return
+    for line in pid_log.read_text().split():
+        pid = int(line)
+        if pid_alive(pid) and not escaped:
+            SURVIVORS.append(pid)
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            continue
+
+
+def tearDownModule() -> None:
+    if SURVIVORS:
+        raise AssertionError(
+            f"processes started by the suite outlived their tests: {SURVIVORS}"
+        )
+
+
 class Fixture:
     """A repo with a base commit and a head work copy of `sq/`."""
 
@@ -116,6 +155,12 @@ class Fixture:
 
 
 class FixtureCase(unittest.TestCase):
+    def pid_log(self, *, escaped: bool = False) -> pathlib.Path:
+        """A file child processes append their pids to; reaped when the test ends."""
+        log = self.scratch() / "pids.log"
+        self.addCleanup(reap, log, escaped=escaped)
+        return log
+
     def scratch(self) -> pathlib.Path:
         path = pathlib.Path(tempfile.mkdtemp(prefix="weakening-scratch-"))
         self.addCleanup(shutil.rmtree, path, ignore_errors=True)
@@ -388,20 +433,21 @@ class TestR12(FixtureCase):
         self.assertIn("test_sq_base.T.test_a", result.stdout)
 
     def test_timeout_is_red_and_leaves_no_process(self) -> None:
-        pid_dir = self.scratch()
+        log = self.pid_log()
         source = (
             "import os\nimport subprocess\nimport sys\nimport time\nimport unittest\n\n\n"
             "class T(unittest.TestCase):\n    def test_a(self):\n"
-            f"        open({str(pid_dir / 'self.pid')!r}, 'w').write(str(os.getpid()))\n"
-            "        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])\n"
-            f"        open({str(pid_dir / 'child.pid')!r}, 'w').write(str(child.pid))\n"
-            "        time.sleep(300)\n"
+            f"        open({str(log)!r}, 'a').write(f'{{os.getpid()}}\\n')\n"
+            "        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+            f"        open({str(log)!r}, 'a').write(f'{{child.pid}}\\n')\n"
+            "        time.sleep(30)\n"
         )
         result = self.judge_red(source, timeout="2.0")
         self.assertIn(PREFIX + "base suite timed out after 2s", result.stdout)
-        for name in ("self.pid", "child.pid"):
-            pid = int((pid_dir / name).read_text())
-            self.assertTrue(self.is_gone(pid), f"{name} process {pid} survived")
+        pids = [int(p) for p in log.read_text().split()]
+        self.assertEqual(2, len(pids))
+        for pid in pids:
+            self.assertTrue(self.is_gone(pid), f"process {pid} survived")
 
     @staticmethod
     def is_gone(pid: int) -> bool:
@@ -485,27 +531,32 @@ class TestR12(FixtureCase):
         self.assertIn("test_sq_base.U.test_extra", result.stdout)
 
     def test_passing_suite_leaves_no_process_behind(self) -> None:
-        pid_file = self.scratch() / "child.pid"
+        log = self.pid_log()
         source = (
             "import subprocess\nimport unittest\n\n\nclass T(unittest.TestCase):\n"
             "    def test_a(self):\n"
-            "        child = subprocess.Popen(['sleep', '300'])\n"
-            f"        open({str(pid_file)!r}, 'w').write(str(child.pid))\n"
+            "        child = subprocess.Popen(['sleep', '30'])\n"
+            f"        open({str(log)!r}, 'a').write(f'{{child.pid}}\\n')\n"
         )
         fx = self.make(
             {"sq.py": MODULE, "test_sq.py": source, "cosmic-ray.toml": toml()},
             {"sq.py": MODULE, "test_sq.py": GOOD_TEST, "cosmic-ray.toml": toml()},
         )
         self.assertEqual(0, fx.judge().returncode)
-        self.assertTrue(self.is_gone(int(pid_file.read_text())))
+        pids = [int(p) for p in log.read_text().split()]
+        self.assertEqual(2, len(pids))  # one per recording
+        for pid in pids:
+            self.assertTrue(self.is_gone(pid), f"process {pid} survived")
 
     def test_detached_descendant_cannot_hang_a_timed_out_judge(self) -> None:
+        log = self.pid_log(escaped=True)
         source = (
             "import subprocess\nimport sys\nimport time\nimport unittest\n\n\n"
             "class T(unittest.TestCase):\n    def test_a(self):\n"
-            "        subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(25)'],\n"
-            "                         start_new_session=True)\n"
-            "        time.sleep(300)\n"
+            "        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(25)'],\n"
+            "                                 start_new_session=True)\n"
+            f"        open({str(log)!r}, 'a').write(f'{{child.pid}}\\n')\n"
+            "        time.sleep(30)\n"
         )
         started = time.monotonic()
         result = self.judge_red(source, timeout="2.0")
