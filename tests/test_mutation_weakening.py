@@ -1,5 +1,6 @@
 """Tests for scripts/mutation_weakening.py judge (R8, R12, R17), over temp git repos."""
 
+import importlib.util
 import json
 import os
 import pathlib
@@ -9,10 +10,15 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "mutation_weakening.py"
 PREFIX = "base suite unjudgeable: "
+_SPEC = importlib.util.spec_from_file_location("mutation_weakening", SCRIPT)
+assert _SPEC is not None and _SPEC.loader is not None
+weakening = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(weakening)
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "t",
     "GIT_AUTHOR_EMAIL": "t@example.invalid",
@@ -177,7 +183,7 @@ class TestR8(FixtureCase):
         )
         self.assertEqual(self.expected(), fx.judge().stdout.strip())
 
-    def test_r8_precedes_r17(self) -> None:
+    def test_r8_applies_when_base_has_a_test_file_even_if_head_deleted_it(self) -> None:
         fx = self.make(
             {
                 "sq.py": MODULE,
@@ -188,6 +194,17 @@ class TestR8(FixtureCase):
         )
         self.assertEqual(self.expected(), fx.judge().stdout.strip())
 
+    def test_new_subproject_without_base_toml_or_test_skips_instead_of_r8(self) -> None:
+        fx = self.make(
+            {"other.py": "x = 1\n"},
+            {"sq.py": MODULE, "test_sq.py": GOOD_TEST, "cosmic-ray.toml": toml()},
+        )
+        result = fx.judge()
+        self.assertEqual(3, result.returncode)
+        self.assertEqual(
+            "no base test file: weakening check skipped", result.stdout.strip()
+        )
+
     def test_missing_timeout_is_red(self) -> None:
         text = toml().replace("timeout = 30.0\n", "")
         fx = self.make(
@@ -197,6 +214,33 @@ class TestR8(FixtureCase):
         result = fx.judge()
         self.assertEqual(1, result.returncode)
         self.assertTrue(result.stdout.startswith(PREFIX))
+
+
+class TestTomlTimeout(FixtureCase):
+    def assert_bad_timeout(self, value: str) -> None:
+        text = toml(timeout=value)
+        fx = self.make(
+            {"sq.py": MODULE, "test_sq.py": GOOD_TEST, "cosmic-ray.toml": text},
+            {"sq.py": MODULE, "test_sq.py": GOOD_TEST, "cosmic-ray.toml": toml()},
+        )
+        result = fx.judge()
+        self.assertEqual(1, result.returncode)
+        self.assertEqual(
+            PREFIX + "merge-base cosmic-ray.toml has no positive numeric timeout",
+            result.stdout.strip(),
+        )
+
+    def test_boolean_timeout_is_red(self) -> None:
+        self.assert_bad_timeout("true")
+
+    def test_zero_timeout_is_red(self) -> None:
+        self.assert_bad_timeout("0")
+
+    def test_negative_timeout_is_red(self) -> None:
+        self.assert_bad_timeout("-1.5")
+
+    def test_string_timeout_is_red(self) -> None:
+        self.assert_bad_timeout('"30"')
 
 
 class TestR17(FixtureCase):
@@ -383,6 +427,151 @@ class TestR12(FixtureCase):
             result.stdout.startswith(PREFIX + "base runner exited 3"), result.stdout
         )
         self.assertFalse((fx.work / "base-sig.json").exists())
+
+    def test_failed_first_recording_skips_the_second_run(self) -> None:
+        fx = self.standard()
+        (fx.work / "base-sig-1.json").mkdir(parents=True)
+        fx.judge()
+        self.assertFalse((fx.work / "base-sig-2.json").exists())
+
+    def test_set_up_class_skip_is_not_red(self) -> None:
+        source = (
+            "import unittest\n\n\nclass T(unittest.TestCase):\n"
+            "    @classmethod\n    def setUpClass(cls):\n        raise unittest.SkipTest('x')\n"
+            "    def test_a(self):\n        pass\n"
+        )
+        fx = self.make(
+            {"sq.py": MODULE, "test_sq.py": source, "cosmic-ray.toml": toml()},
+            {"sq.py": MODULE, "test_sq.py": GOOD_TEST, "cosmic-ray.toml": toml()},
+        )
+        self.assertEqual(0, fx.judge().returncode)
+
+    def test_set_up_helper_error_is_red(self) -> None:
+        source = (
+            "import unittest\n\nimport sq\n\n\ndef _prepare():\n    return sq.renamed_away\n\n\n"
+            "class T(unittest.TestCase):\n    def setUp(self):\n        _prepare()\n"
+            "    def test_a(self):\n        pass\n"
+        )
+        result = self.judge_red(source)
+        self.assertIn(PREFIX + "per-test setUp error", result.stdout)
+        self.assertIn("test_sq_base.T.test_a", result.stdout)
+
+    def test_async_set_up_error_is_red(self) -> None:
+        source = (
+            "import unittest\n\n\nclass T(unittest.IsolatedAsyncioTestCase):\n"
+            "    async def asyncSetUp(self):\n        raise RuntimeError('x')\n"
+            "    async def test_a(self):\n        pass\n"
+        )
+        result = self.judge_red(source)
+        self.assertIn(PREFIX + "per-test setUp error", result.stdout)
+
+    def test_id_present_only_in_second_recording_is_red(self) -> None:
+        marker = self.scratch() / "marker"
+        source = (
+            "import os\nimport unittest\n\n\nclass T(unittest.TestCase):\n"
+            "    def test_a(self):\n        pass\n\n\n"
+            "class U(unittest.TestCase):\n    def test_extra(self):\n        pass\n\n\n"
+            "def load_tests(loader, tests, pattern):\n"
+            "    suite = unittest.TestSuite()\n"
+            "    suite.addTests(loader.loadTestsFromTestCase(T))\n"
+            f"    marker = {str(marker)!r}\n"
+            "    if os.path.exists(marker):\n"
+            "        suite.addTests(loader.loadTestsFromTestCase(U))\n"
+            "    open(marker, 'w').close()\n"
+            "    return suite\n"
+        )
+        result = self.judge_red(source)
+        self.assertIn(PREFIX + "two recordings differ", result.stdout)
+        self.assertIn("test_sq_base.U.test_extra", result.stdout)
+
+    def test_passing_suite_leaves_no_process_behind(self) -> None:
+        pid_file = self.scratch() / "child.pid"
+        source = (
+            "import subprocess\nimport unittest\n\n\nclass T(unittest.TestCase):\n"
+            "    def test_a(self):\n"
+            "        child = subprocess.Popen(['sleep', '300'])\n"
+            f"        open({str(pid_file)!r}, 'w').write(str(child.pid))\n"
+        )
+        fx = self.make(
+            {"sq.py": MODULE, "test_sq.py": source, "cosmic-ray.toml": toml()},
+            {"sq.py": MODULE, "test_sq.py": GOOD_TEST, "cosmic-ray.toml": toml()},
+        )
+        self.assertEqual(0, fx.judge().returncode)
+        self.assertTrue(self.is_gone(int(pid_file.read_text())))
+
+    def test_detached_descendant_cannot_hang_a_timed_out_judge(self) -> None:
+        source = (
+            "import subprocess\nimport sys\nimport time\nimport unittest\n\n\n"
+            "class T(unittest.TestCase):\n    def test_a(self):\n"
+            "        subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(25)'],\n"
+            "                         start_new_session=True)\n"
+            "        time.sleep(300)\n"
+        )
+        started = time.monotonic()
+        result = self.judge_red(source, timeout="2.0")
+        self.assertLess(time.monotonic() - started, 20)
+        self.assertIn("timed out", result.stdout)
+
+
+class TestInfrastructure(FixtureCase):
+    def test_unknown_base_sha_exits_4(self) -> None:
+        fx = self.standard()
+        fx.base = "0" * 40
+        result = fx.judge()
+        self.assertEqual(4, result.returncode)
+        self.assertTrue(
+            result.stdout.startswith(PREFIX + "infrastructure: "), result.stdout
+        )
+
+    def test_malformed_signature_after_runner_success_exits_4(self) -> None:
+        fx = self.standard()
+        stub = fx.tmp / "stub_runner.py"
+        stub.write_text("import sys\nopen(sys.argv[2], 'w').write('[1, 2]')\n")
+        with mock.patch.object(weakening, "RUNNER", stub):
+            args = weakening.build_parser().parse_args(
+                [
+                    "judge",
+                    "--dir",
+                    str(fx.head_dir),
+                    "--base",
+                    fx.base,
+                    "--work",
+                    str(fx.work),
+                    "--repo",
+                    str(fx.repo),
+                    "--after-head",
+                ]
+            )
+            with mock.patch("builtins.print") as printed:
+                code = weakening.judge(args)
+        self.assertEqual(4, code)
+        printed.assert_called_with(PREFIX + "infrastructure: malformed base signature")
+
+    def test_signature_entry_without_setup_error_exits_4(self) -> None:
+        fx = self.standard()
+        stub = fx.tmp / "stub_runner.py"
+        stub.write_text(
+            "import sys\n"
+            "open(sys.argv[2], 'w').write("
+            '\'{"a": {"outcome": "pass", "sites": [], "error": []}}\')\n'
+        )
+        with mock.patch.object(weakening, "RUNNER", stub):
+            args = weakening.build_parser().parse_args(
+                [
+                    "judge",
+                    "--dir",
+                    str(fx.head_dir),
+                    "--base",
+                    fx.base,
+                    "--work",
+                    str(fx.work),
+                    "--repo",
+                    str(fx.repo),
+                    "--after-head",
+                ]
+            )
+            with mock.patch("builtins.print"):
+                self.assertEqual(4, weakening.judge(args))
 
 
 if __name__ == "__main__":

@@ -8,12 +8,13 @@ sub-project's directory in the repo; the module name is that basename with `-`
 replaced by `_`.
 
 Exit codes: 0 judgeable (signature at `<work>/base-sig.json`), 1 red (message on
-stdout), 2 usage error (including a missing `--after-head`), 3 no base test file
-(`no base test file: weakening check skipped`) or an infrastructure failure.
+stdout), 2 usage error (including a missing `--after-head`), 3 no base test file at
+the merge base (`no base test file: weakening check skipped`), 4 infrastructure
+failure (`base suite unjudgeable: infrastructure: <cause>`, a bad `--base` or git
+failure, or a malformed signature after the runner exited 0).
 """
 
 import argparse
-import ast
 import json
 import os
 import signal
@@ -83,8 +84,11 @@ def base_timeout(base_toml: str | None) -> float | None:
 
 @dataclass
 class Recording:
-    signature: Signature | None
-    problem: str | None
+    """One recorder run: a signature, or `problem` (red) or `infra` (exit 4)."""
+
+    signature: Signature | None = None
+    problem: str | None = None
+    infra: str | None = None
 
 
 def kill_group(pid: int) -> None:
@@ -95,54 +99,60 @@ def kill_group(pid: int) -> None:
         return
 
 
-def runner_problem(returncode: int, stderr: str) -> str:
-    lines = [line for line in stderr.splitlines() if line.strip()]
+def runner_problem(returncode: int, err_path: Path) -> str:
+    lines = [line for line in err_path.read_text().splitlines() if line.strip()]
     tail = lines[-1] if lines else "no output"
     return f"base runner exited {returncode}: {tail}"
 
 
+def valid_signature(data: object) -> bool:
+    return isinstance(data, dict) and all(
+        isinstance(entry, dict)
+        and isinstance(entry.get("outcome"), str)
+        and isinstance(entry.get("error"), list)
+        and type(entry.get("setup_error")) is bool
+        for entry in data.values()
+    )
+
+
+def load_recording(sig_path: Path) -> Recording:
+    try:
+        data = json.loads(sig_path.read_text())
+    except (OSError, ValueError):
+        return Recording(infra="malformed base signature")
+    if not valid_signature(data):
+        return Recording(infra="malformed base signature")
+    return Recording(signature=data)
+
+
 def record(work_dir: Path, test_name: str, sig_path: Path, timeout: float) -> Recording:
+    """Run the base runner once in its own process group; stderr goes to a file so a
+    descendant that outlives the group cannot hold a pipe open and hang the wait."""
     env = {**os.environ, "PYTHONHASHSEED": "0", "PYTHONDONTWRITEBYTECODE": "1"}
     cmd = [sys.executable, str(RUNNER), "record", str(sig_path), test_name]
-    with subprocess.Popen(
-        cmd,
-        cwd=work_dir,
-        env=env,
-        start_new_session=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
-    ) as proc:
+    err_path = sig_path.with_suffix(".err")
+    with (
+        err_path.open("w") as err,
+        subprocess.Popen(
+            cmd,
+            cwd=work_dir,
+            env=env,
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=err,
+        ) as proc,
+    ):
         try:
-            _, stderr = proc.communicate(timeout=timeout)
+            proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             kill_group(proc.pid)
-            proc.communicate()
-            return Recording(None, f"base suite timed out after {timeout:g}s")
+            proc.wait()
+            return Recording(problem=f"base suite timed out after {timeout:g}s")
         finally:
             kill_group(proc.pid)
     if proc.returncode != 0:
-        return Recording(None, runner_problem(proc.returncode, stderr))
-    return Recording(json.loads(sig_path.read_text()), None)
-
-
-def setup_spans(source: str) -> list[tuple[int, int]]:
-    """Line spans of every `setUp` method in the source."""
-    try:
-        tree = ast.parse(source)
-    except SyntaxError:
-        return []  # the runner records the file as a _FailedTest, which is red anyway
-    return [
-        (node.lineno, node.end_lineno or node.lineno)
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "setUp"
-    ]
-
-
-def in_setup(entry: dict[str, Any], spans: list[tuple[int, int]]) -> bool:
-    if entry["outcome"] != "error":
-        return False
-    return any(lo <= line <= hi for _, line in entry["error"] for lo, hi in spans)
+        return Recording(problem=runner_problem(proc.returncode, err_path))
+    return load_recording(sig_path)
 
 
 def differing_ids(first: Signature, second: Signature) -> list[str]:
@@ -151,10 +161,13 @@ def differing_ids(first: Signature, second: Signature) -> list[str]:
     )
 
 
+def class_setup_failed(entry: dict[str, Any]) -> bool:
+    return entry["outcome"] == "error"
+
+
 def signature_problems(
-    first: Signature, second: Signature, base_source: str
+    first: Signature, second: Signature
 ) -> list[tuple[str, list[str]]]:
-    spans = setup_spans(base_source)
     checks = [
         (
             "test file failed to import",
@@ -162,9 +175,13 @@ def signature_problems(
         ),
         (
             "class or module setUp error",
-            [i for i in first if i.startswith(CLASS_SETUP_PREFIXES)],
+            [
+                i
+                for i, e in first.items()
+                if i.startswith(CLASS_SETUP_PREFIXES) and class_setup_failed(e)
+            ],
         ),
-        ("per-test setUp error", [i for i, e in first.items() if in_setup(e, spans)]),
+        ("per-test setUp error", [i for i, e in first.items() if e["setup_error"]]),
         ("two recordings differ", differing_ids(first, second)),
     ]
     return [(cause, sorted(ids)) for cause, ids in checks if ids]
@@ -178,17 +195,22 @@ def report_red(problems: list[tuple[str, list[str]]]) -> int:
     return 1
 
 
+def infra_failure(cause: str) -> int:
+    print(f"{UNJUDGEABLE}infrastructure: {cause}")
+    return 4
+
+
 def judge_signatures(work_dir: Path, test_name: str, work: Path, timeout: float) -> int:
-    base_source = (work_dir / test_name).read_text()
-    runs = [
-        record(work_dir, test_name, work / f"base-sig-{n}.json", timeout)
-        for n in (1, 2)
-    ]
-    problem = next((run.problem for run in runs if run.problem), None)
-    if problem:
-        return report_red([(problem, [])])
+    runs: list[Recording] = []
+    for number in (1, 2):
+        run = record(work_dir, test_name, work / f"base-sig-{number}.json", timeout)
+        if run.infra:
+            return infra_failure(run.infra)
+        if run.problem:
+            return report_red([(run.problem, [])])
+        runs.append(run)
     first, second = (run.signature or {} for run in runs)
-    problems = signature_problems(first, second, base_source)
+    problems = signature_problems(first, second)
     if problems:
         return report_red(problems)
     (work / "base-sig.json").write_text(json.dumps(first, sort_keys=True))
@@ -196,20 +218,31 @@ def judge_signatures(work_dir: Path, test_name: str, work: Path, timeout: float)
     return 0
 
 
+def resolve_repo(args: argparse.Namespace) -> str | None:
+    if args.repo:
+        return args.repo
+    result = git(".", "rev-parse", "--show-toplevel")
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
 def judge(args: argparse.Namespace) -> int:
     work_dir = Path(args.dir)
     subdir = work_dir.name
     module = subdir.replace("-", "_")
-    repo = args.repo or git(".", "rev-parse", "--show-toplevel").stdout.strip()
+    repo = resolve_repo(args)
+    if repo is None:
+        return infra_failure("not inside a git repository (pass --repo)")
+    if git(repo, "cat-file", "-e", f"{args.base}^{{commit}}").returncode != 0:
+        return infra_failure(f"base {args.base} is not a commit in {repo}")
+    base_source = git_show(repo, args.base, f"{subdir}/test_{module}.py")
+    if base_source is None:
+        print("no base test file: weakening check skipped")
+        return 3
     base_toml = git_show(repo, args.base, f"{subdir}/cosmic-ray.toml")
     message = r8_message(module, read_optional(work_dir / "cosmic-ray.toml"), base_toml)
     if message:
         print(message)
         return 1
-    base_source = git_show(repo, args.base, f"{subdir}/test_{module}.py")
-    if base_source is None:
-        print("no base test file: weakening check skipped")
-        return 3
     if not (work_dir / f"test_{module}.py").is_file():
         print(f"test_{module}.py deleted")
         return 1

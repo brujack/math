@@ -215,7 +215,9 @@ class AssertionContinuationTests(RunnerCase):
     def test_passing_test_has_no_sites(self):
         src = make_test_source("self.assertEqual(mod.f(1), 1)\n")
         sig = self.record(PASSING_MODULE, src)[TEST_ID]
-        self.assertEqual(sig, {"outcome": "pass", "sites": [], "error": []})
+        self.assertEqual(
+            sig, {"outcome": "pass", "sites": [], "error": [], "setup_error": False}
+        )
 
 
 class AuthorHandlerTests(RunnerCase):
@@ -657,7 +659,9 @@ class RelativePathTests(RunnerCase):
             header="import os\nimport pathlib\nimport unittest\n\n\nclass T(unittest.TestCase):\n",
         )
         sig = self.record(PASSING_MODULE, src)[TEST_ID]
-        self.assertEqual(sig, {"outcome": "pass", "sites": [], "error": []})
+        self.assertEqual(
+            sig, {"outcome": "pass", "sites": [], "error": [], "setup_error": False}
+        )
 
     def test_failure_lines_still_match_with_an_absolute_filename(self):
         src = make_test_source("self.assertEqual(1, 2)  # L1\n")
@@ -693,6 +697,135 @@ class HypothesisTests(RunnerCase):
         )
         self.assertEqual(first["error"], [])
         self.assertEqual(self.compare("", self.GIVEN_SRC).returncode, 0)
+
+
+class SetupErrorTests(RunnerCase):
+    """An exception escaping setUp (sync or async) marks the record `setup_error`."""
+
+    def entry(self, source, test_id=TEST_ID):
+        return self.record(PASSING_MODULE, source)[test_id]
+
+    def test_setup_calling_a_same_file_helper_is_flagged(self):
+        src = (
+            "import unittest\n\n\nclass T(unittest.TestCase):\n"
+            "    def _helper(self):\n        raise KeyError('x')\n"
+            "    def setUp(self):\n        self._helper()\n"
+            "    def test_a(self):\n        pass\n"
+        )
+        sig = self.entry(src)
+        self.assertTrue(sig["setup_error"])
+        self.assertEqual(sig["outcome"], "error")
+
+    def test_setup_reading_a_missing_module_attribute_is_flagged(self):
+        src = (
+            "import unittest\n\nimport mod\n\n\ndef _prepare():\n    return mod.renamed_away\n\n\n"
+            "class T(unittest.TestCase):\n    def setUp(self):\n        _prepare()\n"
+            "    def test_a(self):\n        pass\n"
+        )
+        self.assertTrue(self.entry(src)["setup_error"])
+
+    def test_async_setup_is_flagged(self):
+        src = (
+            "import unittest\n\n\nclass T(unittest.IsolatedAsyncioTestCase):\n"
+            "    async def asyncSetUp(self):\n        raise KeyError('x')\n"
+            "    async def test_a(self):\n        pass\n"
+        )
+        self.assertTrue(self.entry(src)["setup_error"])
+
+    def test_setup_assigned_in_the_class_body_is_flagged(self):
+        src = (
+            "import unittest\n\n\ndef _s(self):\n    raise KeyError('x')\n\n\n"
+            "class T(unittest.TestCase):\n    setUp = _s\n"
+            "    def test_a(self):\n        pass\n"
+        )
+        self.assertTrue(self.entry(src)["setup_error"])
+
+    def test_failing_assert_inside_setup_is_continued_not_a_setup_error(self):
+        src = (
+            "import unittest\n\nimport mod\n\n\nclass T(unittest.TestCase):\n"
+            "    def setUp(self):\n        self.assertEqual(mod.f(1), 2)\n"
+            "    def test_a(self):\n        pass\n"
+        )
+        sig = self.entry(src)
+        self.assertFalse(sig["setup_error"])
+        self.assertEqual(sig["outcome"], "fail")
+
+    def test_skip_in_setup_is_not_a_setup_error(self):
+        src = (
+            "import unittest\n\n\nclass T(unittest.TestCase):\n"
+            "    def setUp(self):\n        self.skipTest('no')\n"
+            "    def test_a(self):\n        pass\n"
+        )
+        sig = self.entry(src)
+        self.assertFalse(sig["setup_error"])
+        self.assertEqual(sig["outcome"], "skip")
+
+    def test_error_in_the_test_body_is_not_a_setup_error(self):
+        src = make_test_source("raise KeyError('x')\n")
+        self.assertFalse(self.entry(src)["setup_error"])
+
+    def test_later_tests_are_not_flagged_by_an_earlier_setup_error(self):
+        src = (
+            "import unittest\n\n\nclass T(unittest.TestCase):\n"
+            "    def setUp(self):\n        if self._testMethodName == 'test_a':\n"
+            "            raise KeyError('x')\n"
+            "    def test_a(self):\n        pass\n"
+            "    def test_b(self):\n        pass\n"
+        )
+        sigs = self.record(PASSING_MODULE, src)
+        self.assertTrue(sigs["test_mod_base.T.test_a"]["setup_error"])
+        self.assertFalse(sigs["test_mod_base.T.test_b"]["setup_error"])
+
+    def test_patched_hooks_are_restored_after_the_run(self):
+        probe = (
+            "import importlib.util, sys, unittest\n"
+            f"spec = importlib.util.spec_from_file_location('r', {str(RUNNER)!r})\n"
+            "r = importlib.util.module_from_spec(spec); spec.loader.exec_module(r)\n"
+            "names = [(c, c.__dict__['_callSetUp']) for c in (unittest.TestCase, unittest.IsolatedAsyncioTestCase)]\n"
+            f"r.run_tests({str(self.dir / TEST_FILE)!r})\n"
+            "assert all(c.__dict__['_callSetUp'] is f for c, f in names)\n"
+        )
+        self.write(PASSING_MODULE, make_test_source("pass\n"))
+        proc = subprocess.run(
+            [sys.executable, "-c", probe],
+            cwd=self.dir,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=RUN_TIMEOUT_S,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_missing_setup_hook_fails_closed_with_exit_three(self):
+        self.write(PASSING_MODULE, make_test_source("pass\n"))
+        probe = (
+            "import importlib.util, sys, unittest\n"
+            f"spec = importlib.util.spec_from_file_location('r', {str(RUNNER)!r})\n"
+            "r = importlib.util.module_from_spec(spec); spec.loader.exec_module(r)\n"
+            "del unittest.IsolatedAsyncioTestCase._callSetUp\n"
+            f"sys.exit(r.main(['r', 'record', {str(self.sig)!r}, {TEST_FILE!r}]))\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", probe],
+            cwd=self.dir,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=RUN_TIMEOUT_S,
+        )
+        self.assertEqual(proc.returncode, 3, proc.stderr)
+
+    def test_signature_without_setup_error_is_an_internal_error(self):
+        self.write(PASSING_MODULE, make_test_source("pass\n"))
+        entry = {"outcome": "pass", "sites": [], "error": []}
+        self.sig.write_text(json.dumps({TEST_ID: entry}))
+        self.assertEqual(self.run_runner("compare").returncode, 3)
+
+    def test_non_boolean_setup_error_is_an_internal_error(self):
+        self.write(PASSING_MODULE, make_test_source("pass\n"))
+        entry = {"outcome": "pass", "sites": [], "error": [], "setup_error": 0}
+        self.sig.write_text(json.dumps({TEST_ID: entry}))
+        self.assertEqual(self.run_runner("compare").returncode, 3)
 
 
 class CliTests(RunnerCase):
@@ -752,7 +885,12 @@ class CliTests(RunnerCase):
             ["KeyError"],
         ):
             with self.subTest(error=error):
-                entry = {"outcome": "pass", "sites": [], "error": error}
+                entry = {
+                    "outcome": "pass",
+                    "sites": [],
+                    "error": error,
+                    "setup_error": False,
+                }
                 self.sig.write_text(json.dumps({TEST_ID: entry}))
                 proc = self.run_runner("compare")
                 self.assertEqual(proc.returncode, 3)
@@ -771,14 +909,19 @@ class CliTests(RunnerCase):
             "site",
         ):
             with self.subTest(site=site):
-                entry = {"outcome": "fail", "sites": [site], "error": []}
+                entry = {
+                    "outcome": "fail",
+                    "sites": [site],
+                    "error": [],
+                    "setup_error": False,
+                }
                 self.sig.write_text(json.dumps({TEST_ID: entry}))
                 proc = self.run_runner("compare")
                 self.assertEqual(proc.returncode, 3)
 
     def test_well_formed_signature_is_accepted(self):
         self.write("", make_test_source("pass\n"))
-        entry = {"outcome": "pass", "sites": [], "error": []}
+        entry = {"outcome": "pass", "sites": [], "error": [], "setup_error": False}
         self.sig.write_text(json.dumps({TEST_ID: entry}))
         self.assertEqual(self.run_runner("compare").returncode, 0)
 

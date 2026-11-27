@@ -12,13 +12,15 @@ every assertion statement so a failure is recorded and execution continues, then
 reduces each test to a signature that contains no exception messages:
 
     {test_id: {"outcome": ..., "sites": [[line, params, nth, exc_type], ...],
-               "error": [[exc_type, line], ...]}}
+               "error": [[exc_type, line], ...], "setup_error": bool}}
 
 - `outcome` is one of pass, fail, error, skip, expected-failure, unexpected-success.
 - `sites` is the sorted set of failure sites; `nth` is the n-th execution of that line
   in the test (0 for a failure not raised inside a rewritten statement).
 - `error` is the sorted list of distinct (type, innermost base-file line) pairs for
   errors raised outside assertion statements; empty when there were none.
+- `setup_error` is true when an exception other than SkipTest escaped `setUp` or
+  `asyncSetUp` (a failing `self.assert*` in setUp is continued, so it does not count).
 
 The test file is loaded under its absolute path, so `__file__` is usable and every line
 number refers to the base test file.
@@ -275,6 +277,7 @@ class TestRecord:
     outcome: str | None = None
     sites: set[Site] = field(default_factory=set)
     errors: set[tuple[str, int]] = field(default_factory=set)
+    setup_error: bool = False
 
     def note(self, outcome: str) -> None:
         if self.outcome is None or OUTCOME_RANK[outcome] > OUTCOME_RANK[self.outcome]:
@@ -288,6 +291,7 @@ class TestRecord:
             "outcome": outcome,
             "sites": sorted(list(s) for s in self.sites),
             "error": sorted(list(e) for e in self.errors),
+            "setup_error": self.setup_error,
         }
 
 
@@ -324,6 +328,11 @@ class Recorder(unittest.TestResult):
             filename="",
             lineno=0,
         )
+
+    def mark_setup_error(self) -> None:
+        """An exception escaped setUp (sync or async) for the running test."""
+        if self._current is not None:
+            self._current.setup_error = True
 
     def push_params(self, params: dict[str, object]) -> None:
         self._params.append(params)
@@ -430,6 +439,39 @@ def tracked_subtests(recorder: Recorder) -> Iterator[None]:
         setattr(unittest.TestCase, "subTest", original)  # noqa: B010 - restores the patch above
 
 
+SETUP_HOOK_OWNERS = (unittest.TestCase, unittest.IsolatedAsyncioTestCase)
+
+
+@contextlib.contextmanager
+def tracked_setup(recorder: Recorder) -> Iterator[None]:
+    """Wrap each class's own `_callSetUp` so an exception escaping setUp is recorded.
+
+    `IsolatedAsyncioTestCase` overrides `_callSetUp` to run `asyncSetUp`, so both owners
+    are wrapped. A missing hook raises AttributeError (exit 3): fail closed.
+    """
+    originals = {cls: cls.__dict__["_callSetUp"] for cls in SETUP_HOOK_OWNERS}
+
+    def wrap(original: Any) -> Any:
+        def call_set_up(self: unittest.TestCase) -> Any:
+            try:
+                return original(self)
+            except unittest.SkipTest:
+                raise
+            except Exception:
+                recorder.mark_setup_error()
+                raise
+
+        return call_set_up
+
+    for cls, original in originals.items():
+        setattr(cls, "_callSetUp", wrap(original))  # noqa: B010 - pyright rejects assigning a method
+    try:
+        yield
+    finally:
+        for cls, original in originals.items():
+            setattr(cls, "_callSetUp", original)  # noqa: B010 - restores the patch above
+
+
 def load_suite(path: str, recorder: Recorder) -> unittest.TestSuite:
     """Rewrite and load the test file at absolute `path`; a load failure is recorded."""
     stem = Path(path).stem
@@ -453,7 +495,7 @@ def run_tests(path: str) -> Signature:
     path = os.path.abspath(path)
     recorder = Recorder(path)
     suite = load_suite(path, recorder)
-    with tracked_subtests(recorder):
+    with tracked_subtests(recorder), tracked_setup(recorder):
         suite.run(recorder)
     return {
         test_id: record.finalize()
@@ -478,6 +520,7 @@ def validate_entry(test_id: str, entry: object) -> None:
         and all(has_shape(site, SITE_SHAPE) for site in entry["sites"])
         and isinstance(entry.get("error"), list)
         and all(has_shape(error, ERROR_SHAPE) for error in entry["error"])
+        and type(entry.get("setup_error")) is bool
     )
     if not ok:
         raise SignatureError(f"invalid signature entry for {test_id!r}")
