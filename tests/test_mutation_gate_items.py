@@ -1,7 +1,10 @@
 """R21, R22, R25, R26, R34: items for the mutation-gate-items check (Python and gate)."""
 
+import contextlib
 import importlib.util
+import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -83,9 +86,16 @@ class ItemsCase(_helper.RepoCase):
         return mgi.run(self.repo, self.base, "HEAD", pr, str(self.signers))
 
     def eq_entry(
-        self, fragment: str, operator: str, function: str, col: int, variant: int | None
+        self,
+        fragment: str,
+        operator: str,
+        function: str,
+        col: int,
+        variant: int | None,
+        directory: str = "sq",
     ) -> str:
-        lines = (self.repo / "sq" / "sq.py").read_text().split("\n")
+        module = self.repo / directory / f"{directory.replace('-', '_')}.py"
+        lines = module.read_text().split("\n")
         index = next(i for i, text in enumerate(lines) if fragment in text)
         above = next(
             lines[j].strip() for j in range(index - 1, -1, -1) if lines[j].strip()
@@ -135,7 +145,7 @@ class PythonEquivalentTest(ItemsCase):
                 "generate_squares",
                 "k = 1",
                 "limit = 10**max_digits",
-                "2",
+                "0",
             ),
         )
 
@@ -153,7 +163,7 @@ class PythonEquivalentTest(ItemsCase):
         self.base = self.rev("HEAD")
         self.set_equivalents(self.number_entry(1))
         (item,) = self.items("python-equivalent")
-        self.assertEqual(item.key[-1], "3")
+        self.assertEqual(item.key[-1], "1")
 
     def test_added_duplicate_of_an_entry_is_an_item(self) -> None:
         self.write("sq/mutants-equivalent.toml", self.number_entry(0))
@@ -193,7 +203,7 @@ class PythonEquivalentTest(ItemsCase):
         self.set_equivalents(self.and_entry(71))
         (item,) = self.items("python-equivalent")
         self.assertEqual(item.key[1], "core/ReplaceAndWithOr")
-        self.assertEqual(item.key[-1], "2")
+        self.assertEqual(item.key[-1], "1")
 
     def test_unparseable_head_toml_is_an_item(self) -> None:
         self.set_equivalents("[[equivalent]\nnot toml\n")
@@ -308,7 +318,7 @@ class GateItemTest(ItemsCase):
         self.assertEqual([i.key[0] for i in self.items("gate")], ["Makefile"])
 
     def test_non_recipe_makefile_change_is_not_an_item(self) -> None:
-        self.write("Makefile", MAKEFILE.replace("echo lint", "echo lint now"))
+        self.write("Makefile", MAKEFILE.replace("echo run", "echo run now"))
         self.commit("lint recipe")
         self.assertEqual(self.items(), [])
 
@@ -360,21 +370,24 @@ class GateItemTest(ItemsCase):
 
 
 class MakeParsingTest(unittest.TestCase):
-    def test_text_covers_recipe_continuations_and_transitive_variables(self) -> None:
+    def test_variables_are_hashed_whether_or_not_a_recipe_uses_them(self) -> None:
         text = "A = $(B)\nB = deep \\\n  value\nC = unused\nmutants-x:\n\tuse $(A)\n"
-        out = mgi.mutants_text(text)
+        out = mgi.make_scope_text(text)
+        for word in ("deep", "value", "unused", "use $(A)"):
+            self.assertIn(word, out)
+
+    def test_unreachable_recipe_is_left_out_and_reachable_one_kept(self) -> None:
+        out = mgi.make_scope_text("mutants: dep\n\tgo\ndep:\n\tdepcmd\nrun:\n\tother\n")
+        self.assertIn("depcmd", out)
+        self.assertNotIn("other", out)
+
+    def test_sub_make_call_reaches_its_target(self) -> None:
+        out = mgi.make_scope_text("mutants:\n\t$(MAKE) -s inner\ninner:\n\tdeep\n")
         self.assertIn("deep", out)
-        self.assertIn("value", out)
-        self.assertNotIn("unused", out)
 
-    def test_shell_dollar_dollar_is_not_a_make_reference(self) -> None:
-        out = mgi.mutants_text("HOME2 = x\nmutants:\n\techo $$(HOME2)\n")
-        self.assertNotIn("HOME2 =", out)
-
-    def test_no_mutants_target_gives_stable_text(self) -> None:
-        self.assertEqual(
-            mgi.mutants_text("lint:\n\techo\n"), mgi.mutants_text("lint:\n\tother\n")
-        )
+    def test_define_body_lines_are_never_recipes(self) -> None:
+        out = mgi.make_scope_text("define BODY\n\techo in\nendef\nrun:\n\tx\n")
+        self.assertIn("echo in", out)
 
     def test_only_uses_bumps_rejects_added_lines(self) -> None:
         old = f"- uses: a/b@{SHA_OLD} # v1\n"
@@ -538,8 +551,393 @@ class CliTest(ItemsCase):
 
     def test_bad_sha_is_red_not_green(self) -> None:
         result = self.cli("0" * 40, "1" * 40, "--repo", str(self.repo))
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("error", result.stderr)
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("mutation-gate-items: infra error: RuntimeError:", result.stderr)
+
+
+class ModesTest(ItemsCase):
+    """Only regular blobs count: git show of a symlink is its target text (N4)."""
+
+    def link(self, rel: str, target: str) -> None:
+        path = self.repo / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.unlink(missing_ok=True)
+        os.symlink(target, path)
+
+    def test_symlinked_module_with_a_new_entry_is_an_item(self) -> None:
+        self.write("sq/sq_real.py", (self.repo / "sq" / "sq.py").read_text())
+        entry = self.number_entry(0)
+        self.link("sq/sq.py", "sq_real.py")
+        self.write("sq/mutants-equivalent.toml", entry)
+        self.commit("symlink module and new entry")
+        (item,) = self.items("python-equivalent")
+        self.assertEqual(item.key[:2], ("sq", "module-not-regular"))
+
+    def test_missing_module_with_entries_is_an_item(self) -> None:
+        entry = self.number_entry(0)
+        (self.repo / "sq" / "sq.py").unlink()
+        self.write("sq/mutants-equivalent.toml", entry)
+        self.commit("drop module and add entry")
+        (item,) = self.items("python-equivalent")
+        self.assertEqual(item.key, ("sq", "module-not-regular", mgi.DELETED))
+
+    def test_symlinked_equivalents_toml_is_an_item(self) -> None:
+        self.write("sq/real.toml", self.number_entry(0))
+        self.link("sq/mutants-equivalent.toml", "real.toml")
+        self.commit("symlink toml")
+        (item,) = self.items("python-equivalent")
+        self.assertEqual(item.key[:2], ("sq", "toml-not-regular"))
+
+    def test_symlinked_cosmic_ray_toml_is_an_item(self) -> None:
+        self.write("sq/real.toml", "[cosmic-ray]\n")
+        self.link("sq/cosmic-ray.toml", "real.toml")
+        self.commit("symlink config")
+        (item,) = self.items("python-config")
+        self.assertEqual(item.key[:2], ("sq", "config-not-regular"))
+
+    def test_materialise_tree_writes_regular_files_as_bytes(self) -> None:
+        self.write("crate/src/a.rs", "fn a() {}\n")
+        (self.repo / "crate" / "data.bin").write_bytes(b"\xff\x00\xfe")
+        self.commit("crate")
+        ctx = mgi.Context(self.repo, self.base, "HEAD", [], self.tmp / "scr")
+        root = ctx.materialise_tree("HEAD", "crate", self.tmp / "scr")
+        self.assertEqual(root, self.tmp / "scr" / "crate")
+        self.assertEqual((root / "src" / "a.rs").read_text(), "fn a() {}\n")
+        self.assertEqual((root / "data.bin").read_bytes(), b"\xff\x00\xfe")
+
+    def test_materialise_tree_refuses_a_symlink(self) -> None:
+        self.write("crate/src/a.rs", "fn a() {}\n")
+        self.link("crate/src/b.rs", "a.rs")
+        self.commit("crate with link")
+        ctx = mgi.Context(self.repo, self.base, "HEAD", [], self.tmp / "scr")
+        with self.assertRaises(mgi.NotRegularError):
+            ctx.materialise_tree("HEAD", "crate", self.tmp / "scr")
+
+
+class MergeBaseTest(ItemsCase):
+    def test_master_moving_after_the_branch_point_is_not_an_item(self) -> None:
+        self.git("checkout", "-q", "-b", "pr")
+        self.write("README", "pr\n")
+        self.commit("pr work")
+        self.git("checkout", "-q", "master")
+        self.write("scripts/mutation-pr-detect.sh", "moved on master\n")
+        self.commit("master moves")
+        code, text = mgi.run(self.repo, self.rev("master"), "pr", 7, str(self.signers))
+        self.assertEqual((code, text), (0, "mutation-gate-items: no uncleared items"))
+
+    def test_clearing_then_merging_master_stays_green(self) -> None:
+        self.git("checkout", "-q", "-b", "pr")
+        path = self.repo / "sq" / "cosmic-ray.toml"
+        self.write(
+            "sq/cosmic-ray.toml",
+            re.sub(r"timeout = [0-9.]+", "timeout = 90.0", path.read_text()),
+        )
+        self.commit("timeout")
+        self.commit("chore: review", self.trailer(7, "sq"), key=self.key)
+        self.git("checkout", "-q", "master")
+        self.write("scripts/mutation-pr-detect.sh", "moved on master\n")
+        self.commit("master moves")
+        self.git("checkout", "-q", "pr")
+        self.git("merge", "-q", "--no-edit", "master")
+        code, _ = mgi.run(self.repo, self.rev("master"), "pr", 7, str(self.signers))
+        self.assertEqual(code, 0)
+
+    def test_unknown_commit_is_an_error_not_green(self) -> None:
+        with self.assertRaises(RuntimeError):
+            mgi.run(self.repo, "0" * 40, "HEAD", 7, str(self.signers))
+
+
+class MakefileScopeTest(ItemsCase):
+    """Everything outside a recipe is hashed; recipes only when `mutants*` reaches them."""
+
+    PRELUDE = ".PHONY: mutants lint run\nmutants: lint\n\ttool\nlint:\n\techo lint\nrun:\n\techo run\n"
+
+    def change(self, old: str, new: str) -> list[Any]:
+        self.write("Makefile", old + self.PRELUDE)
+        self.commit("old makefile")
+        self.base = self.rev("HEAD")
+        self.write("Makefile", new + self.PRELUDE)
+        self.commit("new makefile")
+        return self.items("gate")
+
+    def test_prerequisite_recipe_change_is_an_item(self) -> None:
+        old = self.PRELUDE
+        self.write("Makefile", old)
+        self.commit("old")
+        self.base = self.rev("HEAD")
+        self.write("Makefile", old.replace("echo lint", "echo changed"))
+        self.commit("new")
+        self.assertEqual(len(self.items("gate")), 1)
+
+    def test_unrelated_target_recipe_is_not_an_item(self) -> None:
+        self.write("Makefile", self.PRELUDE)
+        self.commit("old")
+        self.base = self.rev("HEAD")
+        self.write("Makefile", self.PRELUDE.replace("echo run", "echo other"))
+        self.commit("new")
+        self.assertEqual(self.items("gate"), [])
+
+    def test_conditional_selector_change_is_an_item(self) -> None:
+        cond = "ifeq ($(MODE),{m})\nX = 1\nendif\n"
+        self.assertEqual(len(self.change(cond.format(m="a"), cond.format(m="b"))), 1)
+
+    def test_shell_change_is_an_item(self) -> None:
+        self.assertEqual(
+            len(self.change("SHELL = /bin/sh\n", "SHELL = /bin/bash\n")), 1
+        )
+
+    def test_export_change_is_an_item(self) -> None:
+        old, new = "export CELL_LABEL = a\n", "export CELL_LABEL = b\n"
+        self.assertEqual(len(self.change(old, new)), 1)
+
+    def test_export_line_added_is_an_item(self) -> None:
+        self.assertEqual(len(self.change("A = 1\n", "A = 1\nexport CELL_LABEL\n")), 1)
+
+    def test_conditional_assignment_change_is_an_item(self) -> None:
+        self.assertEqual(len(self.change("CELL_LABEL ?= a\n", "CELL_LABEL ?= b\n")), 1)
+
+    def test_define_body_change_is_an_item(self) -> None:
+        define = "define BODY\n\techo {x}\nendef\n"
+        self.assertEqual(
+            len(self.change(define.format(x="a"), define.format(x="b"))), 1
+        )
+
+    def test_added_include_is_an_item(self) -> None:
+        self.assertEqual(len(self.change("A = 1\n", "A = 1\ninclude extra.mk\n")), 1)
+
+    def test_pattern_rule_recipe_change_is_an_item(self) -> None:
+        rule = "%.o: %.c\n\tcc {x}\n"
+        self.assertEqual(len(self.change(rule.format(x="a"), rule.format(x="b"))), 1)
+
+    def test_comment_only_change_is_not_an_item(self) -> None:
+        self.assertEqual(self.change("# one\n", "# two\n"), [])
+
+    def test_transitive_prerequisite_recipe_is_reached(self) -> None:
+        chain = "mutants-a: mid\n\tx\nmid: leaf\n\ty\nleaf:\n\t{x}\n"
+        self.assertEqual(len(self.change(chain.format(x="1"), chain.format(x="2"))), 1)
+
+
+class WorkflowNameTest(ItemsCase):
+    def set_base_other(self, text: str) -> None:
+        self.write(".github/workflows/other.yml", text)
+        self.commit("other at base")
+        self.base = self.rev("HEAD")
+
+    def test_expression_name_counts_as_declaring(self) -> None:
+        self.write(
+            ".github/workflows/other.yml",
+            "name: other\njobs:\n  a:\n    name: ${{ matrix.n }}\n    steps: []\n",
+        )
+        self.commit("expression name")
+        self.assertEqual(len(self.items("gate")), 1)
+
+    def test_deleting_a_job_that_declared_a_gate_name_is_an_item(self) -> None:
+        self.set_base_other("name: other\njobs:\n  mutation-pr:\n    steps: []\n")
+        self.write(
+            ".github/workflows/other.yml", "name: other\njobs:\n  a:\n    steps: []\n"
+        )
+        self.commit("delete the job")
+        self.assertEqual(len(self.items("gate")), 1)
+
+    def test_deleting_the_workflow_file_is_an_item(self) -> None:
+        self.set_base_other("name: other\njobs:\n  secret-scan:\n    steps: []\n")
+        (self.repo / ".github/workflows/other.yml").unlink()
+        self.commit("delete the file")
+        (item,) = self.items("gate")
+        self.assertEqual(item.key, (".github/workflows/other.yml", mgi.DELETED))
+
+    def test_yaml_error_is_an_item(self) -> None:
+        self.write(".github/workflows/other.yml", "name: [unclosed\njobs: {\n")
+        self.commit("broken yaml")
+        self.assertEqual(len(self.items("gate")), 1)
+
+    def test_indentation_only_change_of_a_uses_line_is_an_item(self) -> None:
+        text = MUTATION_PR.format(sha=SHA_OLD, version="v1").replace(
+            "      - uses", "    - uses"
+        )
+        self.write(".github/workflows/mutation-pr.yml", text)
+        self.commit("reindent")
+        self.assertEqual(len(self.items("gate")), 1)
+
+    def test_comment_glued_to_the_sha_is_an_item(self) -> None:
+        text = (
+            MUTATION_PR.format(sha=SHA_NEW, version="v2")
+            .replace("# v2", "#v2")
+            .replace(f"{SHA_NEW} #", f"{SHA_NEW}#")
+        )
+        self.write(".github/workflows/mutation-pr.yml", text)
+        self.commit("glued comment")
+        self.assertEqual(len(self.items("gate")), 1)
+
+
+class HostileHeadTest(ItemsCase):
+    def test_head_enrolling_its_own_signing_key_is_red(self) -> None:
+        text = (self.repo / "sq" / "cosmic-ray.toml").read_text()
+        self.write(
+            "sq/cosmic-ray.toml", re.sub(r"timeout = [0-9.]+", "timeout = 999.0", text)
+        )
+        self.write(
+            ".github/mutation-gate-allowed-signers",
+            f'evil namespaces="git" {self.pub(self.other_key)}\n',
+        )
+        self.commit("self-enrol")
+        self.commit(
+            "chore: review",
+            self.trailer(7, "sq"),
+            self.trailer(7, "gate"),
+            key=self.other_key,
+        )
+        code, text_out = mgi.run(self.repo, self.base, "HEAD", 7, None)
+        self.assertEqual(code, 1)
+        self.assertIn("trailer ignored:", text_out)
+
+
+class ErrorHandlingTest(ItemsCase):
+    def test_unexpected_exception_is_an_infra_error_exit_3(self) -> None:
+        err = io.StringIO()
+        with (
+            mock.patch.object(mgi, "collect", side_effect=ValueError("boom")),
+            contextlib.redirect_stderr(err),
+        ):
+            code = mgi.main([self.base, "HEAD", "--repo", str(self.repo)])
+        self.assertEqual(code, 3)
+        self.assertEqual(
+            err.getvalue().strip(), "mutation-gate-items: infra error: ValueError: boom"
+        )
+
+    def test_binary_cosmic_ray_toml_is_an_unparseable_item(self) -> None:
+        (self.repo / "sq" / "cosmic-ray.toml").write_bytes(b"\xff\xfe\x00[\x80")
+        self.commit("binary config")
+        (item,) = self.items("python-config")
+        self.assertEqual(item.key[:2], ("sq", "unparseable"))
+
+    def test_show_returns_text_for_non_utf8_bytes(self) -> None:
+        (self.repo / "bin.dat").write_bytes(b"\xff\xfe")
+        self.commit("binary")
+        ctx = mgi.Context(self.repo, self.base, "HEAD", [], self.tmp)
+        self.assertIsInstance(ctx.show("HEAD", "bin.dat"), str)
+
+
+class NonAsciiDirTest(ItemsCase):
+    def test_astral_plane_dir_name_still_resolves_entries(self) -> None:
+        directory = "sq\U0001f600"
+        self.write(
+            f"{directory}/{directory}.py", (self.repo / "sq" / "sq.py").read_text()
+        )
+        self.write(
+            f"{directory}/cosmic-ray.toml",
+            (self.repo / "sq" / "cosmic-ray.toml").read_text(),
+        )
+        self.write(
+            f"{directory}/mutants-equivalent.toml",
+            self.eq_entry(
+                "k = 1", "core/NumberReplacer", "generate_squares", 8, 0, directory
+            ),
+        )
+        self.commit("non-ascii dir")
+        found = self.items("python-equivalent")
+        self.assertEqual([i.key[0] for i in found], [directory])
+
+
+class OrdinalTest(ItemsCase):
+    def test_unrelated_literal_added_earlier_does_not_change_the_key(self) -> None:
+        self.write("sq/mutants-equivalent.toml", self.number_entry(1))
+        self.commit("entry")
+        before = self.items("python-equivalent")
+        module = (self.repo / "sq" / "sq.py").read_text()
+        self.write("sq/sq.py", "_UNRELATED = 5\n" + module)
+        self.commit("unrelated literal earlier in the module")
+        self.assertEqual(self.items("python-equivalent"), before)
+        self.assertEqual(before[0].key[-1], "1")
+
+
+class N4Test(ItemsCase):
+    def test_module_import_side_effect_never_runs(self) -> None:
+        marker = self.tmp / "imported"
+        module = (self.repo / "sq" / "sq.py").read_text()
+        payload = f"from pathlib import Path\nPath({str(marker)!r}).write_text('x')\n"
+        self.write("sq/sq.py", payload + module)
+        self.write("sq/mutants-equivalent.toml", self.number_entry(0))
+        self.commit("module with import side effect")
+        self.assertEqual(len(self.items("python-equivalent")), 1)
+        self.assertFalse(marker.exists())
+
+    def captured_env(self, extra: dict[str, str] | None = None) -> dict[str, str]:
+        env = {"PATH": ".:rel:/usr/bin:", "SECRET_X": "1", "GIT_DIR": "/nope"}
+        with (
+            mock.patch.dict(os.environ, env),
+            mock.patch.object(mgi.subprocess, "run") as run,
+        ):
+            mgi.run_tool(["true"], extra)
+        return run.call_args.kwargs["env"]
+
+    def test_env_is_scrubbed_not_inherited(self) -> None:
+        env = self.captured_env()
+        self.assertEqual(env["PATH"], "/usr/bin")
+        self.assertEqual(env["PYTHONSAFEPATH"], "1")
+        self.assertEqual(
+            set(env),
+            {
+                "PATH",
+                "HOME",
+                "LANG",
+                "PYTHONDONTWRITEBYTECODE",
+                "PYTHONSAFEPATH",
+                "PYTHONNOUSERSITE",
+            },
+        )
+
+    def test_callers_can_pass_rustup_and_cargo_variables(self) -> None:
+        extra = {"RUSTUP_HOME": "/r", "RUSTUP_TOOLCHAIN": "1.90", "CARGO_HOME": "/c"}
+        env = self.captured_env(extra)
+        for key, value in extra.items():
+            self.assertEqual(env[key], value)
+        self.assertNotIn("SECRET_X", env)
+
+    def test_each_collector_gets_its_own_scratch_directory(self) -> None:
+        seen: dict[str, Path] = {}
+
+        def spy(name: str) -> Any:
+            def collector(ctx: Any) -> list[Any]:
+                seen[name] = ctx.scratch
+                return []
+
+            return collector
+
+        with mock.patch.dict(mgi._COLLECTORS, clear=False):
+            mgi.register("spy-a", spy("a"))
+            mgi.register("spy-b", spy("b"))
+            self.items()
+        self.assertNotEqual(seen["a"], seen["b"])
+        self.assertEqual(seen["a"].parent, seen["b"].parent)
+
+
+class TargetFilterTest(ItemsCase):
+    def test_clearance_recollects_only_the_trailers_targets(self) -> None:
+        path = self.repo / "sq" / "cosmic-ray.toml"
+        self.write(
+            "sq/cosmic-ray.toml",
+            re.sub(r"timeout = [0-9.]+", "timeout = 90.0", path.read_text()),
+        )
+        self.commit("timeout")
+        review = self.commit("chore: review", self.trailer(7, "sq"), key=self.key)
+        with mock.patch.object(mgi, "collect", wraps=mgi.collect) as spy:
+            self.assertEqual(self.run_cli()[0], 0)
+        filtered = [c for c in spy.call_args_list if c.args[2] == review]
+        self.assertEqual(
+            [c.kwargs.get("targets") for c in filtered], [frozenset({"sq"})]
+        )
+
+    def test_collect_with_targets_returns_only_those(self) -> None:
+        path = self.repo / "sq" / "cosmic-ray.toml"
+        self.write(
+            "sq/cosmic-ray.toml",
+            re.sub(r"timeout = [0-9.]+", "timeout = 90.0", path.read_text()),
+        )
+        self.write("scripts/mutation-pr-detect.sh", "x\n")
+        self.commit("both")
+        found = mgi.collect(self.repo, self.base, "HEAD", targets=frozenset({"gate"}))
+        self.assertEqual({i.target for i in found}, {"gate"})
 
 
 if __name__ == "__main__":

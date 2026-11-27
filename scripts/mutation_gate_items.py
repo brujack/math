@@ -13,7 +13,8 @@ The only code imported besides the standard library is the base checkout's own
 `cosmic_ray_prune.py` and `mutation_gate_clearance.py` (this file's directory).
 
 Usage: mutation_gate_items.py <base-sha> <head-sha> [--pr <n>] [--repo <dir>]
-Exit codes: 0 no uncleared items, 1 red, 2 usage.
+Exit codes: 0 no uncleared items, 1 red (items), 2 usage, 3 infrastructure error (still
+red in CI).
 """
 
 import argparse
@@ -30,7 +31,7 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -83,15 +84,21 @@ name = "local"
 USES_RE = re.compile(
     r"^(?P<lead>\s*(?:-\s+)?uses:\s*)"
     r"(?P<action>[\w.-]+/[\w.-]+(?:/[\w./-]+)?)@(?P<sha>[0-9a-f]{40})"
-    r"(?P<comment>\s*#.*)?\s*$"
+    r"(?P<comment>\s+#.*)?\s*$"
 )
 ASSIGN_RE = re.compile(
     r"^\s*(?:(?:export|override)\s+)*([A-Za-z_][\w.-]*)\s*(?:::=|:=|\?=|\+=|=)"
 )
 RULE_RE = re.compile(r"^([^\s#=:\t][^:=#]*):(?!=)")
-REF_RE = re.compile(r"\$[({]([A-Za-z_][\w.-]*)[)}]")
+DIRECTIVE_RE = re.compile(
+    r"^\s*(?:ifeq|ifneq|ifdef|ifndef|else|endif|-?include|sinclude|export|unexport|vpath)\b"
+)
+DEFINE_RE = re.compile(r"^\s*define\b")
+ENDEF_RE = re.compile(r"^\s*endef\b")
+SUBMAKE_RE = re.compile(r"\$\(MAKE\)\s+(?:-\S+\s+)*([\w.-]+)")
 CONFIG_REMOVED = "<removed>"
 DELETED = "deleted"
+REGULAR_MODES = frozenset({"100644", "100755"})
 
 
 @dataclass(frozen=True)
@@ -127,7 +134,13 @@ def _safe_path_entries() -> str:
 def run_tool(
     args: list[str], extra_env: dict[str, str] | None = None, timeout: int = 900
 ) -> subprocess.CompletedProcess[str]:
-    """Run a tool with cwd = a fresh empty directory and a scrubbed environment (N4)."""
+    """Run a tool with cwd = a fresh empty directory and a scrubbed environment (N4).
+
+    The environment is built from scratch (never inherited): a PATH of absolute entries
+    only, HOME in the empty directory, and the fixed Python hardening variables. A caller
+    needing more passes `extra_env`, for example `RUSTUP_HOME`, `RUSTUP_TOOLCHAIN` and
+    `CARGO_HOME` for `cargo mutants --list`; nothing else reaches the tool.
+    """
     with tempfile.TemporaryDirectory(prefix="mgi-cwd-") as cwd:
         env = {
             "PATH": _safe_path_entries(),
@@ -150,36 +163,111 @@ def run_tool(
         )
 
 
+class NotRegularError(RuntimeError):
+    """A blob that is not a regular file (symlink, gitlink, tree) where one is needed."""
+
+    def __init__(self, path: str, mode: str, blob: str) -> None:
+        super().__init__(f"{path} is not a regular file (mode {mode})")
+        self.path = path
+        self.mode = mode
+        self.blob = blob
+
+
+def _git_bytes(repo: Path, args: list[str]) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args],
+        capture_output=True,
+        env=_clean_env(),
+        stdin=subprocess.DEVNULL,
+        check=False,
+    )
+
+
+def _write_under(root: Path, rel: str, data: bytes) -> Path:
+    dest = (root / rel).resolve()
+    if root.resolve() not in dest.parents:
+        raise RuntimeError(f"refusing to write outside the scratch tree: {rel}")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(data)
+    return dest
+
+
 @dataclass
 class Context:
-    """What a collector sees: the repo, both shas, changed paths and a scratch tree."""
+    """What a collector sees: the repo, both shas, changed paths and its own scratch dir.
+
+    `targets` limits the items wanted (None means all); a collector may skip other targets.
+    PR files reach disk only through `materialise` and `materialise_tree`.
+    """
 
     repo: Path
     base: str
     head: str
     changed: list[str]
     scratch: Path
+    targets: frozenset[str] | None = None
+
+    def wants(self, target: str) -> bool:
+        return self.targets is None or target in self.targets
+
+    def entry(self, sha: str, path: str) -> tuple[str, str] | None:
+        """(mode, blob id) of `<sha>:<path>` from `git ls-tree`, or None when absent."""
+        out = _git_bytes(self.repo, ["ls-tree", "-z", sha, "--", path])
+        if out.returncode != 0 or not out.stdout:
+            return None
+        mode, _, blob = out.stdout.split(b"\t", 1)[0].decode().split()[:3]
+        return mode, blob
+
+    def mode(self, sha: str, path: str) -> str | None:
+        found = self.entry(sha, path)
+        return found[0] if found else None
 
     def show(self, sha: str, path: str) -> str | None:
-        """`git show <sha>:<path>` as text, or None when the path is absent there."""
-        out = _git(self.repo, ["show", f"{sha}:{path}"])
-        return out.stdout if out.returncode == 0 else None
+        """`git show <sha>:<path>` as text (undecodable bytes kept), or None if absent."""
+        out = _git_bytes(self.repo, ["show", f"{sha}:{path}"])
+        if out.returncode != 0:
+            return None
+        return out.stdout.decode("utf-8", errors="surrogateescape")
 
     def blob_id(self, sha: str, path: str) -> str:
-        out = _git(self.repo, ["rev-parse", "--verify", "-q", f"{sha}:{path}"])
-        return out.stdout.strip() if out.returncode == 0 else DELETED
+        found = self.entry(sha, path)
+        return found[1] if found else DELETED
+
+    def _blob(self, blob: str) -> bytes:
+        out = _git_bytes(self.repo, ["cat-file", "blob", blob])
+        if out.returncode != 0:
+            raise RuntimeError(f"git cat-file blob {blob} failed")
+        return out.stdout
 
     def materialise(self, sha: str, path: str, root: Path) -> Path | None:
-        """Write `<sha>:<path>` to `<root>/<path>` with `git show` only (never archive)."""
-        text = self.show(sha, path)
-        if text is None:
+        """Write `<sha>:<path>` to `<root>/<path>` from its blob (never archive or checkout).
+
+        None when the path is absent; NotRegularError when it is not a regular file.
+        """
+        found = self.entry(sha, path)
+        if found is None:
             return None
-        dest = (root / path).resolve()
-        if root.resolve() not in dest.parents:
-            raise RuntimeError(f"refusing to write outside the scratch tree: {path}")
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(text, encoding="utf-8")
-        return dest
+        if found[0] not in REGULAR_MODES:
+            raise NotRegularError(path, found[0], found[1])
+        return _write_under(root, path, self._blob(found[1]))
+
+    def materialise_tree(self, sha: str, subdir: str, root: Path) -> Path:
+        """Write every file under `<sha>:<subdir>` to `<root>/<subdir>` as bytes.
+
+        NotRegularError on any entry that is not a regular file (symlink, gitlink).
+        """
+        out = _git_bytes(self.repo, ["ls-tree", "-r", "-z", sha, "--", subdir])
+        if out.returncode != 0:
+            raise RuntimeError(f"git ls-tree {sha} {subdir} failed")
+        (root / subdir).mkdir(parents=True, exist_ok=True)
+        for record in filter(None, out.stdout.split(b"\0")):
+            meta, _, raw_path = record.partition(b"\t")
+            mode, _, blob = meta.decode().split()
+            path = raw_path.decode("utf-8", errors="surrogateescape")
+            if mode not in REGULAR_MODES:
+                raise NotRegularError(path, mode, blob)
+            _write_under(root, path, self._blob(blob))
+        return root / subdir
 
 
 Collector = Callable[[Context], list[Item]]
@@ -198,14 +286,25 @@ def _changed_paths(repo: Path, base: str, head: str) -> list[str]:
     return [p for p in out.stdout.split("\0") if p]
 
 
-def collect(repo: Path, base: str, head: str) -> list[Item]:
-    """Every item of the change base..head, sorted and de-duplicated."""
+def collect(
+    repo: Path, base: str, head: str, targets: frozenset[str] | None = None
+) -> list[Item]:
+    """Every item of the change base..head, sorted and de-duplicated.
+
+    `targets` keeps only items of those targets. Each collector runs with its own scratch
+    subdirectory.
+    """
     with tempfile.TemporaryDirectory(prefix="mgi-scratch-") as tmp:
-        ctx = Context(repo, base, head, _changed_paths(repo, base, head), Path(tmp))
+        ctx = Context(
+            repo, base, head, _changed_paths(repo, base, head), Path(tmp), targets
+        )
         found: set[Item] = set()
         for kind in sorted(_COLLECTORS):
-            found.update(_COLLECTORS[kind](ctx))
-    return sorted(found, key=lambda i: (i.target, i.kind, i.key))
+            scratch = Path(tmp) / kind
+            scratch.mkdir()
+            found.update(_COLLECTORS[kind](replace(ctx, scratch=scratch)))
+    kept = [i for i in found if targets is None or i.target in targets]
+    return sorted(kept, key=lambda i: (i.target, i.kind, i.key))
 
 
 # --- Python config items (R22) -------------------------------------------------------
@@ -227,7 +326,7 @@ def _parse_config(text: str | None) -> dict[str, str] | None:
         return {}
     try:
         return _flatten(tomllib.loads(text))
-    except tomllib.TOMLDecodeError:
+    except ValueError:
         return None
 
 
@@ -238,8 +337,11 @@ def _config_dirs(ctx: Context) -> list[str]:
 
 def _config_items_for(ctx: Context, directory: str) -> list[Item]:
     path = f"{directory}/cosmic-ray.toml"
-    new_text = ctx.show(ctx.head, path)
-    new = _parse_config(new_text)
+    mode = ctx.mode(ctx.head, path)
+    if mode is not None and mode not in REGULAR_MODES:
+        key = (directory, "config-not-regular", ctx.blob_id(ctx.head, path))
+        return [Item(directory, "python-config", key)]
+    new = _parse_config(ctx.show(ctx.head, path))
     old = _parse_config(ctx.show(ctx.base, path))
     if new is None or old is None:
         key = (directory, "unparseable", ctx.blob_id(ctx.head, path))
@@ -254,11 +356,20 @@ def _config_items_for(ctx: Context, directory: str) -> list[Item]:
 def collect_python_config(ctx: Context) -> list[Item]:
     items: list[Item] = []
     for directory in _config_dirs(ctx):
-        items += _config_items_for(ctx, directory)
+        if ctx.wants(directory):
+            items += _config_items_for(ctx, directory)
     return items
 
 
 # --- Python equivalents items (R22) --------------------------------------------------
+
+
+@dataclass
+class _Resolved:
+    operator: str
+    spec: Any
+    count: int
+    ordinal: int
 
 
 def _equivalent_dirs(ctx: Context) -> list[str]:
@@ -266,17 +377,29 @@ def _equivalent_dirs(ctx: Context) -> list[str]:
     return sorted({m.group(1) for p in ctx.changed if (m := pattern.match(p))})
 
 
-def _init_session(ctx: Context, directory: str) -> Path | None:
-    """`cosmic-ray init` on the head module with a generated config; None if no module."""
+def _equivalent_marker(directory: str, what: str, blob: str) -> Item:
+    return Item(directory, "python-equivalent", (directory, what, blob))
+
+
+def _init_session(ctx: Context, directory: str) -> Path | Item:
+    """`cosmic-ray init` on the head module with a generated config.
+
+    An Item (module-not-regular) when the head module is missing or not a regular file:
+    a symlinked module would otherwise yield no jobs and hide every new entry.
+    """
     module = f"{directory}/{directory.replace('-', '_')}.py"
-    materialised = ctx.materialise(ctx.head, module, ctx.scratch / "head")
+    try:
+        materialised = ctx.materialise(ctx.head, module, ctx.scratch / "head")
+    except NotRegularError as exc:
+        return _equivalent_marker(directory, "module-not-regular", exc.blob)
     if materialised is None:
-        return None
+        return _equivalent_marker(directory, "module-not-regular", DELETED)
     binary = shutil.which("cosmic-ray", path=_safe_path_entries())
     if binary is None:
         raise RuntimeError("cosmic-ray console script not found on PATH")
     config = ctx.scratch / f"{directory}-generated.toml"
-    config.write_text(GENERATED_CONFIG.format(module=json.dumps(str(materialised))))
+    module_literal = json.dumps(str(materialised), ensure_ascii=False)
+    config.write_text(GENERATED_CONFIG.format(module=module_literal), encoding="utf-8")
     session = ctx.scratch / f"{directory}-session.sqlite"
     result = run_tool([binary, "init", str(config), str(session)])
     if result.returncode != 0:
@@ -294,69 +417,88 @@ def _load_entries(path: Path | None) -> list[Any] | None:
         return None
 
 
+def _ordinal(specs: list[Any], spec: Any) -> int:
+    """Position of `spec` among specs of one operator sharing function, line and above."""
+    peers = [
+        s
+        for s in specs
+        if (s.function, s.line, s.above) == (spec.function, spec.line, spec.above)
+    ]
+    return peers.index(spec)
+
+
 def _resolve_tolerant(
     conn: sqlite3.Connection, entries: list[Any]
-) -> dict[str, tuple[str, Any, int]]:
-    """job id -> (operator, spec, entry count); an entry matching no job is skipped."""
+) -> dict[str, _Resolved]:
+    """job id -> resolution for every entry that resolves; others are skipped."""
     sources = prune.SourceCache()
-    resolved: dict[str, tuple[str, Any, int]] = {}
+    resolved: dict[str, _Resolved] = {}
     for entry in entries:
         try:
             job_id = prune.resolve_entry(conn, entry, sources)[0]
         except prune.PruneError:
             continue
-        spec = next(s for s in sources.specs[entry.operator] if s.job_id == job_id)
-        count = resolved[job_id][2] if job_id in resolved else 0
-        resolved[job_id] = (entry.operator, spec, count + 1)
+        if job_id in resolved:
+            resolved[job_id].count += 1
+            continue
+        specs = sources.specs[entry.operator]
+        spec = next(s for s in specs if s.job_id == job_id)
+        resolved[job_id] = _Resolved(entry.operator, spec, 1, _ordinal(specs, spec))
     return resolved
 
 
-def _equivalent_item(directory: str, operator: str, spec: Any, duplicate: bool) -> Item:
+def _equivalent_item(directory: str, found: _Resolved, duplicate: bool) -> Item:
+    spec = found.spec
     key = (
         directory,
-        operator,
+        found.operator,
         spec.function or "",
         spec.line,
         spec.above,
-        str(spec.occurrence),
+        str(found.ordinal),
     )
-    return Item(
-        directory,
-        "python-equivalent",
-        key + (("duplicate-entry",) if duplicate else ()),
-    )
+    suffix = ("duplicate-entry",) if duplicate else ()
+    return Item(directory, "python-equivalent", key + suffix)
 
 
 def _head_only_items(
-    directory: str, head_jobs: dict[str, Any], base_jobs: dict[str, Any]
+    directory: str, head_jobs: dict[str, _Resolved], base_jobs: dict[str, _Resolved]
 ) -> list[Item]:
     """Jobs pruned only by the head file, and entries the head file repeats (R22)."""
     items = []
-    for job_id, (operator, spec, count) in head_jobs.items():
-        base_count = base_jobs[job_id][2] if job_id in base_jobs else 0
-        if count > max(base_count, 1) or (base_count == 0 and count > 1):
-            items.append(_equivalent_item(directory, operator, spec, True))
+    for job_id, found in head_jobs.items():
+        base_count = base_jobs[job_id].count if job_id in base_jobs else 0
+        if found.count > max(base_count, 1):
+            items.append(_equivalent_item(directory, found, True))
         if base_count == 0:
-            items.append(_equivalent_item(directory, operator, spec, False))
+            items.append(_equivalent_item(directory, found, False))
     return items
 
 
 def _equivalents_for(ctx: Context, directory: str) -> list[Item]:
     path = f"{directory}/mutants-equivalent.toml"
-    head_toml = ctx.materialise(ctx.head, path, ctx.scratch / "head")
-    base_toml = ctx.materialise(ctx.base, path, ctx.scratch / "base")
+    try:
+        head_toml = ctx.materialise(ctx.head, path, ctx.scratch / "head")
+    except NotRegularError as exc:
+        return [_equivalent_marker(directory, "toml-not-regular", exc.blob)]
+    try:
+        base_toml = ctx.materialise(ctx.base, path, ctx.scratch / "base")
+    except NotRegularError:
+        base_toml = None
     head_entries = _load_entries(head_toml)
     if head_entries is None:
-        key = (directory, "unparseable", ctx.blob_id(ctx.head, path))
-        return [Item(directory, "python-equivalent", key)]
-    base_entries = _load_entries(base_toml) or []
-    session = _init_session(ctx, directory) if head_entries else None
-    if session is None:
+        return [
+            _equivalent_marker(directory, "unparseable", ctx.blob_id(ctx.head, path))
+        ]
+    if not head_entries:
         return []
+    session = _init_session(ctx, directory)
+    if isinstance(session, Item):
+        return [session]
     conn = prune.open_session(session)
     try:
         head_jobs = _resolve_tolerant(conn, head_entries)
-        base_jobs = _resolve_tolerant(conn, base_entries)
+        base_jobs = _resolve_tolerant(conn, _load_entries(base_toml) or [])
     finally:
         conn.close()
     return _head_only_items(directory, head_jobs, base_jobs)
@@ -365,7 +507,8 @@ def _equivalents_for(ctx: Context, directory: str) -> list[Item]:
 def collect_python_equivalents(ctx: Context) -> list[Item]:
     items: list[Item] = []
     for directory in _equivalent_dirs(ctx):
-        items += _equivalents_for(ctx, directory)
+        if ctx.wants(directory):
+            items += _equivalents_for(ctx, directory)
     return items
 
 
@@ -388,8 +531,15 @@ def _is_workflow(path: str) -> bool:
     )
 
 
+def _is_gate_name(name: object) -> bool:
+    return isinstance(name, str) and (name in GATE_NAMES or "${{" in name)
+
+
 def _declares_gate_name(text: str) -> bool:
-    """True when a workflow has a job id or `name:` of a gate check (or cannot be read)."""
+    """True when a workflow has a job id or `name:` of a gate check (or cannot be read).
+
+    A `name:` holding a `${{` expression counts: it can evaluate to a gate name.
+    """
     try:
         data = yaml.safe_load(text)
     except yaml.YAMLError:
@@ -402,7 +552,7 @@ def _declares_gate_name(text: str) -> bool:
         for job_id, job in jobs.items():
             names.append(job_id)
             names.append(job.get("name") if isinstance(job, dict) else None)
-    return any(isinstance(n, str) and n in GATE_NAMES for n in names)
+    return any(_is_gate_name(n) for n in names)
 
 
 def _uses_bump(old: str, new: str) -> bool:
@@ -428,10 +578,12 @@ def only_uses_bumps(old_text: str, new_text: str) -> bool:
 
 def _workflow_item(ctx: Context, path: str) -> Item | None:
     head_text = ctx.show(ctx.head, path)
-    listed = _is_listed_gate_path(path)
-    if not listed and (head_text is None or not _declares_gate_name(head_text)):
-        return None
     base_text = ctx.show(ctx.base, path)
+    texts = [t for t in (head_text, base_text) if t is not None]
+    if not _is_listed_gate_path(path) and not any(
+        _declares_gate_name(t) for t in texts
+    ):
+        return None
     if (
         head_text is not None
         and base_text is not None
@@ -439,6 +591,16 @@ def _workflow_item(ctx: Context, path: str) -> Item | None:
     ):
         return None
     return Item("gate", "gate", (path, ctx.blob_id(ctx.head, path)))
+
+
+@dataclass
+class _Make:
+    """What the gate needs from a Makefile: everything outside recipes, and the recipes."""
+
+    other: list[str]
+    recipes: dict[str, list[str]]
+    prereqs: dict[str, set[str]]
+    special: set[str]
 
 
 def _logical_lines(text: str) -> list[str]:
@@ -454,58 +616,81 @@ def _logical_lines(text: str) -> list[str]:
     return out
 
 
-def _parse_make(text: str) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
-    """Targets -> rule and recipe lines, variables -> assignment lines (just enough make)."""
-    targets: dict[str, list[str]] = {}
-    variables: dict[str, list[str]] = {}
+def _add_rule(make: _Make, names: list[str], line: str) -> None:
+    after = line.split(":", 1)[1].split(";", 1)[0].replace("|", " ")
+    for name in names:
+        make.recipes.setdefault(name, [])
+        make.prereqs.setdefault(name, set()).update(after.split())
+        if name.startswith(".") or "%" in name:
+            make.special.add(name)
+
+
+def _parse_make(text: str) -> _Make:
+    """Just enough make: rules, recipes, defines and directives; the rest is `other`."""
+    make = _Make([], {}, {}, set())
     current: list[str] = []
+    in_define = False
     for line in _logical_lines(text):
-        if line.startswith("\t"):
+        if in_define:
+            make.other.append(line)
+            in_define = not ENDEF_RE.match(line)
+        elif line.startswith("\t") and current:
             for name in current:
-                targets[name].append(line)
+                make.recipes[name].append(line)
         elif not line.strip() or line.lstrip().startswith("#"):
             continue
-        elif assign := ASSIGN_RE.match(line):
-            variables.setdefault(assign.group(1), []).append(line)
-            current = []
-        elif rule := RULE_RE.match(line):
-            current = rule.group(1).split()
-            for name in current:
-                targets.setdefault(name, []).append(line)
         else:
-            current = []
-    return targets, variables
+            make.other.append(line)
+            in_define = bool(DEFINE_RE.match(line))
+            if DIRECTIVE_RE.match(line) or in_define:
+                continue
+            rule = None if ASSIGN_RE.match(line) else RULE_RE.match(line)
+            current = rule.group(1).split() if rule else []
+            if rule:
+                _add_rule(make, current, line)
+    return make
 
 
-def _refs(text: str) -> list[str]:
-    return REF_RE.findall(text.replace("$$", ""))
-
-
-def mutants_text(text: str) -> str:
-    """The `mutants*` target text plus every variable it references, transitively."""
-    targets, variables = _parse_make(text)
-    body = "\n".join(
-        "\n".join(lines)
-        for name, lines in targets.items()
-        if fnmatch.fnmatchcase(name, "mutants*")
-    )
-    seen: dict[str, str] = {}
-    queue = _refs(body)
+def _reachable(make: _Make) -> set[str]:
+    """Targets `mutants*` can reach through prerequisites and `$(MAKE) <target>` calls."""
+    seen: set[str] = set()
+    queue = [n for n in make.recipes if fnmatch.fnmatchcase(n, "mutants*")]
     while queue:
         name = queue.pop()
-        if name in seen or name not in variables:
+        if name in seen:
             continue
-        seen[name] = "\n".join(variables[name])
-        queue += _refs(seen[name])
-    return body + "\n" + "\n".join(f"{n}:\n{seen[n]}" for n in sorted(seen))
+        seen.add(name)
+        queue += make.prereqs.get(name, set())
+        for line in make.recipes.get(name, []):
+            queue += SUBMAKE_RE.findall(line)
+    return seen
+
+
+def make_scope_text(text: str) -> str:
+    """The text the gate hashes: every non-recipe line, plus the recipes `mutants*` reaches.
+
+    Recipes of pattern and special (`.PHONY`-style) targets are always included. Only recipe
+    lines of targets `mutants*` cannot reach are exempt, so a variable, export, conditional,
+    `define`, `include` or `SHELL` change always changes the text.
+    """
+    make = _parse_make(text)
+    reached = _reachable(make)
+    parts = [*make.other, "--recipes--"]
+    for name in sorted(make.recipes):
+        if name in reached or name in make.special:
+            parts += [name, *make.recipes[name]]
+    return "\n".join(parts)
 
 
 def _makefile_item(ctx: Context, path: str) -> Item | None:
-    old = mutants_text(ctx.show(ctx.base, path) or "")
-    new = mutants_text(ctx.show(ctx.head, path) or "")
+    mode = ctx.mode(ctx.head, path)
+    if mode is not None and mode not in REGULAR_MODES:
+        return Item("gate", "gate", (path, ctx.blob_id(ctx.head, path)))
+    old = make_scope_text(ctx.show(ctx.base, path) or "")
+    new = make_scope_text(ctx.show(ctx.head, path) or "")
     if old == new:
         return None
-    digest = hashlib.sha256(new.encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(new.encode("utf-8", errors="surrogateescape")).hexdigest()
     return Item("gate", "gate", (path, digest))
 
 
@@ -520,6 +705,8 @@ def _gate_item(ctx: Context, path: str) -> Item | None:
 
 
 def collect_gate(ctx: Context) -> list[Item]:
+    if not ctx.wants("gate"):
+        return []
     found = (_gate_item(ctx, p) for p in ctx.changed)
     return [item for item in found if item is not None]
 
@@ -530,6 +717,15 @@ register("gate", collect_gate)
 
 
 # --- Clearance and CLI (R26) ---------------------------------------------------------
+
+
+def merge_base(repo: Path, base: str, head: str) -> str:
+    """The merge base of the two commits; RuntimeError when git cannot find one."""
+    out = _git(repo, ["merge-base", "--end-of-options", base, head])
+    sha = out.stdout.strip()
+    if out.returncode != 0 or not sha:
+        raise RuntimeError(f"git merge-base {base} {head} failed: {out.stderr.strip()}")
+    return sha
 
 
 def _signers_file(repo: Path, base: str, scratch: Path, override: str | None) -> Path:
@@ -555,17 +751,16 @@ def _signing_key(signers: Path) -> str:
 def _cleared_keys(
     repo: Path, base: str, found: list[Any]
 ) -> set[tuple[str, str, tuple[str, ...]]]:
-    """Keys present in the tree of a verified clearing commit for their own target."""
-    cleared: set[tuple[str, str, tuple[str, ...]]] = set()
-    by_sha: dict[str, list[Item]] = {}
+    """Keys in the tree of a verified clearing commit, for the targets it names only."""
+    named: dict[str, set[str]] = {}
     for entry in found:
-        if entry.sha not in by_sha:
-            by_sha[entry.sha] = collect(repo, base, entry.sha)
-        cleared.update(
-            (i.target, i.kind, i.key)
-            for i in by_sha[entry.sha]
-            if i.target == entry.target
+        named.setdefault(entry.sha, set()).add(entry.target)
+    cleared: set[tuple[str, str, tuple[str, ...]]] = set()
+    for sha, targets in named.items():
+        at_sha = collect(
+            repo, merge_base(repo, base, sha), sha, targets=frozenset(targets)
         )
+        cleared.update((i.target, i.kind, i.key) for i in at_sha)
     return cleared
 
 
@@ -588,15 +783,20 @@ def _render(items: list[Item], ignored: list[str], pr: int | None, key: str) -> 
 def run(
     repo: Path, base: str, head: str, pr: int | None, signers_override: str | None
 ) -> tuple[int, str]:
-    """The CLI body: (exit code, text to print)."""
-    items = collect(repo, base, head)
+    """The CLI body: (exit code, text to print).
+
+    Items are computed against the merge base of `base` and `head`, so a base branch that
+    moved after the PR branched produces none. Signers come from `base` itself.
+    """
+    fork = merge_base(repo, base, head)
+    items = collect(repo, fork, head)
     ignored: list[str] = []
     found: list[Any] = []
     with tempfile.TemporaryDirectory(prefix="mgi-signers-") as tmp:
         signers = _signers_file(repo, base, Path(tmp), signers_override)
         key = _signing_key(signers)
         if pr is not None:
-            found, ignored = clearance.trailers(repo, base, head, pr, signers)
+            found, ignored = clearance.trailers(repo, fork, head, pr, signers)
     open_items = _uncleared(items, found, repo, base) if found else items
     if not open_items:
         return 0, "mutation-gate-items: no uncleared items"
@@ -619,9 +819,13 @@ def main(argv: list[str] | None = None) -> int:
         code, text = run(
             Path(args.repo).resolve(), args.base, args.head, args.pr, args.signers
         )
-    except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
-        print(f"mutation-gate-items: error: {exc}", file=sys.stderr)
-        return 1
+    # Top-level handler: every fault is reported and exits 3, which stays red in CI.
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"mutation-gate-items: infra error: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return 3
     print(text)
     return code
 
