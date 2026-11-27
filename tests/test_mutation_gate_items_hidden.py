@@ -167,6 +167,10 @@ class MacroRuleTest(unittest.TestCase):
         self.assertEqual(mgi.hidden_texts("x![a, b]"), [])
         self.assertEqual(len(mgi.hidden_texts("x!{ a + b }")), 1)
 
+    def test_keyword_then_not_is_negation_not_a_macro_call(self) -> None:
+        text = "fn f(a: u32, b: u32) { if !(a > b) {} while !(a < b) {} }"
+        self.assertEqual(mgi.hidden_texts(text), [])
+
     def test_not_equal_is_not_a_macro_call(self) -> None:
         self.assertEqual(mgi.hidden_texts("fn f(a: u32) -> bool { a != (3) }"), [])
 

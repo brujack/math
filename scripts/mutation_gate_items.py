@@ -890,6 +890,7 @@ def test_mask(toks: list[RustTok]) -> list[bool]:
 def _is_macro_call(toks: list[RustTok], i: int) -> bool:
     return (
         toks[i].kind == "ident"
+        and toks[i].text not in EXPRESSION_KEYWORDS
         and i + 2 < len(toks)
         and toks[i + 1].text == "!"
         and toks[i + 2].text in OPENERS
