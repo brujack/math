@@ -401,7 +401,7 @@ for line in open(sys.argv[2]):
 @test "weakening rows carry the exact shape and the plan line keeps the pinned text" {
     weak_fix pi 100 1
     PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
-    [[ "$(cat "${PLAN_OUT}/units.json")" == '[{"dir":"pi","k":0,"n":10,"mode":"weakening"},{"dir":"pi","k":1,'* ]]
+    [[ "$(cat "${PLAN_OUT}/units.json")" == '[{"dir":"pi","k":0,"n":10,"mode":"weakening","planned":10},{"dir":"pi","k":1,'* ]]
     [ "$(cat "${PLAN_OUT}/plan.txt")" = "$(printf 'pi\tgreen\t100 mutants in 10 shards')" ]
 }
 
@@ -686,4 +686,59 @@ MOCK
     [ "${status}" -ne 0 ]
     run bash -c 'source "$1"; seconds_to_ms 1.0005' _ "${SCRIPT}"
     [ "${output}" = "1001" ]
+}
+
+# planned = jobs in slice k of the round-robin cosmic_ray_shard.py split (i % n == k over sorted keys).
+planned_list() {
+    # planned_list <K> prints the per-shard planned counts, space separated
+    weak_fix pi "$1" 1
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -eq 0 ]
+    python3 -I -c '
+import json, sys
+u = json.load(open(sys.argv[1]))
+assert [x["k"] for x in u] == list(range(len(u)))
+print(" ".join(str(x["planned"]) for x in u))
+' "${PLAN_OUT}/units.json"
+}
+
+@test "planned counts for K=17 over 10 shards are 2x7 then 1x3" {
+    [ "$(planned_list 17)" = "2 2 2 2 2 2 2 1 1 1" ]
+}
+
+@test "planned counts sum to K" {
+    for k in 1 9 10 11 99 1000 6001; do
+        counts="$(planned_list "${k}")"
+        [ "$(printf '%s\n' "${counts}" | awk '{ s = 0; for (i = 1; i <= NF; i++) s += $i; print s }')" = "${k}" ]
+    done
+}
+
+@test "planned counts for K=0 are all 0" {
+    [ "$(planned_list 0)" = "0 0 0 0 0 0 0 0 0 0" ]
+}
+
+@test "planned counts when K divides n evenly are equal" {
+    [ "$(planned_list 20)" = "2 2 2 2 2 2 2 2 2 2" ]
+}
+
+@test "planned counts for K smaller than n give 1 then 0" {
+    [ "$(planned_list 3)" = "1 1 1 0 0 0 0 0 0 0" ]
+}
+
+@test "planned counts follow n when K*s pushes n above 10" {
+    weak_fix pi 6600 1
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base </dev/null
+    run python3 -I -c '
+import json, sys
+u = json.load(open(sys.argv[1]))
+assert len(u) == 11 and {x["n"] for x in u} == {11}
+assert [x["planned"] for x in u] == [600] * 11
+' "${PLAN_OUT}/units.json"
+    [ "${status}" -eq 0 ]
+}
+
+@test "diff rows carry no planned key" {
+    prune_out pi 0 5 5
+    run bash "${SCRIPT}" base pi </dev/null
+    [ "$(cat "${PLAN_OUT}/units.json")" = '[{"dir":"pi","k":0,"n":1,"mode":"diff"}]' ]
 }

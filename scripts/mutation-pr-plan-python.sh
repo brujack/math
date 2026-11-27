@@ -16,7 +16,9 @@
 # (mutation-pr-verdict-python.sh) parses it, so the green/red texts below are a pinned contract:
 #   `<K> mutants in <n> shards`, `0 mutants on changed lines`, `lines 0`, or a flattened error.
 # units.json rows: diff mode {"dir":..,"k":..,"n":..,"mode":"diff"} for green dirs with K > 0 only,
-# weakening mode {"dir":..,"k":..,"n":..,"mode":"weakening"}; [] when none.
+# weakening mode {"dir":..,"k":..,"n":..,"mode":"weakening","planned":..}; [] when none.
+# `planned` is the job count of slice k under cosmic_ray_shard.py's round-robin split (sorted index
+# i belongs to shard i % n), so K // n plus one when k < K % n; the planned counts sum to K.
 # Zero dirs is valid (an empty plan and []), so the caller never special-cases "nothing changed".
 
 readonly SHARD_SIZE=150
@@ -248,8 +250,11 @@ plan_weakening_dir() {
     }
     n="$(weakening_shard_count "${kept}" "${ms}")" || return 1
     PLAN_LINE="green${TAB}${kept} mutants in ${n} shards"
+    local planned
     for ((k = 0; k < n; k++)); do
-        UNITS+=("{\"dir\":\"$(json_escape "${dir}")\",\"k\":${k},\"n\":${n},\"mode\":\"weakening\"}")
+        planned=$((kept / n))
+        ((k < kept % n)) && ((planned++))
+        UNITS+=("{\"dir\":\"$(json_escape "${dir}")\",\"k\":${k},\"n\":${n},\"mode\":\"weakening\",\"planned\":${planned}}")
     done
     return 0
 }
