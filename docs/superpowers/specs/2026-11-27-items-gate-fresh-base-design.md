@@ -2,6 +2,7 @@
 
 - **Date:** 2026-11-27
 - **Backlog row:** P1 "mutation gate: items job runs the gate script from the PR's stale `base.sha`"
+- **Approved:** 2026-11-27
 - **Related:** ADR-0048, `docs/superpowers/specs/2026-11-26-pr-mutation-test-weakening-design.md`
 
 ## Problem
@@ -192,7 +193,7 @@ Reviewed at commit: `cca4296` (round 1); re-run at `1f94d62` (round 2), `09f5e03
 ### Round 4 (`57d965d`, scoped risk lens)
 
 - **Risk.** Finding: the items gate omitted `scripts/cosmic_ray_prune.py`, which the script loads with `_load_sibling` and uses in item computation; R5 had a positive case for one path only; a non-draft PR opened during the hold is uncovered. Fixed in `44e4923` (four paths, a `_load_sibling` drift check, a case per path, draft before label, new known limit). Assumption: Renovate does not mark an operator-drafted PR ready during the hold (unmeasured; listed in Known limits).
-- Disposition:
+- Disposition: operator approved 2026-11-27 ("spec approved").
 
 ## External Review
 
@@ -204,12 +205,12 @@ Report: [round1.md](2026-11-27-items-gate-fresh-base-design.external-review/roun
 
 | finding | disposition | evidence | reviewer verdict | operator (Step 9) |
 | ------- | ----------- | -------- | ---------------- | ----------------- |
-| F1.1 | Fixed | R6 now keeps only `base.ref` and the agent rule inline, points to ADR-0048 for the hold procedure, and moves the repro clause there; R7 records the repro and the procedure. `wc -c < CLAUDE.md` prints `29996`. | unjudged | |
-| F1.2 | Fixed | Rejected alternatives gains the auto-merge `gate-hold` guard and why N3 wins; Design item 2 now names the `labeled` run's `cancel-in-progress` as the main hold and draft refusal as the backup (`auto-merge.yml:17`). | unjudged | |
-| F1.3 | Fixed | Known limits gains the `uses:` pin-bump exemption (`only_uses_bumps`, `scripts/mutation_gate_items.py:1376`, used at 1403) and the floating `stable` toolchain (`mutation-gate-items.yml:49`). | unjudged | |
-| F1.4 | Fixed | V1 now says that if the reopen refreshed the payload, V1 is recorded as a smoke test. | unjudged | |
-| F1.5 | Fixed | R5 now derives the set with `ast` and asserts every `_load_sibling` call takes a single string literal. | unjudged | |
-| F1.6 | Fixed | Rejected alternatives now says 53, with `git rev-list --count 19cdee3..33e09a2`. | unjudged | |
-| F1.7 | Rebutted | The Round 4 disposition is the operator's to record at Step 9; the assistant never authors a disposition. | unjudged | |
+| F1.1 | Fixed | R6 now keeps only `base.ref` and the agent rule inline, points to ADR-0048 for the hold procedure, and moves the repro clause there; R7 records the repro and the procedure. `wc -c < CLAUDE.md` prints `29996`. | unjudged | approved 2026-11-27 ("spec approved") |
+| F1.2 | Fixed | Rejected alternatives gains the auto-merge `gate-hold` guard and why N3 wins; Design item 2 now names the `labeled` run's `cancel-in-progress` as the main hold and draft refusal as the backup (`auto-merge.yml:17`). | unjudged | approved 2026-11-27 ("spec approved") |
+| F1.3 | Fixed | Known limits gains the `uses:` pin-bump exemption (`only_uses_bumps`, `scripts/mutation_gate_items.py:1376`, used at 1403) and the floating `stable` toolchain (`mutation-gate-items.yml:49`). | unjudged | approved 2026-11-27 ("spec approved") |
+| F1.4 | Fixed | V1 now says that if the reopen refreshed the payload, V1 is recorded as a smoke test. | unjudged | approved 2026-11-27 ("spec approved") |
+| F1.5 | Fixed | R5 now derives the set with `ast` and asserts every `_load_sibling` call takes a single string literal. | unjudged | approved 2026-11-27 ("spec approved") |
+| F1.6 | Fixed | Rejected alternatives now says 53, with `git rev-list --count 19cdee3..33e09a2`. | unjudged | approved 2026-11-27 ("spec approved") |
+| F1.7 | Rebutted | The Round 4 disposition is the operator's to record at Step 9; the assistant never authors a disposition. | unjudged | approved 2026-11-27 ("spec approved") |
 
 Stopped: reviewer recommended stopping in round 1
