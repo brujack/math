@@ -1,5 +1,7 @@
 # PR Mutation Gates See Test Weakening Implementation Plan
 
+> **Status: DONE** — Implemented 2026-11-27 in math#252 (3790f49); bootstrap of `mutation-gate-items` as a required check is a follow-up PR (ADR-0048 §6).
+
 spec: docs/superpowers/specs/2026-11-26-pr-mutation-test-weakening-design.md
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
