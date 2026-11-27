@@ -314,6 +314,12 @@ class Survivor:
     mutations: tuple[MutationSpec, ...]
     diff: str
 
+    @property
+    def mutant_key(self) -> str:
+        """`<operator>@<occurrence>`: stable across sessions, unlike a random job id."""
+        spec = self.mutations[0]
+        return f"{spec.operator_name}@{spec.occurrence}"
+
 
 @dataclass(frozen=True)
 class Arm:
@@ -456,7 +462,7 @@ class Replayer:
         for survivor in survivors:
             verdict = self.judge(survivor)
             if verdict.failure:
-                tally.failures.append((verdict.failure, survivor.job_id))
+                tally.failures.append((verdict.failure, survivor.mutant_key))
                 continue
             tally.replayed += 1
             if verdict.weakened:
@@ -507,12 +513,11 @@ def print_weakened(
     )
     for survivor in tally.weakened:
         spec = survivor.mutations[0]
-        print(survivor.job_id)
         print(f"  operator: {spec.operator_name}")
         print(f"  occurrence: {spec.occurrence}")
         print(survivor.diff.rstrip("\n"))
         print(
-            f"  repro: make -C {subdir} mutants-weakening BASE={base} JOB={survivor.job_id}"
+            f"  repro: make -C {subdir} mutants-weakening BASE={base} JOB={survivor.mutant_key}"
         )
     if pr is not None:
         print(clearance_module().remedy_command(pr, [subdir], key))
@@ -559,7 +564,7 @@ def report_replay(args: argparse.Namespace, tally: Tally, key: str) -> int:
     subdir = Path(args.dir).resolve().name
     for failure, job_id in tally.failures:
         print(f"replay failed: {failure}")
-        print(f"  job {job_id}")
+        print(f"  mutant {job_id}")
     if tally.weakened:
         print_weakened(tally, subdir, args.base, args.pr, key)
     line = completeness_line(

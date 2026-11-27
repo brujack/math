@@ -782,11 +782,10 @@ class TestReplayVerdicts(ReplayCase):
         self.assertEqual(1, code)
         expected = (
             "weakened: 1 mutants killed by base tests survive head tests\n"
-            "j1\n"
             f"  operator: {MUL_ADD}\n"
             "  occurrence: 0\n"
             f"{DIFF}\n"
-            f"  repro: make -C sq mutants-weakening BASE={fx.base} JOB=j1\n"
+            f"  repro: make -C sq mutants-weakening BASE={fx.base} JOB={MUL_ADD}@0\n"
         )
         self.assertEqual(expected, out)
         self.assertEqual(30.0, fake.calls[0][1])
@@ -798,11 +797,10 @@ class TestReplayVerdicts(ReplayCase):
         self.assertEqual(1, code)
         expected = (
             "weakened: 1 mutants killed by base tests survive head tests\n"
-            "j1\n"
             f"  operator: {MUL_ADD}\n"
             "  occurrence: 0\n"
             f"{DIFF}\n"
-            f"  repro: make -C sq mutants-weakening BASE={fx.base} JOB=j1\n"
+            f"  repro: make -C sq mutants-weakening BASE={fx.base} JOB={MUL_ADD}@0\n"
             "git -c gpg.format=ssh -c user.signingkey="
             "'key::<key from .github/mutation-gate-allowed-signers>' \\\n"
             "  commit --allow-empty -S -m 'chore: mutation gate review' \\\n"
@@ -822,13 +820,19 @@ class TestReplayVerdicts(ReplayCase):
         self.setup_replay({"j1": "survived"})
         code, out, _ = self.run_replay(lambda c, t: result("incompetent"))
         self.assertEqual(1, code)
-        self.assertIn("replay failed: incompetent\n  job j1\n", out)
+        self.assertIn(
+            "replay failed: incompetent\n  mutant core/ReplaceBinaryOperator_Mul_Add@0\n",
+            out,
+        )
 
     def test_no_test_worker_outcome_is_replay_failed(self) -> None:
         self.setup_replay({"j1": "survived"})
         code, out, _ = self.run_replay(lambda c, t: result(None, worker="no-test"))
         self.assertEqual(1, code)
-        self.assertIn("replay failed: no-test\n  job j1\n", out)
+        self.assertIn(
+            "replay failed: no-test\n  mutant core/ReplaceBinaryOperator_Mul_Add@0\n",
+            out,
+        )
 
     def test_exception_is_replay_failed(self) -> None:
         self.setup_replay({"j1": "survived"})
@@ -838,7 +842,10 @@ class TestReplayVerdicts(ReplayCase):
 
         code, out, _ = self.run_replay(boom)
         self.assertEqual(1, code)
-        self.assertIn("replay failed: exception\n  job j1\n", out)
+        self.assertIn(
+            "replay failed: exception\n  mutant core/ReplaceBinaryOperator_Mul_Add@0\n",
+            out,
+        )
 
     def test_runner_fault_is_never_a_kill(self) -> None:
         self.setup_replay({"j1": "survived"})
@@ -849,7 +856,10 @@ class TestReplayVerdicts(ReplayCase):
 
         code, out, _ = self.run_replay(fault)
         self.assertEqual(1, code)
-        self.assertIn("replay failed: runner fault\n  job j1\n", out)
+        self.assertIn(
+            "replay failed: runner fault\n  mutant core/ReplaceBinaryOperator_Mul_Add@0\n",
+            out,
+        )
         self.assertNotIn("weakened", out)
 
     def test_missing_verdict_is_runner_fault_not_kill(self) -> None:
@@ -858,7 +868,10 @@ class TestReplayVerdicts(ReplayCase):
             lambda c, t: result("killed"), auto_verdict=False
         )
         self.assertEqual(1, code)
-        self.assertIn("replay failed: runner fault\n  job j1\n", out)
+        self.assertIn(
+            "replay failed: runner fault\n  mutant core/ReplaceBinaryOperator_Mul_Add@0\n",
+            out,
+        )
         self.assertNotIn("weakened", out)
 
     def test_verdict_disagreeing_with_outcome_is_runner_fault(self) -> None:
@@ -895,8 +908,9 @@ class TestReplayVerdicts(ReplayCase):
         code, out, _ = self.run_replay(script)
         self.assertEqual(1, code)
         self.assertTrue(out.startswith("weakened: 1 mutants killed"))
-        self.assertIn("j1\n", out)
-        self.assertNotIn("j2", out)
+        self.assertIn(f"JOB={MUL_ADD}@0\n", out)
+        self.assertNotIn("@1", out)
+        self.assertNotIn("j1", out)
 
     def test_replay_forces_head_env_without_leaking(self) -> None:
         self.setup_replay({"j1": "survived"})
@@ -994,7 +1008,10 @@ class TestTimeoutRerun(ReplayCase):
 
         code, out, _ = self.run_replay(script)
         self.assertEqual(1, code)
-        self.assertIn("replay failed: incompetent\n  job j1\n", out)
+        self.assertIn(
+            "replay failed: incompetent\n  mutant core/ReplaceBinaryOperator_Mul_Add@0\n",
+            out,
+        )
         self.assertNotIn("weakened", out)
 
     def test_ordinary_kill_does_not_rerun(self) -> None:
@@ -1206,7 +1223,10 @@ class TestRealMutateAndTest(FixtureCase):
         (case.fx.work / "base-sig.json").write_text("not json")
         code, out = self.replay(case)
         self.assertEqual(1, code)
-        self.assertIn("replay failed: runner fault\n  job j1\n", out)
+        self.assertIn(
+            "replay failed: runner fault\n  mutant core/ReplaceBinaryOperator_Mul_Add@0\n",
+            out,
+        )
         self.assertNotIn("weakened", out)
 
     def replay_with_command(self, case: ReplayCase, rewrite) -> tuple[int, str]:
@@ -1220,7 +1240,10 @@ class TestRealMutateAndTest(FixtureCase):
 
     def assert_runner_fault(self, code: int, out: str) -> None:
         self.assertEqual(1, code)
-        self.assertIn("replay failed: runner fault\n  job j1\n", out)
+        self.assertIn(
+            "replay failed: runner fault\n  mutant core/ReplaceBinaryOperator_Mul_Add@0\n",
+            out,
+        )
         self.assertNotIn("weakened", out)
 
     def test_missing_work_dir_is_runner_fault(self) -> None:
