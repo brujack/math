@@ -1519,6 +1519,7 @@ STUB
 printf 'python3 %s ulimit=%s\n' "$*" "$(ulimit -v)" >> "${CALLS}"
 case "$*" in
     *mutation_hypothesis_profile*)
+        printf '%s %s\n' "$2" "${PWD}" >> "${CALLS}.profpwd"
         case "$2" in
             write) mkdir -p "$3" && : > "$3/sitecustomize.py" ;;
             preflight)
@@ -2792,4 +2793,12 @@ _weak_make() {
         [[ "${output}" == *"JOB must be <operator>@<occurrence>"* ]]
     done
     [ ! -s "${CALLS}" ]
+}
+
+@test "make mutants-weakening runs the profile preflight inside the sandbox copy, not the tracked directory" {
+    _weak_setup
+    run _weak_make MUTANT_SHARD=0/2
+    [ "${status}" -eq 0 ]
+    grep -qE '^preflight .*/\.mutants-tmp/weakening-[^/]*/fib$' "${CALLS}.profpwd"
+    grep -qE '^write ' "${CALLS}.profpwd"
 }

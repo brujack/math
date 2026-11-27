@@ -202,7 +202,7 @@ WEAKENING_BODY = $(MUTANTS_CAP); \
 	  if [ -f mutants-equivalent.toml ]; then cp -- mutants-equivalent.toml "$$copy/" || exit 1; fi; \
 	  export TMPDIR="$$w/tmp" PYTHONHASHSEED=0 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$$w/profile"; \
 	  python3 ../scripts/mutation_hypothesis_profile.py write "$$w/profile" || exit 1; \
-	  python3 ../scripts/mutation_hypothesis_profile.py preflight "$$w/profile" || exit 1; \
+	  (cd "$$copy" && python3 "$$repo/scripts/mutation_hypothesis_profile.py" preflight "$$w/profile") || exit 1; \
 	  (cd "$$copy" && { cosmic-ray baseline cosmic-ray.toml || { python3 -m unittest test_amicable; exit 1; }; }) || exit 1; \
 	  bash ../scripts/mutation-whole-module-diff.sh "$$proj" "$$w/whole.diff" || exit 1; \
 	  env MODE=head WORK=weakening SESSION=head.sqlite REPORT=head-report.txt WEAKENING_OUT_DIR="$$w/out" DIFF_ABS="$$w/whole.diff" bash -c "$$HEAD_BODY" || { printf "error: the head session failed\n" >&2; exit 1; }; \
