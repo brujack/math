@@ -10,11 +10,11 @@ PR files are written only with `git show <sha>:<path>` into a scratch tree outsi
 repo; every subprocess runs in a fresh empty directory with a scrubbed environment;
 `cosmic-ray init` runs through its console script on a config this script generates.
 The only code imported besides the standard library is the base checkout's own
-`cosmic_ray_prune.py` and `mutation_gate_clearance.py` (this file's directory).
+`cosmic_ray_prune.py` (this file's directory).
 
-Usage: mutation_gate_items.py <base-sha> <head-sha> [--pr <n>] [--repo <dir>]
-Exit codes: 0 no uncleared items, 1 red (items), 2 usage, 3 infrastructure error (still
-red in CI).
+Usage: mutation_gate_items.py <base-sha> <head-sha> [--repo <dir>]
+Exit codes: 0 no items, 1 red (items listed; only the operator's admin merge clears
+them), 2 usage, 3 infrastructure error (still red in CI).
 """
 
 import argparse
@@ -54,16 +54,15 @@ def _load_sibling(name: str) -> Any:
 
 
 prune: Any = _load_sibling("cosmic_ray_prune")
-clearance: Any = _load_sibling("mutation_gate_clearance")
 
 GIT_ENV_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
-SIGNERS_PATH = ".github/mutation-gate-allowed-signers"
-SIGNERS_ENV = "MUTATION_GATE_SIGNERS"
+OPERATOR_LINE = (
+    "mutation-gate-items: these need the operator's review; "
+    "only the operator merges this PR (admin override)."
+)
 GATE_FILES = (
     ".github/workflows/mutation-pr.yml",
     ".github/workflows/mutation-gate-items.yml",
-    SIGNERS_PATH,
-    "tests/test_mutation_gate_allowed_signers.py",
 )
 GATE_SCRIPT_GLOBS = (
     "scripts/mutation-*.sh",
@@ -197,7 +196,6 @@ def _write_under(root: Path, rel: str, data: bytes) -> Path:
 class Context:
     """What a collector sees: the repo, both shas, changed paths and its own scratch dir.
 
-    `targets` limits the items wanted (None means all); a collector may skip other targets.
     PR files reach disk only through `materialise` and `materialise_tree`.
     """
 
@@ -206,10 +204,6 @@ class Context:
     head: str
     changed: list[str]
     scratch: Path
-    targets: frozenset[str] | None = None
-
-    def wants(self, target: str) -> bool:
-        return self.targets is None or target in self.targets
 
     def entry(self, sha: str, path: str) -> tuple[str, str] | None:
         """(mode, blob id) of `<sha>:<path>` from `git ls-tree`, or None when absent."""
@@ -296,25 +290,19 @@ def _changed_paths(repo: Path, base: str, head: str) -> list[str]:
     return [p for p in out.stdout.split("\0") if p]
 
 
-def collect(
-    repo: Path, base: str, head: str, targets: frozenset[str] | None = None
-) -> list[Item]:
+def collect(repo: Path, base: str, head: str) -> list[Item]:
     """Every item of the change base..head, sorted and de-duplicated.
 
-    `targets` keeps only items of those targets. Each collector runs with its own scratch
-    subdirectory.
+    Each collector runs with its own scratch subdirectory.
     """
     with tempfile.TemporaryDirectory(prefix="mgi-scratch-") as tmp:
-        ctx = Context(
-            repo, base, head, _changed_paths(repo, base, head), Path(tmp), targets
-        )
+        ctx = Context(repo, base, head, _changed_paths(repo, base, head), Path(tmp))
         found: set[Item] = set()
         for kind in sorted(_COLLECTORS):
             scratch = Path(tmp) / kind
             scratch.mkdir()
             found.update(_COLLECTORS[kind](replace(ctx, scratch=scratch)))
-    kept = [i for i in found if targets is None or i.target in targets]
-    return sorted(kept, key=lambda i: (i.target, i.kind, i.key))
+    return sorted(found, key=lambda i: (i.target, i.kind, i.key))
 
 
 # --- Python config items (R22) -------------------------------------------------------
@@ -366,8 +354,7 @@ def _config_items_for(ctx: Context, directory: str) -> list[Item]:
 def collect_python_config(ctx: Context) -> list[Item]:
     items: list[Item] = []
     for directory in _config_dirs(ctx):
-        if ctx.wants(directory):
-            items += _config_items_for(ctx, directory)
+        items += _config_items_for(ctx, directory)
     return items
 
 
@@ -517,8 +504,7 @@ def _equivalents_for(ctx: Context, directory: str) -> list[Item]:
 def collect_python_equivalents(ctx: Context) -> list[Item]:
     items: list[Item] = []
     for directory in _equivalent_dirs(ctx):
-        if ctx.wants(directory):
-            items += _equivalents_for(ctx, directory)
+        items += _equivalents_for(ctx, directory)
     return items
 
 
@@ -711,8 +697,7 @@ def collect_rust_exclusions(ctx: Context) -> list[Item]:
     crates = sorted({m.group(1) for p in ctx.changed if (m := RUST_CRATE_RE.match(p))})
     items: list[Item] = []
     for crate in crates:
-        if ctx.wants(crate):
-            items += _rust_exclusion_items(ctx, crate)
+        items += _rust_exclusion_items(ctx, crate)
     return items
 
 
@@ -1285,8 +1270,7 @@ def collect_rust_hidden(ctx: Context) -> list[Item]:
     crates = sorted({m.group(1) for p in ctx.changed if (m := RUST_FILE_RE.match(p))})
     items: list[Item] = []
     for crate in crates:
-        if ctx.wants(crate):
-            items += _hidden_for_crate(ctx, crate)
+        items += _hidden_for_crate(ctx, crate)
     return items
 
 
@@ -1483,8 +1467,6 @@ def _gate_item(ctx: Context, path: str) -> Item | None:
 
 
 def collect_gate(ctx: Context) -> list[Item]:
-    if not ctx.wants("gate"):
-        return []
     found = (_gate_item(ctx, p) for p in ctx.changed)
     return [item for item in found if item is not None]
 
@@ -1496,7 +1478,7 @@ register(RUST_KIND, collect_rust_exclusions)
 register(HIDDEN_KIND, collect_rust_hidden)
 
 
-# --- Clearance and CLI (R26) ---------------------------------------------------------
+# --- CLI (R26) -----------------------------------------------------------------------
 
 
 def merge_base(repo: Path, base: str, head: str) -> str:
@@ -1508,97 +1490,32 @@ def merge_base(repo: Path, base: str, head: str) -> str:
     return sha
 
 
-def _signers_file(repo: Path, base: str, scratch: Path, override: str | None) -> Path:
-    """The allowed-signers file: the override seam, else the base branch's own copy."""
-    if override:
-        return Path(override)
-    dest = scratch / "allowed-signers"
-    out = _git(repo, ["show", f"{base}:{SIGNERS_PATH}"])
-    dest.write_text(out.stdout if out.returncode == 0 else "", encoding="utf-8")
-    return dest
-
-
-def _signing_key(signers: Path) -> str:
-    """`<type> <blob>` of the first key in the signers file, for the R26 command."""
-    for raw in signers.read_text(encoding="utf-8").splitlines():
-        tokens = raw.split()
-        blobs = [i for i, t in enumerate(tokens) if i > 0 and t.startswith("AAAA")]
-        if tokens and not tokens[0].startswith("#") and blobs and blobs[0] >= 2:
-            return f"{tokens[blobs[0] - 1]} {tokens[blobs[0]]}"
-    return "<key>"
-
-
-def _cleared_keys(
-    repo: Path, base: str, found: list[Any]
-) -> set[tuple[str, str, tuple[str, ...]]]:
-    """Keys in the tree of a verified clearing commit, for the targets it names only."""
-    named: dict[str, set[str]] = {}
-    for entry in found:
-        named.setdefault(entry.sha, set()).add(entry.target)
-    cleared: set[tuple[str, str, tuple[str, ...]]] = set()
-    for sha, targets in named.items():
-        at_sha = collect(
-            repo, merge_base(repo, base, sha), sha, targets=frozenset(targets)
-        )
-        cleared.update((i.target, i.kind, i.key) for i in at_sha)
-    return cleared
-
-
-def _uncleared(
-    items: list[Item], found: list[Any], repo: Path, base: str
-) -> list[Item]:
-    keys = _cleared_keys(repo, base, found)
-    return [i for i in items if (i.target, i.kind, i.key) not in keys]
-
-
-def _render(items: list[Item], ignored: list[str], pr: int | None, key: str) -> str:
-    lines = [f"uncleared item: {i.target} {i.kind} {' | '.join(i.key)}" for i in items]
-    lines += ignored
-    targets = list(dict.fromkeys(i.target for i in items))
-    remedy = clearance.remedy_command(pr or 0, targets, key)
-    lines.append(remedy if pr is not None else remedy.replace("#0 ", "#<pr> "))
-    return "\n".join(lines)
-
-
-def run(
-    repo: Path, base: str, head: str, pr: int | None, signers_override: str | None
-) -> tuple[int, str]:
+def run(repo: Path, base: str, head: str) -> tuple[int, str]:
     """The CLI body: (exit code, text to print).
 
     Items are computed against the merge base of `base` and `head`, so a base branch that
-    moved after the PR branched produces none. Signers come from `base` itself.
+    moved after the PR branched produces none. Any item is red: nothing clears it in
+    band, only the operator's admin merge does.
     """
-    fork = merge_base(repo, base, head)
-    items = collect(repo, fork, head)
-    ignored: list[str] = []
-    found: list[Any] = []
-    with tempfile.TemporaryDirectory(prefix="mgi-signers-") as tmp:
-        signers = _signers_file(repo, base, Path(tmp), signers_override)
-        key = _signing_key(signers)
-        if pr is not None:
-            found, ignored = clearance.trailers(repo, fork, head, pr, signers)
-    open_items = _uncleared(items, found, repo, base) if found else items
-    if not open_items:
+    items = collect(repo, merge_base(repo, base, head), head)
+    if not items:
         return 0, "mutation-gate-items: no uncleared items"
-    return 1, _render(open_items, ignored, pr, key)
+    lines = [f"uncleared item: {i.target} {i.kind} {' | '.join(i.key)}" for i in items]
+    return 1, "\n".join([*lines, OPERATOR_LINE])
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mutation-gate-items.sh")
     parser.add_argument("base")
     parser.add_argument("head")
-    parser.add_argument("--pr", type=int)
     parser.add_argument("--repo", default=".")
-    parser.add_argument("--signers", default=os.environ.get(SIGNERS_ENV))
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        code, text = run(
-            Path(args.repo).resolve(), args.base, args.head, args.pr, args.signers
-        )
+        code, text = run(Path(args.repo).resolve(), args.base, args.head)
     # Top-level handler: every fault is reported and exits 3, which stays red in CI.
     except Exception as exc:  # noqa: BLE001
         print(

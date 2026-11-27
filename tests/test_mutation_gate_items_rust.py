@@ -40,8 +40,7 @@ mgi: Any = _load(
     "mutation_gate_items_rust_under_test", SCRIPTS / "mutation_gate_items.py"
 )
 _helper: Any = _load(
-    "mutation_gate_clearance_rust_helper",
-    ROOT / "tests" / "test_mutation_gate_clearance.py",
+    "mutation_gate_items_repo_case_rust", ROOT / "tests" / "test_mutation_gate_items.py"
 )
 EXCLUDE_VEC = (
     'exclude_re = [\n    "src/lib\\\\.rs:3:25: replace / with \\\\*",\n'

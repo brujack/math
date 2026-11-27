@@ -1335,36 +1335,26 @@ assert_no_mutants_run() {
     [ ! -e "${MOCK_CARGO_LOG}" ]
 }
 
-@test "items: an item-relevant push with a PR prints the items with --pr and exits 0" {
+@test "items: an item-relevant push prints the items, passes no --pr and exits 0" {
     items_fixture
     export MOCK_GIT_DIFF_NAMES="sq/mutants-equivalent.toml"
-    export MOCK_GH_OUTPUT="123"
     run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     [[ "${output}" == *"uncleared item: sq/mutants-equivalent.toml"* ]]
-    grep -q "^items base123 abc123 --pr 123$" "${ITEMS_LOG}"
-    grep -q "^gh pr view feat --json number --jq .number$" "${MOCK_CALLS_FILE}"
-    assert_no_mutants_run
-}
-
-@test "items: gh failing runs the items without --pr and says to sign after opening the PR" {
-    items_fixture
-    export MOCK_GIT_DIFF_NAMES="sq/mutants-equivalent.toml"
-    export MOCK_GH_EXIT_PR_VIEW=1
-    run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
-    [ "$status" -eq 0 ]
-    [[ "${output}" == *"no PR yet: sign after opening it"* ]]
     grep -q "^items base123 abc123$" "${ITEMS_LOG}"
     assert_no_mutants_run
 }
 
-@test "items: a non-numeric gh answer is treated as no PR" {
+@test "items: gh is never called and its absence changes nothing (no lookup)" {
     items_fixture
+    printf '#!/usr/bin/env bash\nprintf "gh %%s\\n" "$*" >> "${GH_TRAP_LOG:?}"\nprintf "123\\n"\n' > "${BATS_TEST_TMPDIR}/trap-bin/gh"
+    chmod +x "${BATS_TEST_TMPDIR}/trap-bin/gh"
+    export GH_TRAP_LOG="${BATS_TEST_TMPDIR}/gh-trap.log"
     export MOCK_GIT_DIFF_NAMES="sq/mutants-equivalent.toml"
-    export MOCK_GH_OUTPUT="not-a-number"
     run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
-    [[ "${output}" == *"no PR yet: sign after opening it"* ]]
+    [ ! -e "${GH_TRAP_LOG}" ]
+    assert_no_match "^gh "
     grep -q "^items base123 abc123$" "${ITEMS_LOG}"
 }
 
@@ -1403,14 +1393,14 @@ assert_no_mutants_run() {
     [[ "${output}" == *"mutation gate items: script not found; push continues"* ]]
 }
 
-@test "items: an unrelated push prints nothing and never calls the items script or gh pr view" {
+@test "items: an unrelated push prints nothing and never calls the items script or gh" {
     items_fixture
     export MOCK_GIT_DIFF_NAMES="README.md"
     run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
     [ "$status" -eq 0 ]
     [[ "${output}" != *"item"* ]]
     [ ! -e "${ITEMS_LOG}" ]
-    assert_no_match "^gh pr view"
+    assert_no_match "^gh "
 }
 
 @test "items: a deletion push never calls the items script" {
@@ -1426,10 +1416,9 @@ assert_no_mutants_run() {
     local p
     for p in sq/cosmic-ray.toml sq/sq-rs/.cargo/mutants.toml sq/sq-rs/src/main.rs \
         .github/workflows/sq-py.yml scripts/mutation-pr-run.sh scripts/mutation_gate_items.py \
-        scripts/cosmic_ray_prune.py .github/mutation-gate-allowed-signers \
+        scripts/cosmic_ray_prune.py\
         tests/fixtures/mutation_weakening/case.json Makefile sq/Makefile \
-        sq/sq-rs/Cargo.toml sq/sq-rs/build.rs sq/sq-rs/tests/it.rs sq/sq-rs/.cargo/config.toml \
-        tests/test_mutation_gate_allowed_signers.py; do
+        sq/sq-rs/Cargo.toml sq/sq-rs/build.rs sq/sq-rs/tests/it.rs sq/sq-rs/.cargo/config.toml; do
         rm -f "${ITEMS_LOG}"
         export MOCK_GIT_DIFF_NAMES="${p}"
         run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
@@ -1476,45 +1465,6 @@ STUB
     [ -e "${ITEMS_LOG}" ]
 }
 
-@test "items: a hanging gh is cut off by the timeout and the push continues without --pr" {
-    items_fixture
-    command -v timeout > /dev/null || skip "timeout not installed"
-    cat > "${BATS_TEST_TMPDIR}/trap-bin/gh" <<'STUB'
-#!/usr/bin/env bash
-sleep 30
-STUB
-    chmod +x "${BATS_TEST_TMPDIR}/trap-bin/gh"
-    export PRE_PUSH_GH_TIMEOUT=1
-    export MOCK_GIT_DIFF_NAMES="sq/mutants-equivalent.toml"
-    run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
-    [ "$status" -eq 0 ]
-    [[ "${output}" == *"no PR yet: sign after opening it"* ]]
-    grep -q "^items base123 abc123$" "${ITEMS_LOG}"
-}
-
-@test "items: without timeout installed gh is not called and the notice is printed" {
-    items_fixture
-    local mini="${BATS_TEST_TMPDIR}/mini-bin" t
-    mkdir -p "${mini}"
-    for t in bash env grep dirname readlink mkdir cat rm mktemp sort ls cut sed tr sha256sum head basename; do
-        ln -sf "$(command -v "${t}")" "${mini}/${t}" 2> /dev/null || true
-    done
-    # The push-gates block calls the real python3: the first one outside the stub dirs.
-    local dir real=""
-    while IFS= read -r dir; do
-        [[ "${dir}" == "${BATS_TEST_TMPDIR}"* ]] && continue
-        [[ -x "${dir}/python3" ]] && { real="${dir}/python3"; break; }
-    done < <(tr ':' '\n' <<< "${PATH}")
-    [ -n "${real}" ]
-    ln -sf "${real}" "${mini}/python3"
-    export MOCK_GIT_DIFF_NAMES=".github/mutation-gate-allowed-signers"
-    run env PATH="${REPO_ROOT}/tests/mocks:${mini}" bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
-    [ "$status" -eq 0 ]
-    [[ "${output}" == *"no PR yet: sign after opening it"* ]]
-    assert_no_match "^gh pr view"
-    grep -q "^items base123 abc123$" "${ITEMS_LOG}"
-}
-
 @test "items: an empty merge base prints a notice and does not fail the push" {
     items_fixture
     # The git mock treats an empty MOCK_GIT_MERGE_BASE as unset, so fail the subcommand: no base either way.
@@ -1526,10 +1476,8 @@ STUB
     [ ! -e "${ITEMS_LOG}" ]
 }
 
-@test "items: a gh and items stub that drain stdin do not swallow the second pushed ref" {
+@test "items: an items stub that drains stdin do not swallow the second pushed ref" {
     items_fixture
-    printf '#!/usr/bin/env bash\ncat > /dev/null\nprintf "123\\n"\n' > "${BATS_TEST_TMPDIR}/trap-bin/gh"
-    chmod +x "${BATS_TEST_TMPDIR}/trap-bin/gh"
     cat > "${MOCK_GIT_SHOW_TOPLEVEL}/scripts/mutation-gate-items.sh" <<'STUB'
 #!/usr/bin/env bash
 cat > /dev/null
@@ -1539,6 +1487,6 @@ STUB
     export MOCK_GIT_DIFF_NAMES="sq/mutants-equivalent.toml"
     run bash "${PG_HOOK}" <<< $'refs/heads/one abc111 refs/heads/one abc000\nrefs/heads/two abc222 refs/heads/two abc000'
     [ "$status" -eq 0 ]
-    grep -q "^items base123 abc111 --pr 123$" "${ITEMS_LOG}"
-    grep -q "^items base123 abc222 --pr 123$" "${ITEMS_LOG}"
+    grep -q "^items base123 abc111$" "${ITEMS_LOG}"
+    grep -q "^items base123 abc222$" "${ITEMS_LOG}"
 }

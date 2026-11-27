@@ -8,6 +8,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
@@ -27,11 +28,6 @@ def _load(name: str, path: Path) -> Any:
 
 
 mgi: Any = _load("mutation_gate_items", SCRIPTS / "mutation_gate_items.py")
-_helper: Any = _load(
-    "mutation_gate_clearance_test_helper",
-    ROOT / "tests" / "test_mutation_gate_clearance.py",
-)
-REASON = "reviewed the change by hand"
 MAKEFILE = """FLAGS = -x \\
   -y
 CAP = $(FLAGS) --cap
@@ -53,7 +49,59 @@ SHA_OLD = "a" * 40
 SHA_NEW = "b" * 40
 
 
-class ItemsCase(_helper.RepoCase):
+class RepoCase(unittest.TestCase):
+    """A throwaway repo and home; the real git config is never touched."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        env = {
+            "HOME": str(self.tmp / "home"),
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+        }
+        (self.tmp / "home").mkdir()
+        patcher = mock.patch.dict(os.environ, env)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.repo = self.tmp / "repo"
+        self.repo.mkdir()
+        self.git("init", "-q", "-b", "master")
+        self.write("README", "x\n")
+        self.commit("base")
+        self.base = self.rev("HEAD")
+
+    def git(self, *args: str) -> str:
+        cmd = ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args]
+        result = subprocess.run(
+            cmd,
+            cwd=self.repo,
+            capture_output=True,
+            text=True,
+            check=True,
+            stdin=subprocess.DEVNULL,
+        )
+        return result.stdout.strip()
+
+    def write(self, rel: str, text: str) -> None:
+        path = self.repo / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+    def rev(self, ref: str) -> str:
+        return self.git("rev-parse", ref)
+
+    def commit(self, *messages: str) -> str:
+        self.git("add", "-A")
+        args = ["commit", "-q", "--allow-empty"]
+        for message in messages:
+            args += ["-m", message]
+        self.git(*args)
+        return self.rev("HEAD")
+
+
+class ItemsCase(RepoCase):
     """A repo whose base commit holds a sq/ copy plus the root files the items watch."""
 
     def setUp(self) -> None:
@@ -74,7 +122,6 @@ class ItemsCase(_helper.RepoCase):
         self.write(
             ".github/workflows/other.yml", "name: other\njobs:\n  a:\n    steps: []\n"
         )
-        self.write(".github/mutation-gate-allowed-signers", "# none\n")
         self.commit("add fixtures")
         self.base = self.rev("HEAD")
 
@@ -82,8 +129,8 @@ class ItemsCase(_helper.RepoCase):
         found = mgi.collect(self.repo, self.base, self.rev("HEAD"))
         return [i for i in found if kind is None or i.kind == kind]
 
-    def run_cli(self, pr: int | None = 7) -> tuple[int, str]:
-        return mgi.run(self.repo, self.base, "HEAD", pr, str(self.signers))
+    def run_cli(self) -> tuple[int, str]:
+        return mgi.run(self.repo, self.base, "HEAD")
 
     def eq_entry(
         self,
@@ -289,12 +336,6 @@ class GateItemTest(ItemsCase):
             ),
         )
 
-    def test_changed_allowed_signers_file_is_a_gate_item(self) -> None:
-        self.write(".github/mutation-gate-allowed-signers", "# changed\n")
-        self.commit("signers")
-        (item,) = self.items("gate")
-        self.assertEqual(item.key[0], ".github/mutation-gate-allowed-signers")
-
     def test_weakening_fixture_and_python_script_are_gate_items(self) -> None:
         self.write("tests/fixtures/mutation_weakening/a/x.py", "x = 1\n")
         self.write("scripts/mutation_other.py", "x = 1\n")
@@ -417,7 +458,9 @@ class RegistryTest(ItemsCase):
         self.assertEqual(seen, [(["README"], "changed\n", self.base)])
 
 
-class ClearanceTest(ItemsCase):
+class RunTest(ItemsCase):
+    """R26: any item is red, every item is listed, and nothing clears it in band."""
+
     def change_timeout(self, value: str) -> None:
         path = self.repo / "sq" / "cosmic-ray.toml"
         text = path.read_text()
@@ -427,91 +470,35 @@ class ClearanceTest(ItemsCase):
         )
         self.commit(f"timeout {value}")
 
-    def review(self, *targets: str, pr: int = 7, key: Path | None = None) -> str:
-        trailers = [self.trailer(pr, t) for t in targets]
-        return self.commit(
-            "chore: mutation gate review", *trailers, key=key or self.key
-        )
-
-    def test_red_output_carries_the_remedy_command(self) -> None:
+    def test_red_output_lists_the_item_and_names_the_operator(self) -> None:
         self.change_timeout("120.0")
         code, text = self.run_cli()
         self.assertEqual(code, 1)
-        self.assertIn(
-            "uncleared item: sq python-config sq | cosmic-ray.timeout | 120.0", text
+        self.assertEqual(
+            text.split("\n"),
+            [
+                "uncleared item: sq python-config sq | cosmic-ray.timeout | 120.0",
+                mgi.OPERATOR_LINE,
+            ],
         )
-        self.assertIn("commit --allow-empty -S -m 'chore: mutation gate review'", text)
-        self.assertIn("Mutation-Gate-Reviewed: #7 sq: <reason>", text)
-        self.assertIn(f"key::{self.pub(self.key).split(' ', 1)[0]} ", text)
 
-    def test_one_remedy_command_covers_every_uncleared_target(self) -> None:
+    def test_every_item_is_listed(self) -> None:
         self.change_timeout("120.0")
         self.write("scripts/mutation-pr-detect.sh", "x\n")
         self.commit("gate change")
         _, text = self.run_cli()
-        self.assertIn("#7 sq: <reason>", text)
-        self.assertIn("#7 gate: <reason>", text)
-        self.assertEqual(text.count("chore: mutation gate review"), 1)
-
-    def test_without_a_pr_nothing_is_cleared(self) -> None:
-        self.change_timeout("120.0")
-        self.review("sq")
-        code, text = self.run_cli(pr=None)
-        self.assertEqual(code, 1)
-        self.assertIn("#<pr> sq: <reason>", text)
+        self.assertEqual(text.count("uncleared item: "), 2)
+        self.assertIn("uncleared item: gate gate scripts/mutation-pr-detect.sh", text)
 
     def test_no_items_is_green(self) -> None:
         self.write("README", "z\n")
         self.commit("docs")
-        self.assertEqual(self.run_cli()[0], 0)
+        self.assertEqual(self.run_cli(), (0, "mutation-gate-items: no uncleared items"))
 
-    def test_verified_commit_with_the_items_key_in_its_tree_clears(self) -> None:
+    def test_output_has_no_clearance_command(self) -> None:
         self.change_timeout("120.0")
-        self.review("sq")
-        self.assertEqual(self.run_cli()[0], 0)
-
-    def test_verified_commit_whose_tree_holds_an_earlier_value_does_not_clear(
-        self,
-    ) -> None:
-        self.change_timeout("120.0")
-        self.review("sq")
-        self.change_timeout("180.0")
-        code, text = self.run_cli()
-        self.assertEqual(code, 1)
-        self.assertIn("180.0", text)
-
-    def test_unsigned_trailer_does_not_clear_and_is_reported(self) -> None:
-        self.change_timeout("120.0")
-        sha = self.commit("review", self.trailer(7, "sq"))
-        code, text = self.run_cli()
-        self.assertEqual(code, 1)
-        self.assertIn(f"trailer ignored: {sha}: unsigned", text)
-
-    def test_another_target_or_another_pr_does_not_clear(self) -> None:
-        self.change_timeout("120.0")
-        self.review("gate")
-        self.assertEqual(self.run_cli()[0], 1)
-        self.review("sq", pr=8)
-        self.assertEqual(self.run_cli()[0], 1)
-
-    def test_key_outside_the_signers_file_does_not_clear(self) -> None:
-        self.change_timeout("120.0")
-        self.review("sq", key=self.other_key)
-        self.assertEqual(self.run_cli()[0], 1)
-
-    def test_one_commit_with_two_trailer_lines_clears_two_targets(self) -> None:
-        self.change_timeout("120.0")
-        self.write("scripts/mutation-pr-detect.sh", "changed\n")
-        self.commit("changes")
-        self.assertEqual(self.run_cli()[0], 1)
-        self.review("sq", "gate")
-        self.assertEqual(self.run_cli()[0], 0)
-
-    def test_signers_come_from_the_base_branch_when_no_override(self) -> None:
-        self.change_timeout("120.0")
-        self.review("sq")
-        code, _ = mgi.run(self.repo, self.base, "HEAD", 7, None)
-        self.assertEqual(code, 1)
+        _, text = self.run_cli()
+        self.assertNotIn("commit --allow-empty", text)
 
 
 class CliTest(ItemsCase):
@@ -527,7 +514,6 @@ class CliTest(ItemsCase):
                 "HOME": str(self.tmp / "home"),
                 "GIT_CONFIG_GLOBAL": "/dev/null",
                 "GIT_CONFIG_SYSTEM": "/dev/null",
-                "MUTATION_GATE_SIGNERS": str(self.signers),
             },
         )
 
@@ -548,6 +534,10 @@ class CliTest(ItemsCase):
         self.assertIn(
             "uncleared item: gate gate scripts/mutation-pr-detect.sh", red.stdout
         )
+
+    def test_pr_flag_is_gone(self) -> None:
+        result = self.cli(self.base, "HEAD", "--pr", "7", "--repo", str(self.repo))
+        self.assertEqual(result.returncode, 2)
 
     def test_bad_sha_is_red_not_green(self) -> None:
         result = self.cli("0" * 40, "1" * 40, "--repo", str(self.repo))
@@ -622,29 +612,12 @@ class MergeBaseTest(ItemsCase):
         self.git("checkout", "-q", "master")
         self.write("scripts/mutation-pr-detect.sh", "moved on master\n")
         self.commit("master moves")
-        code, text = mgi.run(self.repo, self.rev("master"), "pr", 7, str(self.signers))
+        code, text = mgi.run(self.repo, self.rev("master"), "pr")
         self.assertEqual((code, text), (0, "mutation-gate-items: no uncleared items"))
-
-    def test_clearing_then_merging_master_stays_green(self) -> None:
-        self.git("checkout", "-q", "-b", "pr")
-        path = self.repo / "sq" / "cosmic-ray.toml"
-        self.write(
-            "sq/cosmic-ray.toml",
-            re.sub(r"timeout = [0-9.]+", "timeout = 90.0", path.read_text()),
-        )
-        self.commit("timeout")
-        self.commit("chore: review", self.trailer(7, "sq"), key=self.key)
-        self.git("checkout", "-q", "master")
-        self.write("scripts/mutation-pr-detect.sh", "moved on master\n")
-        self.commit("master moves")
-        self.git("checkout", "-q", "pr")
-        self.git("merge", "-q", "--no-edit", "master")
-        code, _ = mgi.run(self.repo, self.rev("master"), "pr", 7, str(self.signers))
-        self.assertEqual(code, 0)
 
     def test_unknown_commit_is_an_error_not_green(self) -> None:
         with self.assertRaises(RuntimeError):
-            mgi.run(self.repo, "0" * 40, "HEAD", 7, str(self.signers))
+            mgi.run(self.repo, "0" * 40, "HEAD")
 
 
 class MakefileScopeTest(ItemsCase):
@@ -770,28 +743,6 @@ class WorkflowNameTest(ItemsCase):
         self.assertEqual(len(self.items("gate")), 1)
 
 
-class HostileHeadTest(ItemsCase):
-    def test_head_enrolling_its_own_signing_key_is_red(self) -> None:
-        text = (self.repo / "sq" / "cosmic-ray.toml").read_text()
-        self.write(
-            "sq/cosmic-ray.toml", re.sub(r"timeout = [0-9.]+", "timeout = 999.0", text)
-        )
-        self.write(
-            ".github/mutation-gate-allowed-signers",
-            f'evil namespaces="git" {self.pub(self.other_key)}\n',
-        )
-        self.commit("self-enrol")
-        self.commit(
-            "chore: review",
-            self.trailer(7, "sq"),
-            self.trailer(7, "gate"),
-            key=self.other_key,
-        )
-        code, text_out = mgi.run(self.repo, self.base, "HEAD", 7, None)
-        self.assertEqual(code, 1)
-        self.assertIn("trailer ignored:", text_out)
-
-
 class ErrorHandlingTest(ItemsCase):
     def test_unexpected_exception_is_an_infra_error_exit_3(self) -> None:
         err = io.StringIO()
@@ -910,34 +861,6 @@ class N4Test(ItemsCase):
             self.items()
         self.assertNotEqual(seen["a"], seen["b"])
         self.assertEqual(seen["a"].parent, seen["b"].parent)
-
-
-class TargetFilterTest(ItemsCase):
-    def test_clearance_recollects_only_the_trailers_targets(self) -> None:
-        path = self.repo / "sq" / "cosmic-ray.toml"
-        self.write(
-            "sq/cosmic-ray.toml",
-            re.sub(r"timeout = [0-9.]+", "timeout = 90.0", path.read_text()),
-        )
-        self.commit("timeout")
-        review = self.commit("chore: review", self.trailer(7, "sq"), key=self.key)
-        with mock.patch.object(mgi, "collect", wraps=mgi.collect) as spy:
-            self.assertEqual(self.run_cli()[0], 0)
-        filtered = [c for c in spy.call_args_list if c.args[2] == review]
-        self.assertEqual(
-            [c.kwargs.get("targets") for c in filtered], [frozenset({"sq"})]
-        )
-
-    def test_collect_with_targets_returns_only_those(self) -> None:
-        path = self.repo / "sq" / "cosmic-ray.toml"
-        self.write(
-            "sq/cosmic-ray.toml",
-            re.sub(r"timeout = [0-9.]+", "timeout = 90.0", path.read_text()),
-        )
-        self.write("scripts/mutation-pr-detect.sh", "x\n")
-        self.commit("both")
-        found = mgi.collect(self.repo, self.base, "HEAD", targets=frozenset({"gate"}))
-        self.assertEqual({i.target for i in found}, {"gate"})
 
 
 if __name__ == "__main__":

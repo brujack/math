@@ -56,5 +56,4 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR: ${{ github.event.pull_request.number }}
-        run: scripts/mutation-gate-items.sh "${BASE_SHA}" "${HEAD_SHA}" --pr "${PR}"
+        run: scripts/mutation-gate-items.sh "${BASE_SHA}" "${HEAD_SHA}"
