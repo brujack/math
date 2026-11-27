@@ -102,9 +102,11 @@ endif
 
 # tests/*.py were type-checked by pyright and never executed by anything —
 # test_time_tests.py sat green-by-assumption for its whole life. This target is
-# what actually runs them.
+# what actually runs them. The env -u prefix strips the GIT_DIR a worktree pre-push
+# hook exports: tests that run git (fixture repos, `git ls-files`) otherwise resolve
+# against the pushing worktree and fail only on push.
 test-python:
-	python3 -m unittest discover -s tests -p 'test_*.py'
+	env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE python3 -m unittest discover -s tests -p 'test_*.py'
 
 test: lint test-hooks test-python
 

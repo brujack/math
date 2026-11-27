@@ -24,7 +24,30 @@ ci_gate() {
     local sha
     sha=$(gh api "repos/${repo}/pulls/${pr}" --jq '.head.sha') || return 1
 
-    local check_runs non_terminal timed_out=1
+    # The contexts that must pass come from a tracked mirror of branch protection: a
+    # pull_request_target run (mutation-gate-items) can register after every
+    # pull_request check has finished, so "everything seen so far is terminal" is not
+    # enough, and GITHUB_TOKEN cannot be granted the administration permission needed
+    # to read protection itself. A missing or empty file fails closed.
+    local required_file="${REQUIRED_CHECKS_FILE:-$(dirname "${BASH_SOURCE[0]}")/../.github/required-status-checks}"
+    local protection_contexts
+    if [[ ! -r "${required_file}" ]]; then
+        printf "Cannot read required-checks file %s; failing closed.\n" "${required_file}" >&2
+        return 1
+    fi
+    protection_contexts=$(sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "${required_file}" | awk 'NF')
+    if [[ -z "${protection_contexts}" ]]; then
+        printf "The required-checks file %s lists no contexts; failing closed.\n" "${required_file}" >&2
+        return 1
+    fi
+    # Advisory and self-check contexts are never waited for: ci-gate runs inside the
+    # auto-merge workflow, so waiting for "auto-merge" would wait for itself, and
+    # secret-scan is a job this one needs, so it is already complete.
+    local awaited_json
+    awaited_json=$(printf '%s\n' "${protection_contexts}" | jq -R -s -c --argjson excl "${excluded_json}" \
+        'split("\n") | map(select(length > 0)) | map(select(. as $n | $excl | any(. == $n) | not))') || return 1
+
+    local check_runs non_terminal missing timed_out=1
 
     for (( poll=0; poll<max_polls; poll++ )); do
         # REST check-runs API: status=in_progress/queued/completed, conclusion=success/failure/skipped/...
@@ -54,7 +77,9 @@ ci_gate() {
              | map(([.[] | select(.conclusion != "skipped")] | max_by(.id)) // max_by(.id)) | .[]') || return 1
         non_terminal=$(printf '%s' "${check_runs}" | jq -r --argjson excl "${excluded_json}" \
             'select(.name as $n | $excl | any(. == $n) | not) | select(.status != "completed") | .name')
-        if [[ -z "${non_terminal}" ]]; then
+        missing=$(printf '%s' "${check_runs}" | jq -r -s --argjson awaited "${awaited_json}" \
+            '(map(.name)) as $seen | $awaited | map(select(. as $n | $seen | any(. == $n) | not)) | .[]') || return 1
+        if [[ -z "${non_terminal}" && -z "${missing}" ]]; then
             timed_out=0
             break
         fi
@@ -63,6 +88,9 @@ ci_gate() {
 
     if [[ "${timed_out}" -eq 1 ]]; then
         printf "Timeout: checks did not complete within %d polls\n" "${max_polls}" >&2
+        if [[ -n "${missing}" ]]; then
+            printf "Required checks that never registered:\n%s\n" "${missing}" >&2
+        fi
         return 1
     fi
 

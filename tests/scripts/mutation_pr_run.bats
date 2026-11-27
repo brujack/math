@@ -39,17 +39,23 @@ _write_stub_make() {
 dir=""
 diff=""
 shard="<none>"
+target=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -C) dir="$2"; shift 2 ;;
+        mutants|mutants-diff) target="$1"; shift ;;
         DIFF=*) diff="${1#DIFF=}"; shift ;;
         MUTANT_SHARD=*) shard="${1#MUTANT_SHARD=}"; shift ;;
         *) shift ;;
     esac
 done
-plus=$(grep -m1 '^+++ ' "${diff}")
 [[ -n "${STUB_MARK-}" ]] && printf 'MAKE-RAN\n'
-printf 'make -C %s DIFF=%s PLUS=%s SHARD=%s\n' "${dir}" "${diff}" "${plus}" "${shard}" >>"${STUB_LOG}"
+if [[ -n "${diff}" ]]; then
+    plus=$(grep -m1 '^+++ ' "${diff}")
+    printf 'make -C %s DIFF=%s PLUS=%s SHARD=%s\n' "${dir}" "${diff}" "${plus}" "${shard}" >>"${STUB_LOG}"
+else
+    printf 'make -C %s TARGET=%s SHARD=%s\n' "${dir}" "${target}" "${shard}" >>"${STUB_LOG}"
+fi
 cfg="${STUB_CFG}/${dir//\//_}"
 mkdir -p "${dir}/mutants.out"
 status=0
@@ -344,7 +350,7 @@ GREEN='{"caught":3,"missed":0,"timeout":0,"unviable":1}'
     _run_script main a/a-rs
     [ "${status}" -eq 0 ]
     [[ "${output}" == "${REPRO_A}"$'\n'* ]]
-    [[ "$(cat "${STUB_LOG}")" == *"SHARD=<none>" ]]
+    [[ "$(cat "${STUB_LOG}")" == *"SHARD=" ]]
 }
 
 @test "--shard reaches make as MUTANT_SHARD and shows in repro without --expect" {
@@ -470,4 +476,135 @@ GREEN='{"caught":3,"missed":0,"timeout":0,"unviable":1}'
     _run_script main a/a-rs
     [ "${status}" -eq 0 ]
     [[ "${output}" == "${REPRO_A}"$'\nMAKE-RAN\n'* ]]
+}
+
+# --whole mode (R4, R31): no base ref, no diff, `make mutants`, verdict via mutation-classify.sh 0 1.
+
+@test "whole: green runs make mutants without a diff" {
+    _cfg a/a-rs 0 "${GREEN}"
+    _run_script --whole a/a-rs
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"repro: scripts/mutation-pr-run.sh --whole a/a-rs"* ]]
+    grep -q 'make -C a/a-rs TARGET=mutants SHARD=$' "${STUB_LOG}"
+    ! command grep -q 'DIFF=' "${STUB_LOG}"
+}
+
+@test "whole: ambient MUTANT_SHARD is overridden with an empty value" {
+    _cfg a/a-rs 0 "${GREEN}"
+    MUTANT_SHARD=1/4 _run_script --whole a/a-rs
+    [ "${status}" -eq 0 ]
+    grep -q 'make -C a/a-rs TARGET=mutants SHARD=$' "${STUB_LOG}"
+}
+
+@test "diff: ambient MUTANT_SHARD is overridden with an empty value" {
+    _change a/a-rs
+    _commit
+    _cfg a/a-rs 0 "${GREEN}"
+    MUTANT_SHARD=1/4 _run_script main a/a-rs
+    [ "${status}" -eq 0 ]
+    [[ "$(cat "${STUB_LOG}")" == *"SHARD=" ]]
+}
+
+@test "whole: shard and expect pass through" {
+    _cfg a/a-rs 0 '{"caught":3,"missed":0,"timeout":0,"unviable":1,"total_mutants":4}'
+    _run_script --whole --shard 1/4 --expect 4 a/a-rs
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"--whole --shard 1/4 --expect 4 a/a-rs"* ]]
+    grep -q 'TARGET=mutants SHARD=1/4' "${STUB_LOG}"
+}
+
+@test "whole: missed mutant is red" {
+    _cfg a/a-rs 2 '{"caught":3,"missed":1,"timeout":0,"unviable":0}'
+    _run_script --whole a/a-rs
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"missed=1 exceeds"* ]]
+}
+
+@test "whole: nothing evaluated is red" {
+    _cfg a/a-rs 0 '{"caught":0,"missed":0,"timeout":0,"unviable":2}'
+    _run_script --whole a/a-rs
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"nothing was evaluated"* ]]
+}
+
+@test "whole: missing outcomes.json is red" {
+    _cfg a/a-rs 0 ""
+    _run_script --whole a/a-rs
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"no outcomes.json"* ]]
+}
+
+@test "whole: missing exit-code is red" {
+    _cfg a/a-rs "" "${GREEN}"
+    _run_script --whole a/a-rs
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"no mutants.out/exit-code"* ]]
+}
+
+@test "whole: failed baseline exit code is red" {
+    _cfg a/a-rs 4 "${GREEN}"
+    _run_script --whole a/a-rs
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"exit code 4"* ]]
+}
+
+@test "whole: timeouts beside a caught mutant are green" {
+    _cfg a/a-rs 3 '{"caught":1,"missed":0,"timeout":2,"unviable":0}'
+    _run_script --whole a/a-rs
+    [ "${status}" -eq 0 ]
+}
+
+@test "whole: timeouts with no caught mutant are red" {
+    _cfg a/a-rs 3 '{"caught":0,"missed":0,"timeout":2,"unviable":0}'
+    _run_script --whole a/a-rs
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"caught=0 below min_caught=1"* ]]
+}
+
+@test "whole: expect mismatch is red" {
+    _cfg a/a-rs 0 '{"caught":3,"missed":0,"timeout":0,"unviable":1,"total_mutants":4}'
+    _run_script --whole --shard 0/2 --expect 9 a/a-rs
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"tested 4 mutants, plan expected 9"* ]]
+}
+
+@test "whole: failing make is judged by exit-code file" {
+    printf 'status=1\nexit=0\noutcomes=%s\n' "${GREEN}" >"${STUB_CFG}/a_a-rs"
+    _run_script --whole a/a-rs
+    [ "${status}" -eq 0 ]
+}
+
+@test "whole: stale mutants.out is cleared before the run" {
+    mkdir -p "${FIXTURE}/a/a-rs/mutants.out"
+    printf '0\n' >"${FIXTURE}/a/a-rs/mutants.out/exit-code"
+    printf '%s\n' "${GREEN}" >"${FIXTURE}/a/a-rs/mutants.out/outcomes.json"
+    : >"${STUB_CFG}/a_a-rs"
+    _run_script --whole a/a-rs
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"no mutants.out/exit-code"* ]]
+}
+
+@test "whole: no crate dir exits 2" {
+    _run_script --whole
+    [ "${status}" -eq 2 ]
+    [[ "${output}" == *"Usage"* ]]
+}
+
+@test "whole: --min-caught is refused" {
+    _run_script --whole --min-caught 2 a/a-rs
+    [ "${status}" -eq 2 ]
+}
+
+@test "whole: sharded run with two crates exits 2" {
+    _run_script --whole --shard 0/2 a/a-rs b/b-rs
+    [ "${status}" -eq 2 ]
+}
+
+@test "whole: unsharded run with two crates reports both" {
+    _cfg a/a-rs 0 "${GREEN}"
+    _cfg b/b-rs 2 '{"caught":1,"missed":1,"timeout":0,"unviable":0}'
+    _run_script --whole a/a-rs b/b-rs
+    [ "${status}" -eq 1 ]
+    grep -q 'make -C a/a-rs' "${STUB_LOG}"
+    grep -q 'make -C b/b-rs' "${STUB_LOG}"
 }

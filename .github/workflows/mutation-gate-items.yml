@@ -1,0 +1,61 @@
+name: mutation-gate-items
+
+# pull_request_target runs with the base repository's context, so this workflow executes
+# the base branch's scripts only. PR commits are fetched as git objects and read by the
+# script as data; none is checked out, built, imported or run (spec R20, N4).
+on:
+  pull_request_target:
+    branches: [master]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-gate-items-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  mutation-gate-items:
+    name: mutation-gate-items
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Never add an `if` to this job or its steps. GitHub reports a skipped required check
+    # as Success, and `cancel-in-progress` above cancels the in-flight run, so a skipped
+    # run on a title or body edit would let the PR author mask a red check.
+    steps:
+      - name: Check out the base branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch PR objects without checking them out
+        # brujack/math is public, so this fetch needs no credentials.
+        env:
+          PR: ${{ github.event.pull_request.number }}
+        run: git fetch --no-tags origin "+refs/pull/${PR}/head"
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14"
+
+      - name: Install cosmic-ray
+        run: pip install cosmic-ray==8.7.0 pyyaml==6.0.3
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec  # stable
+
+      - name: Install cargo-mutants
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-mutants@27.1.0
+          fallback: none
+
+      - name: Run mutation-gate-items
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: scripts/mutation-gate-items.sh "${BASE_SHA}" "${HEAD_SHA}"

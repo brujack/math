@@ -184,6 +184,7 @@ class TestInstallActionPins(unittest.TestCase):
                 "scripts.yml",
                 "cargo-deny.yml",
                 "auto-merge.yml",
+                "mutation-gate-items.yml",
                 "mutation-pr.yml",
                 "mutation-testing.yml",
             },

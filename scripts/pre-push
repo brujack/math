@@ -253,6 +253,46 @@ check_claude_md_budget() {
     rm -f "${tmp}"
 }
 
+# Paths whose change can create a mutation-gate item (spec R29): equivalents and
+# cosmic-ray config, crate src and mutants config, workflows, the mutation scripts,
+# the weakening fixtures and any Makefile.
+readonly MUTATION_ITEM_PATHS='^[^/]+/mutants-equivalent\.toml$|^[^/]+/cosmic-ray\.toml$|^[^/]+/[^/]+-rs/(src/|\.cargo/|tests/|Cargo\.toml$|build\.rs$)|^\.github/workflows/|^scripts/mutation[-_]|^scripts/cosmic_ray_|^tests/fixtures/mutation_weakening/|(^|/)Makefile$'
+
+# Advisory only (spec R29, N3): prints the mutation-gate items for <sha>. It runs no
+# mutant (the items script only lists them), looks up no PR and always returns 0: an
+# items finding, a usage or infra exit or a missing script prints one line and lets the
+# push continue. Relevance is decided over merge-base..sha, not the incremental push
+# range.
+# Usage: advise_mutation_items <local sha>
+advise_mutation_items() {
+    local sha="$1"
+    local items="${REPO_ROOT}/scripts/mutation-gate-items.sh"
+    local base out rc=0
+
+    base="$(git merge-base "${sha}" origin/master 2>/dev/null)" || base=""
+    base="${base%%$'\n'*}"
+    if [[ -z "${base}" ]]; then
+        printf "pre-push: mutation gate items: no merge base with origin/master; push continues\n"
+        return 0
+    fi
+    if ! git diff --no-renames --name-only "${base}..${sha}" 2>/dev/null | grep -qE "${MUTATION_ITEM_PATHS}"; then
+        return 0
+    fi
+    printf "mutation gate items (advisory; the push is not blocked):\n"
+    if [[ ! -x "${items}" ]]; then
+        printf "pre-push: mutation gate items: script not found; push continues\n"
+        return 0
+    fi
+
+    out="$("${items}" "${base}" "${sha}" < /dev/null 2>&1)" || rc=$?
+    [[ -z "${out}" ]] || printf '%s\n' "${out}"
+    case "${rc}" in
+        0 | 1) ;;
+        *) printf "pre-push: mutation gate items: exit %s; push continues\n" "${rc}" ;;
+    esac
+    return 0
+}
+
 # The wiring block already consumed stdin into _pcg_refs, so the loop reads that
 # copy; an empty copy (a bare run, no refs) skips the loop as the old empty read did.
 if [[ -n "${_pcg_refs}" ]]; then
@@ -272,6 +312,9 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     else
         range="${remote_sha}..${local_sha}"
     fi
+
+    # Advisory listing of mutation-gate items (R29); never changes the outcome.
+    advise_mutation_items "${local_sha}" || printf "pre-push: mutation gate items: advisory step failed; push continues\n"
 
     for dir in pi pi/pi-rs prime/prime-rs fib fib/fib-rs sq sq/sq-rs twin-primes/twin-primes-rs e e/e-rs factorial factorial/factorial-rs perfect-numbers perfect-numbers/perfect-numbers-rs collatz collatz/collatz-rs goldbach/goldbach-rs amicable amicable/amicable-rs triangle descartes descartes/descartes-rs zeta/zeta-rs; do
         # Only trigger tests when Python or Rust source changed, not Makefiles

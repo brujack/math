@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+# A new push to a PR supersedes the run in flight: mutation shards are long and
+# only the newest head matters (R30).
+concurrency:
+  group: mutation-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -21,6 +27,7 @@ jobs:
       units: ${{ steps.plan.outputs.units }}
       base: ${{ steps.base.outputs.sha }}
       py_src_dirs: ${{ steps.detect.outputs.py_src_dirs }}
+      py_test_dirs: ${{ steps.detect.outputs.py_test_dirs }}
       py_canary: ${{ steps.detect.outputs.py_canary }}
       has_py: ${{ steps.detect.outputs.has_py }}
       py_dirs: ${{ steps.detect.outputs.py_dirs }}
@@ -44,27 +51,30 @@ jobs:
           GITHUB_BASE_REF: ${{ github.base_ref }}
 
       - name: Install GMP and MPFR
-        if: steps.detect.outputs.py_src_dirs != ''
+        if: steps.detect.outputs.py_src_dirs != '' || steps.detect.outputs.py_test_dirs != ''
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev
 
       - name: Set up Python
-        if: steps.detect.outputs.py_src_dirs != ''
+        if: steps.detect.outputs.py_src_dirs != '' || steps.detect.outputs.py_test_dirs != ''
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.14"
 
       - name: Install Python dependencies
-        if: steps.detect.outputs.py_src_dirs != ''
+        if: steps.detect.outputs.py_src_dirs != '' || steps.detect.outputs.py_test_dirs != ''
         run: pip install mpmath==1.4.1 gmpy2==2.3.2 coverage==7.16.2 cosmic-ray==8.7.0 hypothesis==6.168.5 pytest==9.1.1 pytest-cov==7.1.0 ruff==0.17.4 pyright==1.1.411 pip-audit==2.10.1
 
       - name: Plan Python mutation units
         id: plan
         env:
           PY_SRC_DIRS: ${{ steps.detect.outputs.py_src_dirs }}
+          PY_TEST_DIRS: ${{ steps.detect.outputs.py_test_dirs }}
           BASE_SHA: ${{ steps.base.outputs.sha }}
         run: |
           # Runs with an empty dir list too: the plan is then empty and units is [].
-          # PY_SRC_DIRS is a space-separated list of validated project dirs.
+          # PY_SRC_DIRS is a space-separated list of validated project dirs planned
+          # on their changed lines; PY_TEST_DIRS (read by the planner from the
+          # environment) are planned as whole-module weakening shards, once each.
           mkdir -p plan
           read -ra py_dirs <<< "${PY_SRC_DIRS}"
           PLAN_OUT=plan scripts/mutation-pr-plan-python.sh "${BASE_SHA}" "${py_dirs[@]}"
@@ -78,12 +88,13 @@ jobs:
           path: plan/plan.txt
           overwrite: true
 
-  # One matrix leg per planned unit: the changed-line mutants of one shard.
+  # One matrix leg per planned unit: the changed-line mutants of one shard (mode
+  # diff) or a whole-module weakening shard (mode weakening, R6/R16/R19/R31).
   mutation-py:
     needs: [mutation-py-plan]
     if: needs.mutation-py-plan.outputs.units != '[]'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -107,6 +118,7 @@ jobs:
         run: pip install mpmath==1.4.1 gmpy2==2.3.2 coverage==7.16.2 cosmic-ray==8.7.0 hypothesis==6.168.5 pytest==9.1.1 pytest-cov==7.1.0 ruff==0.17.4 pyright==1.1.411 pip-audit==2.10.1
 
       - name: Run mutants on changed lines
+        if: matrix.mode != 'weakening'
         env:
           DIR: ${{ matrix.dir }}
           K: ${{ matrix.k }}
@@ -117,8 +129,25 @@ jobs:
           scripts/mutation-pr-diff.sh "${BASE_SHA}" "${DIR}" "${RUNNER_TEMP}/d.diff"
           make -C "${DIR}" mutants-diff DIFF="${RUNNER_TEMP}/d.diff" MUTANT_SHARD="${K}/${N}" STATUS_OUT="${RUNNER_TEMP}/status/${DIR}-${K}"
 
+      - name: Run weakening shard
+        if: matrix.mode == 'weakening'
+        env:
+          DIR: ${{ matrix.dir }}
+          K: ${{ matrix.k }}
+          N: ${{ matrix.n }}
+          BASE_SHA: ${{ needs.mutation-py-plan.outputs.base }}
+          PLANNED: ${{ matrix.planned }}
+        run: |
+          # The planner's job count for this slice. A slice of 0 jobs (K=0, or
+          # K < n) leaves the shard tool an empty session, which it rejects.
+          if [ "${PLANNED}" = "0" ]; then
+            printf 'empty slice: nothing planned for %s shard %s/%s\n' "${DIR}" "${K}" "${N}" | tee -a "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          make -C "${DIR}" mutants-weakening BASE="${BASE_SHA}" MUTANT_SHARD="${K}/${N}" PLANNED="${PLANNED}"
+
       - name: Upload unit status
-        if: always()
+        if: always() && matrix.mode != 'weakening'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: mutants-pr-status-${{ matrix.dir }}-${{ matrix.k }}
@@ -148,6 +177,9 @@ jobs:
 
       - name: Install Python dependencies
         run: pip install mpmath==1.4.1 gmpy2==2.3.2 coverage==7.16.2 cosmic-ray==8.7.0 hypothesis==6.168.5 pytest==9.1.1 pytest-cov==7.1.0 ruff==0.17.4 pyright==1.1.411 pip-audit==2.10.1
+
+      - name: Weakening canary fixtures
+        run: python3 -m unittest tests.test_mutation_weakening_canary -v
 
       - name: Gate canary (sq)
         run: |
@@ -212,13 +244,11 @@ jobs:
         id: plan
         env:
           RS_DIRS: ${{ steps.detect.outputs.rs_dirs }}
-          GITHUB_BASE_REF: ${{ github.base_ref }}
         run: |
           # RS_DIRS is a space-separated list of crate dirs from git ls-files.
-          # Every Rust job re-resolves origin/${GITHUB_BASE_REF} after its own
-          # fetch. That is safe only because mutation-pr-diff.sh diffs three-dot
-          # against the fixed merge commit: a master that moved between jobs
-          # leaves the merge base, and so K and each shard's count, unchanged.
+          # Every selected crate is planned whole (R2): the PR's diff never narrows
+          # the mutant set, so no base ref is passed. A crate whose listing faults
+          # arrives as a unit with a "fault" field (R3); the aggregator reports it.
           # The planner prints units on stdout only; a red plan exits non-zero and
           # fails this step under bash -e before units is written.
           read -ra rs_dirs <<< "${RS_DIRS}"
@@ -226,7 +256,7 @@ jobs:
             printf 'units=[]\n' >> "${GITHUB_OUTPUT}"
             exit 0
           fi
-          scripts/mutation-rs-plan.sh "origin/${GITHUB_BASE_REF}" "${rs_dirs[@]}" > "${RUNNER_TEMP}/units.json"
+          scripts/mutation-rs-plan.sh --whole "${rs_dirs[@]}" > "${RUNNER_TEMP}/units.json"
           printf 'units=%s\n' "$(cat "${RUNNER_TEMP}/units.json")" >> "${GITHUB_OUTPUT}"
 
   # One matrix leg per planned shard: the changed-line mutants of one crate shard.
@@ -246,6 +276,16 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+
+      - name: Report plan fault
+        if: matrix.fault != ''
+        env:
+          SLUG: ${{ matrix.slug }}
+          FAULT: ${{ matrix.fault }}
+        run: |
+          # A crate whose mutant listing faulted has no shard to run (R3).
+          printf 'red: %s - plan fault: %s\n' "${SLUG}" "${FAULT}" | tee -a "${GITHUB_STEP_SUMMARY}" >&2
+          exit 1
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec  # stable
@@ -279,10 +319,9 @@ jobs:
           K: ${{ matrix.k }}
           N: ${{ matrix.n }}
           COUNT: ${{ matrix.count }}
-          GITHUB_BASE_REF: ${{ github.base_ref }}
         run: |
           set +e
-          scripts/mutation-pr-run.sh "origin/${GITHUB_BASE_REF}" --shard "${K}/${N}" --expect "${COUNT}" "${CRATE}" 2>&1 | tee "${RUNNER_TEMP}/rs.log"
+          scripts/mutation-pr-run.sh --whole --shard "${K}/${N}" --expect "${COUNT}" "${CRATE}" 2>&1 | tee "${RUNNER_TEMP}/rs.log"
           rc=${PIPESTATUS[0]}
           set -e
           {
@@ -334,32 +373,44 @@ jobs:
       - name: Gate canary (amicable-rs)
         run: |
           # A change to the gate's own files selects no crate, so it would merge
-          # green untested. Prove the gate still catches a survivor: append a
-          # space to the one `m = 2 * d` line, commit that path alone so HEAD~1
-          # is the clean tree, and require at least one caught mutant. The canary
-          # goes through the planner, so a planner defect turns it red.
-          f=amicable/amicable-rs/src/lib.rs
+          # green untested. Run the real whole-crate path (R2): plan the crate whole,
+          # pick the shard that holds the `m = 2 * d` mutants and run it. Whole mode
+          # fixes its own limits (0 missed, at least 1 caught) and refuses
+          # --min-caught, so a gate that stops catching mutants goes red here.
+          crate=amicable/amicable-rs
+          f="${crate}/src/lib.rs"
           n=$(grep -c 'let mut m = 2 \* d;' "${f}") || n=0
           if [ "${n}" != "1" ]; then
             printf 'red: canary line count is %s, expected exactly 1 in %s\n' "${n}" "${f}" | tee -a "${GITHUB_STEP_SUMMARY}" >&2
             exit 1
           fi
-          sed -i 's/let mut m = 2 \* d;$/& /' "${f}"
-          git -c user.name=ci -c user.email=ci@localhost commit -q -m canary -- "${f}"
-          scripts/mutation-rs-plan.sh HEAD~1 amicable/amicable-rs > "${RUNNER_TEMP}/canary-units.json"
-          units=$(jq length "${RUNNER_TEMP}/canary-units.json")
-          if [ "${units}" != "1" ]; then
-            printf 'red: canary planned %s units, expected exactly 1\n' "${units}" | tee -a "${GITHUB_STEP_SUMMARY}" >&2
+          line=$(grep -n 'let mut m = 2 \* d;' "${f}" | cut -d: -f1)
+          units="${RUNNER_TEMP}/canary-units.json"
+          scripts/mutation-rs-plan.sh --whole "${crate}" > "${units}"
+          fault=$(jq -r '[.[] | select((.fault // "") != "") | .fault] | first // empty' "${units}")
+          if [ -n "${fault}" ]; then
+            printf 'red: canary plan fault: %s\n' "${fault}" | tee -a "${GITHUB_STEP_SUMMARY}" >&2
             exit 1
           fi
-          shard_k=$(jq -r '.[0].k' "${RUNNER_TEMP}/canary-units.json")
-          shard_n=$(jq -r '.[0].n' "${RUNNER_TEMP}/canary-units.json")
-          shard_count=$(jq -r '.[0].count' "${RUNNER_TEMP}/canary-units.json")
-          # The run's own repro line names HEAD~1, which exists only in this job.
-          printf 'canary repro: git checkout %s, append a space to the "let mut m = 2 * d;" line in %s, commit it, then scripts/mutation-pr-run.sh HEAD~1 --shard %s/%s --expect %s --min-caught 1 amicable/amicable-rs\n' \
-            "$(git rev-parse HEAD~1)" "${f}" "${shard_k}" "${shard_n}" "${shard_count}" >> "${GITHUB_STEP_SUMMARY}"
+          # cargo-mutants shards round-robin (mutant i is on shard i mod n), as the
+          # crate Makefile's --sharding round-robin does.
+          (cd "${crate}" && cargo mutants --list --json) > "${RUNNER_TEMP}/canary-list.json"
+          index=$(jq -r --argjson line "${line}" 'map(.span.start.line == $line) | index(true) // empty' "${RUNNER_TEMP}/canary-list.json")
+          shard_n=$(jq -r '.[0].n // empty' "${units}")
+          if [ -z "${index}" ] || [ -z "${shard_n}" ]; then
+            printf 'red: canary found no mutant on line %s of %s, or no planned shard\n' "${line}" "${f}" | tee -a "${GITHUB_STEP_SUMMARY}" >&2
+            exit 1
+          fi
+          shard_k=$((index % shard_n))
+          shard_count=$(jq -r --argjson k "${shard_k}" '.[] | select(.k == $k) | .count' "${units}")
+          if [ -z "${shard_count}" ]; then
+            printf 'red: canary shard %s/%s is not in the plan\n' "${shard_k}" "${shard_n}" | tee -a "${GITHUB_STEP_SUMMARY}" >&2
+            exit 1
+          fi
+          printf 'canary repro: scripts/mutation-pr-run.sh --whole --shard %s/%s --expect %s %s\n' \
+            "${shard_k}" "${shard_n}" "${shard_count}" "${crate}" >> "${GITHUB_STEP_SUMMARY}"
           set +e
-          scripts/mutation-pr-run.sh HEAD~1 --shard "${shard_k}/${shard_n}" --expect "${shard_count}" --min-caught 1 amicable/amicable-rs 2>&1 | tee "${RUNNER_TEMP}/canary.log"
+          scripts/mutation-pr-run.sh --whole --shard "${shard_k}/${shard_n}" --expect "${shard_count}" "${crate}" 2>&1 | tee "${RUNNER_TEMP}/canary.log"
           rc=${PIPESTATUS[0]}
           set -e
           {
@@ -446,6 +497,16 @@ jobs:
             red=1
           }
           [ "${RS_PLAN_RESULT}" = "success" ] || fail "mutation-rs-plan result is '${RS_PLAN_RESULT}'"
+          # A crate whose whole-set listing faulted arrives as a unit with a
+          # "fault" field (R3). Name each crate and cause, and fail closed when
+          # the units cannot be parsed.
+          if faults=$(printf '%s' "${RS_UNITS}" | jq -r '.[] | select((.fault // "") != "") | "\(.crate) - plan fault: \(.fault)"'); then
+            while IFS= read -r line; do
+              [ -z "${line}" ] || fail "${line}"
+            done <<< "${faults}"
+          else
+            fail "mutation-rs-plan units are not valid JSON: '${RS_UNITS}'"
+          fi
           case "${RS_RESULT}" in
             success) ;;
             skipped) [ "${RS_UNITS}" = "[]" ] || fail "mutation-rs skipped but units is '${RS_UNITS}'" ;;
@@ -499,6 +560,44 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           PY_SRC_DIRS: ${{ needs.mutation-py-plan.outputs.py_src_dirs }}
+          PY_TEST_DIRS: ${{ needs.mutation-py-plan.outputs.py_test_dirs }}
         run: |
           mkdir -p status
-          scripts/mutation-pr-verdict-python.sh --expected-dirs "${PY_SRC_DIRS}" plan/plan.txt status
+          # A py_test_dirs dir runs as weakening shards, judged by their own job
+          # result above; the changed-line verdict covers only the other dirs.
+          # A dir in both lists is planned once, as weakening, but the planner's
+          # diff-mode recheck may leave a red line for it: that line is dropped
+          # from diff-plan.txt, so it is reported and fails the verdict here.
+          recheck_red=0
+          diff_dirs=""
+          for d in ${PY_SRC_DIRS}; do
+            case " ${PY_TEST_DIRS} " in
+              *" ${d} "*) ;;
+              *) diff_dirs="${diff_dirs:+${diff_dirs} }${d}" ;;
+            esac
+          done
+          : > plan/diff-plan.txt
+          while IFS= read -r line || [ -n "${line}" ]; do
+            d="${line%%$'\t'*}"
+            case " ${PY_TEST_DIRS} " in
+              *" ${d} "*)
+                case "${line}" in
+                  *$'\t'red$'\t'*)
+                    recheck_red=1
+                    msg="${d}: red: plan step failed: ${line#*$'\t'red$'\t'}"
+                    printf '%s\n' "${msg}"
+                    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+                      printf '%s\n' "${msg}" >> "${GITHUB_STEP_SUMMARY}"
+                    fi
+                    ;;
+                esac
+                ;;
+              *) printf '%s\n' "${line}" >> plan/diff-plan.txt ;;
+            esac
+          done < plan/plan.txt
+          rc=0
+          scripts/mutation-pr-verdict-python.sh --expected-dirs "${diff_dirs}" plan/diff-plan.txt status || rc=$?
+          if [ "${recheck_red}" -ne 0 ] && [ "${rc}" -eq 0 ]; then
+            rc=1
+          fi
+          exit "${rc}"

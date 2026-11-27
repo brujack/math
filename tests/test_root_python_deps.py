@@ -47,6 +47,7 @@ POPULATION_PATHSPECS = ["tests/*.py", "scripts/*.py", ".claude/scripts/*.py"]
 # distribution needs no entry at all.
 _IMPORT_TO_DISTRIBUTION = {
     "yaml": "pyyaml",  # the `pyyaml` distribution installs the `yaml` import name
+    "cosmic_ray": "cosmic-ray",  # the `cosmic-ray` distribution installs `cosmic_ray`
 }
 
 

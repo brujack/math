@@ -491,7 +491,6 @@ class MutationPrTests(unittest.TestCase):
                 "K": "${{ matrix.k }}",
                 "N": "${{ matrix.n }}",
                 "COUNT": "${{ matrix.count }}",
-                "GITHUB_BASE_REF": "${{ github.base_ref }}",
             },
         )
         self.assertNotIn("if", step)
@@ -505,7 +504,7 @@ class MutationPrTests(unittest.TestCase):
             lines[:4],
             [
                 "set +e",
-                'scripts/mutation-pr-run.sh "origin/${GITHUB_BASE_REF}" --shard "${K}/${N}" --expect "${COUNT}" "${CRATE}" 2>&1 | tee "${RUNNER_TEMP}/rs.log"',
+                'scripts/mutation-pr-run.sh --whole --shard "${K}/${N}" --expect "${COUNT}" "${CRATE}" 2>&1 | tee "${RUNNER_TEMP}/rs.log"',
                 "rc=${PIPESTATUS[0]}",
                 "set -e",
             ],
@@ -518,7 +517,7 @@ class MutationPrTests(unittest.TestCase):
             self.assertEqual(res.proc.returncode, 0, res.proc.stderr)
             self.assertEqual(
                 res.calls,
-                ["origin/master", "--shard", "1/3", "--expect", "7", "a/a-rs"],
+                ["--whole", "--shard", "1/3", "--expect", "7", "a/a-rs"],
             )
 
     def test_shard_step_propagates_red_under_both_shells(self):
@@ -550,45 +549,31 @@ class MutationPrTests(unittest.TestCase):
         self.assertNotIn("if", step)
         self.assertNotIn("continue-on-error", step)
 
-    def test_canary_edits_commits_only_the_file_plans_and_runs(self):
+    def test_canary_runs_the_whole_crate_without_editing_or_min_caught(self):
         res = run_canary()
         self.assertEqual(res.proc.returncode, 0, res.proc.stderr)
-        self.assertEqual(res.plan_calls, ["HEAD~1", "amicable/amicable-rs"])
+        self.assertEqual(res.plan_calls, ["--whole", "amicable/amicable-rs"])
+        # Whole mode refuses --min-caught (it fixes the limit at 0 missed, 1 caught).
         self.assertEqual(
             res.calls,
-            [
-                "HEAD~1",
-                "--shard",
-                "0/1",
-                "--expect",
-                "5",
-                "--min-caught",
-                "1",
-                "amicable/amicable-rs",
-            ],
+            ["--whole", "--shard", "0/1", "--expect", "5", "amicable/amicable-rs"],
         )
-        # At call time HEAD~1 is the clean tree: the canary commit must precede it.
-        # The staged unrelated file shows in the tree-vs-HEAD~1 diff, but the commit
-        # itself holds only the canary file (asserted below).
-        self.assertEqual(res.diff_at_call, [CANARY_FILE, "other.txt"])
-        self.assertEqual(res.committed, [CANARY_FILE])
+        self.assertEqual(res.lib, CANARY_LIB)
         repro, fenced = res.summary.split("\n", 1)
-        self.assertRegex(
+        self.assertEqual(
             repro,
-            r"^canary repro: git checkout [0-9a-f]{40}, append a space to the "
-            r'"let mut m = 2 \* d;" line in amicable/amicable-rs/src/lib\.rs, commit it, '
-            r"then scripts/mutation-pr-run\.sh HEAD~1 --shard 0/1 --expect 5 "
-            r"--min-caught 1 amicable/amicable-rs$",
+            "canary repro: scripts/mutation-pr-run.sh --whole --shard 0/1 "
+            "--expect 5 amicable/amicable-rs",
         )
         self.assertEqual(fenced, "```\n```\n")
-        self.assertIn("let mut m = 2 * d; \n", res.lib)
-        self.assertEqual(res.lib.count("let mut m = 2 * d;"), 1)
-        self.assertEqual(res.staged_other, ["other.txt"])
 
-    def test_canary_reads_shard_fields_from_the_plan(self):
-        res = run_canary(stub=CanaryStub(plan='[{"k":2,"n":3,"count":41}]'))
+    def test_canary_picks_the_shard_holding_the_canary_mutants(self):
+        # Round-robin: mutant i is on shard i % n. The first mutant on the canary
+        # line (2) is index 3, so shard 1 of 2.
+        units = '[{"k":0,"n":2,"count":3},{"k":1,"n":2,"count":2}]'
+        res = run_canary(stub=CanaryStub(plan=units, lines=(1, 3, 3, 2, 3)))
         self.assertEqual(res.proc.returncode, 0, res.proc.stderr)
-        self.assertEqual(res.calls[1:5], ["--shard", "2/3", "--expect", "41"])
+        self.assertEqual(res.calls[1:5], ["--shard", "1/2", "--expect", "2"])
 
     def test_canary_run_failure_propagates_under_both_shells(self):
         for flags in SHELL_FLAGS:
@@ -601,38 +586,34 @@ class MutationPrTests(unittest.TestCase):
                     res.summary.endswith("```\nred: nope\n```\n"), res.summary
                 )
 
-    def test_canary_plan_of_zero_or_two_units_is_red_without_a_run(self):
-        two = '[{"k":0,"n":1,"count":5},{"k":0,"n":1,"count":6}]'
-        for plan, count in (("[]", 0), (two, 2)):
-            res = run_canary(stub=CanaryStub(plan=plan))
-            self.assertEqual(res.proc.returncode, 1, res.proc.stderr)
+    def test_canary_is_red_without_a_run_on_a_bad_plan_or_listing(self):
+        cases = {
+            "planner failure": CanaryStub(plan_rc=1),
+            "fault unit": CanaryStub(
+                plan='[{"k":0,"n":0,"count":0,"fault":"no mutants listed"}]'
+            ),
+            "no canary mutant": CanaryStub(lines=(1, 3)),
+            "empty plan": CanaryStub(plan="[]"),
+            "listing failure": CanaryStub(cargo_rc=1),
+        }
+        for label, stub in cases.items():
+            res = run_canary(stub=stub)
+            self.assertNotEqual(res.proc.returncode, 0, label)
+            self.assertEqual(res.calls, [], label)
+
+    def test_canary_fault_unit_is_named_in_the_summary(self):
+        res = run_canary(
+            stub=CanaryStub(plan='[{"k":0,"n":0,"count":0,"fault":"boom"}]')
+        )
+        self.assertIn("plan fault: boom", res.summary)
+
+    def test_canary_source_line_must_match_exactly_once(self):
+        for lib in ("fn main() {}\n", "let mut m = 2 * d;\nlet mut m = 2 * d;\n"):
+            res = run_canary(lib=lib)
+            self.assertNotEqual(res.proc.returncode, 0)
             self.assertEqual(res.calls, [])
-            self.assertIn(
-                f"red: canary planned {count} units, expected exactly 1",
-                res.summary,
-            )
-
-    def test_canary_planner_failure_is_red_without_a_run(self):
-        res = run_canary(stub=CanaryStub(plan_rc=1))
-        self.assertEqual(res.proc.returncode, 1)
-        self.assertEqual(res.calls, [])
-
-    def test_canary_zero_matches_is_red_without_edit_or_plan(self):
-        res = run_canary(lib="fn main() {}\n")
-        self.assertNotEqual(res.proc.returncode, 0)
-        self.assertEqual(res.calls, [])
-        self.assertEqual(res.plan_calls, [])
-        self.assertEqual(res.commit_count, 1)
-        self.assertEqual(res.lib, "fn main() {}\n")
-
-    def test_canary_two_matches_is_red_without_edit_or_plan(self):
-        lib = "let mut m = 2 * d;\nlet mut m = 2 * d;\n"
-        res = run_canary(lib=lib)
-        self.assertNotEqual(res.proc.returncode, 0)
-        self.assertEqual(res.calls, [])
-        self.assertEqual(res.plan_calls, [])
-        self.assertEqual(res.commit_count, 1)
-        self.assertEqual(res.lib, lib)
+            self.assertEqual(res.plan_calls, [])
+            self.assertEqual(res.lib, lib)
 
     def test_pip_line_matches_template(self):
         # One install line per Python-running job (plan, py, canary, baseline), each
@@ -661,42 +642,28 @@ class CanaryRun(NamedTuple):
     plan_calls: list[str]
     summary: str
     lib: str
-    committed: list[str]
-    staged_other: list[str]
-    commit_count: int
-    diff_at_call: list[str]
 
 
 class CanaryStub(NamedTuple):
-    """Behaviour of the stubbed runner and planner for one canary step run."""
+    """Behaviour of the stubbed runner, planner and cargo for one canary run."""
 
     run_rc: int = 0
     run_out: str = "stub verdict\n"
     plan: str = '[{"k":0,"n":1,"count":5}]'
     plan_rc: int = 0
+    # Source line of each listed mutant, in order; CANARY_LIB's canary line is 2.
+    lines: tuple[int, ...] = (1, 2, 2, 3)
+    cargo_rc: int = 0
 
 
 def run_canary(
     lib=CANARY_LIB, stub: CanaryStub | None = None, flags=("-eo", "pipefail")
 ):
-    """Run the canary step in a real throwaway git repo with stub planner and runner."""
-    run_rc, run_out, plan, plan_rc = stub or CanaryStub()
+    """Run the Rust canary step against stub planner, runner and cargo."""
+    stub = stub or CanaryStub()
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
         repo = root / "repo"
-        env = clean_git_env()
-        git = ["git", "-c", "user.name=t", "-c", "user.email=t@t"]
-
-        def run_git(*args):
-            return subprocess.run(
-                [*git, *args],
-                cwd=repo,
-                env=env,
-                capture_output=True,
-                text=True,
-                check=True,
-            ).stdout
-
         lib_path = repo / CANARY_FILE
         lib_path.parent.mkdir(parents=True)
         lib_path.write_text(lib)
@@ -704,45 +671,40 @@ def run_canary(
         plan_log = root / "plan-calls"
         stub_run_script(repo / "scripts" / "mutation-pr-run.sh", log)
         stub_plan_script(repo / "scripts" / "mutation-rs-plan.sh", plan_log)
-        run_git("init", "-q")
-        run_git("add", ".")
-        run_git("commit", "-q", "-m", "base")
-        # A staged unrelated file: a commit that is not path-limited would sweep it in.
-        (repo / "other.txt").write_text("x\n")
-        run_git("add", "other.txt")
+        bindir = root / "bin"
+        bindir.mkdir()
+        cargo = bindir / "cargo"
+        cargo.write_text(
+            '#!/bin/sh\nprintf \'%s\\n\' "$CARGO_JSON"\nexit "${CARGO_RC}"\n'
+        )
+        cargo.chmod(0o755)
         (root / "temp").mkdir()
         summary = root / "summary"
         summary.touch()
+        listing = [{"span": {"start": {"line": n}}} for n in stub.lines]
+        env = clean_git_env()
         env.update(
             {
+                "PATH": f"{bindir}:{os.environ['PATH']}",
                 "RUNNER_TEMP": str(root / "temp"),
                 "GITHUB_STEP_SUMMARY": str(summary),
-                "RUN_RC": str(run_rc),
-                "STUB_OUT": run_out,
-                "PLAN_JSON": plan,
-                "PLAN_RC": str(plan_rc),
+                "RUN_RC": str(stub.run_rc),
+                "STUB_OUT": stub.run_out,
+                "PLAN_JSON": stub.plan,
+                "PLAN_RC": str(stub.plan_rc),
+                "CARGO_JSON": json.dumps(listing),
+                "CARGO_RC": str(stub.cargo_rc),
             }
         )
         proc = run_block(
             named_step("mutation-rs-canary", CANARY_STEP), repo, env, list(flags)
         )
-        count = int(run_git("rev-list", "--count", "HEAD").strip())
-        committed = run_git("show", "--name-only", "--format=", "HEAD").split()
-        staged = run_git("diff", "--cached", "--name-only").split()
-        calls = log.read_text().splitlines() if log.exists() else []
-        plan_calls = plan_log.read_text().splitlines() if plan_log.exists() else []
-        diff_log = pathlib.Path(f"{log}.diff")
-        at_call = diff_log.read_text().split() if diff_log.exists() else []
         return CanaryRun(
             proc,
-            calls,
-            plan_calls,
+            log.read_text().splitlines() if log.exists() else [],
+            plan_log.read_text().splitlines() if plan_log.exists() else [],
             summary.read_text(),
             lib_path.read_text(),
-            committed,
-            staged,
-            count,
-            at_call,
         )
 
 
@@ -1393,10 +1355,6 @@ class MutationPrPermissionsTests(unittest.TestCase):
                 self.assertNotIn("write", perms.values(), name)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 # --- mutation-pr.yml: Python jobs and the aggregator (slice 8) ---------------
 
 PR_JOB_IDS = {
@@ -1468,7 +1426,7 @@ class PrJobGraphTests(unittest.TestCase):
     def test_timeouts(self):
         jobs = pr_jobs()
         expected = {
-            "mutation-py": 30,
+            "mutation-py": 60,
             "mutation-py-baseline": 30,
             "mutation-rs-plan": 30,
             "mutation-rs": 60,
@@ -1505,8 +1463,9 @@ class PrJobGraphTests(unittest.TestCase):
         units = json.loads('[{"crate":"a/a-rs","slug":"a-0","k":0,"n":1,"count":5}]')
         text = yaml.safe_dump(pr_jobs()["mutation-rs"])
         used = set(re.findall(r"matrix\.(\w+)", text))
-        self.assertEqual(used, {"crate", "slug", "k", "n", "count"})
-        self.assertTrue(used <= set(units[0]))
+        # `fault` exists only on a --whole fault unit; an absent matrix key reads as "".
+        self.assertEqual(used, {"crate", "slug", "k", "n", "count", "fault"})
+        self.assertTrue(used - {"fault"} <= set(units[0]))
 
     def test_aggregator_keeps_required_check_name(self):
         # The branch-protection context is the job id; a `name:` would rename it.
@@ -1544,7 +1503,15 @@ class PrPlanJobTests(unittest.TestCase):
         outs = pr_jobs()["mutation-py-plan"]["outputs"]
         self.assertEqual(
             set(outs),
-            {"units", "base", "py_src_dirs", "py_canary", "has_py", "py_dirs"},
+            {
+                "units",
+                "base",
+                "py_src_dirs",
+                "py_test_dirs",
+                "py_canary",
+                "has_py",
+                "py_dirs",
+            },
         )
         self.assertEqual(outs["has_py"], "${{ steps.detect.outputs.has_py }}")
         self.assertEqual(outs["py_dirs"], "${{ steps.detect.outputs.py_dirs }}")
@@ -1585,7 +1552,10 @@ class PrPlanJobTests(unittest.TestCase):
         self.assertIn("units.json", step["run"])
 
     def test_install_conditions_follow_py_src_dirs(self):
-        cond = "steps.detect.outputs.py_src_dirs != ''"
+        cond = (
+            "steps.detect.outputs.py_src_dirs != '' || "
+            "steps.detect.outputs.py_test_dirs != ''"
+        )
         for fragment in ("libgmp-dev", "pip install"):
             found = [
                 s for s in job_steps("mutation-py-plan") if fragment in s.get("run", "")
@@ -1662,7 +1632,7 @@ class PrRsPlanJobTests(unittest.TestCase):
         self.assertEqual(step["id"], "plan")
         self.assertNotIn("if", step)
         self.assertEqual(step["env"]["RS_DIRS"], "${{ steps.detect.outputs.rs_dirs }}")
-        self.assertEqual(step["env"]["GITHUB_BASE_REF"], "${{ github.base_ref }}")
+        self.assertNotIn("GITHUB_BASE_REF", step["env"])
 
     def test_plan_step_follows_detect_and_install(self):
         names = [s.get("name") for s in job_steps("mutation-rs-plan")]
@@ -1681,18 +1651,18 @@ class PrRsPlanJobTests(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertEqual(out, "units=[]\n")
 
-    def test_dirs_are_planned_against_the_base_and_units_come_from_stdout(self):
+    def test_dirs_are_planned_whole_and_units_come_from_stdout(self):
         units = '[{"crate":"a/a-rs","slug":"a-0","k":0,"n":1,"count":5}]'
         proc, calls, out = self.run_plan("a/a-rs b/b-rs", plan_json=units)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(calls, ["origin/master", "a/a-rs", "b/b-rs"])
+        self.assertEqual(calls, ["--whole", "a/a-rs", "b/b-rs"])
         # The planner's stderr lines never reach the output.
         self.assertEqual(out, f"units={units}\n")
 
     def test_red_plan_fails_the_step_without_writing_units(self):
         proc, calls, out = self.run_plan("a/a-rs", plan_json="[]", plan_rc=1)
         self.assertEqual(proc.returncode, 1)
-        self.assertEqual(calls, ["origin/master", "a/a-rs"])
+        self.assertEqual(calls, ["--whole", "a/a-rs"])
         self.assertEqual(out, "")
 
 
@@ -1718,14 +1688,15 @@ class PrPyJobTests(unittest.TestCase):
 
     def test_units_shape_supplies_every_matrix_key_the_job_uses(self):
         # The plan script writes units.json as an array of {dir, k, n} objects.
-        units = json.loads('[{"dir":"sq","k":0,"n":1}]')
+        units = json.loads('[{"dir":"sq","k":0,"n":1,"mode":"diff"}]')
         self.assertIsInstance(units, list)
         include = pr_jobs()["mutation-py"]["strategy"]["matrix"]["include"]
         self.assertIn("outputs.units", include)
         text = yaml.safe_dump(pr_jobs()["mutation-py"]["steps"])
         used = set(re.findall(r"matrix\.(\w+)", text))
-        self.assertEqual(used, {"dir", "k", "n"})
-        self.assertTrue(used <= set(units[0]))
+        # `planned` exists only on weakening rows; an absent matrix key reads as "".
+        self.assertEqual(used, {"dir", "k", "n", "mode", "planned"})
+        self.assertTrue(used - {"planned"} <= set(units[0]))
 
     def test_checkout_full_depth_and_python_314(self):
         steps = job_steps("mutation-py")
@@ -1749,7 +1720,7 @@ class PrPyJobTests(unittest.TestCase):
         self.assertEqual(
             step["env"]["BASE_SHA"], "${{ needs.mutation-py-plan.outputs.base }}"
         )
-        self.assertNotIn("if", step)
+        self.assertEqual(step["if"], "matrix.mode != 'weakening'")
         run = step["run"]
         self.assertIn('scripts/mutation-pr-diff.sh "${BASE_SHA}" "${DIR}"', run)
         self.assertIn('make -C "${DIR}" mutants-diff', run)
@@ -1760,7 +1731,7 @@ class PrPyJobTests(unittest.TestCase):
         steps = job_steps("mutation-py")
         up = [s for s in steps if "upload-artifact" in s.get("uses", "")]
         self.assertEqual(len(up), 1)
-        self.assertEqual(up[0]["if"], "always()")
+        self.assertEqual(up[0]["if"], "always() && matrix.mode != 'weakening'")
         self.assertEqual(
             up[0]["with"]["name"], "mutants-pr-status-${{ matrix.dir }}-${{ matrix.k }}"
         )
@@ -2129,10 +2100,306 @@ class PrAggregatorTests(unittest.TestCase):
             step["env"]["PY_SRC_DIRS"], f"${{{{ {PLAN_OUT}.py_src_dirs }}}}"
         )
         self.assertIn("scripts/mutation-pr-verdict-python.sh", step["run"])
-        self.assertIn('--expected-dirs "${PY_SRC_DIRS}"', step["run"])
+        self.assertIn('--expected-dirs "${diff_dirs}"', step["run"])
         self.assertNotIn("--min-killed", step["run"])
         self.assertIn("plan/plan.txt", step["run"])
         self.assertEqual(step["if"], "${{ !cancelled() }}")
 
     def test_checkout_provides_scripts(self):
         self.assertIn("actions/checkout@", job_steps("mutation-pr")[0]["uses"])
+
+
+class PrWeakeningWiringTests(unittest.TestCase):
+    """Task 15: whole-crate Rust planning, weakening shards, canary, concurrency."""
+
+    def test_rs_plan_never_passes_in_diff_or_a_base_ref(self):
+        run = named_step("mutation-rs-plan", "Plan Rust mutation shards")["run"]
+        self.assertIn('scripts/mutation-rs-plan.sh --whole "${rs_dirs[@]}"', run)
+        self.assertNotIn("--in-diff", run)
+        self.assertNotIn("origin/", run)
+
+    def test_rs_shard_runs_whole(self):
+        run = named_step("mutation-rs", RS_RUN_STEP)["run"]
+        self.assertIn("scripts/mutation-pr-run.sh --whole --shard", run)
+        self.assertNotIn("origin/", run)
+
+    def test_rs_fault_unit_leg_goes_red_naming_crate_and_cause(self):
+        step = named_step("mutation-rs", "Report plan fault")
+        self.assertEqual(step["if"], "matrix.fault != ''")
+        names = [s.get("name") for s in job_steps("mutation-rs")]
+        self.assertLess(names.index("Report plan fault"), names.index(RS_RUN_STEP))
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = pathlib.Path(tmp) / "summary"
+            summary.touch()
+            env = {
+                "PATH": os.environ["PATH"],
+                "SLUG": "a-rs-plan",
+                "FAULT": "no mutants listed",
+                "GITHUB_STEP_SUMMARY": str(summary),
+            }
+            proc = run_block(step, pathlib.Path(tmp), env, ["-e"])
+            self.assertEqual(proc.returncode, 1)
+            self.assertIn(
+                "a-rs-plan - plan fault: no mutants listed", summary.read_text()
+            )
+
+    def test_aggregator_is_red_on_a_fault_unit_and_names_it(self):
+        check = named_step("mutation-pr", "Check job results")
+        fault = (
+            '[{"crate":"a/a-rs","slug":"a-rs-plan","k":0,"n":0,"count":0,'
+            '"fault":"no mutants listed"}]'
+        )
+        for units, expect_rc in (
+            (fault, 1),
+            ('[{"crate":"a/a-rs"}]', 0),
+            ("not json", 1),
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                summary = pathlib.Path(tmp) / "summary"
+                summary.touch()
+                env = {
+                    "PATH": os.environ["PATH"],
+                    "RS_PLAN_RESULT": "success",
+                    "RS_RESULT": "success",
+                    "RS_UNITS": units,
+                    "RS_CANARY_RESULT": "skipped",
+                    "RS_CANARY": "false",
+                    "PYB_RESULT": "skipped",
+                    "HAS_PY": "false",
+                    "PLAN_RESULT": "success",
+                    "PY_RESULT": "skipped",
+                    "CANARY_RESULT": "skipped",
+                    "UNITS": "[]",
+                    "PY_CANARY": "false",
+                    "GITHUB_STEP_SUMMARY": str(summary),
+                }
+                proc = run_block(check, pathlib.Path(tmp), env, ["-e"])
+                self.assertEqual(proc.returncode, expect_rc, (units, proc.stderr))
+                if units == fault:
+                    self.assertIn(
+                        "a/a-rs - plan fault: no mutants listed", summary.read_text()
+                    )
+
+    def test_plan_job_passes_py_test_dirs_to_the_planner(self):
+        outputs = pr_jobs()["mutation-py-plan"]["outputs"]
+        self.assertEqual(
+            outputs["py_test_dirs"], "${{ steps.detect.outputs.py_test_dirs }}"
+        )
+        step = named_step("mutation-py-plan", "Plan Python mutation units")
+        self.assertEqual(
+            step["env"]["PY_TEST_DIRS"], "${{ steps.detect.outputs.py_test_dirs }}"
+        )
+        for name in (
+            "Install GMP and MPFR",
+            "Set up Python",
+            "Install Python dependencies",
+        ):
+            cond = named_step("mutation-py-plan", name)["if"]
+            self.assertIn("py_test_dirs != ''", cond)
+            self.assertIn("py_src_dirs != ''", cond)
+
+    def test_py_job_timeout_is_60(self):
+        self.assertEqual(pr_jobs()["mutation-py"]["timeout-minutes"], 60)
+
+    def test_weakening_rows_route_to_the_make_target_through_env(self):
+        step = named_step("mutation-py", "Run weakening shard")
+        self.assertEqual(step["if"], "matrix.mode == 'weakening'")
+        self.assertEqual(
+            step["env"],
+            {
+                "DIR": "${{ matrix.dir }}",
+                "K": "${{ matrix.k }}",
+                "N": "${{ matrix.n }}",
+                "BASE_SHA": "${{ needs.mutation-py-plan.outputs.base }}",
+                "PLANNED": "${{ matrix.planned }}",
+            },
+        )
+        run = step["run"]
+        self.assertNotIn("${{", run)
+        self.assertIn('make -C "${DIR}" mutants-weakening', run)
+        for arg in (
+            'BASE="${BASE_SHA}"',
+            'MUTANT_SHARD="${K}/${N}"',
+            'PLANNED="${PLANNED}"',
+        ):
+            self.assertIn(arg, run)
+        self.assertNotIn("PR=", run)
+        self.assertNotIn("mutants-diff", run)
+
+    def run_weakening(self, planned, make_rc=0):
+        step = named_step("mutation-py", "Run weakening shard")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            bindir = root / "bin"
+            bindir.mkdir()
+            calls = root / "calls"
+            make = bindir / "make"
+            make.write_text(
+                '#!/bin/sh\nprintf "%s\\n" "$*" >> "$CALLS"\nexit "${MAKE_RC:-0}"\n'
+            )
+            make.chmod(0o755)
+            summary = root / "summary"
+            summary.touch()
+            env = {
+                "PATH": f"{bindir}:{os.environ['PATH']}",
+                "CALLS": str(calls),
+                "DIR": "sq",
+                "K": "3",
+                "N": "10",
+                "BASE_SHA": "abc123",
+                "PLANNED": planned,
+                "MAKE_RC": str(make_rc),
+                "GITHUB_STEP_SUMMARY": str(summary),
+            }
+            proc = run_block(step, root, env, ["-e"])
+            made = calls.read_text().splitlines() if calls.exists() else []
+            return proc, made, summary.read_text()
+
+    def test_weakening_shard_passes_the_planned_count_to_make(self):
+        proc, made, _ = self.run_weakening("14")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(len(made), 1)
+        self.assertIn("-C sq mutants-weakening", made[0])
+        self.assertIn("PLANNED=14", made[0])
+        self.assertIn("MUTANT_SHARD=3/10", made[0])
+
+    def test_empty_slice_skips_make_and_is_green(self):
+        proc, made, summary = self.run_weakening("0")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(made, [])
+        msg = "empty slice: nothing planned for sq shard 3/10"
+        self.assertIn(msg, proc.stdout)
+        self.assertIn(msg, summary)
+
+    def test_a_red_make_keeps_the_weakening_step_red(self):
+        for rc in (1, 2):
+            proc, made, _ = self.run_weakening("14", make_rc=rc)
+            self.assertNotEqual(proc.returncode, 0, rc)
+            self.assertEqual(len(made), 1)
+
+    def test_a_planned_count_of_one_still_runs(self):
+        _, made, _ = self.run_weakening("1")
+        self.assertEqual(len(made), 1)
+
+    def test_verdict_filter_drops_weakening_dirs_from_plan_and_expected(self):
+        step = named_step("mutation-pr", "Python verdict")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "plan").mkdir()
+            (root / "plan" / "plan.txt").write_text(
+                "sq\tgreen\t3 mutants in 1 shards\nfib\tgreen\t9 mutants in 2 shards\n"
+            )
+            scripts = root / "scripts"
+            scripts.mkdir()
+            verdict = scripts / "mutation-pr-verdict-python.sh"
+            verdict.write_text("#!/bin/sh\nprintf '%s\\n' \"$@\" > args\n")
+            verdict.chmod(0o755)
+            env = {
+                "PATH": os.environ["PATH"],
+                "PY_SRC_DIRS": "sq fib",
+                "PY_TEST_DIRS": "fib",
+            }
+            proc = run_block(step, root, env, ["-e"])
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(
+                (root / "plan" / "diff-plan.txt").read_text(),
+                "sq\tgreen\t3 mutants in 1 shards\n",
+            )
+            args = (root / "args").read_text().splitlines()
+            self.assertEqual(
+                args,
+                ["--expected-dirs", "sq", "plan/diff-plan.txt", "status"],
+            )
+
+    def test_diff_rows_keep_the_changed_line_path(self):
+        step = named_step("mutation-py", "Run mutants on changed lines")
+        self.assertEqual(step["if"], "matrix.mode != 'weakening'")
+        self.assertIn('make -C "${DIR}" mutants-diff', step["run"])
+        self.assertNotIn("mutants-weakening", step["run"])
+
+    def test_canary_job_runs_the_weakening_fixture_test(self):
+        step = named_step("mutation-py-canary", "Weakening canary fixtures")
+        self.assertEqual(
+            step["run"],
+            "python3 -m unittest tests.test_mutation_weakening_canary -v",
+        )
+        self.assertNotIn("if", step)
+        self.assertEqual(
+            pr_jobs()["mutation-py-canary"]["if"],
+            "needs.mutation-py-plan.outputs.py_canary == 'true'",
+        )
+
+    def test_top_level_concurrency_is_the_r30_value(self):
+        self.assertEqual(
+            load(PR_WORKFLOW).get("concurrency"),
+            {
+                "group": "mutation-pr-${{ github.event.pull_request.number }}",
+                "cancel-in-progress": True,
+            },
+        )
+
+    def test_aggregator_needs_every_gate_job(self):
+        self.assertEqual(
+            set(pr_jobs()["mutation-pr"]["needs"]),
+            {
+                "mutation-py-plan",
+                "mutation-py",
+                "mutation-py-canary",
+                "mutation-py-baseline",
+                "mutation-rs-plan",
+                "mutation-rs",
+                "mutation-rs-canary",
+            },
+        )
+        self.assertEqual(pr_jobs()["mutation-pr"]["if"], "always()")
+
+    def test_verdict_leaves_weakening_dirs_to_their_shards(self):
+        step = named_step("mutation-pr", "Python verdict")
+        self.assertEqual(
+            step["env"]["PY_TEST_DIRS"],
+            "${{ needs.mutation-py-plan.outputs.py_test_dirs }}",
+        )
+
+    def _run_verdict_step(self, plan_text):
+        step = named_step("mutation-pr", "Python verdict")
+        with tempfile.TemporaryDirectory() as tmp:
+            work = pathlib.Path(tmp)
+            (work / "scripts").symlink_to(REPO_ROOT / "scripts")
+            (work / "plan").mkdir()
+            (work / "plan" / "plan.txt").write_text(plan_text)
+            summary = work / "summary.md"
+            env = dict(os.environ)
+            env.update(
+                PY_SRC_DIRS="triangle",
+                PY_TEST_DIRS="triangle",
+                GITHUB_STEP_SUMMARY=str(summary),
+            )
+            proc = subprocess.run(
+                ["bash", "-e", "-c", step["run"]],
+                cwd=work,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+                stdin=subprocess.DEVNULL,
+            )
+            text = summary.read_text() if summary.exists() else ""
+        return proc, text
+
+    def test_verdict_fails_on_a_recheck_red_line(self):
+        red = (
+            "mutants-diff-plan failed: cosmic_ray_prune: entry 3 excludes a "
+            "mutant on a changed line (triangle.py:9); re-confirm it in this PR"
+        )
+        proc, summary = self._run_verdict_step(f"triangle\tred\t{red}\n")
+        self.assertNotEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn(f"triangle: red: plan step failed: {red}", proc.stdout)
+        self.assertIn(red, summary)
+
+    def test_verdict_passes_without_a_recheck_red_line(self):
+        proc, _ = self._run_verdict_step("triangle\tgreen\t100 mutants in 10 shards\n")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

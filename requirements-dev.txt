@@ -1,4 +1,6 @@
+cosmic-ray==8.7.0
 defusedxml==0.7.1
+hypothesis==6.168.5
 matplotlib==3.11.2
 pyright==1.1.411
 pyyaml==6.0.3

@@ -9,20 +9,33 @@
 #
 # Then prints `rs_dirs=<sorted crate dirs>`, `has_rs=true|false` and
 # `rs_canary=true|false`. A crate dir (passed as arguments to detect) is
-# selected when a changed path is `<crate>/src/**/*.rs`. rs_canary is true when
-# a file that shapes the Rust mutation run itself changed.
+# selected when a changed path starts with `<crate>/src/`, `<crate>/tests/` or
+# `<crate>/.cargo/` (any extension), is `<crate>/build.rs`, or is
+# `<crate>/Cargo.toml` with a changed line that is neither inside its
+# `[dependencies]`, `[dev-dependencies]` or `[build-dependencies]` table nor the
+# `[package]` `version` line. rs_canary is true when a file that
+# shapes the Rust mutation run itself changed.
 #
-# Finally prints `py_src_dirs=<sorted dirs>` and `py_canary=true|false`. A Python
+# Then prints `py_src_dirs=<sorted dirs>` and `py_canary=true|false`. A Python
 # dir is in py_src_dirs only when `git diff --numstat --no-renames` shows more
 # than 0 added lines in `<dir>/<module>.py` (module = dir with `-` as `_`): a
 # deletion-only or mode-only change leaves no new line to mutate. py_canary is
 # true when a file that shapes the Python mutation run itself changed.
+#
+# Finally prints `py_test_dirs=<sorted dirs>`: a Python dir with any added or
+# deleted line (a file deletion included) in `<dir>/test_<module>.py`,
+# `<dir>/cosmic-ray.toml` or `<dir>/mutants-equivalent.toml`.
 
 readonly PYTHON_DIRS="amicable collatz descartes e factorial fib perfect-numbers pi sq triangle"
 
 readonly RS_CANARY_PATHS=".github/workflows/mutation-pr.yml scripts/mutation-pr-detect.sh scripts/mutation-pr-diff.sh scripts/mutation-pr-run.sh scripts/mutation-classify.sh scripts/crate_templates/Makefile amicable/amicable-rs/src/lib.rs scripts/mutation-rs-plan.sh scripts/mutation-exit-code.sh scripts/mutation-shard-count.sh"
 
 readonly PY_CANARY_PATHS=".github/workflows/mutation-pr.yml scripts/mutation-pr-detect.sh scripts/mutation-pr-diff.sh scripts/mutation-pr-plan-python.sh scripts/mutation-pr-verdict-python.sh scripts/cosmic_ray_prune.py scripts/cosmic_ray_cell_status.py scripts/crate_templates/python/Makefile sq/sq.py sq/mutants-equivalent.toml"
+
+# The test-weakening gate's own files, kept apart from PY_CANARY_PATHS (whose
+# test requires every entry tracked) and matched with the fixture prefix below.
+readonly PY_WEAKENING_PATHS="scripts/mutation_weakening.py scripts/mutation_base_runner.py scripts/mutation_hypothesis_profile.py scripts/mutation-whole-module-diff.sh tests/test_mutation_weakening_canary.py"
+readonly PY_WEAKENING_FIXTURE_PREFIX="tests/fixtures/mutation_weakening/"
 
 # Stdin is `git diff --numstat --no-renames` output (added<TAB>deleted<TAB>path).
 # Prints the sorted, space-joined Python dirs whose module gained lines. A binary
@@ -44,7 +57,93 @@ py_src_dirs() {
     fi
 }
 
-# Args are the Rust crate dirs; stdin is the changed paths.
+# Stdin is `git diff --numstat --no-renames` output. Prints the sorted, space-joined
+# Python dirs whose test file or mutation config gained or lost any line. A
+# binary file shows `-` and counts as changed; a mode-only change shows 0 and 0.
+py_test_dirs() {
+    local _added _deleted _path _d _m
+    local -a _sel=()
+    while IFS=$'\t' read -r _added _deleted _path; do
+        [[ "${_added}" != 0 || "${_deleted}" != 0 ]] || continue
+        for _d in ${PYTHON_DIRS}; do
+            _m="${_d//-/_}"
+            case "${_path}" in
+                "${_d}/test_${_m}.py" | "${_d}/cosmic-ray.toml" | "${_d}/mutants-equivalent.toml")
+                    _sel+=("${_d}") ;;
+            esac
+        done
+    done
+    if [[ "${#_sel[@]}" -gt 0 ]]; then
+        printf '%s\n' "${_sel[@]}" | sort -u | paste -sd' ' - || return 1
+    else
+        printf '\n'
+    fi
+}
+
+# Returns 0 when a changed Cargo.toml line counts: it is neither inside one of
+# the three dependency tables (`[dependencies.<name>]` belongs to the first) nor
+# the `[package]` `version` line. Args: table header (no closing `]`), line text.
+cargo_line_counts() {
+    local _dep='^\[(dev-|build-)?dependencies(\..+)?$'
+    [[ "$1" =~ ${_dep} ]] && return 1
+    [[ "$1" == "[package" && "$2" =~ ^version[[:space:]]*= ]] && return 1
+    return 0
+}
+
+# Stdin is a full-context unified diff of one Cargo.toml (`git diff -U1000000`).
+# Returns 0 when a changed line counts (see cargo_line_counts). Two tables are
+# tracked: a context or `-` line moves the base-side one, a context or `+` line
+# the head-side one, so each changed line is judged against the table it sat in
+# on its own side of the diff, not one the same hunk removed or added.
+# Known limit: a table header inside a multi-line string is read as a header.
+cargo_toml_changed() {
+    local _line _c _t _base="" _head="" _body=0 _sec
+    local _hdr='^\[\[?[^]]+\]\]?[[:space:]]*(#.*)?$'
+    while IFS= read -r _line; do
+        if [[ "${_body}" -eq 0 ]]; then
+            [[ "${_line}" == @@* ]] && _body=1
+            continue
+        fi
+        _c="${_line:0:1}"
+        _t="${_line:1}"
+        _t="${_t#"${_t%%[![:space:]]*}"}"
+        _sec=""
+        [[ "${_t}" =~ ${_hdr} ]] && _sec="${_t%%]*}"
+        case "${_c}" in
+            ' ')
+                [[ -n "${_sec}" ]] && { _base="${_sec}"; _head="${_sec}"; } ;;
+            '-')
+                [[ -n "${_sec}" ]] && _base="${_sec}"
+                ! cargo_line_counts "${_base}" "${_t}" || return 0 ;;
+            '+')
+                [[ -n "${_sec}" ]] && _head="${_sec}"
+                ! cargo_line_counts "${_head}" "${_t}" || return 0 ;;
+        esac
+    done
+    return 1
+}
+
+# Args: base ref, the changed paths, then the crate dirs. Prints the sorted,
+# space-joined crates whose Cargo.toml changed outside the dependency tables.
+cargo_crates_changed() {
+    local _base="$1" _names="$2" _c _diff
+    shift 2
+    local -a _sel=()
+    for _c in "$@"; do
+        [[ $'\n'"${_names}"$'\n' == *$'\n'"${_c}/Cargo.toml"$'\n'* ]] || continue
+        _diff=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
+            git diff -U1000000 --no-renames "${_base}...HEAD" -- "${_c}/Cargo.toml") || return 1
+        if cargo_toml_changed <<< "${_diff}"; then _sel+=("${_c}"); fi
+    done
+    if [[ "${#_sel[@]}" -gt 0 ]]; then
+        printf '%s\n' "${_sel[@]}" | sort -u | paste -sd' ' - || return 1
+    else
+        printf '\n'
+    fi
+}
+
+# Args are the Rust crate dirs; stdin is the changed paths. CARGO_CRATES and
+# PY_SRC_DIRS / PY_TEST_DIRS carry the diff-derived selections.
 detect() {
     local _path _d _c _all=0 _canary=false _py_canary=false
     local -a _sel=() _rs=()
@@ -62,8 +161,14 @@ detect() {
         for _c in ${PY_CANARY_PATHS}; do
             [[ "${_path}" == "${_c}" ]] && _py_canary=true
         done
+        for _c in ${PY_WEAKENING_PATHS}; do
+            [[ "${_path}" == "${_c}" ]] && _py_canary=true
+        done
+        [[ "${_path}" == "${PY_WEAKENING_FIXTURE_PREFIX}"* ]] && _py_canary=true
         for _c in "$@"; do
-            [[ "${_path}" == "${_c}/src/"*.rs ]] && _rs+=("${_c}")
+            case "${_path}" in
+                "${_c}/src/"* | "${_c}/tests/"* | "${_c}/.cargo/"* | "${_c}/build.rs") _rs+=("${_c}") ;;
+            esac
         done
         for _d in ${PYTHON_DIRS}; do
             if [[ "${_path}" == "${_d}/install_deps.sh" ]]; then
@@ -74,6 +179,7 @@ detect() {
         done
     done
     local _rs_list=""
+    for _c in ${CARGO_CRATES:-}; do _rs+=("${_c}"); done
     if [[ "${#_rs[@]}" -gt 0 ]]; then
         _rs_list=$(printf '%s\n' "${_rs[@]}" | sort -u | paste -sd' ' -) || return 1
     fi
@@ -92,6 +198,7 @@ detect() {
     printf 'rs_canary=%s\n' "${_canary}"
     printf 'py_src_dirs=%s\n' "${PY_SRC_DIRS:-}"
     printf 'py_canary=%s\n' "${_py_canary}"
+    printf 'py_test_dirs=%s\n' "${PY_TEST_DIRS:-}"
 }
 
 main() {
@@ -100,17 +207,19 @@ main() {
         return 2
     fi
     local _names
-    _names=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git diff --name-only "$1...HEAD") || return 1
-    local _numstat _src _manifests _path
+    _names=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git diff --name-only --no-renames "$1...HEAD") || return 1
+    local _numstat _src _test _cargo _manifests _path
     _numstat=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git diff --numstat --no-renames "$1...HEAD") || return 1
     _src=$(py_src_dirs <<< "${_numstat}") || return 1
+    _test=$(py_test_dirs <<< "${_numstat}") || return 1
     local -a _crates=()
     _manifests=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
         git ls-files '*/*-rs/Cargo.toml') || return 1
     while IFS= read -r _path; do
         [[ -n "${_path}" ]] && _crates+=("${_path%/Cargo.toml}")
     done <<< "${_manifests}"
-    PY_SRC_DIRS="${_src}" detect "${_crates[@]}" <<< "${_names}"
+    _cargo=$(cargo_crates_changed "$1" "${_names}" "${_crates[@]}") || return 1
+    CARGO_CRATES="${_cargo}" PY_SRC_DIRS="${_src}" PY_TEST_DIRS="${_test}" detect "${_crates[@]}" <<< "${_names}"
 }
 
 [[ "${BASH_SOURCE[0]}" != "${0}" ]] && return 0

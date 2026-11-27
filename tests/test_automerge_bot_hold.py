@@ -206,5 +206,28 @@ class HoldGuardTest(unittest.TestCase):
         self.assertNotIn("merge=", got_out)
 
 
+class CiGateBudget(unittest.TestCase):
+    """ci-gate now waits for the mutation checks, so its poll budget must cover them."""
+
+    def setUp(self):
+        self.text = WORKFLOW.read_text()
+        self.step = self.text.split("- name: Gate and merge", 1)[1]
+
+    def test_max_polls_gives_ninety_minutes(self):
+        m = re.search(r'CI_GATE_MAX_POLLS: "(\d+)"', self.step)
+        if m is None:
+            self.fail("Gate and merge step sets no CI_GATE_MAX_POLLS")
+        self.assertGreaterEqual(int(m.group(1)) * 30, 90 * 60)
+
+    def test_job_budget_outlasts_the_polls(self):
+        job = self.text.split("\n  auto-merge:", 1)[1]
+        scopes = (job.split("- name: Gate and merge", 1)[0], self.step)
+        limits = [
+            int(t) for s in scopes for t in re.findall(r"timeout-minutes: (\d+)", s)
+        ]
+        # No limit set means GitHub's 360-minute default applies to the job.
+        self.assertGreaterEqual(min(limits, default=360), 95)
+
+
 if __name__ == "__main__":
     unittest.main()
