@@ -809,7 +809,8 @@ class SetupErrorTests(RunnerCase):
         probe = (
             "import importlib.util, sys, unittest\n"
             f"spec = importlib.util.spec_from_file_location('r', {str(RUNNER)!r})\n"
-            "r = importlib.util.module_from_spec(spec); spec.loader.exec_module(r)\n"
+            "r = importlib.util.module_from_spec(spec); sys.modules['r'] = r\n"
+            "spec.loader.exec_module(r)\n"
             "names = [(c, c.__dict__['_callSetUp']) for c in (unittest.TestCase, unittest.IsolatedAsyncioTestCase)]\n"
             f"r.run_tests({str(self.dir / TEST_FILE)!r})\n"
             "assert all(c.__dict__['_callSetUp'] is f for c, f in names)\n"
@@ -830,7 +831,8 @@ class SetupErrorTests(RunnerCase):
         probe = (
             "import importlib.util, sys, unittest\n"
             f"spec = importlib.util.spec_from_file_location('r', {str(RUNNER)!r})\n"
-            "r = importlib.util.module_from_spec(spec); spec.loader.exec_module(r)\n"
+            "r = importlib.util.module_from_spec(spec); sys.modules['r'] = r\n"
+            "spec.loader.exec_module(r)\n"
             "del unittest.IsolatedAsyncioTestCase._callSetUp\n"
             f"sys.exit(r.main(['r', 'record', {str(self.sig)!r}, {TEST_FILE!r}]))\n"
         )
