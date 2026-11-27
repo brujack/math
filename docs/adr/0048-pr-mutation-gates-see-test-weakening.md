@@ -58,6 +58,8 @@ Each was checked against the real usage text or Makefile guard.
 - `enforce_admins` is false, so only the local branch guard and the agent instructions keep a session holding the operator's credentials from pushing to master or merging a red PR.
 - Code in `#[cfg(test)]` modules is not examined for hidden code.
 - N7 (no agent, script or workflow merges a PR whose `mutation-gate-items` or `mutation-pr` check is red) is instruction-only: nothing mechanical stops a session holding the operator's credentials from merging.
+- A new crate outside the `*/*-rs/` layout is neither an item nor mutated: `mutation-pr-detect.sh` lists only `*/*-rs/Cargo.toml`, so a plain path-dependency library escapes the gate. This was already true on master.
+- A crates.io proc-macro or derive dependency, which the PR author can publish, produces no item: dependency-table changes are not items, so `dependency-review` is the gate for new crates.
 
 ## Related
 
