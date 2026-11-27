@@ -2,6 +2,7 @@
 
 import importlib.util
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -38,6 +39,7 @@ class RepoCase(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, env)
         patcher.start()
         self.addCleanup(patcher.stop)
+        os.environ.pop("SSH_AUTH_SOCK", None)
         self.repo = self.tmp / "repo"
         self.repo.mkdir()
         self.git("init", "-q", "-b", "master")
@@ -128,8 +130,8 @@ class TrailersTest(RepoCase):
         self.assertEqual(ignored, [f"trailer ignored: {sha}: names #8"])
 
     def test_nine_character_reason_does_not_clear(self) -> None:
-        self.commit("review", self.trailer(7, "pi", "123456789"), key=self.key)
-        self.assertEqual(self.collect(), ([], []))
+        sha = self.commit("review", self.trailer(7, "pi", "123456789"), key=self.key)
+        self.assertEqual(self.collect(), ([], [f"trailer ignored: {sha}: malformed"]))
 
     def test_ten_character_reason_clears(self) -> None:
         sha = self.commit("review", self.trailer(7, "pi", "1234567890"), key=self.key)
@@ -162,7 +164,8 @@ class TrailersTest(RepoCase):
             "Mutation-Gate-Reviewed: #7 pi " + REASON,
         ):
             self.commit("review", bad, key=self.key)
-        self.assertEqual(self.collect(), ([], []))
+        found, _ = self.collect()
+        self.assertEqual(found, [])
 
 
 class VerifyTest(RepoCase):
@@ -247,23 +250,176 @@ class ClearedForDirTest(RepoCase):
         self.assertIsNone(self.cleared())
 
 
+class HardenedVerifyTest(RepoCase):
+    def test_openpgp_signed_commit_from_trusted_key_is_rejected(self) -> None:
+        gnupg = self.tmp / "gnupg"
+        gnupg.mkdir(mode=0o700)
+        with mock.patch.dict(os.environ, {"GNUPGHOME": str(gnupg)}):
+            gen = ["gpg", "--batch", "--passphrase", "", "--quick-generate-key"]
+            subprocess.run(
+                [*gen, "t@t", "ed25519", "sign", "never"],
+                check=True,
+                capture_output=True,
+                stdin=subprocess.DEVNULL,
+            )
+            listing = subprocess.run(
+                ["gpg", "--batch", "--with-colons", "--list-keys", "t@t"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+            fpr = next(
+                ln.split(":")[9] for ln in listing.splitlines() if ln.startswith("fpr")
+            )
+            subprocess.run(
+                ["gpg", "--batch", "--import-ownertrust"],
+                input=f"{fpr}:6:\n",
+                text=True,
+                check=True,
+                capture_output=True,
+            )
+            self.git("add", "-A")
+            self.git(
+                "-c",
+                "gpg.format=openpgp",
+                "-c",
+                f"user.signingkey={fpr}",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-S",
+                "-m",
+                "pgp",
+            )
+            sha = self.rev("HEAD")
+            plain = subprocess.run(
+                ["git", "-C", str(self.repo), "verify-commit", sha],
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(plain.returncode, 0, "control: plain git trusts the key")
+            self.assertFalse(mgc.verify(self.repo, sha, self.signers))
+            _, ignored = mgc.trailers(self.repo, self.base, "HEAD", 7, self.signers)
+            self.assertEqual(ignored, [])
+
+    def test_all_three_verifier_programs_are_pinned(self) -> None:
+        pins = mgc.VERIFIER_PINS
+        for pin in (
+            "gpg.program=false",
+            "gpg.x509.program=false",
+            "gpg.ssh.program=ssh-keygen",
+        ):
+            self.assertIn(pin, pins)
+
+    def fake_program(self) -> Path:
+        script = self.tmp / "fake-ssh"
+        script.write_text("#!/bin/sh\nexit 0\n")
+        script.chmod(0o755)
+        return script
+
+    def test_repo_local_fake_ssh_program_cannot_pass_an_unlisted_key(self) -> None:
+        sha = self.commit("s", key=self.other_key)
+        with (self.repo / ".git" / "config").open("a") as cfg:
+            cfg.write(f'[gpg "ssh"]\n\tprogram = {self.fake_program()}\n')
+        self.assertFalse(mgc.verify(self.repo, sha, self.signers))
+
+    def test_env_config_parameters_cannot_pass_an_unlisted_key(self) -> None:
+        unlisted = self.commit("s", key=self.other_key)
+        listed = self.commit("ok", key=self.key)
+        params = f"'gpg.ssh.program'='{self.fake_program()}'"
+        with mock.patch.dict(os.environ, {"GIT_CONFIG_PARAMETERS": params}):
+            self.assertFalse(mgc.verify(self.repo, unlisted, self.signers))
+            self.assertTrue(mgc.verify(self.repo, listed, self.signers))
+
+
+class TrailerFormTest(RepoCase):
+    def test_non_ascii_digit_pr_is_not_accepted(self) -> None:
+        self.commit("r", f"Mutation-Gate-Reviewed: #\u0667 pi: {REASON}", key=self.key)
+        found, _ = self.collect(7)
+        self.assertEqual(found, [])
+
+    def test_leading_zero_pr_is_not_accepted(self) -> None:
+        self.commit("r", f"Mutation-Gate-Reviewed: #007 pi: {REASON}", key=self.key)
+        found, _ = self.collect(7)
+        self.assertEqual(found, [])
+
+    def test_near_misses_are_reported_as_malformed(self) -> None:
+        cases = [
+            f"Mutation-Gate-Reviewed: #007 pi: {REASON}",
+            f"Mutation-Gate-Reviewed: pi: {REASON}",
+            "Mutation-Gate-Reviewed: #7 pi: short",
+            f"  mutation-gate-reviewed: #7 pi: {REASON}",
+            f"MUTATION-GATE-REVIEWED #7 pi {REASON}",
+        ]
+        for line in cases:
+            with self.subTest(line=line):
+                sha = self.commit("r", line, key=self.key)
+                found, ignored = self.collect(7)
+                self.assertEqual(found, [])
+                self.assertIn(f"trailer ignored: {sha}: malformed", ignored)
+
+    def test_ordinary_message_is_not_malformed(self) -> None:
+        self.commit("r", "mentions the gate in passing", key=self.key)
+        self.assertEqual(self.collect(7), ([], []))
+
+    def test_malformed_reported_once_per_commit(self) -> None:
+        body = "Mutation-Gate-Reviewed: x\nMutation-Gate-Reviewed: y"
+        sha = self.commit("r", body, key=self.key)
+        _, ignored = self.collect(7)
+        self.assertEqual(ignored, [f"trailer ignored: {sha}: malformed"])
+
+
+class MissingFilesTest(RepoCase):
+    def test_removed_module_does_not_clear(self) -> None:
+        self.write("pi/pi.py", "a = 1\n")
+        self.write("pi/test_pi.py", "b = 1\n")
+        self.commit("add pi")
+        base = self.rev("HEAD")
+        self.commit("review", self.trailer(7, "pi"), key=self.key)
+        self.git("rm", "-q", "pi/pi.py")
+        self.commit("rm module")
+        got = mgc.cleared_for_dir(self.repo, base, "HEAD", 7, "pi", self.signers)
+        self.assertIsNone(got)
+
+    def test_never_existing_dir_does_not_clear(self) -> None:
+        self.commit("review", self.trailer(7, "ghost"), key=self.key)
+        got = mgc.cleared_for_dir(
+            self.repo, self.base, "HEAD", 7, "ghost", self.signers
+        )
+        self.assertIsNone(got)
+
+
+KEY = "sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5"
+
+
 class RemedyCommandTest(unittest.TestCase):
     def test_single_target_matches_r26(self) -> None:
-        got = mgc.remedy_command(7, ["pi"], "AAAA")
+        got = mgc.remedy_command(7, ["pi"], KEY)
         spec_block = (
-            "git -c gpg.format=ssh -c user.signingkey='key::AAAA' \\\n"
+            f"git -c gpg.format=ssh -c user.signingkey='key::{KEY}' \\\n"
             "  commit --allow-empty -S -m 'chore: mutation gate review' \\\n"
             "  -m 'Mutation-Gate-Reviewed: #7 pi: <reason>'\n"
         )
         self.assertTrue(got.startswith(spec_block))
 
     def test_one_m_per_target(self) -> None:
-        got = mgc.remedy_command(7, ["pi", "gate"], "AAAA")
+        got = mgc.remedy_command(7, ["pi", "gate"], KEY)
         self.assertEqual(got.count("-m 'Mutation-Gate-Reviewed:"), 2)
         self.assertIn("#7 gate: <reason>", got)
 
+    def test_shell_metacharacters_in_target_are_quoted(self) -> None:
+        got = mgc.remedy_command(7, ["a'; rm -rf x; '"], KEY)
+        self.assertNotIn("-m 'Mutation-Gate-Reviewed: #7 a'; rm", got)
+        self.assertEqual(
+            shlex.split(got.split("\n")[2].removesuffix(" \\"))[1].count(";"), 2
+        )
+
+    def test_empty_targets_is_an_error(self) -> None:
+        with self.assertRaises(ValueError):
+            mgc.remedy_command(7, [], KEY)
+
     def test_note_says_merge_not_rebase(self) -> None:
-        got = mgc.remedy_command(7, ["pi"], "AAAA")
+        got = mgc.remedy_command(7, ["pi"], KEY)
         self.assertIn("merge master", got)
         self.assertIn("rebase", got)
 

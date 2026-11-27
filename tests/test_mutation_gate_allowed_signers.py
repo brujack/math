@@ -44,6 +44,18 @@ class CheckAllowedSignersTest(unittest.TestCase):
             check_allowed_signers("# no-touch-required is banned\n" + GOOD), []
         )
 
+    def test_cert_authority_is_a_problem(self) -> None:
+        line = 'who cert-authority,namespaces="git" sk-ssh-ed25519@openssh.com AAAA'
+        problems = check_allowed_signers(line)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("cert-authority", problems[0])
+
+    def test_options_are_compared_case_insensitively(self) -> None:
+        for opt in ("NO-TOUCH-REQUIRED", "Cert-Authority"):
+            line = f"who {opt} sk-ssh-ed25519@openssh.com AAAA"
+            with self.subTest(opt=opt):
+                self.assertEqual(len(check_allowed_signers(line)), 1)
+
     def test_each_bad_line_is_reported_with_its_number(self) -> None:
         text = GOOD + "\nbad ssh-rsa AAAA\n"
         problems = check_allowed_signers(text)
