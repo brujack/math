@@ -335,6 +335,23 @@ class GateItemTest(ItemsCase):
             ),
         )
 
+    def test_required_checks_mirror_and_ci_gate_are_gate_items(self) -> None:
+        self.write(".github/required-status-checks", "secret-scan\n")
+        self.write("scripts/ci-gate.sh", "#!/bin/sh\nexit 0\n")
+        self.write("scripts/ci-other.sh", "#!/bin/sh\nexit 0\n")
+        self.commit("drop a required check")
+        keys = sorted(i.key for i in self.items("gate"))
+        self.assertEqual(
+            keys,
+            [
+                (
+                    ".github/required-status-checks",
+                    self.blob(".github/required-status-checks"),
+                ),
+                ("scripts/ci-gate.sh", self.blob("scripts/ci-gate.sh")),
+            ],
+        )
+
     def test_weakening_fixture_and_python_script_are_gate_items(self) -> None:
         self.write("tests/fixtures/mutation_weakening/a/x.py", "x = 1\n")
         self.write("scripts/mutation_other.py", "x = 1\n")

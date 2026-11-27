@@ -64,6 +64,10 @@ OPERATOR_LINE = (
 GATE_FILES = (
     ".github/workflows/mutation-pr.yml",
     ".github/workflows/mutation-gate-items.yml",
+    # ci-gate.sh waits only for the contexts this mirror lists, so editing either one
+    # decides which checks auto-merge waits for.
+    ".github/required-status-checks",
+    "scripts/ci-gate.sh",
 )
 GATE_SCRIPT_GLOBS = (
     "scripts/mutation-*.sh",

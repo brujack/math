@@ -329,9 +329,10 @@ write_required() {
     [[ "$output" == *"mutation-pr"* ]]
 }
 
-@test "the tracked required-checks file lists secret-scan and mutation-pr only" {
+@test "the tracked required-checks file lists secret-scan, mutation-pr and mutation-gate-items" {
     run bash -c "sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*\$//' '${REPO_ROOT}/.github/required-status-checks' | awk 'NF'"
     [ "$status" -eq 0 ]
     [ "$output" = "secret-scan
-mutation-pr" ]
+mutation-pr
+mutation-gate-items" ]
 }
