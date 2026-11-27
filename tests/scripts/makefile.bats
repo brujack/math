@@ -1454,6 +1454,8 @@ case "$1" in
     baseline)
         # The baseline runs the tests too; whatever it leaks must land under its TMPDIR, not /tmp.
         printf x > "${TMPDIR}/baseline-leak"
+        # A baseline that writes into its working directory: it must be the sandbox copy.
+        [ -n "${STUB_BASELINE_CWD_WRITE}" ] && printf x > baseline-cwd-write
         if [ -n "${STUB_BASELINE_HANG}" ]; then
             : > "${BATS_TEST_TMPDIR}/hang-ready"
             sleep 30
@@ -1465,15 +1467,19 @@ case "$1" in
         # A session with a fresh random job id per init, as the real init creates.
         if [ -n "${STUB_INIT_SQL}" ]; then
             /usr/bin/python3 - "${3:-cosmic-ray-session.sqlite}" <<'PY'
-import sqlite3, sys, uuid
+import os, sqlite3, sys, uuid
 c = sqlite3.connect(sys.argv[1])
 c.execute("DROP TABLE IF EXISTS mutation_specs")
 c.execute("CREATE TABLE mutation_specs (job_id TEXT, operator_name TEXT, occurrence INT)")
 c.execute("CREATE TABLE IF NOT EXISTS work_items (job_id TEXT)")
+c.execute("DROP TABLE IF EXISTS work_results")
+c.execute("CREATE TABLE work_results (job_id TEXT, outcome TEXT)")
+survive = os.environ.get("STUB_SURVIVE", "").split(",")
 for op, occ in (("core/NumberReplacer", 0), ("core/NumberReplacer", 3), ("core/ReplaceBinaryOperator_Add_Sub", 3)):
     j = uuid.uuid4().hex
     c.execute("INSERT INTO mutation_specs VALUES (?,?,?)", (j, op, occ))
     c.execute("INSERT INTO work_items VALUES (?)", (j,))
+    c.execute("INSERT INTO work_results VALUES (?,?)", (j, "S" if "%s@%d" % (op, occ) in survive else "K"))
 c.commit()
 PY
         fi
@@ -1533,11 +1539,42 @@ case "$*" in
         fi
         [ "${STUB_REPLAY_RC:-0}" != 0 ] && printf 'weakened: 1 mutants killed by base tests survive head tests\n'
         exit "${STUB_REPLAY_RC:-0}" ;;
+    *ATTACH*)
+        [ -n "${STUB_INIT_SQL}" ] && exec /usr/bin/python3 "$@"
+        printf '%s\n' "${STUB_R16_N:-1}"; exit 0 ;;
     *mutation_specs*)
         [ -n "${STUB_INIT_SQL}" ] && exec /usr/bin/python3 "$@"
         exit "${STUB_JOB_RC:-0}" ;;
+    *cosmic_ray_prune*)
+        # The PR-diff prune keeps only the specs named in STUB_PR_KEEP; the whole-module one keeps all.
+        if [ -n "${STUB_INIT_SQL}" ] && [ "$2" = diff ]; then
+            case "$4" in
+                *pr.diff)
+                    exec /usr/bin/python3 - "$3" <<'PY'
+import os, sqlite3, sys
+c = sqlite3.connect(sys.argv[1])
+keep = os.environ.get("STUB_PR_KEEP", "").split(",")
+for job, op, occ in c.execute("SELECT job_id, operator_name, occurrence FROM mutation_specs").fetchall():
+    if "%s@%d" % (op, occ) not in keep:
+        for t in ("work_results", "work_items", "mutation_specs"):
+            c.execute("DELETE FROM " + t + " WHERE job_id = ?", (job,))
+c.commit()
+PY
+                    ;;
+            esac
+        fi
+        exit 0 ;;
     *work_items*) printf '7\n'; exit 0 ;;
     *cosmic_ray_cell_status*)
+        if [ -n "${STUB_INIT_SQL}" ]; then
+            exec /usr/bin/python3 - "$2" <<'PY'
+import sqlite3, sys
+c = sqlite3.connect(sys.argv[1])
+n = c.execute("SELECT count(*) FROM work_results r JOIN work_items w ON w.job_id = r.job_id WHERE r.outcome = 'S'").fetchone()[0]
+print("red: %d surviving" % n if n else "green")
+sys.exit(1 if n else 0)
+PY
+        fi
         {
             printf 'pwd=%s\n' "${PWD}"
             if [ -f cosmic-ray-session.sqlite ]; then
@@ -2447,7 +2484,6 @@ _weak_setup() {
     _py_stub_setup
     unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
     unset BASE PR HEAD_SHA JOB PLANNED
-    BASE_SHA="$(printf 'a%.0s' {1..40})"
     : > "${BATS_TEST_TMPDIR}/scripts/mutation_hypothesis_profile.py"
     : > "${BATS_TEST_TMPDIR}/scripts/mutation_weakening.py"
     : > "${BATS_TEST_TMPDIR}/scripts/cosmic_ray_prune.py"
@@ -2461,6 +2497,12 @@ STUB
     git -C "${STUBDIR}" init -q
     git -C "${STUBDIR}" add -- .gitignore Makefile fib.py test_fib.py cosmic-ray.toml mutants-equivalent.toml
     git -C "${STUBDIR}" -c user.name=t -c user.email=t@example.com commit -q -m fixture
+    BASE_SHA="$(git -C "${STUBDIR}" rev-parse HEAD)"
+    cat > "${BATS_TEST_TMPDIR}/scripts/mutation-pr-diff.sh" <<'STUB'
+#!/bin/bash
+printf 'pr-diff %s %s %s\n' "$1" "$2" "$3" >> "${CALLS}"
+printf 'PRDIFF\n' > "$3"
+STUB
 }
 
 _weak_make() {
@@ -2482,7 +2524,7 @@ _weak_make() {
     [[ "${output}" == *"BASE must be a lowercase hex sha"* ]]
     run _weak_make
     [ "${status}" -ne 0 ]
-    [[ "${output}" == *"MUTANT_SHARD=<k>/<n> or JOB=<job id> is required"* ]]
+    [[ "${output}" == *"MUTANT_SHARD=<k>/<n> or JOB=<operator>@<occurrence> is required"* ]]
     run _weak_make MUTANT_SHARD=0/2 JOB=a@1
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"mutually exclusive"* ]]
@@ -2563,12 +2605,99 @@ _weak_make() {
     [[ "${output}" == *"weakened: 1 mutants killed by base tests survive head tests"* ]]
 }
 
-@test "make mutants-weakening still judges and replays after a red head session, and exits red" {
+@test "make mutants-weakening stops red before judge when the head session fails to execute" {
     _weak_setup
-    STUB_STATUS_RC=1 run _weak_make MUTANT_SHARD=0/2
+    STUB_EXEC_RC=1 run _weak_make MUTANT_SHARD=0/2
     [ "${status}" -ne 0 ]
+    _assert_no_call 'mutation_weakening.py'
+    _assert_no_call 'pr-diff'
+}
+
+@test "make mutants-weakening R16 is green for an unmodified module whose head arm has backlog survivors" {
+    _weak_setup
+    STUB_INIT_SQL=1 STUB_SURVIVE="core/NumberReplacer@0" STUB_PR_KEEP="" run _weak_make MUTANT_SHARD=0/2
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"adds no mutable lines"* ]]
+    grep -q "pr-diff ${BASE_SHA} fib " "${CALLS}"
     grep -q 'mutation_weakening.py judge' "${CALLS}"
     grep -q 'mutation_weakening.py replay' "${CALLS}"
+}
+
+@test "make mutants-weakening R16 is red for a survivor on a PR-added line, and still judges and replays" {
+    _weak_setup
+    STUB_INIT_SQL=1 STUB_SURVIVE="core/NumberReplacer@3" STUB_PR_KEEP="core/NumberReplacer@3" run _weak_make MUTANT_SHARD=0/2
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"red: 1 surviving"* ]]
+    grep -q 'mutation_weakening.py judge' "${CALLS}"
+    grep -q 'mutation_weakening.py replay' "${CALLS}"
+}
+
+@test "make mutants-weakening R16 ignores a survivor on a line the PR did not add" {
+    _weak_setup
+    STUB_INIT_SQL=1 STUB_SURVIVE="core/NumberReplacer@0" STUB_PR_KEEP="core/NumberReplacer@3" run _weak_make MUTANT_SHARD=0/2
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"green"* ]]
+    grep -q 'cosmic_ray_cell_status.py .*r16.sqlite .*--max-survivors 0' "${CALLS}"
+    # The head session itself is never gated on survivors: no cell_status ran on it.
+    _assert_no_call 'cell_status.py .*head.sqlite'
+}
+
+@test "make mutants-weakening runs the baseline in the sandbox copy after preflight, not in the tracked directory" {
+    _weak_setup
+    STUB_BASELINE_CWD_WRITE=1 run _weak_make MUTANT_SHARD=0/2
+    [ "${status}" -eq 0 ]
+    [ "$(_calls_line 'mutation_hypothesis_profile.py preflight')" -lt "$(_calls_line '^cosmic-ray baseline ')" ]
+    [ "$(_calls_line '^cosmic-ray baseline ')" -lt "$(_calls_line '^whole-diff ')" ]
+    [ "$(grep -c '^cosmic-ray baseline ' "${CALLS}")" -eq 1 ]
+    grep -q '^baseline .*/\.mutants-tmp/weakening-.*/fib$' "${PWDS}"
+    grep -qE '^baseline tmpdir=.*/\.mutants-tmp/weakening-.*/tmp$' "${CALLS}.env"
+    [ ! -e "${STUBDIR}/baseline-cwd-write" ]
+    [ -z "$(git -C "${STUBDIR}" status --porcelain --ignored .)" ]
+}
+
+@test "make mutants-weakening fails fast on a MUTANT_SHARD whose k is not below n" {
+    _weak_setup
+    local bad
+    for bad in 12/10 10/10 0/0 3/ /3 a/b 1/2/3 5; do
+        run _weak_make MUTANT_SHARD="${bad}"
+        [ "${status}" -ne 0 ]
+        [[ "${output}" == *"MUTANT_SHARD must be k/n with k < n"* ]]
+    done
+    [ ! -s "${CALLS}" ]
+}
+
+@test "make mutants-weakening fails fast when BASE is not a commit of this repository" {
+    _weak_setup
+    run _py_make mutants-weakening BASE="$(printf 'b%.0s' {1..40})" MUTANT_SHARD=0/2
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"is not a commit"* ]]
+    [ ! -s "${CALLS}" ]
+}
+
+@test "make mutants and mutants-diff ignore the weakening-only variables even when exported" {
+    _weak_setup
+    printf 'diff\n' > "${BATS_TEST_TMPDIR}/pr.diff"
+    mkdir "${BATS_TEST_TMPDIR}/elsewhere"
+    export STUB_INIT_SQL=1 OUT_DIR="${BATS_TEST_TMPDIR}/elsewhere" MUTANT_JOB=core/NumberReplacer@3
+    export WEAKENING_OUT_DIR="${BATS_TEST_TMPDIR}/elsewhere" WEAKENING_JOB=core/NumberReplacer@3
+    run _py_make mutants-diff DIFF="${BATS_TEST_TMPDIR}/pr.diff"
+    [ "${status}" -eq 0 ]
+    run _py_make mutants
+    [ "${status}" -eq 0 ]
+    _assert_no_call 'mutation_specs'
+    [ -z "$(ls -A "${BATS_TEST_TMPDIR}/elsewhere")" ]
+    [ -f "${STUBDIR}/cosmic-ray-diff-session.sqlite" ]
+    [ -f "${STUBDIR}/cosmic-ray-session.sqlite" ]
+}
+
+@test "make mutants-weakening prints the planned count it took from the session, and not when PLANNED is given" {
+    _weak_setup
+    run _weak_make MUTANT_SHARD=0/2
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"planned: 7 (from session)"* ]]
+    run _weak_make MUTANT_SHARD=0/2 PLANNED=5
+    [ "${status}" -eq 0 ]
+    [[ "${output}" != *"from session"* ]]
 }
 
 @test "make mutants-weakening JOB= trims the session to that job and replays one planned job" {

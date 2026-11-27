@@ -64,6 +64,8 @@ export DIFF_ABS STATUS_OUT_ABS SURVIVORS_OUT_ABS
 # One body for the three scratch-copy runs, parameterised by the environment the recipes set:
 #   MODE     full (mutants: whole session, equivalents --full-run), plan (mutants-diff-plan: prune only,
 #            nothing written in the project) or exec (mutants-diff: prune to the diff, run, max-survivors 0)
+#            or head (mutants-weakening: as exec, but keep SESSION.pre, the pre-exec session, and stop before
+#            the survivor gate)
 #   WORK     scratch dir prefix and the name in the copy-back warning
 #   SESSION, REPORT   the project-side file names; the diff pair differs from the full pair so a local
 #            diff run never overwrites the full run's cosmic-ray-session.sqlite or mutants-report.txt
@@ -73,8 +75,8 @@ export DIFF_ABS STATUS_OUT_ABS SURVIVORS_OUT_ABS
 # their tempfile dirs would otherwise leak; here cleanup removes them with the scratch copy.
 MUTANTS_BODY = $(MUTANTS_CAP); \
 	  proj="$$(pwd)"; \
-	  out="$${OUT_DIR:-$$proj}"; sp="$$SESSION"; rp="$$REPORT"; \
-	  if [ -n "$${OUT_DIR}" ]; then sp="$$OUT_DIR/$$SESSION"; rp="$$OUT_DIR/$$REPORT"; fi; \
+	  out="$${WEAKENING_OUT_DIR:-$$proj}"; sp="$$SESSION"; rp="$$REPORT"; \
+	  if [ -n "$${WEAKENING_OUT_DIR}" ]; then sp="$$WEAKENING_OUT_DIR/$$SESSION"; rp="$$WEAKENING_OUT_DIR/$$REPORT"; fi; \
 	  if [ "$$MODE" != plan ]; then rm -f "$$sp" "$$sp-journal" "$$rp" || exit 1; fi; \
 	  mkdir -p "$$proj/.mutants-tmp" || exit 1; \
 	  work="$$(mktemp -d "$$proj/.mutants-tmp/$$WORK-pi.XXXXXX")" || exit 1; \
@@ -115,13 +117,15 @@ MUTANTS_BODY = $(MUTANTS_CAP); \
 	    if [ -n "$${bad}" ]; then printf "error: MUTANT_SHARD must be k/n, got %s\n" "$${MUTANT_SHARD}" >&2; exit 1; fi; \
 	    python3 ../scripts/cosmic_ray_shard.py "$$SESSION" "$$(printf %s "$${MUTANT_SHARD}" | cut -d/ -f1)" "$$(printf %s "$${MUTANT_SHARD}" | cut -d/ -f2)" || exit 1; \
 	  fi; \
-	  if [ -n "$${MUTANT_JOB}" ]; then \
-	    python3 -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); o,n=sys.argv[2].rsplit(\"@\",1); ids=[r[0] for r in c.execute(\"SELECT job_id FROM mutation_specs WHERE operator_name=? AND occurrence=?\",(o,int(n)))]; len(ids)==1 or sys.exit(\"error: JOB \"+sys.argv[2]+\" is not a mutant of this session\"); c.execute(\"DELETE FROM mutation_specs WHERE job_id != ?\",(ids[0],)); c.execute(\"DELETE FROM work_items WHERE job_id != ?\",(ids[0],)); c.commit()" "$$SESSION" "$${MUTANT_JOB}" || exit 64; \
+	  if [ -n "$${WEAKENING_JOB}" ]; then \
+	    python3 -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); o,n=sys.argv[2].rsplit(\"@\",1); ids=[r[0] for r in c.execute(\"SELECT job_id FROM mutation_specs WHERE operator_name=? AND occurrence=?\",(o,int(n)))]; len(ids)==1 or sys.exit(\"error: JOB \"+sys.argv[2]+\" is not a mutant of this session\"); c.execute(\"DELETE FROM mutation_specs WHERE job_id != ?\",(ids[0],)); c.execute(\"DELETE FROM work_items WHERE job_id != ?\",(ids[0],)); c.commit()" "$$SESSION" "$${WEAKENING_JOB}" || exit 64; \
 	  fi; \
+	  if [ "$$MODE" = head ]; then cp -- "$$SESSION" "$$SESSION.pre" || exit 1; fi; \
 	  cosmic-ray exec cosmic-ray.toml "$$SESSION" || exit 1; \
 	  cr-report "$$SESSION" --show-output --show-diff > "$$REPORT" || exit 1; \
 	  cr-report "$$SESSION" | tail -5; \
 	  cp -- "$$SESSION" "$$REPORT" "$$out/" || exit 1; \
+	  if [ "$$MODE" = head ]; then exit 0; fi; \
 	  cd "$$proj" || exit 1; \
 	  set -- "$$sp" "$${CELL_LABEL}"; \
 	  if [ "$$MODE" = full ]; then \
@@ -139,7 +143,7 @@ MUTANTS_BODY = $(MUTANTS_CAP); \
 # `env` rather than a VAR=... prefix: dash does not exec a command that carries assignments, which would
 # leave an extra sh between make and bash that dies on the group TERM and lets make exit mid-cleanup.
 mutants: mutants-baseline
-	@env MODE=full WORK=mutants SESSION=cosmic-ray-session.sqlite REPORT=mutants-report.txt bash -c '$(MUTANTS_BODY)'
+	@env -u WEAKENING_JOB -u WEAKENING_OUT_DIR MODE=full WORK=mutants SESSION=cosmic-ray-session.sqlite REPORT=mutants-report.txt bash -c '$(MUTANTS_BODY)'
 
 # The DIFF check is the first line of each recipe, not a prerequisite: make -k and -j start sibling
 # prerequisites regardless, and the baseline calls cosmic-ray, which a missing DIFF must never reach.
@@ -150,29 +154,40 @@ DIFF_GUARD = if [ -z "$(DIFF)" ]; then printf "error: DIFF is required: DIFF=<un
 mutants-diff-plan:
 	@$(DIFF_GUARD)
 	@$(MAKE) --no-print-directory mutants-baseline
-	@env MODE=plan WORK=mutants-diff SESSION=cosmic-ray-diff-session.sqlite REPORT=mutants-diff-report.txt bash -c '$(MUTANTS_BODY)'
+	@env -u WEAKENING_JOB -u WEAKENING_OUT_DIR MODE=plan WORK=mutants-diff SESSION=cosmic-ray-diff-session.sqlite REPORT=mutants-diff-report.txt bash -c '$(MUTANTS_BODY)'
 
 # STATUS_OUT receives cell_status's whole stdout (verdict, survivor keys, diffs), not just its first line.
 mutants-diff:
 	@$(DIFF_GUARD)
 	@$(MAKE) --no-print-directory mutants-baseline
-	@env MODE=exec WORK=mutants-diff SESSION=cosmic-ray-diff-session.sqlite REPORT=mutants-diff-report.txt bash -c '$(MUTANTS_BODY)'
+	@env -u WEAKENING_JOB -u WEAKENING_OUT_DIR MODE=exec WORK=mutants-diff SESSION=cosmic-ray-diff-session.sqlite REPORT=mutants-diff-report.txt bash -c '$(MUTANTS_BODY)'
 
-# The PR weakening check (R7, R31): the head session is the mutants-diff exec path fed the whole-module
-# diff (its job set equals the planner's), then judge and replay run on a per-run copy. Everything
-# lives under .mutants-tmp/weakening-<pid>.*, removed on exit, so nothing in the tracked tree is
-# written (N5). The head session writes into the copy through OUT_DIR, and MUTANT_JOB (from JOB)
-# trims it to one job before exec (exit 64 when the job is absent, which stops the run). A red head session does not stop the judge and replay, whose
-# summary is still wanted; the target exits non-zero when any step is red.
-#   BASE (hex sha) and exactly one of MUTANT_SHARD=<k>/<n> or JOB=<job id> are required;
-#   PLANNED (default: the head session's job count, or 1 for JOB), PR and HEAD_SHA are optional.
+# The PR weakening check (R7, R16, R31). The head session is the mutants-diff exec path (MODE=head: same
+# init, equivalents prune and shard, no survivor gate) fed the whole-module diff, so its job set equals the
+# planner's. Judge and replay then run on a per-run copy. The work dir is .mutants-tmp/weakening-<pid>.*
+# and the head session's own scratch copy is .mutants-tmp/weakening-pi.*; both sit in the project's
+# gitignored .mutants-tmp and are removed on exit, so nothing in the tracked tree is written (N5). The
+# head session writes its sqlite into the work dir through WEAKENING_OUT_DIR, and WEAKENING_JOB (from JOB)
+# trims it to one mutant before exec; the mutants and mutants-diff recipes unset both. A head session
+# that fails to execute stops the run red. R16 is enforced here: the pre-exec session is pruned to the
+# PR diff, the executed session is cut to those jobs, and only survivors there turn the run red (the
+# summary of judge and replay is still wanted, so they run anyway). A PR that adds no module lines
+# is vacuously green.
+#   BASE (a commit's hex sha) and exactly one of MUTANT_SHARD=<k>/<n> (k < n) or JOB=<operator>@<occurrence>
+#   are required; PLANNED (default: the trimmed session's job count, printed as such), PR and HEAD_SHA are optional.
 WEAKENING_GUARD = if [ -z "$$BASE" ]; then printf "error: BASE is required: BASE=<merge-base sha>\n" >&2; exit 1; fi; \
 	  case "$$BASE" in *[!0-9a-f]*) printf "error: BASE must be a lowercase hex sha, got %s\n" "$$BASE" >&2; exit 1 ;; esac; \
 	  case "$$HEAD_SHA" in *[!0-9a-f]*) printf "error: HEAD_SHA must be a lowercase hex sha, got %s\n" "$$HEAD_SHA" >&2; exit 1 ;; esac; \
 	  case "$$PR$$PLANNED" in *[!0-9]*) printf "error: PR and PLANNED must be decimal numbers\n" >&2; exit 1 ;; esac; \
 	  case "$$JOB" in "") ;; *@*@* | @* | *@ | *@*[!0-9]* | *[!A-Za-z0-9_./:@-]*) printf "error: JOB must be <operator>@<occurrence>, e.g. core/NumberReplacer@3, got %s\n" "$$JOB" >&2; exit 1 ;; *@*) ;; *) printf "error: JOB must be <operator>@<occurrence>, got %s\n" "$$JOB" >&2; exit 1 ;; esac; \
-	  if [ -z "$$MUTANT_SHARD" ] && [ -z "$$JOB" ]; then printf "error: MUTANT_SHARD=<k>/<n> or JOB=<job id> is required\n" >&2; exit 1; fi; \
-	  if [ -n "$$MUTANT_SHARD" ] && [ -n "$$JOB" ]; then printf "error: MUTANT_SHARD and JOB are mutually exclusive\n" >&2; exit 1; fi
+	  if [ -z "$$MUTANT_SHARD" ] && [ -z "$$JOB" ]; then printf "error: MUTANT_SHARD=<k>/<n> or JOB=<operator>@<occurrence> is required\n" >&2; exit 1; fi; \
+	  if [ -n "$$MUTANT_SHARD" ] && [ -n "$$JOB" ]; then printf "error: MUTANT_SHARD and JOB are mutually exclusive\n" >&2; exit 1; fi; \
+	  if [ -n "$$MUTANT_SHARD" ]; then \
+	    case "$$MUTANT_SHARD" in */*/* | /* | */ | *[!0-9/]*) bad=1 ;; */*) bad= ;; *) bad=1 ;; esac; \
+	    if [ -n "$$bad" ] || [ "$${\#MUTANT_SHARD}" -gt 15 ] || [ "$${MUTANT_SHARD\#*/}" -lt 1 ] || [ "$${MUTANT_SHARD%%/*}" -ge "$${MUTANT_SHARD\#*/}" ]; then \
+	      printf "error: MUTANT_SHARD must be k/n with k < n, got %s\n" "$$MUTANT_SHARD" >&2; exit 1; fi; \
+	  fi; \
+	  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git cat-file -e "$$BASE^{commit}" 2>/dev/null || { printf "error: BASE %s is not a commit of this repository\n" "$$BASE" >&2; exit 1; }
 
 WEAKENING_BODY = $(MUTANTS_CAP); \
 	  proj="$$(pwd)"; \
@@ -188,17 +203,26 @@ WEAKENING_BODY = $(MUTANTS_CAP); \
 	  export TMPDIR="$$w/tmp" PYTHONHASHSEED=0 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$$w/profile"; \
 	  python3 ../scripts/mutation_hypothesis_profile.py write "$$w/profile" || exit 1; \
 	  python3 ../scripts/mutation_hypothesis_profile.py preflight "$$w/profile" || exit 1; \
+	  (cd "$$copy" && { cosmic-ray baseline cosmic-ray.toml || { python3 -m unittest test_pi; exit 1; }; }) || exit 1; \
 	  bash ../scripts/mutation-whole-module-diff.sh "$$proj" "$$w/whole.diff" || exit 1; \
+	  env MODE=head WORK=weakening SESSION=head.sqlite REPORT=head-report.txt WEAKENING_OUT_DIR="$$w/out" DIFF_ABS="$$w/whole.diff" bash -c "$$HEAD_BODY" || { printf "error: the head session failed\n" >&2; exit 1; }; \
+	  if [ ! -f "$$w/out/head.sqlite" ] || [ ! -f "$$w/out/head.sqlite.pre" ]; then printf "error: the head session left no session file\n" >&2; exit 1; fi; \
+	  (cd "$$repo" && bash scripts/mutation-pr-diff.sh "$$BASE" pi "$$w/pr.diff") || exit 1; \
+	  cp -- "$$w/out/head.sqlite.pre" "$$w/out/pr.sqlite" || exit 1; \
+	  cp -- "$$w/out/head.sqlite" "$$w/out/r16.sqlite" || exit 1; \
+	  python3 ../scripts/cosmic_ray_prune.py diff "$$w/out/pr.sqlite" "$$w/pr.diff" pi.py || exit 1; \
+	  kept="$$(python3 -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute(\"ATTACH ? AS k\",(sys.argv[2],)); [c.execute(\"DELETE FROM main.\"+t+\" WHERE job_id NOT IN (SELECT job_id FROM k.mutation_specs)\") for t in (\"work_results\",\"work_items\",\"mutation_specs\")]; c.commit(); print(c.execute(\"SELECT count(*) FROM main.work_items\").fetchone()[0])" "$$w/out/r16.sqlite" "$$w/out/pr.sqlite")" || exit 1; \
 	  red=0; \
-	  env MODE=exec WORK=weakening SESSION=head.sqlite REPORT=head-report.txt OUT_DIR="$$w/out" DIFF_ABS="$$w/whole.diff" bash -c "$$HEAD_BODY"; hrc=$$?; \
-	  if [ "$$hrc" -eq 64 ]; then exit 1; fi; \
-	  if [ "$$hrc" -ne 0 ]; then red=1; fi; \
-	  if [ ! -f "$$w/out/head.sqlite" ]; then printf "error: the head session left no session file\n" >&2; exit 1; fi; \
+	  if [ "$$kept" -eq 0 ]; then printf "R16: the PR adds no mutable lines to pi.py; nothing to check\n"; \
+	  else python3 ../scripts/cosmic_ray_cell_status.py "$$w/out/r16.sqlite" "$${CELL_LABEL}" --max-survivors 0 || red=1; fi; \
 	  python3 ../scripts/mutation_weakening.py judge --dir "$$copy" --base "$$BASE" --work "$$w/work" --after-head --repo "$$repo"; rc=$$?; \
 	  case "$$rc" in 0) ;; 3) exit "$$red" ;; *) exit 1 ;; esac; \
 	  if [ -n "$${PLANNED}" ]; then planned="$$PLANNED"; \
-	  elif [ -n "$${MUTANT_JOB}" ]; then planned=1; \
-	  else planned="$$(python3 -c "import sqlite3,sys; print(sqlite3.connect(sys.argv[1]).execute(\"SELECT count(*) FROM work_items\").fetchone()[0])" "$$w/out/head.sqlite")" || exit 1; fi; \
+	  else \
+	    if [ -n "$${WEAKENING_JOB}" ]; then planned=1; \
+	    else planned="$$(python3 -c "import sqlite3,sys; print(sqlite3.connect(sys.argv[1]).execute(\"SELECT count(*) FROM work_items\").fetchone()[0])" "$$w/out/head.sqlite")" || exit 1; fi; \
+	    printf "planned: %s (from session)\n" "$$planned"; \
+	  fi; \
 	  set -- --dir "$$copy" --session "$$w/out/head.sqlite" --shard "$${MUTANT_SHARD:-0/1}" --planned "$$planned" --base "$$BASE" --work "$$w/work" --repo "$$repo"; \
 	  if [ -n "$${PR}" ]; then set -- "$$@" --pr "$$PR"; fi; \
 	  if [ -n "$${HEAD_SHA}" ]; then set -- "$$@" --head "$$HEAD_SHA"; fi; \
@@ -207,8 +231,7 @@ WEAKENING_BODY = $(MUTANTS_CAP); \
 
 mutants-weakening:
 	@$(WEAKENING_GUARD)
-	@$(MAKE) --no-print-directory mutants-baseline
-	@env MUTANT_JOB="$$JOB" HEAD_BODY='$(MUTANTS_BODY)' bash -c '$(WEAKENING_BODY)'
+	@env WEAKENING_JOB="$$JOB" HEAD_BODY='$(MUTANTS_BODY)' bash -c '$(WEAKENING_BODY)'
 
 mutants-report:
 	@cr-report cosmic-ray-session.sqlite --show-output --show-diff > mutants-report.txt
