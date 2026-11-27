@@ -526,3 +526,35 @@ class ProcMacroManifestTest(HiddenFixtureCase):
     def test_unparseable_head_manifest_fails_closed(self) -> None:
         self.new_crate("[lib\nproc-macro = true\n")
         self.assertEqual(len(self.manifest_items()), 1)
+
+    def test_crate_type_proc_macro_list_is_an_item(self) -> None:
+        self.new_crate(
+            PLAIN_LIB_MANIFEST.replace(
+                'name = "pm"\n', 'name = "pm"\ncrate-type = ["proc-macro"]\n'
+            )
+        )
+        self.assertEqual(len(self.manifest_items()), 1)
+
+    def test_underscore_crate_type_with_other_kinds_is_an_item(self) -> None:
+        self.new_crate(
+            PLAIN_LIB_MANIFEST.replace(
+                'name = "pm"\n', 'name = "pm"\ncrate_type = ["rlib", "proc-macro"]\n'
+            )
+        )
+        self.assertEqual(len(self.manifest_items()), 1)
+
+    def test_crate_type_without_proc_macro_is_not_an_item(self) -> None:
+        self.new_crate(
+            PLAIN_LIB_MANIFEST.replace(
+                'name = "pm"\n', 'name = "pm"\ncrate-type = ["rlib"]\n'
+            )
+        )
+        self.assertEqual(self.manifest_items(), [])
+
+    def test_symlinked_manifest_outside_the_crate_layout_is_an_item(self) -> None:
+        # The link's target text is itself valid TOML, so parsing it cannot fail closed.
+        self.write("zz/zz-macros/a=1", PROC_MACRO_MANIFEST)
+        (self.repo / "zz/zz-macros/Cargo.toml").symlink_to("a=1")
+        found = self.manifest_items()
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0].target, "zz/zz-macros")

@@ -1280,7 +1280,12 @@ def _declares_proc_macro(text: str | None, unparseable: bool) -> bool:
         return unparseable
     if not isinstance(lib, dict):
         return False
-    return lib.get("proc-macro") is True or lib.get("proc_macro") is True
+    if lib.get("proc-macro") is True or lib.get("proc_macro") is True:
+        return True
+    return any(
+        isinstance(kinds, list) and "proc-macro" in kinds
+        for kinds in (lib.get("crate-type"), lib.get("crate_type"))
+    )
 
 
 def _proc_macro_items(ctx: Context) -> list[Item]:
@@ -1289,12 +1294,19 @@ def _proc_macro_items(ctx: Context) -> list[Item]:
     for path in ctx.changed:
         if path.rsplit("/", 1)[-1] != "Cargo.toml":
             continue
+        crate = path.rsplit("/", 1)[0] if "/" in path else "."
+        blob = ctx.blob_id(ctx.head, path)
+        mode = ctx.mode(ctx.head, path)
+        if mode is not None and mode not in REGULAR_MODES:
+            # git show of a link is its target text, not a manifest: fail closed.
+            items.append(
+                Item(crate, HIDDEN_KIND, (crate, "Cargo.toml", f"not-regular {blob}"))
+            )
+            continue
         if not _declares_proc_macro(ctx.show(ctx.head, path), True):
             continue
         if _declares_proc_macro(ctx.show(ctx.base, path), False):
             continue
-        crate = path.rsplit("/", 1)[0] if "/" in path else "."
-        blob = ctx.blob_id(ctx.head, path)
         items.append(
             Item(crate, HIDDEN_KIND, (crate, "Cargo.toml", f"proc-macro {blob}"))
         )
