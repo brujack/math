@@ -1,7 +1,0 @@
-# Trust root for `Mutation-Gate-Reviewed:` trailers (spec R26, R28).
-# `git verify-commit` reads this file (gpg.ssh.allowedSignersFile) from the base branch.
-# Format: <principal> namespaces="git" sk-ssh-ed25519@openssh.com <base64 public key>
-# Only `sk-ssh-ed25519@openssh.com` keys without `no-touch-required` may appear here;
-# tests/test_mutation_gate_allowed_signers.py enforces it.
-# The operator enrols their key before merge (V7). Until then the file has no key
-# line, so nothing verifies and every trailer is ignored (fails closed).

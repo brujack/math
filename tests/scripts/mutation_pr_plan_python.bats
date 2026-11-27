@@ -742,3 +742,44 @@ assert [x["planned"] for x in u] == [600] * 11
     run bash "${SCRIPT}" base pi </dev/null
     [ "$(cat "${PLAN_OUT}/units.json")" = '[{"dir":"pi","k":0,"n":1,"mode":"diff"}]' ]
 }
+
+# Six weakening dirs at 40 shards (240) plus one dir sized to ${1} shards: K*s/600 = ${1}.
+matrix_dirs() {
+    # matrix_dirs <last-dir-K>
+    local d
+    for d in d1 d2 d3 d4 d5 d6; do
+        weak_fix "${d}" 10000 10
+    done
+    weak_fix d7 "$1" 1
+    export PY_TEST_DIRS="d1 d2 d3 d4 d5 d6 d7"
+}
+
+@test "a matrix of exactly 256 units is green" {
+    matrix_dirs 9600
+    run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -eq 0 ]
+    run python3 -I -c 'import json,sys; assert len(json.load(open(sys.argv[1])))==256' "${PLAN_OUT}/units.json"
+    [ "${status}" -eq 0 ]
+}
+
+@test "a matrix of 257 units is red, names the limit and writes no units.json" {
+    matrix_dirs 9601
+    run bash "${SCRIPT}" base </dev/null
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *'error: plan needs 257 shards, over the 256-job matrix limit (ADR-0046)'* ]]
+    [ ! -e "${PLAN_OUT}/units.json" ]
+}
+
+@test "the 256 cap counts diff rows beside weakening rows" {
+    matrix_dirs 9600
+    export PY_TEST_DIRS="d1 d2 d3 d4 d5 d6"
+    prune_out e 0 151 9
+    run bash "${SCRIPT}" base e </dev/null
+    [ "${status}" -eq 0 ]
+    weak_fix d7 9600 1
+    prune_out e 0 1 1
+    export PY_TEST_DIRS="d1 d2 d3 d4 d5 d6 d7"
+    run bash "${SCRIPT}" base e </dev/null
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *'plan needs 257 shards'* ]]
+}

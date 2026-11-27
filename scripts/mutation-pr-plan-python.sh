@@ -19,10 +19,12 @@
 # weakening mode {"dir":..,"k":..,"n":..,"mode":"weakening","planned":..}; [] when none.
 # `planned` is the job count of slice k under cosmic_ray_shard.py's round-robin split (sorted index
 # i belongs to shard i % n), so K // n plus one when k < K % n; the planned counts sum to K.
+# More than 256 units (the GitHub matrix limit, ADR-0046) exits 1 with plan.txt written and no units.json.
 # Zero dirs is valid (an empty plan and []), so the caller never special-cases "nothing changed".
 
 readonly SHARD_SIZE=150
 readonly MAX_SHARDS=10
+readonly MATRIX_LIMIT=256
 readonly WEAK_MIN_SHARDS=10
 readonly WEAK_MAX_SHARDS=40
 readonly WEAK_BUDGET_MS=600000
@@ -296,6 +298,13 @@ main() {
     done
 
     printf '%s' "${plan}" >"${out_dir}/plan.txt" || return 1
+
+    # GitHub caps a job matrix at 256 entries (diff and weakening rows both count); fail here with a
+    # named message rather than at matrix expansion. plan.txt stays for diagnosis, units.json is not written.
+    if ((${#UNITS[@]} > MATRIX_LIMIT)); then
+        printf 'error: plan needs %s shards, over the %s-job matrix limit (ADR-0046)\n' "${#UNITS[@]}" "${MATRIX_LIMIT}" >&2
+        return 1
+    fi
 
     local json="[" sep="" unit
     for unit in "${UNITS[@]}"; do
