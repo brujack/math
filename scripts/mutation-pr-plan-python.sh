@@ -5,7 +5,10 @@
 #
 # <dir>... are the changed-line (diff) dirs. PY_TEST_DIRS (space-separated, as printed by
 # mutation-pr-detect.sh `py_test_dirs=`) are planned as whole-module "weakening" shards instead,
-# n = min(40, max(10, ceil(K * s / 600))); a dir in both lists is planned once, as weakening.
+# n = min(40, max(10, ceil(K * s / 600))); a dir in both lists is planned once, as weakening, but
+# the diff-mode prune over the real PR diff still runs for it (the whole-module diff adds every
+# mutants-equivalent.toml entry, so it cannot flag an entry left unconfirmed on a changed line):
+# a refusal there is the dir's red plan line and no weakening row is emitted.
 # K is the whole-module mutant count after the head prune, s the head suite's wall seconds.
 # Seams (executables, `<cmd> <dir>` prints one number; unset runs the real measurement):
 #   MUTATION_PR_WEAKENING_K, MUTATION_PR_SUITE_SECONDS
@@ -261,6 +264,20 @@ plan_weakening_dir() {
     return 0
 }
 
+# A dir in both lists: run the diff-mode plan (the real PR diff and prune, so a re-confirm refusal
+# is the same red line as in diff mode) and discard its shard units. Leaves PLAN_LINE set only when
+# that plan is red; `lines 0` is not a refusal here (a module edit with no mutable line, covered by
+# the weakening shards), so it falls through to the weakening plan.
+recheck_dir() {
+    local base="$1" dir="$2" kept_units=${#UNITS[@]}
+    plan_dir "${base}" "${dir}" || return 1
+    UNITS=("${UNITS[@]:0:${kept_units}}")
+    if [[ "${PLAN_LINE}" != "red${TAB}"* || "${PLAN_LINE}" == "red${TAB}lines 0" ]]; then
+        PLAN_LINE=""
+    fi
+    return 0
+}
+
 main() {
     if [[ "$#" -lt 1 ]]; then
         printf 'Usage: %s <base-sha> [<dir>...]\n' "${0##*/}" >&2
@@ -280,12 +297,21 @@ main() {
     SUMMARY_BODY=""
     local plan="" dir test_dirs=() planned=" "
     read -ra test_dirs <<<"${PY_TEST_DIRS:-}"
+    local src_set=" " src_dir
+    for src_dir in "$@"; do
+        src_set+="${src_dir%/} "
+    done
     for dir in "${test_dirs[@]}"; do
         dir="${dir%/}"
         [[ "${planned}" == *" ${dir} "* ]] && continue
         planned+="${dir} "
         PLAN_LINE=""
-        plan_weakening_dir "${dir}" || return 1
+        if [[ "${src_set}" == *" ${dir} "* ]]; then
+            recheck_dir "${base}" "${dir}" || return 1
+        fi
+        if [[ -z "${PLAN_LINE}" ]]; then
+            plan_weakening_dir "${dir}" || return 1
+        fi
         plan+="${dir}${TAB}${PLAN_LINE}"$'\n'
     done
     for dir in "$@"; do

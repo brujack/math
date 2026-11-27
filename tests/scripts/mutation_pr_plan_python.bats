@@ -419,6 +419,33 @@ assert len(u) == 10 and {x["mode"] for x in u} == {"weakening"}
     [ "${status}" -eq 0 ]
 }
 
+@test "dir in both sets with an unconfirmed equivalent on a changed line is red and emits no weakening row" {
+    weak_fix pi 100 1
+    printf '%s\n' 'cosmic_ray_prune: entry 3 excludes a mutant on a changed line (pi.py:682); re-confirm it in this PR' >"${FIX}/pi.err"
+    printf '2' >"${FIX}/pi.rc"
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base pi </dev/null
+    [ "${status}" -eq 0 ]
+    [ "$(wc -l <"${PLAN_OUT}/plan.txt")" -eq 1 ]
+    [[ "$(cat "${PLAN_OUT}/plan.txt")" == "pi"$'\t'"red"$'\t'"mutants-diff-plan failed: "*"entry 3 excludes a mutant on a changed line"*"re-confirm it in this PR" ]]
+    [ "$(cat "${PLAN_OUT}/units.json")" = "[]" ]
+    # the check reads the real PR diff, not the whole-module diff
+    [ "$(cat "${FIX}/pi.seen")" = "diff for pi" ]
+}
+
+@test "dir in both sets with no covered line changed stays green weakening" {
+    prune_out pi 2 0 0
+    weak_fix pi 100 1
+    PY_TEST_DIRS=pi run bash "${SCRIPT}" base pi </dev/null
+    [ "${status}" -eq 0 ]
+    [ "$(cat "${PLAN_OUT}/plan.txt")" = "$(printf 'pi\tgreen\t100 mutants in 10 shards')" ]
+    run python3 -I -c '
+import json, sys
+u = json.load(open(sys.argv[1]))
+assert len(u) == 10 and {x["mode"] for x in u} == {"weakening"}
+' "${PLAN_OUT}/units.json"
+    [ "${status}" -eq 0 ]
+}
+
 @test "src-only dirs keep diff rows beside weakening rows" {
     prune_out e 0 5 5
     weak_fix pi 100 1
