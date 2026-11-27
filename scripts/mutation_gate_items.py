@@ -252,10 +252,18 @@ class Context:
             raise NotRegularError(path, found[0], found[1])
         return _write_under(root, path, self._blob(found[1]))
 
-    def materialise_tree(self, sha: str, subdir: str, root: Path) -> Path:
+    def materialise_tree(
+        self,
+        sha: str,
+        subdir: str,
+        root: Path,
+        skip: Callable[[str], bool] | None = None,
+    ) -> Path:
         """Write every file under `<sha>:<subdir>` to `<root>/<subdir>` as bytes.
 
-        NotRegularError on any entry that is not a regular file (symlink, gitlink).
+        `skip(path)` leaves a path unwritten (N4). NotRegularError on any entry that is
+        not a regular file (symlink, gitlink), skipped paths included: they are judged
+        before they are dropped.
         """
         out = _git_bytes(self.repo, ["ls-tree", "-r", "-z", sha, "--", subdir])
         if out.returncode != 0:
@@ -267,7 +275,8 @@ class Context:
             path = raw_path.decode("utf-8", errors="surrogateescape")
             if mode not in REGULAR_MODES:
                 raise NotRegularError(path, mode, blob)
-            _write_under(root, path, self._blob(blob))
+            if skip is None or not skip(path):
+                _write_under(root, path, self._blob(blob))
         return root / subdir
 
 
@@ -634,6 +643,19 @@ def _excluded_keys(
     return excluded
 
 
+def is_cargo_control_file(path: str) -> bool:
+    """`.cargo/config*` and `rust-toolchain*`: files cargo or rustup read to run code (N4).
+
+    `.cargo/mutants.toml` is data the listing needs, so it is kept.
+    """
+    parts = path.split("/")
+    name = parts[-1]
+    in_cargo_dir = len(parts) > 1 and parts[-2] == ".cargo"
+    return (in_cargo_dir and name.startswith("config")) or name.startswith(
+        "rust-toolchain"
+    )
+
+
 def _rust_marker(crate: str, what: str, blob: str) -> Item:
     return Item(crate, RUST_KIND, (crate, what, blob))
 
@@ -647,13 +669,13 @@ def _keys_at(
         return set()
     root = ctx.scratch / f"{crate.replace('/', '_')}-{label}"
     try:
-        tree = ctx.materialise_tree(sha, crate, root)
+        tree = ctx.materialise_tree(sha, crate, root, is_cargo_control_file)
     except NotRegularError as exc:
         return _rust_marker(crate, "tree-not-regular", exc.blob)
     plain = _list_mutants(tree, True)
     configured = _list_mutants(tree, False)
     if plain is None or configured is None:
-        return _rust_marker(crate, "list-failed", ctx.blob_id(sha, manifest))
+        return _rust_marker(crate, "list-failed", ctx.blob_id(sha, crate))
     return _excluded_keys(crate, tree, plain, configured)
 
 
@@ -678,7 +700,7 @@ def _rust_config_items(ctx: Context, crate: str) -> list[Item]:
 def _rust_exclusion_items(ctx: Context, crate: str) -> list[Item]:
     head = _keys_at(ctx, ctx.head, crate, "head")
     if isinstance(head, Item):
-        return [head]
+        return [head, *_rust_config_items(ctx, crate)]
     base = _keys_at(ctx, ctx.base, crate, "base")
     base_keys = set() if isinstance(base, Item) else base
     items = [Item(crate, RUST_KIND, key) for key in sorted(head - base_keys)]
@@ -697,7 +719,7 @@ def collect_rust_exclusions(ctx: Context) -> list[Item]:
 # --- Rust hidden-code items (R24, R34) -----------------------------------------------
 
 HIDDEN_KIND = "rust-hidden"
-RUST_SRC_RE = re.compile(r"^([^/]+/[^/]+-rs)/(src/.+\.rs)$")
+RUST_FILE_RE = re.compile(r"^([^/]+/[^/]+-rs)/(.+\.rs)$")
 RAW_STR_RE = re.compile(r'(?:br|cr|r)(#*)"')
 PLAIN_STR_RE = re.compile(r'[bc]?"')
 NUM_RE = re.compile(r"\d\w*(?:\.\d\w*)?")
@@ -843,17 +865,54 @@ def _attr_end(toks: list[RustTok], i: int) -> int:
     return i
 
 
-def _item_end(toks: list[RustTok], i: int) -> int:
-    """Index after the item starting at `i`: its `;`, or its braces' close."""
+ITEM_KEYWORDS = frozenset(
+    {"fn", "mod", "impl", "struct", "enum", "trait", "union", "use", "type", "static"}
+    | {"extern", "unsafe", "async", "const", "macro_rules", "default"}
+)
+
+
+def _starts_item(toks: list[RustTok], i: int) -> bool:
+    """Whether the tokens at `i` open an item (after `pub`, `pub(crate)`), not an element."""
+    if i < len(toks) and toks[i].text == "pub":
+        i += 1
+        if i < len(toks) and toks[i].text == "(":
+            i = _match(toks, i) + 1
+    return i < len(toks) and toks[i].text in ITEM_KEYWORDS
+
+
+def _item_end(toks: list[RustTok], i: int, element: bool = False) -> int:
+    """Index after the item starting at `i`: its `;`, or its braces' close.
+
+    Stops, without consuming, at a closer that belongs to the enclosing scope, so a
+    gated struct field, variant, match arm or parameter never reaches past its own end.
+    With `element` set, a depth-0 `,` also ends an element that is not an item.
+    """
     while i < len(toks) and toks[i].text == "#" and _attr_end(toks, i) > i:
         i = _attr_end(toks, i)
+    until_comma = element and not _starts_item(toks, i)
     while i < len(toks):
         text = toks[i].text if toks[i].kind == "punct" else ""
+        if text in CLOSERS or (until_comma and text == ","):
+            return i
         if text == ";":
             return i + 1
         if text == "{":
             return _match(toks, i) + 1
         i = _match(toks, i) + 1 if text in ("(", "[") else i + 1
+    return len(toks)
+
+
+def _block_end(toks: list[RustTok], i: int) -> int:
+    """Index of the closer ending the block that holds token `i` (end of text if none)."""
+    depth = 0
+    for j in range(i, len(toks)):
+        text = toks[j].text if toks[j].kind == "punct" else ""
+        if text in OPENERS:
+            depth += 1
+        elif text in CLOSERS:
+            if depth == 0:
+                return j
+            depth -= 1
     return len(toks)
 
 
@@ -868,21 +927,44 @@ def _cfg_test_attr(toks: list[RustTok], i: int) -> tuple[bool, int]:
     return end > i and body == CFG_TEST, end
 
 
-def test_mask(toks: list[RustTok]) -> list[bool]:
-    """True for every token inside an item gated by `#[cfg(test)]` (R24 exempts them).
+def _gated_end(toks: list[RustTok], after: int, inner: bool, leading: bool) -> int:
+    """End of what a `cfg(test)` attribute gates, given where the attribute sits.
 
-    `#![cfg(test)]` gates the whole file. Only the exact `cfg(test)` form counts:
-    `cfg_attr(test, ...)` and `cfg(not(test))` keep their code examined.
+    An inner attribute gates its enclosing block, and the whole file only when it comes
+    before any item at the top level (later it gates nothing, as it is invalid Rust there); an outer one gates the one item or element after it.
+    """
+    if inner and leading:
+        return len(toks)
+    if inner:
+        # Outside any block an inner attribute after an item is invalid Rust: gate nothing.
+        end = _block_end(toks, after)
+        return after if end == len(toks) else end
+    return _item_end(toks, after, element=True)
+
+
+def test_mask(toks: list[RustTok]) -> list[bool]:
+    """True for every token inside what a `#[cfg(test)]` attribute gates (R24 exempts it).
+
+    Only the exact `cfg(test)` form counts: `cfg_attr(test, ...)` and `cfg(not(test))`
+    keep their code examined. A gate never reaches past its own element or block.
     """
     mask = [False] * len(toks)
+    leading = True
     i = 0
     while i < len(toks):
-        gated, after = _cfg_test_attr(toks, i) if toks[i].text == "#" else (False, i)
-        if not gated:
+        if toks[i].text != "#" or _attr_end(toks, i) == i:
+            leading = False
             i += 1
             continue
-        stop = len(toks) if toks[i + 1].text == "!" else _item_end(toks, after)
+        gated, after = _cfg_test_attr(toks, i)
+        inner = toks[i + 1].text == "!"
+        if not gated:
+            leading = leading and inner
+            i = after
+            continue
+        stop = _gated_end(toks, after, inner, leading)
         mask[i:stop] = [True] * (stop - i)
+        leading = False
         i = stop
     return mask
 
@@ -904,6 +986,34 @@ def _is_macro_rules(toks: list[RustTok], i: int) -> bool:
     )
 
 
+def _always(prev: RustTok | None, nxt: RustTok | None) -> bool:
+    return True
+
+
+def _dot_ok(prev: RustTok | None, nxt: RustTok | None) -> bool:
+    """Access only: a value before, an ident or number after (so `..` never is)."""
+    value = prev is not None and (prev.kind in CALLABLE_PREV or prev.text == ")")
+    return value and nxt is not None and nxt.kind in ("ident", "num")
+
+
+def _call_paren_ok(prev: RustTok | None, nxt: RustTok | None) -> bool:
+    return prev is not None and prev.kind == "ident"
+
+
+def _prefix_amp_ok(prev: RustTok | None, nxt: RustTok | None) -> bool:
+    return prev is None or prev.text in (",", "(", "&")
+
+
+ARG_PUNCT_RULES: dict[str, Callable[[RustTok | None, RustTok | None], bool]] = {
+    ",": _always,
+    "::": _always,
+    ")": _always,
+    ".": _dot_ok,
+    "(": _call_paren_ok,
+    "&": _prefix_amp_ok,
+}
+
+
 def _arg_ok(prev: RustTok | None, tok: RustTok, nxt: RustTok | None) -> bool:
     """One macro-argument token against the allow-set (R24).
 
@@ -919,18 +1029,8 @@ def _arg_ok(prev: RustTok | None, tok: RustTok, nxt: RustTok | None) -> bool:
         return True
     if tok.kind == "ident":
         return tok.text not in EXPRESSION_KEYWORDS
-    if tok.kind != "punct":
-        return False
-    if tok.text in (",", "::", ")"):
-        return True
-    if tok.text == ".":
-        value = prev is not None and (prev.kind in CALLABLE_PREV or prev.text == ")")
-        return value and nxt is not None and nxt.kind in ("ident", "num")
-    if tok.text == "(":
-        return prev is not None and prev.kind == "ident"
-    if tok.text == "&":
-        return prev is None or prev.text in (",", "(", "&")
-    return False
+    rule = ARG_PUNCT_RULES.get(tok.text) if tok.kind == "punct" else None
+    return rule is not None and rule(prev, nxt)
 
 
 def _args_ok(toks: list[RustTok], start: int, end: int) -> bool:
@@ -1015,8 +1115,30 @@ def _macro_texts(toks: list[RustTok], mask: list[bool]) -> list[str]:
         if not _is_macro_call(toks, i):
             continue
         close = _match(toks, i + 2)
-        if not _args_ok(toks, i + 3, close):
+        if toks[i].text == "include" or not _args_ok(toks, i + 3, close):
             found.append(_joined(toks, i, close + 1))
+    return found
+
+
+def _is_path_assign(toks: list[RustTok], k: int) -> bool:
+    return (
+        toks[k].kind == "ident"
+        and toks[k].text == "path"
+        and k + 1 < len(toks)
+        and toks[k + 1].text == "="
+        and toks[k - 1].text in ("[", "(", ",")
+    )
+
+
+def _path_attr_texts(toks: list[RustTok], mask: list[bool]) -> list[str]:
+    """Attributes assigning `path = ...` (also inside `cfg_attr`): a module from anywhere."""
+    found = []
+    for i, tok in enumerate(toks):
+        if mask[i] or tok.text != "#":
+            continue
+        end = _attr_end(toks, i)
+        if any(_is_path_assign(toks, k) for k in range(i + 1, end)):
+            found.append(_joined(toks, i, end))
     return found
 
 
@@ -1024,7 +1146,8 @@ def hidden_texts(text: str) -> list[str]:
     """Normalised texts of the hidden-code occurrences in `text`, outside test modules."""
     toks = rust_tokens(text)
     mask = test_mask(toks)
-    return sorted(_skip_texts(toks, mask) + _macro_texts(toks, mask))
+    found = _skip_texts(toks, mask) + _macro_texts(toks, mask)
+    return sorted(found + _path_attr_texts(toks, mask))
 
 
 def _container_label(toks: list[RustTok], i: int, body: int) -> str:
@@ -1085,25 +1208,25 @@ def _function_item(crate: str, file: str, ident: tuple[str, ...]) -> Item:
     return Item(crate, HIDDEN_KIND, (crate, file, "fn " + "::".join(ident)))
 
 
+def _unqualified(mutant: Mutant) -> str:
+    """The function name of a listed mutant without its `Type::` or `module::` prefix."""
+    name = (mutant.get("function") or {}).get("function_name") or ""
+    return name.rsplit("::", 1)[-1]
+
+
 def _head_listed_functions(
     ctx: Context, crate: str
 ) -> tuple[set[tuple[str, str]], Item | None]:
     """(file, function) pairs with a mutant in the head `--no-config` listing."""
     root = ctx.scratch / f"{crate.replace('/', '_')}-head"
     try:
-        tree = ctx.materialise_tree(ctx.head, crate, root)
+        tree = ctx.materialise_tree(ctx.head, crate, root, is_cargo_control_file)
     except NotRegularError as exc:
         return set(), _rust_marker(crate, "tree-not-regular", exc.blob)
     listing = _list_mutants(tree, True)
     if listing is None:
-        manifest = f"{crate}/Cargo.toml"
-        return set(), _rust_marker(
-            crate, "list-failed", ctx.blob_id(ctx.head, manifest)
-        )
-    return {
-        (str(m.get("file", "")), (m.get("function") or {}).get("function_name") or "")
-        for m in listing
-    }, None
+        return set(), _rust_marker(crate, "list-failed", ctx.blob_id(ctx.head, crate))
+    return {(str(m.get("file", "")), _unqualified(m)) for m in listing}, None
 
 
 def _text_at(ctx: Context, sha: str, path: str) -> str:
@@ -1124,6 +1247,8 @@ def _hidden_for_file(
             remaining.remove(text)
         else:
             items.append(Item(crate, HIDDEN_KIND, (crate, file, text)))
+    if not file.startswith("src/"):
+        return items, set()
     return items, function_ids(head) - function_ids(base)
 
 
@@ -1131,7 +1256,7 @@ def _hidden_for_crate(ctx: Context, crate: str) -> list[Item]:
     files = sorted(
         m.group(2)
         for p in ctx.changed
-        if (m := RUST_SRC_RE.match(p)) and m.group(1) == crate
+        if (m := RUST_FILE_RE.match(p)) and m.group(1) == crate
     )
     items: list[Item] = []
     new_functions: dict[str, set[tuple[str, ...]]] = {}
@@ -1155,7 +1280,7 @@ def _hidden_for_crate(ctx: Context, crate: str) -> list[Item]:
 
 
 def collect_rust_hidden(ctx: Context) -> list[Item]:
-    crates = sorted({m.group(1) for p in ctx.changed if (m := RUST_SRC_RE.match(p))})
+    crates = sorted({m.group(1) for p in ctx.changed if (m := RUST_FILE_RE.match(p))})
     items: list[Item] = []
     for crate in crates:
         if ctx.wants(crate):
