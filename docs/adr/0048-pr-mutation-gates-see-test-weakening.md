@@ -22,17 +22,17 @@ Spec: `docs/superpowers/specs/2026-11-26-pr-mutation-test-weakening-design.md`. 
    - **Verdict (amended R15).** The summary prints `weakened: <count> mutants killed by base tests survive head tests`, then each mutant's operator, occurrence, diff and `repro: make -C <dir> mutants-weakening BASE=<sha> JOB=<operator>@<occurrence>`. Cosmic-ray job ids are random per `cosmic-ray init`, so the operator and module-wide occurrence select the mutant.
    - **Affirmative verdict file.** The judge writes a verdict file that the gate step reads. The absence of a verdict is red, never green.
    - **Canary.** `py_canary` runs the path on `tests/fixtures/mutation_weakening/` and requires `weakened: 1` in each case.
-3. **`mutation-gate-items`, a new required check on `pull_request_target`.** `.github/workflows/mutation-gate-items.yml` has `permissions: contents: read`, no secrets and no `paths:` filter. It runs the base branch's `scripts/mutation-gate-items.sh` against the PR head's objects. It lists what the changed-line gates cannot judge, and is red while any item is uncleared. Invocation rules, so no PR content executes:
+3. **`mutation-gate-items`, a new required check on `pull_request_target`.** `.github/workflows/mutation-gate-items.yml` has `permissions: contents: read`, no secrets and no `paths:` filter. It runs the base branch's `scripts/mutation-gate-items.sh` against the PR head's objects. It lists what the changed-line gates cannot judge, and is red while any item exists. Invocation rules, so no PR content executes:
    - PR files are written to a scratch tree only with `git show <sha>:<path>`, never `git archive` or `git checkout`, which honour PR `.gitattributes` and filters.
    - Every tool runs with its working directory outside the scratch tree.
    - No cargo config or toolchain file is materialised, so a PR `.cargo/config.toml` alias, `rust-toolchain.toml` or `rustc-wrapper` cannot run.
    - `RUSTUP_TOOLCHAIN` is the pinned toolchain; `CARGO_HOME` is a fresh empty directory; `cargo metadata` is never called without `--no-deps`.
    - `cosmic-ray init` runs through its installed console script, never `python -m`, with a generated config (absolute `module-path`; the PR's `test-command` is never used).
    - Item kinds, each keyed by the content it approves: Python equivalents (head-only prune entries), Python config keys, Rust exclusions (`exclude_re` matches and other `.cargo/mutants.toml` keys), Rust hidden code (`mutants::skip`, `macro_rules!`, `include!`, `#[path]`, opaque macro arguments, a new function with no mutant; excludes `tests/`, `benches/` and `examples/`, amended R24), and gate-shaping files (target `gate`).
-4. **Signed clearance.** A commit in the PR range carrying `Mutation-Gate-Reviewed: #<pr> <target>: <reason>` (reason of 10 or more characters; target a dir, a crate dir or `gate`) clears each item of that target whose key is in the commit's tree, so a later change to the item produces a new key and is red again. The commit must verify with `git verify-commit` under `gpg.format=ssh` against `.github/mutation-gate-allowed-signers` as it stands on the base branch, using the pinned `ssh-keygen` (`gpg.ssh.program=ssh-keygen`, `gpg.program=false`, `gpg.x509.program=false`). The allowed-signers file may hold only `sk-ssh-ed25519@openssh.com` keys with no `cert-authority` and no `no-touch-required` option (amended R28), enforced by a test. The same commit clears an unjudgeable or `weakened` red of its dir in `mutation-pr` when the module and test file are unchanged since it. No agent, script or workflow signs such a commit; only the operator does, with a FIDO key. **The file currently holds no key, so every item stays red (fail-closed) until V7 enrols the operator's key.**
+4. **Red items merge only by admin override.** Any item makes `mutation-gate-items` red, and the red lists every item as `uncleared item: <target> <kind> <key>`. A `weakened:` or `base suite unjudgeable` red in `mutation-pr` is handled the same way. A reviewed PR merges only by the operator's admin override (`enforce_admins` is false); `auto-merge` never merges a red PR. Keys still carry the content they flag, so an edited item is a new line in the list. A reviewer-supplied exemption inside the PR would let the PR author clear its own gate, so none exists.
 5. **Tracked required-check list (amended R36).** `scripts/ci-gate.sh` reads `.github/required-status-checks` (blank lines and `#` comments ignored; a missing, unreadable or empty file fails closed before any poll) and waits for a completed check run on the PR head SHA for each listed context, other than the self-checks `secret-scan` and `auto-merge` and the advisory `snyk-scan`. `GITHUB_TOKEN` cannot read branch protection, so the list mirrors it and V4 checks the two against each other. The file ships listing `secret-scan` and `mutation-pr`.
 6. **Bootstrap order.** The PR that adds `mutation-gate-items.yml` is not judged by it, because `pull_request_target` runs the base branch's workflow, which lacks it. So: (1) merge; (2) the operator adds `mutation-gate-items` to branch protection with expected source GitHub Actions, and sets the same expected source on `mutation-pr` and `secret-scan`, so a status posted with a personal token cannot satisfy them; (3) a follow-up PR adds `mutation-gate-items` to `.github/required-status-checks`, after confirming that the `pull_request_target` check run lands on the PR head SHA.
-7. **Workflow.** `mutation-pr.yml` sets `concurrency: { group: mutation-pr-${{ github.event.pull_request.number }}, cancel-in-progress: true }`. `scripts/pre-push` prints, advisory and without running a mutant, the items a push would raise and whether a verified trailer clears them.
+7. **Workflow.** `mutation-pr.yml` sets `concurrency: { group: mutation-pr-${{ github.event.pull_request.number }}, cancel-in-progress: true }`. `scripts/pre-push` prints, advisory, without running a mutant and without looking up a PR, the items the branch's merge-base range would raise.
 
 ## Repro commands
 
@@ -40,14 +40,14 @@ Each was checked against the real usage text or Makefile guard.
 
 - Python weakening for one shard, or for one mutant: `make -C <dir> mutants-weakening BASE=<merge-base sha> MUTANT_SHARD=<k>/<n>` or `make -C <dir> mutants-weakening BASE=<merge-base sha> JOB=<operator>@<occurrence>`. `BASE` must be a lowercase hex sha, and exactly one of `MUTANT_SHARD` and `JOB` is given. The target writes nothing in the tracked tree.
 - Rust whole crate: `scripts/mutation-pr-run.sh --whole [--shard <k>/<n> [--expect <count>]] <crate-dir>...`.
-- Items: `scripts/mutation-gate-items.sh <base-sha> <head-sha> [--pr <n>]` prints every item and its clearance.
+- Items: `scripts/mutation-gate-items.sh <base-sha> <head-sha>` prints every `uncleared item: ...` line.
 
 ## Consequences
 
 - Deleting or weakening a test now surfaces in the PR, not a month later in the sweep. A Rust PR touching a crate runs its whole mutant set (ADR-0046 measured 2,221 mutants over 37 shards for all 13 crates at its branch base; one crate is a fraction of that), so per-PR CI minutes rise.
-- The operator signs a commit with a FIDO key whenever a PR changes an equivalence list, an exclusion, hidden code or a gate file. Pre-push shows the items beforehand. Clearance is per content, so an edited item needs a fresh signature.
+- Whenever a PR changes an equivalence list, an exclusion, hidden code or a gate file, `mutation-gate-items` is red and only the operator can merge it, by admin override. Pre-push shows the items beforehand. The same holds for a `weakened:` or `base suite unjudgeable` red.
 - A uniform refactor of many test files plans up to 40 shards per dir and runs in waves.
-- The gate is tamper-resistant only once the operator completes the bootstrap order; until the key is enrolled and the check is required, the items check is red on any item or absent.
+- The gate is tamper-resistant only once the operator completes the bootstrap order; until the check is required in branch protection and listed in `.github/required-status-checks`, it is absent.
 
 ### Known limits
 
@@ -55,9 +55,9 @@ Each was checked against the real usage text or Makefile guard.
 - A weakening on a mutant another head test still kills is invisible to any mutation-based gate.
 - A base assertion that runs once and already fails on the unmutated head gives the base arm no information about a mutant; its head replacement is judged only by the head arm.
 - An assertion made by a module-level function, `self.fail(...)` or `raise AssertionError` is not a rewritten statement and still stops its test at the first failure; `self.assert*` statements in helper methods are rewritten.
-- `enforce_admins` is false, so only the local branch guard and the agent instructions keep a session holding the operator's push credentials from pushing the allowed-signers file straight to master.
+- `enforce_admins` is false, so only the local branch guard and the agent instructions keep a session holding the operator's credentials from pushing to master or merging a red PR.
 - Code in `#[cfg(test)]` modules is not examined for hidden code.
-- A forwarded key lets an agent raise a touch prompt; the touch proves presence, so the operator touches only for a signing they started. OpenSSH's `ssh-keygen -Y verify` never checks the user-presence flag, so touch is guaranteed only by how the key was generated. Enrolment in the allowed-signers file is the trust root.
+- N7 (no agent, script or workflow merges a PR whose `mutation-gate-items` or `mutation-pr` check is red) is instruction-only: nothing mechanical stops a session holding the operator's credentials from merging.
 
 ## Related
 

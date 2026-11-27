@@ -12,7 +12,7 @@ spec: docs/superpowers/specs/2026-11-26-pr-mutation-test-weakening-design.md
 - **Python:** each test-touching dir gets a two-arm comparison in `mutation-py`:
   - the head arm is the sharded cosmic-ray session;
   - the base arm replays each head survivor through `cosmic_ray.mutating.mutate_and_test`, against the merge base's tests rewritten by an assertion-continuing runner.
-- **Items:** a new `pull_request_target` workflow runs master's `scripts/mutation-gate-items.sh`. It lists content-keyed items, and an item clears only with a FIDO-signed `Mutation-Gate-Reviewed:` trailer.
+- **Items:** a new `pull_request_target` workflow runs master's `scripts/mutation-gate-items.sh`. It lists content-keyed items; any item is red, and only the operator merges, by admin override.
 
 **Tech Stack:** bash, Python 3 (stdlib `ast`, `unittest`), cosmic-ray 8.7.0, hypothesis 6.168.5, cargo-mutants 27.1.0, GitHub Actions, bats, ssh signing (`git verify-commit`, `gpg.format=ssh`).
 
@@ -30,7 +30,7 @@ spec: docs/superpowers/specs/2026-11-26-pr-mutation-test-weakening-design.md
 - N5: no gate or target writes a tracked file. Tests that use `sq/` copy it to a temp dir first, then assert the tracked `sq/` is byte-identical afterwards.
 - N2: the only committed fixtures are the R18 canary pairs. The R34 planted files (`.cargo/config.toml`, `rust-toolchain.toml`, `parso.py`, `.gitattributes`) are generated in temp dirs inside the tests.
 - N4: `scripts/mutation-gate-items.sh` never builds, imports or runs a file from the PR head.
-- N7: no test, script or workflow signs with a real key. Signature tests use throwaway plain `ed25519` keys made by `ssh-keygen` in a temp dir, plus a temp allowed-signers file.
+- N7: no agent, script or workflow merges a PR whose `mutation-gate-items` or `mutation-pr` check is red; only the operator does, by admin override.
 - Pins: cosmic-ray 8.7.0, hypothesis 6.168.5, cargo-mutants 27.1.0. `tests/test_tool_pins.py` requires one version per tool, and every workflow `uses:` pins a 40-hex SHA (`tests/test_workflow_actions_pinned.py`).
 - Python `Makefile`s are rendered. Edit `scripts/crate_templates/python/Makefile`, then run `python3 scripts/render_crate_files.py --write`. Never hand-edit a rendered copy; `tests/test_crate_uniformity.py` fails on drift.
 - Root `CLAUDE.md` is at 29,997 of 30,000 bytes (measured 2026-11-26). Task 19 pays for every byte it adds by compressing existing lines.
@@ -49,14 +49,12 @@ make install-hooks
 
 Every task runs in `/home/bruce/git-repos/personal/math/.worktrees/pr-mutation-test-weakening` with that `.venv` active. The root `make test` takes several minutes, more than the 120 s auto-background threshold. Task gates are therefore scoped (`make lint` plus the task's own bats or unittest module). The orchestrator runs `make test < /dev/null` once after each dependency level, and once after Task 19.
 
-Before Task 10, the orchestrator asks the operator for the output of `ssh-add -L` on the Mac, specifically the `sk-ssh-ed25519@openssh.com` line, and hands it to Task 10 as the allowed-signers entry. No agent generates or chooses that key.
-
 ## Verification (session level)
 
 - **Repo gates:** `make lint && make test < /dev/null` exits 0 in the worktree; `make validate-plan PLAN=<this file>` exits 0.
 - **Python weakening path on a `sq/` copy:** `python3 -m unittest tests.test_mutation_weakening_e2e -v` passes every R33 case. The tracked `sq/` is unchanged afterwards (`git status --porcelain sq/` empty).
 - **Canary:** `python3 -m unittest tests.test_mutation_weakening_canary -v` reports `weakened: 1` for each of the four R18 pairs.
-- **Items:** `scripts/mutation-gate-items.sh <base> <head>` over a fixture range prints each item kind, and is red without a verified trailer and green with one (`tests/test_mutation_gate_items*.py`).
+- **Items:** `scripts/mutation-gate-items.sh <base> <head>` over a fixture range prints each item kind as `uncleared item: ...` and exits red on any item (`tests/test_mutation_gate_items*.py`).
 - **Edge cases:**
   - a cleared dir still runs the head arm (R19);
   - `no PR yet` in pre-push (R29);
@@ -757,12 +755,12 @@ depends_on: [9, 13, 14, 15, 17, 18]
   - the whole-crate rule;
   - the two-arm Python check;
   - the items job and its invocation rules;
-  - the signed trailer;
+  - the absence of in-band clearance (red items merge only by the operator's admin override; N7 is instruction-only);
   - the bootstrap order;
   - the repro commands.
 - `docs/adr/README.md` gets its row.
 - `CLAUDE.md` byte budget: 29,997 of 30,000 bytes before this task.
-  - Replace the two lines starting "Per-PR Python gate" and "`mutation-pr.yml`: `mutation-rs-plan`" with shorter lines that state the whole-crate rule, `mutants-weakening`, `mutation-gate-items` and the `Mutation-Gate-Reviewed:` trailer.
+  - Replace the two lines starting "Per-PR Python gate" and "`mutation-pr.yml`: `mutation-rs-plan`" with shorter lines that state the whole-crate rule, `mutants-weakening`, `mutation-gate-items` and the admin-override-only rule.
   - Point detail at `→ ai-config/docs/knowledge/math-testing-policy.md § PR test-weakening gate`, which the orchestrator creates in ai-config before Phase 3 (below).
   - Measure with `wc -c` after each edit.
 - Remove the Backlog row from `docs/superpowers/README.md`.
@@ -773,11 +771,10 @@ depends_on: [9, 13, 14, 15, 17, 18]
 2. **ai-config knowledge heading.** Message the ai-config session first (`ListAgents`, `SendMessage`). Then add `## PR test-weakening gate` to `ai-config/docs/knowledge/math-testing-policy.md`, docs-only to ai-config master. It holds the detail moved out of `CLAUDE.md`. The pointer must resolve before branch code review.
 3. **V6.** Run the weakening path locally over the 32 commits since 2026-09-26 that changed a module and its test file. Print the per-commit counts the spec names. Any false `weakened` result is a design fix before merge.
 4. **V8.** Run `scripts/mutation-gate-items.sh` over the last 100 merged PRs, and report counts by item kind to the operator. It must show 1 Rust exclusion item for math#204, an `additional_cargo_test_args` item for math#246, and 0 items for math#229 and math#152.
-5. **V7.** This is the operator's step. The operator confirms the key is forwarded and the R26 command signs and verifies on `claude`. No agent signs (N7).
-6. **Open the PR as a draft** (`gh pr create --draft`), and watch `gh pr checks <n> --watch`.
-7. **V1, V2, V3, V5.** Open throwaway draft PRs from separate branches, record the results and wall times, then close them and delete their branches.
-8. **V9.** Record the PR's own run times, and the measured or projected zeta-rs whole-crate time.
-9. Run Phase 3 (`finishing-a-development-branch`), then `gh pr ready`.
+5. **Open the PR as a draft** (`gh pr create --draft`), and watch `gh pr checks <n> --watch`.
+6. **V1, V2, V3, V5.** Open throwaway draft PRs from separate branches, record the results and wall times, then close them and delete their branches.
+7. **V9.** Record the PR's own run times, and the measured or projected zeta-rs whole-crate time.
+8. Run Phase 3 (`finishing-a-development-branch`), then `gh pr ready`.
 
 ## Verification obligations after merge (bootstrap)
 
@@ -785,8 +782,7 @@ depends_on: [9, 13, 14, 15, 17, 18]
    Before that, confirm on a live PR that the `pull_request_target` check run of `mutation-gate-items` is returned by `gh api repos/brujack/math/commits/<PR head sha>/check-runs` (not only on the base SHA); if it is not, `ci-gate.sh` would time out on every PR once the context is listed, so stop and re-plan.
    Then a small follow-up PR adds `mutation-gate-items` to `.github/required-status-checks` (R36 amendment), and V4 confirms the file equals `gh api repos/brujack/math/branches/master/protection/required_status_checks --jq .contexts`.
 2. **V4.** Use throwaway draft PRs:
-   - add an equivalents entry: red; green after the operator's signed commit; red again after a further edit;
-   - an unsigned commit with the same line stays red;
+   - add one `[[equivalent]]` entry to `sq/mutants-equivalent.toml`: `mutation-gate-items` red naming it, not merged by `auto-merge`, mergeable only by the operator's admin override;
    - delete the items step from `mutation-pr.yml`: still red in `mutation-gate-items`;
    - a posted success status for `mutation-gate-items` does not make the PR mergeable.
 3. Mark the plan Done in `docs/superpowers/README.md`.
