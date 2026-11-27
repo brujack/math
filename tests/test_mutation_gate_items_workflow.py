@@ -22,7 +22,7 @@ SHA_USES = re.compile(r"^[\w./-]+@[0-9a-f]{40}$")
 EXPECTED_RUNS = {
     'git fetch --no-tags origin "+refs/pull/${PR}/head"',
     "pip install cosmic-ray==8.7.0 pyyaml==6.0.3",
-    'scripts/mutation-gate-items.sh "${BASE_SHA}" "${HEAD_SHA}"',
+    'scripts/mutation-gate-items.sh "$(git rev-parse HEAD)" "${HEAD_SHA}"',
 }
 EXPECTED_CHECKOUT_KEYS = {"ref", "fetch-depth", "persist-credentials"}
 
@@ -115,15 +115,18 @@ class TriggerAndPermissions(unittest.TestCase):
 
 
 class BaseOnlyExecution(unittest.TestCase):
-    def test_checkout_is_base_sha_without_credentials(self):
+    def test_checkout_is_base_ref_without_credentials(self):
         checkouts = [
             s for s in steps() if s.get("uses", "").startswith("actions/checkout@")
         ]
         self.assertEqual(len(checkouts), 1)
         with_ = checkouts[0]["with"]
-        self.assertEqual(with_["ref"], "${{ github.event.pull_request.base.sha }}")
+        self.assertEqual(with_["ref"], "${{ github.event.pull_request.base.ref }}")
         self.assertIs(with_["persist-credentials"], False)
         self.assertEqual(with_["fetch-depth"], 0)
+
+    def test_no_base_sha_anywhere(self):
+        self.assertNotIn("base.sha", load()[0])
 
     def test_every_uses_is_sha_pinned(self):
         for step in steps():
@@ -190,12 +193,12 @@ class BaseOnlyExecution(unittest.TestCase):
         gate = [s for s in steps() if "mutation-gate-items.sh" in s.get("run", "")]
         self.assertEqual(len(gate), 1)
         self.assertIn(
-            'scripts/mutation-gate-items.sh "${BASE_SHA}" "${HEAD_SHA}"',
+            'scripts/mutation-gate-items.sh "$(git rev-parse HEAD)" "${HEAD_SHA}"',
             gate[0]["run"],
         )
         env = gate[0]["env"]
-        self.assertEqual(env["BASE_SHA"], "${{ github.event.pull_request.base.sha }}")
         self.assertEqual(env["HEAD_SHA"], "${{ github.event.pull_request.head.sha }}")
+        self.assertNotIn("BASE_SHA", env)
         self.assertNotIn("PR", env)
         self.assertNotIn("--pr", gate[0]["run"])
 

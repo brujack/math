@@ -3,6 +3,8 @@ name: mutation-gate-items
 # pull_request_target runs with the base repository's context, so this workflow executes
 # the base branch's scripts only. PR commits are fetched as git objects and read by the
 # script as data; none is checked out, built, imported or run (spec R20, N4).
+# The base branch's tip is checked out, not the commit named in the event payload: some
+# events (a reopen, for one) carry a payload base days stale (math#238).
 on:
   pull_request_target:
     branches: [master]
@@ -24,10 +26,10 @@ jobs:
     # as Success, and `cancel-in-progress` above cancels the in-flight run, so a skipped
     # run on a title or body edit would let the PR author mask a red check.
     steps:
-      - name: Check out the base branch
+      - name: Check out the base branch tip
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.pull_request.base.ref }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -56,6 +58,5 @@ jobs:
 
       - name: Run mutation-gate-items
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: scripts/mutation-gate-items.sh "${BASE_SHA}" "${HEAD_SHA}"
+        run: scripts/mutation-gate-items.sh "$(git rev-parse HEAD)" "${HEAD_SHA}"
