@@ -517,16 +517,45 @@ class CompareTests(RunnerCase):
             proc.stderr.splitlines(), [f"{DIFF}{TEST_ID}: outcome fail -> pass"]
         )
 
-    def test_error_only_change_at_same_line_exits_one(self):
+    def test_pass_to_skip_exits_zero(self):
+        src = make_test_source(
+            "if mod.SKIP:\n    self.skipTest('s')\nself.assertEqual(mod.f(1), 1)\n"
+        )
+        self.record("SKIP = False\ndef f(x):\n    return x\n", src)
+        proc = self.compare("SKIP = True\ndef f(x):\n    return x\n", src)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stderr, "")
+
+    def test_recorded_error_test_never_reports_a_change(self):
+        src = make_test_source(
+            "if mod.BAD:\n    mod.boom()\nself.assertEqual(mod.f(1), 2)  # L1\n"
+        )
+        module = (
+            "BAD = {}\ndef boom():\n    raise KeyError('x')\ndef f(x):\n    return x\n"
+        )
+        sig = self.record(module.format(True), src)[TEST_ID]
+        self.assertEqual(sig["outcome"], "error")
+        proc = self.compare(module.format(False), src)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stderr, "")
+
+    def test_recorded_error_changing_type_at_same_line_exits_zero(self):
         src = make_test_source("mod.boom()  # L1\n")
         self.record("def boom():\n    raise KeyError('x')\n", src)
         proc = self.compare("def boom():\n    raise ValueError('x')\n", src)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_recorded_pass_that_now_errors_exits_one(self):
+        src = make_test_source("mod.boom()  # L1\n")
+        self.record("def boom():\n    return None\n", src)
+        proc = self.compare("def boom():\n    raise KeyError('x')\n", src)
         line = line_of(src, "# L1")
         self.assertEqual(proc.returncode, 1)
         self.assertEqual(
             proc.stderr.splitlines(),
             [
-                f"{DIFF}{TEST_ID}: error {[['KeyError', line]]} -> {[['ValueError', line]]}"
+                f"{DIFF}{TEST_ID}: outcome pass -> error",
+                f"{DIFF}{TEST_ID}: error [] -> {[['KeyError', line]]}",
             ],
         )
 

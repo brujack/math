@@ -34,7 +34,8 @@ Every stderr line starts with `mutation_base_runner: diff: ` (a change) or
 carries neither prefix.
 
 Exit codes: 0 = record written, or compare found no change; 1 = compare found a test
-whose outcome or error differs, a test that appeared or disappeared, or a failure site
+whose outcome or error differs (except a test whose new outcome is skip, or whose
+recorded outcome is error: those never count), a test that appeared or disappeared, or a failure site
 absent from the recording (a site that already failed in the recording never counts,
 whatever its message); 2 = usage error; 3 = internal error (unreadable or invalid
 signature file, unwritable output, runner crash), with one line on stderr.
@@ -537,7 +538,14 @@ def load_signature(path: str) -> Signature:
 
 
 def diff_test(test_id: str, old: dict[str, Any], new: dict[str, Any]) -> list[str]:
-    """Differences that make a test count as changed; never mentions a message."""
+    """Differences that make a test count as changed; never mentions a message.
+
+    A test that now skips, or whose recorded outcome is `error`, never counts: a skip
+    is not evidence of weaker tests, and an errored base test is obsolete, so what a
+    mutant changes in it is noise.
+    """
+    if new["outcome"] == "skip" or old["outcome"] == "error":
+        return []
     diffs = []
     if old["outcome"] != new["outcome"]:
         diffs.append(f"{test_id}: outcome {old['outcome']} -> {new['outcome']}")
