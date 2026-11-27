@@ -884,7 +884,7 @@ class CliTests(RunnerCase):
         for text in (
             "{not json",
             '{"a": 1}',
-            '{"a": {"outcome": "bogus", "sites": [], "error": []}}',
+            '{"a": {"outcome": "bogus", "sites": [], "error": [], "setup_error": false}}',
             "[]",
         ):
             with self.subTest(text=text):

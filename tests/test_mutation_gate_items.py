@@ -768,6 +768,34 @@ class ErrorHandlingTest(ItemsCase):
         ctx = mgi.Context(self.repo, self.base, "HEAD", [], self.tmp)
         self.assertIsInstance(ctx.show("HEAD", "bin.dat"), str)
 
+    def test_failing_git_diff_is_an_infra_error_exit_3(self) -> None:
+        real_git = mgi._git
+
+        def fake_git(repo: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
+            if args[0] == "diff":
+                return subprocess.CompletedProcess(args, 128, "", "fatal: bad object\n")
+            return real_git(repo, args)
+
+        err = io.StringIO()
+        with (
+            mock.patch.object(mgi, "_git", side_effect=fake_git),
+            contextlib.redirect_stderr(err),
+        ):
+            code = mgi.main([self.base, "HEAD", "--repo", str(self.repo)])
+        self.assertEqual(code, 3)
+        self.assertIn("git diff", err.getvalue())
+        self.assertIn("infra error: RuntimeError", err.getvalue())
+
+
+class WriteUnderTest(unittest.TestCase):
+    def test_path_escaping_the_root_is_refused_and_nothing_is_written(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "root"
+            root.mkdir()
+            with self.assertRaises(RuntimeError):
+                mgi._write_under(root, "../x", b"")
+            self.assertFalse((Path(tmp) / "x").exists())
+
 
 class NonAsciiDirTest(ItemsCase):
     def test_astral_plane_dir_name_still_resolves_entries(self) -> None:

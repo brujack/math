@@ -439,6 +439,19 @@ _detect_readonly() {
     [ "${n}" -eq 10 ]
 }
 
+@test "every PY_WEAKENING_PATHS entry is a tracked file and there are five" {
+    PATH="${PATH#"${REPO_ROOT}/tests/mocks:"}"
+    local paths p n=0
+    paths="$(_detect_readonly PY_WEAKENING_PATHS)"
+    [ -n "${paths}" ]
+    for p in ${paths}; do
+        n=$((n + 1))
+        run git -C "${REPO_ROOT}" ls-files --error-unmatch -- "${p}"
+        [ "${status}" -eq 0 ] || { printf 'untracked weakening path: %s\n' "${p}" >&2; return 1; }
+    done
+    [ "${n}" -eq 5 ]
+}
+
 @test "PYTHON_DIRS is exactly the ten dirs with a tracked cosmic-ray.toml and module" {
     PATH="${PATH#"${REPO_ROOT}/tests/mocks:"}"
     local want got d

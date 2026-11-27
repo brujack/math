@@ -556,5 +556,42 @@ class ProcMacroManifestTest(HiddenFixtureCase):
         self.assertEqual(found[0].target, "zz/zz-macros")
 
 
+class HiddenCliTest(HiddenFixtureCase):
+    """The rust-hidden kind is reachable through `mgi.run`, not only the collector."""
+
+    def test_registry_holds_exactly_the_five_kinds(self) -> None:
+        self.assertEqual(
+            sorted(mgi._COLLECTORS),
+            [
+                "gate",
+                "python-config",
+                "python-equivalent",
+                "rust-exclusion",
+                "rust-hidden",
+            ],
+        )
+
+    def run_cli(self) -> tuple[int, list[str]]:
+        self.commit("change")
+        code, text = mgi.run(self.repo, self.base, self.rev("HEAD"))
+        return code, text.splitlines()
+
+    def test_new_proc_macro_crate_exits_one_with_the_uncleared_line(self) -> None:
+        self.write("pm/pm-rs/Cargo.toml", PROC_MACRO_MANIFEST)
+        code, lines = self.run_cli()
+        self.assertEqual(code, 1)
+        prefix = "uncleared item: pm/pm-rs rust-hidden pm/pm-rs | Cargo.toml | "
+        self.assertEqual(len([ln for ln in lines if ln.startswith(prefix)]), 1)
+
+    def test_include_in_lib_exits_one_with_the_uncleared_line(self) -> None:
+        self.append_lib('include!("generated.rs");\n')
+        code, lines = self.run_cli()
+        self.assertEqual(code, 1)
+        prefix = f"uncleared item: {CRATE} rust-hidden {CRATE} | {LIB} | "
+        hits = [ln for ln in lines if ln.startswith(prefix)]
+        self.assertEqual(len(hits), 1)
+        self.assertIn("include", hits[0])
+
+
 if __name__ == "__main__":
     unittest.main()
