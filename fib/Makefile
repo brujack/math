@@ -174,11 +174,10 @@ mutants-diff:
 # summary of judge and replay is still wanted, so they run anyway). A PR that adds no module lines
 # is vacuously green.
 #   BASE (a commit's hex sha) and exactly one of MUTANT_SHARD=<k>/<n> (k < n) or JOB=<operator>@<occurrence>
-#   are required; PLANNED (default: the trimmed session's job count, printed as such), PR and HEAD_SHA are optional.
+#   are required; PLANNED (default: the trimmed session's job count, printed as such) is optional.
 WEAKENING_GUARD = if [ -z "$$BASE" ]; then printf "error: BASE is required: BASE=<merge-base sha>\n" >&2; exit 1; fi; \
 	  case "$$BASE" in *[!0-9a-f]*) printf "error: BASE must be a lowercase hex sha, got %s\n" "$$BASE" >&2; exit 1 ;; esac; \
-	  case "$$HEAD_SHA" in *[!0-9a-f]*) printf "error: HEAD_SHA must be a lowercase hex sha, got %s\n" "$$HEAD_SHA" >&2; exit 1 ;; esac; \
-	  case "$$PR$$PLANNED" in *[!0-9]*) printf "error: PR and PLANNED must be decimal numbers\n" >&2; exit 1 ;; esac; \
+	  case "$$PLANNED" in *[!0-9]*) printf "error: PLANNED must be a decimal number\n" >&2; exit 1 ;; esac; \
 	  case "$$JOB" in "") ;; *@*@* | @* | *@ | *@*[!0-9]* | *[!A-Za-z0-9_./:@-]*) printf "error: JOB must be <operator>@<occurrence>, e.g. core/NumberReplacer@3, got %s\n" "$$JOB" >&2; exit 1 ;; *@*) ;; *) printf "error: JOB must be <operator>@<occurrence>, got %s\n" "$$JOB" >&2; exit 1 ;; esac; \
 	  if [ -z "$$MUTANT_SHARD" ] && [ -z "$$JOB" ]; then printf "error: MUTANT_SHARD=<k>/<n> or JOB=<operator>@<occurrence> is required\n" >&2; exit 1; fi; \
 	  if [ -n "$$MUTANT_SHARD" ] && [ -n "$$JOB" ]; then printf "error: MUTANT_SHARD and JOB are mutually exclusive\n" >&2; exit 1; fi; \
@@ -224,8 +223,6 @@ WEAKENING_BODY = $(MUTANTS_CAP); \
 	    printf "planned: %s (from session)\n" "$$planned"; \
 	  fi; \
 	  set -- --dir "$$copy" --session "$$w/out/head.sqlite" --shard "$${MUTANT_SHARD:-0/1}" --planned "$$planned" --base "$$BASE" --work "$$w/work" --repo "$$repo"; \
-	  if [ -n "$${PR}" ]; then set -- "$$@" --pr "$$PR"; fi; \
-	  if [ -n "$${HEAD_SHA}" ]; then set -- "$$@" --head "$$HEAD_SHA"; fi; \
 	  python3 ../scripts/mutation_weakening.py replay "$$@" || exit 1; \
 	  exit "$$red"
 

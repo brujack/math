@@ -2484,7 +2484,7 @@ _pd_order() {
 _weak_setup() {
     _py_stub_setup
     unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
-    unset BASE PR HEAD_SHA JOB PLANNED
+    unset BASE JOB PLANNED
     : > "${BATS_TEST_TMPDIR}/scripts/mutation_hypothesis_profile.py"
     : > "${BATS_TEST_TMPDIR}/scripts/mutation_weakening.py"
     : > "${BATS_TEST_TMPDIR}/scripts/cosmic_ray_prune.py"
@@ -2717,16 +2717,12 @@ _weak_make() {
     _assert_no_call 'mutation_weakening.py replay'
 }
 
-@test "make mutants-weakening passes PR, HEAD_SHA and PLANNED to replay, and omits them when unset" {
+@test "make mutants-weakening passes PLANNED to replay and nothing else optional" {
     _weak_setup
-    run _weak_make MUTANT_SHARD=0/2
+    run _weak_make MUTANT_SHARD=0/2 PLANNED=5
     [ "${status}" -eq 0 ]
-    _assert_no_call 'replay .*--pr '
-    _assert_no_call 'replay .*--head '
-    : > "${CALLS}"
-    run _weak_make MUTANT_SHARD=0/2 PR=12 HEAD_SHA=deadbeef PLANNED=5
-    [ "${status}" -eq 0 ]
-    grep -q -- 'replay .*--planned 5 .*--pr 12 --head deadbeef' "${CALLS}"
+    grep -q -- 'replay .*--planned 5 ' "${CALLS}"
+    ! grep -q -- 'replay .*--planned 5 .*--p[rh]' "${CALLS}"
 }
 
 @test "make mutants-weakening runs every step on a copy named like the project directory" {

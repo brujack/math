@@ -637,7 +637,6 @@ class TestInfrastructure(FixtureCase):
                 self.assertEqual(4, weakening.judge(args))
 
 
-SIGNERS = ".github/mutation-gate-allowed-signers"
 MUL_ADD = "core/ReplaceBinaryOperator_Mul_Add"
 STRONG_TEST = (
     "import unittest\n\nfrom sq import square\n\n\n"
@@ -790,25 +789,6 @@ class TestReplayVerdicts(ReplayCase):
         self.assertEqual(expected, out)
         self.assertEqual(30.0, fake.calls[0][1])
         self.assertTrue(is_base(fake.calls[0][0]))
-
-    def test_killed_block_with_pr_ends_with_clearance_command_once(self) -> None:
-        fx = self.setup_replay({"j1": "survived"})
-        code, out, _ = self.run_replay(lambda c, t: result("killed"), "--pr", "7")
-        self.assertEqual(1, code)
-        expected = (
-            "weakened: 1 mutants killed by base tests survive head tests\n"
-            f"  operator: {MUL_ADD}\n"
-            "  occurrence: 0\n"
-            f"{DIFF}\n"
-            f"  repro: make -C sq mutants-weakening BASE={fx.base} JOB={MUL_ADD}@0\n"
-            "git -c gpg.format=ssh -c user.signingkey="
-            "'key::<key from .github/mutation-gate-allowed-signers>' \\\n"
-            "  commit --allow-empty -S -m 'chore: mutation gate review' \\\n"
-            "  -m 'Mutation-Gate-Reviewed: #7 sq: <reason>'\n"
-            "After signing, merge master into the branch; do not rebase "
-            "(a rebase drops the signature).\n"
-        )
-        self.assertEqual(expected, out)
 
     def test_head_killed_jobs_are_not_replayed(self) -> None:
         self.setup_replay({"j1": "killed", "j2": "survived"})
@@ -1047,110 +1027,14 @@ class TestCompleteness(ReplayCase):
         self.assertIn("ran 2 of 1 jobs", out)
 
 
-class TestClearance(ReplayCase):
-    def test_cleared_dir_skips_replay_and_exempts_count(self) -> None:
+class TestNoClearance(ReplayCase):
+    def test_removed_clearance_flags_are_usage_errors(self) -> None:
         self.setup_replay({"j1": "survived"})
-        with mock.patch.object(weakening, "clearing_commit", return_value="abc123"):
-            code, out, fake = self.run_replay(
-                lambda c, t: result("killed"), "--pr", "7"
-            )
-        self.assertEqual((0, "cleared by Mutation-Gate-Reviewed abc123\n"), (code, out))
-        self.assertEqual([], fake.calls)
-
-    def test_cleared_dir_still_checks_jobs_ran(self) -> None:
-        self.setup_replay({"j1": "survived"}, planned=3)
-        with mock.patch.object(weakening, "clearing_commit", return_value="abc123"):
-            code, out, fake = self.run_replay(
-                lambda c, t: result("killed"), "--pr", "7"
-            )
-        self.assertEqual(1, code)
-        self.assertIn("cleared by Mutation-Gate-Reviewed abc123\n", out)
-        self.assertIn(
-            "shard incomplete: ran 1 of 3 jobs, replayed 0 of 0 survivors", out
-        )
-        self.assertEqual([], fake.calls)
-
-    def commit_signers(self, fx: Fixture) -> None:
-        (fx.repo / ".github").mkdir()
-        (fx.repo / SIGNERS).write_text("op sk-ssh-ed25519@openssh.com AAAAKEY\n")
-        git(fx.repo, "add", SIGNERS)
-        git(fx.repo, "commit", "-q", "-m", "signers")
-        fx.base = git(fx.repo, "rev-parse", "HEAD")
-
-    def test_pr_absent_makes_no_clearance_lookup(self) -> None:
-        self.commit_signers(self.setup_replay({"j1": "survived"}))
-        with mock.patch.object(
-            weakening, "clearance_module", side_effect=AssertionError("looked up")
-        ):
-            code, out, _ = self.run_replay(lambda c, t: result("survived"))
-        self.assertEqual((0, ""), (code, out))
-
-    def test_lookup_uses_base_signers_pr_dir_and_head(self) -> None:
-        fx = self.setup_replay({"j1": "survived"})
-        key = "sk-ssh-ed25519@openssh.com AAAAKEY comment"
-        (fx.repo / ".github").mkdir()
-        (fx.repo / SIGNERS).write_text(f"# c\n\nop {key}\n")
-        git(fx.repo, "add", SIGNERS)
-        git(fx.repo, "commit", "-q", "-m", "signers")
-        fx.base = git(fx.repo, "rev-parse", "HEAD")
-        seen: dict[str, object] = {}
-
-        def cleared(repo, base, head, pr, directory, signers):
-            seen.update(
-                base=base, head=head, pr=pr, dir=directory, signers=signers.read_text()
-            )
-
-        module = mock.Mock(cleared_for_dir=cleared, remedy_command=lambda *a: "REMEDY")
-        with mock.patch.object(weakening, "clearance_module", return_value=module):
-            code, out, _ = self.run_replay(lambda c, t: result("killed"), "--pr", "9")
-        self.assertEqual(1, code)
-        self.assertEqual(
-            {
-                "base": fx.base,
-                "head": git(fx.repo, "rev-parse", "HEAD"),
-                "pr": 9,
-                "dir": "sq",
-                "signers": f"# c\n\nop {key}\n",
-            },
-            seen,
-        )
-        self.assertTrue(out.endswith("REMEDY\n"))
-
-    def test_head_option_survives_later_master_edit_of_module(self) -> None:
-        fx = self.setup_replay({"j1": "survived"})
-        self.commit_signers(fx)
-        git(fx.repo, "checkout", "-q", "-b", "pr")
-        (fx.repo / "sq" / "note.txt").write_text("pr work\n")
-        git(fx.repo, "add", "sq/note.txt")
-        git(fx.repo, "commit", "-q", "-m", "pr")
-        pr_head = git(fx.repo, "rev-parse", "HEAD")
-        git(fx.repo, "checkout", "-q", "-b", "main2", fx.base)
-        (fx.repo / "sq" / "sq.py").write_text(MODULE + "\n# master edit\n")
-        git(fx.repo, "add", "sq/sq.py")
-        git(fx.repo, "commit", "-q", "-m", "master edit")
-        git(fx.repo, "merge", "-q", "--no-edit", "pr")
-        clearance = weakening.clearance_module()
-        found = [clearance.Clearance(pr_head, "sq", "a good reason")]
-        with mock.patch.object(clearance, "trailers", return_value=(found, [])):
-            code, out, fake = self.run_replay(
-                lambda c, t: result("killed"), "--pr", "5", "--head", pr_head
-            )
-            self.assertEqual(
-                (0, f"cleared by Mutation-Gate-Reviewed {pr_head}\n", []),
-                (code, out, fake.calls),
-            )
-            code, out, _ = self.run_replay(lambda c, t: result("survived"), "--pr", "5")
-            self.assertNotIn("cleared by", out)
-
-    def test_first_signer_key(self) -> None:
-        text = '# c\n\nop namespaces="git" sk-ssh-ed25519@openssh.com AAAA x\n'
-        self.assertEqual(
-            "sk-ssh-ed25519@openssh.com AAAA", weakening.first_signer_key(text)
-        )
-        self.assertEqual(weakening.SIGNERS_PLACEHOLDER, weakening.first_signer_key(""))
-        self.assertEqual(
-            weakening.SIGNERS_PLACEHOLDER, weakening.first_signer_key(None)
-        )
+        for name, value in (("pr", "7"), ("head", "abc")):
+            with self.subTest(flag=name), contextlib.redirect_stderr(io.StringIO()):
+                argv = [*self.argv(), f"--{name}", value]
+                mutate = FakeMutate(lambda c, t: result("killed"))
+                self.assertEqual(2, weakening.main(argv, mutate))
 
 
 class TestReplayUsage(ReplayCase):

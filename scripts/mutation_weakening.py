@@ -14,12 +14,9 @@ failure (`base suite unjudgeable: infrastructure: <cause>`, a bad `--base` or gi
 failure, or a malformed signature after the runner exited 0).
 
 `replay --dir <work copy> --session <head sqlite> --shard <k>/<n> --planned <a> --base <sha>
---work <dir> [--pr <n>] [--head <sha>] [--repo <root>]` replays the shard's head survivors under the base
+--work <dir> [--repo <root>]` replays the shard's head survivors under the base
 tests (R13), re-runs a timed-out base kill at twice the timeout (R14), prints the weakened
 verdict (R15) and checks shard completeness (R19). Exit codes: 0 green, 1 red, 2 usage.
-When `--pr` is given and a verified commit clears the dir (R27) only the replay is skipped;
-`--head` is the PR head sha used for that lookup (CI's HEAD is a synthetic merge commit),
-default HEAD of the repo.
 
 cosmic-ray treats any non-zero exit of the test command as a kill, so the replay runs the
 base runner through `compare-wrapper`: it maps runner exit 0 to 0 and 1 to 1, and for any
@@ -40,7 +37,6 @@ import shlex
 import signal
 import subprocess
 import sys
-import tempfile
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -56,8 +52,6 @@ UNJUDGEABLE = "base suite unjudgeable: "
 GIT_ENV_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
 CLASS_SETUP_PREFIXES = ("setUpClass (", "setUpModule (")
 FAILED_TEST_PREFIX = "unittest.loader._FailedTest"
-SIGNERS_PATH = ".github/mutation-gate-allowed-signers"
-SIGNERS_PLACEHOLDER = "<key from .github/mutation-gate-allowed-signers>"
 TIMEOUT_OUTPUT = "timeout"
 TIMEOUT_RERUN_FACTOR = 2
 WRAPPER_FAULT_EXIT = 3
@@ -470,44 +464,7 @@ class Replayer:
         return tally
 
 
-def first_signer_key(text: str | None) -> str:
-    """`<type> <base64>` of the first key line of an allowed-signers file."""
-    for line in (text or "").splitlines():
-        tokens = line.split()
-        for index, token in enumerate(tokens):
-            if token.startswith(("ssh-", "sk-")) and index + 1 < len(tokens):
-                return f"{token} {tokens[index + 1]}"
-    return SIGNERS_PLACEHOLDER
-
-
-def clearing_commit(
-    repo: str, args: argparse.Namespace, subdir: str, signers_text: str | None
-) -> str | None:
-    """R27: the verified commit clearing `subdir`, or None (also when `--pr` is absent)."""
-    if args.pr is None or signers_text is None:
-        return None
-    clearance = clearance_module()
-    head = args.head or git(repo, "rev-parse", "HEAD").stdout.strip()
-    with tempfile.TemporaryDirectory() as tmp:
-        signers = Path(tmp) / "allowed-signers"
-        signers.write_text(signers_text)
-        return clearance.cleared_for_dir(
-            Path(repo), args.base, head, args.pr, subdir, signers
-        )
-
-
-def clearance_module() -> Any:
-    here = str(Path(__file__).resolve().parent)
-    if here not in sys.path:
-        sys.path.insert(0, here)
-    import mutation_gate_clearance
-
-    return mutation_gate_clearance
-
-
-def print_weakened(
-    tally: Tally, subdir: str, base: str, pr: int | None, key: str
-) -> None:
+def print_weakened(tally: Tally, subdir: str, base: str) -> None:
     print(
         f"weakened: {len(tally.weakened)} mutants killed by base tests survive head tests"
     )
@@ -519,14 +476,12 @@ def print_weakened(
         print(
             f"  repro: make -C {subdir} mutants-weakening BASE={base} JOB={survivor.mutant_key}"
         )
-    if pr is not None:
-        print(clearance_module().remedy_command(pr, [subdir], key))
 
 
 def completeness_line(
-    ran: int, planned: int, replayed: int, survivors: int, check_replay: bool
+    ran: int, planned: int, replayed: int, survivors: int
 ) -> str | None:
-    if ran == planned and (replayed == survivors or not check_replay):
+    if ran == planned and replayed == survivors:
         return None
     return (
         f"shard incomplete: ran {ran} of {planned} jobs, "
@@ -560,16 +515,14 @@ def replayer_for(
     )
 
 
-def report_replay(args: argparse.Namespace, tally: Tally, key: str) -> int:
+def report_replay(args: argparse.Namespace, tally: Tally) -> int:
     subdir = Path(args.dir).resolve().name
     for failure, job_id in tally.failures:
         print(f"replay failed: {failure}")
         print(f"  mutant {job_id}")
     if tally.weakened:
-        print_weakened(tally, subdir, args.base, args.pr, key)
-    line = completeness_line(
-        tally.ran, args.planned, tally.replayed, tally.survivors, True
-    )
+        print_weakened(tally, subdir, args.base)
+    line = completeness_line(tally.ran, args.planned, tally.replayed, tally.survivors)
     if line:
         print(line)
     red = tally.failures or tally.weakened or line
@@ -591,14 +544,6 @@ def forced_env(values: dict[str, str]) -> Iterator[None]:
                 os.environ[key] = old
 
 
-def report_cleared(ran: int, planned: int) -> int:
-    line = completeness_line(ran, planned, 0, 0, False)
-    if line is None:
-        return 0
-    print(line)
-    return 1
-
-
 def replay(args: argparse.Namespace, mutate: Mutate = mutate_and_test) -> int:
     work_dir = Path(args.dir).resolve()
     subdir = work_dir.name
@@ -610,11 +555,6 @@ def replay(args: argparse.Namespace, mutate: Mutate = mutate_and_test) -> int:
     except Exception as exc:  # noqa: BLE001 - an unreadable session is a red shard
         print(f"replay failed: session unreadable: {type(exc).__name__}: {exc}")
         return 1
-    signers_text = git_show(repo, args.base, SIGNERS_PATH)
-    cleared = clearing_commit(repo, args, subdir, signers_text)
-    if cleared:
-        print(f"cleared by Mutation-Gate-Reviewed {cleared}")
-        return report_cleared(ran, args.planned)
     timeout = base_timeout(git_show(repo, args.base, f"{subdir}/cosmic-ray.toml"))
     if timeout is None:
         print(
@@ -625,7 +565,7 @@ def replay(args: argparse.Namespace, mutate: Mutate = mutate_and_test) -> int:
     with contextlib.chdir(work_dir), forced_env(HEAD_ENV):
         tally = replayer.replay(survivors)
     tally.ran = ran
-    return report_replay(args, tally, first_signer_key(signers_text))
+    return report_replay(args, tally)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -644,8 +584,6 @@ def build_parser() -> argparse.ArgumentParser:
     replay_parser.add_argument("--planned", required=True, type=int)
     replay_parser.add_argument("--base", required=True)
     replay_parser.add_argument("--work", required=True)
-    replay_parser.add_argument("--pr", type=int)
-    replay_parser.add_argument("--head")
     replay_parser.add_argument("--repo")
     wrapper_parser = sub.add_parser("compare-wrapper")
     wrapper_parser.add_argument("--verdict", required=True)

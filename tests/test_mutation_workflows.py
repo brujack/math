@@ -2252,8 +2252,6 @@ class PrWeakeningWiringTests(unittest.TestCase):
                 "K": "${{ matrix.k }}",
                 "N": "${{ matrix.n }}",
                 "BASE_SHA": "${{ needs.mutation-py-plan.outputs.base }}",
-                "PR": "${{ github.event.pull_request.number }}",
-                "HEAD_SHA": "${{ github.event.pull_request.head.sha }}",
                 "PLANNED": "${{ matrix.planned }}",
             },
         )
@@ -2263,11 +2261,10 @@ class PrWeakeningWiringTests(unittest.TestCase):
         for arg in (
             'BASE="${BASE_SHA}"',
             'MUTANT_SHARD="${K}/${N}"',
-            'PR="${PR}"',
-            'HEAD_SHA="${HEAD_SHA}"',
             'PLANNED="${PLANNED}"',
         ):
             self.assertIn(arg, run)
+        self.assertNotIn("PR=", run)
         self.assertNotIn("mutants-diff", run)
 
     def run_weakening(self, planned):
@@ -2289,8 +2286,6 @@ class PrWeakeningWiringTests(unittest.TestCase):
                 "K": "3",
                 "N": "10",
                 "BASE_SHA": "abc123",
-                "PR": "7",
-                "HEAD_SHA": "def456",
                 "PLANNED": planned,
                 "GITHUB_STEP_SUMMARY": str(summary),
             }

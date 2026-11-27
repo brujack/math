@@ -129,7 +129,6 @@ jobs:
           scripts/mutation-pr-diff.sh "${BASE_SHA}" "${DIR}" "${RUNNER_TEMP}/d.diff"
           make -C "${DIR}" mutants-diff DIFF="${RUNNER_TEMP}/d.diff" MUTANT_SHARD="${K}/${N}" STATUS_OUT="${RUNNER_TEMP}/status/${DIR}-${K}"
 
-      # PR and HEAD_SHA come from the event through env only, never ${{ }} in run.
       - name: Run weakening shard
         if: matrix.mode == 'weakening'
         env:
@@ -137,8 +136,6 @@ jobs:
           K: ${{ matrix.k }}
           N: ${{ matrix.n }}
           BASE_SHA: ${{ needs.mutation-py-plan.outputs.base }}
-          PR: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PLANNED: ${{ matrix.planned }}
         run: |
           # The planner's job count for this slice. A slice of 0 jobs (K=0, or
@@ -147,7 +144,7 @@ jobs:
             printf 'empty slice: nothing planned for %s shard %s/%s\n' "${DIR}" "${K}" "${N}" | tee -a "${GITHUB_STEP_SUMMARY}"
             exit 0
           fi
-          make -C "${DIR}" mutants-weakening BASE="${BASE_SHA}" MUTANT_SHARD="${K}/${N}" PLANNED="${PLANNED}" PR="${PR}" HEAD_SHA="${HEAD_SHA}"
+          make -C "${DIR}" mutants-weakening BASE="${BASE_SHA}" MUTANT_SHARD="${K}/${N}" PLANNED="${PLANNED}"
 
       - name: Upload unit status
         if: always() && matrix.mode != 'weakening'
