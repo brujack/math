@@ -5,7 +5,7 @@ name: mutation-gate-items
 # script as data; none is checked out, built, imported or run (spec R20, N4).
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
 
 permissions:
   contents: read
@@ -19,6 +19,8 @@ jobs:
     name: mutation-gate-items
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # An edit matters only when it retargets the base branch.
+    if: github.event.action != 'edited' || github.event.changes.base != null
     steps:
       - name: Check out the base branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -36,7 +38,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install cosmic-ray
         run: pip install cosmic-ray==8.7.0

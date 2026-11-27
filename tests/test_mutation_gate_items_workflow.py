@@ -17,10 +17,12 @@ WORKFLOW = (
     / "mutation-gate-items.yml"
 )
 SHA_USES = re.compile(r"^[\w./-]+@[0-9a-f]{40}$")
-FORBIDDEN_RUN = re.compile(
-    r"\bmake\b|pip\d?\s+install\s+(-\S+\s+)*-e\b|\bcargo\s+(build|test|run)\b"
-    r"|git\s+(checkout|switch|worktree|archive)\b"
-)
+EXPECTED_RUNS = {
+    'git fetch --no-tags origin "+refs/pull/${PR}/head"',
+    "pip install cosmic-ray==8.7.0",
+    'scripts/mutation-gate-items.sh "${BASE_SHA}" "${HEAD_SHA}" --pr "${PR}"',
+}
+EXPECTED_CHECKOUT_KEYS = {"ref", "fetch-depth", "persist-credentials"}
 
 
 def load():
@@ -32,6 +34,24 @@ def steps():
     return load()[1]["jobs"]["mutation-gate-items"]["steps"]
 
 
+def allow_list_violations(doc):
+    """Return what departs from the allow-list: the only commands, no PR checkout (N4)."""
+    found = []
+    job_steps = doc["jobs"]["mutation-gate-items"]["steps"]
+    runs = {s["run"] for s in job_steps if "run" in s}
+    if runs != EXPECTED_RUNS:
+        found.append(f"run set differs: {sorted(runs ^ EXPECTED_RUNS)}")
+    for step in job_steps:
+        if "working-directory" in step:
+            found.append("working-directory")
+        if step.get("uses", "").startswith("actions/checkout@"):
+            if set(step.get("with", {})) != EXPECTED_CHECKOUT_KEYS:
+                found.append("checkout with-keys differ")
+            if "repository" in step.get("with", {}):
+                found.append("checkout repository")
+    return found
+
+
 class TriggerAndPermissions(unittest.TestCase):
     def test_trigger_is_pull_request_target_only_without_paths(self):
         doc = load()[1]
@@ -39,7 +59,8 @@ class TriggerAndPermissions(unittest.TestCase):
         self.assertEqual(list(on), ["pull_request_target"])
         cfg = on["pull_request_target"]
         self.assertEqual(
-            cfg["types"], ["opened", "synchronize", "reopened", "ready_for_review"]
+            cfg["types"],
+            ["opened", "synchronize", "reopened", "ready_for_review", "edited"],
         )
         self.assertNotIn("paths", cfg)
         self.assertNotIn("paths-ignore", cfg)
@@ -68,6 +89,19 @@ class TriggerAndPermissions(unittest.TestCase):
         self.assertIn("pull_request.number", conc["group"])
         self.assertIs(conc["cancel-in-progress"], True)
 
+    def test_edited_only_runs_when_the_base_branch_changed(self):
+        job = load()[1]["jobs"]["mutation-gate-items"]
+        self.assertEqual(
+            job["if"],
+            "github.event.action != 'edited' || github.event.changes.base != null",
+        )
+
+    def test_python_version_matches_mutation_pr(self):
+        setups = [
+            s for s in steps() if s.get("uses", "").startswith("actions/setup-python@")
+        ]
+        self.assertEqual([s["with"]["python-version"] for s in setups], ["3.14"])
+
     def test_no_continue_on_error(self):
         self.assertNotIn("continue-on-error", load()[0])
 
@@ -88,9 +122,48 @@ class BaseOnlyExecution(unittest.TestCase):
             if "uses" in step:
                 self.assertRegex(step["uses"], SHA_USES)
 
-    def test_no_run_step_executes_pr_code(self):
+    def test_run_commands_are_exactly_the_allow_list(self):
+        self.assertEqual(allow_list_violations(load()[1]), [])
+        self.assertEqual({s["run"] for s in steps() if "run" in s}, EXPECTED_RUNS)
+
+    def test_no_working_directory_and_checkout_keys_exact(self):
         for step in steps():
-            self.assertIsNone(FORBIDDEN_RUN.search(step.get("run", "")), step)
+            self.assertNotIn("working-directory", step)
+        checkout = next(
+            s for s in steps() if s.get("uses", "").startswith("actions/checkout@")
+        )
+        self.assertEqual(set(checkout["with"]), EXPECTED_CHECKOUT_KEYS)
+        self.assertNotIn("repository", checkout["with"])
+
+    def test_allow_list_catches_each_pr_code_path(self):
+        import copy
+
+        def mutate(change):
+            doc = copy.deepcopy(load()[1])
+            change(doc["jobs"]["mutation-gate-items"]["steps"])
+            return allow_list_violations(doc)
+
+        def add_run(cmd):
+            return lambda st: st.append({"name": "x", "run": cmd})
+
+        def head_repo_checkout(st):
+            st[0]["with"]["repository"] = (
+                "${{ github.event.pull_request.head.repo.full_name }}"
+            )
+
+        def workdir(st):
+            st[-1]["working-directory"] = "."
+
+        for label, change in {
+            "reset": add_run("git reset --hard FETCH_HEAD"),
+            "merge": add_run("git merge FETCH_HEAD"),
+            "restore": add_run("git restore --source=FETCH_HEAD ."),
+            "show-pipe": add_run("git show FETCH_HEAD:x | bash"),
+            "head-repo checkout": head_repo_checkout,
+            "working-directory": workdir,
+        }.items():
+            with self.subTest(label):
+                self.assertTrue(mutate(change))
 
     def test_no_event_expression_inside_run(self):
         for step in steps():
