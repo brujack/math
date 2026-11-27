@@ -512,6 +512,187 @@ def collect_python_equivalents(ctx: Context) -> list[Item]:
     return items
 
 
+# --- Rust exclusion items (R21, R23) -------------------------------------------------
+
+RUST_CRATE_RE = re.compile(
+    r"^([^/]+/[^/]+-rs)/(?:src/|\.cargo/|tests/|Cargo\.toml$|build\.rs$)"
+)
+RUST_CONFIG_NAME = ".cargo/mutants.toml"
+RUST_TOOLCHAIN = "stable"
+MUTANT_POSITION_RE = re.compile(r"^.*?:\d+:\d+: ")
+RUST_KIND = "rust-exclusion"
+Mutant = dict[str, Any]
+
+
+def normalise_line(line: str) -> str:
+    return " ".join(line.split())
+
+
+def mutant_description(name: str) -> str:
+    """A mutant's `name` without its `<file>:<line>:<col>: ` prefix (R23)."""
+    return MUTANT_POSITION_RE.sub("", name, count=1)
+
+
+def cargo_tool(name: str, cargo_home: Path) -> Path:
+    """`<cargo_home>/bin/<name>`, resolved from the caller's install, never from the PR."""
+    path = cargo_home / "bin" / name
+    if not path.exists():
+        raise RuntimeError(f"{name} not found at {path}")
+    return path
+
+
+def _real_cargo_home() -> Path:
+    return Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo")
+
+
+def _rust_env(cargo_home: Path, fresh_cargo_home: Path) -> dict[str, str]:
+    """The R21 environment: pinned toolchain, empty CARGO_HOME, tools by absolute path."""
+    rustup_home = os.environ.get("RUSTUP_HOME") or str(Path.home() / ".rustup")
+    return {
+        "PATH": os.pathsep.join([str(cargo_home / "bin"), _safe_path_entries()]),
+        "RUSTUP_HOME": rustup_home,
+        "RUSTUP_TOOLCHAIN": RUST_TOOLCHAIN,
+        "CARGO_HOME": str(fresh_cargo_home),
+        "CARGO_NET_OFFLINE": "true",
+    }
+
+
+def _list_mutants(tree: Path, no_config: bool) -> list[Mutant] | None:
+    """`cargo mutants --list --json -d <tree>`; None when the tool fails or prints junk.
+
+    Only a listing: nothing is built, and `cargo metadata` is never run without
+    `--no-deps` (cargo-mutants itself passes it).
+    """
+    cargo_home = _real_cargo_home()
+    cargo = cargo_tool("cargo", cargo_home)
+    cargo_tool("cargo-mutants", cargo_home)
+    args = [str(cargo), "mutants", "--list", "--json", "-d", str(tree)]
+    if no_config:
+        args.insert(-2, "--no-config")
+    with tempfile.TemporaryDirectory(prefix="mgi-cargo-home-") as fresh:
+        result = run_tool(args, _rust_env(cargo_home, Path(fresh)))
+    if result.returncode != 0:
+        return None
+    try:
+        listing = json.loads(result.stdout)
+    except ValueError:
+        return None
+    return listing if isinstance(listing, list) else None
+
+
+def _source_lines(tree: Path, cache: dict[str, list[str]], file: str) -> list[str]:
+    """The lines of `<tree>/<file>`, [] when it escapes the tree or cannot be read."""
+    if file not in cache:
+        path = (tree / file).resolve()
+        lines: list[str] = []
+        if tree.resolve() in path.parents and path.is_file():
+            lines = path.read_text(encoding="utf-8", errors="surrogateescape").split(
+                "\n"
+            )
+        cache[file] = lines
+    return cache[file]
+
+
+def _line_at(lines: list[str], number: int) -> str:
+    return normalise_line(lines[number - 1]) if 0 < number <= len(lines) else ""
+
+
+def _mutant_base_key(
+    crate: str, tree: Path, cache: dict[str, list[str]], mutant: Mutant
+) -> tuple[str, ...]:
+    """R23 key of a mutant without its ordinal."""
+    file = str(mutant.get("file", ""))
+    function = (mutant.get("function") or {}).get("function_name") or ""
+    start = (mutant.get("span") or {}).get("start", {}).get("line", 0)
+    lines = _source_lines(tree, cache, file)
+    return (
+        crate,
+        file,
+        function,
+        str(mutant.get("genre", "")),
+        mutant_description(str(mutant.get("name", ""))),
+        _line_at(lines, start),
+        _line_at(lines, start - 1),
+    )
+
+
+def _excluded_keys(
+    crate: str, tree: Path, plain: list[Mutant], configured: list[Mutant]
+) -> set[tuple[str, ...]]:
+    """Keys, with ordinals, of the mutants the config excludes (R23)."""
+    kept = {m.get("name") for m in configured}
+    cache: dict[str, list[str]] = {}
+    seen: dict[tuple[str, ...], int] = {}
+    excluded: set[tuple[str, ...]] = set()
+    for mutant in plain:
+        base_key = _mutant_base_key(crate, tree, cache, mutant)
+        ordinal = seen.get(base_key, 0)
+        seen[base_key] = ordinal + 1
+        if mutant.get("name") not in kept:
+            excluded.add((*base_key, str(ordinal)))
+    return excluded
+
+
+def _rust_marker(crate: str, what: str, blob: str) -> Item:
+    return Item(crate, RUST_KIND, (crate, what, blob))
+
+
+def _keys_at(
+    ctx: Context, sha: str, crate: str, label: str
+) -> set[tuple[str, ...]] | Item:
+    """Excluded-mutant keys of `crate` at `sha`; an Item when it cannot be listed."""
+    manifest = f"{crate}/Cargo.toml"
+    if ctx.entry(sha, manifest) is None:
+        return set()
+    root = ctx.scratch / f"{crate.replace('/', '_')}-{label}"
+    try:
+        tree = ctx.materialise_tree(sha, crate, root)
+    except NotRegularError as exc:
+        return _rust_marker(crate, "tree-not-regular", exc.blob)
+    plain = _list_mutants(tree, True)
+    configured = _list_mutants(tree, False)
+    if plain is None or configured is None:
+        return _rust_marker(crate, "list-failed", ctx.blob_id(sha, manifest))
+    return _excluded_keys(crate, tree, plain, configured)
+
+
+def _rust_config_items(ctx: Context, crate: str) -> list[Item]:
+    """Changed `.cargo/mutants.toml` keys other than `exclude_re` (R23)."""
+    path = f"{crate}/{RUST_CONFIG_NAME}"
+    if path not in ctx.changed:
+        return []
+    new = _parse_config(ctx.show(ctx.head, path))
+    old = _parse_config(ctx.show(ctx.base, path))
+    if new is None or old is None:
+        return [_rust_marker(crate, "unparseable", ctx.blob_id(ctx.head, path))]
+    changed = {k: v for k, v in new.items() if old.get(k) != v}
+    changed.update({k: CONFIG_REMOVED for k in old if k not in new})
+    return [
+        Item(crate, RUST_KIND, (crate, k, v))
+        for k, v in changed.items()
+        if k != "exclude_re"
+    ]
+
+
+def _rust_exclusion_items(ctx: Context, crate: str) -> list[Item]:
+    head = _keys_at(ctx, ctx.head, crate, "head")
+    if isinstance(head, Item):
+        return [head]
+    base = _keys_at(ctx, ctx.base, crate, "base")
+    base_keys = set() if isinstance(base, Item) else base
+    items = [Item(crate, RUST_KIND, key) for key in sorted(head - base_keys)]
+    return items + _rust_config_items(ctx, crate)
+
+
+def collect_rust_exclusions(ctx: Context) -> list[Item]:
+    crates = sorted({m.group(1) for p in ctx.changed if (m := RUST_CRATE_RE.match(p))})
+    items: list[Item] = []
+    for crate in crates:
+        if ctx.wants(crate):
+            items += _rust_exclusion_items(ctx, crate)
+    return items
+
+
 # --- Gate items (R25) ----------------------------------------------------------------
 
 
@@ -714,6 +895,7 @@ def collect_gate(ctx: Context) -> list[Item]:
 register("python-config", collect_python_config)
 register("python-equivalent", collect_python_equivalents)
 register("gate", collect_gate)
+register(RUST_KIND, collect_rust_exclusions)
 
 
 # --- Clearance and CLI (R26) ---------------------------------------------------------
