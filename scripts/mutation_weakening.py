@@ -15,8 +15,10 @@ failure, or a malformed signature after the runner exited 0).
 
 `replay --dir <work copy> --session <head sqlite> --shard <k>/<n> --planned <a> --base <sha>
 --work <dir> [--repo <root>]` replays the shard's head survivors under the base
-tests (R13), re-runs a timed-out base kill at twice the timeout (R14), prints the weakened
-verdict (R15) and checks shard completeness (R19). Exit codes: 0 green, 1 red, 2 usage,
+tests (R13), confirms every base kill by replaying it once more under both arms, at
+twice the timeout after a timeout kill (R14), prints the weakened verdict (R15) or a
+green `flaky: <operator>@<occurrence>` line for an unconfirmed kill, and checks shard
+completeness (R19). Exit codes: 0 green, 1 red, 2 usage,
 4 infrastructure.
 
 cosmic-ray treats any non-zero exit of the test command as a kill, so the replay runs the
