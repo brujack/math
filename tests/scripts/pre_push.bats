@@ -1304,3 +1304,142 @@ refs/heads/code ${FX_LOCAL} refs/heads/code ${FX_BASE}"
     [ "$status" -eq 1 ]
     [ "${output}" = "${GATES_BLOCK_LINE}" ]
 }
+
+# R29/N3: for a push touching an item-relevant path the hook prints the mutation-gate
+# items (scripts/mutation-gate-items.sh) and never fails the push because of them.
+# The items script is a stub that records its argv; cosmic-ray and cargo are traps
+# that fail the test if anything runs a mutant.
+items_fixture() {
+    setup_harness_stub # the item paths also trigger the (stubbed) equivalents and exclusion checks
+    mkdir -p "${MOCK_GIT_SHOW_TOPLEVEL}/scripts" "${BATS_TEST_TMPDIR}/trap-bin"
+    cat > "${MOCK_GIT_SHOW_TOPLEVEL}/scripts/mutation-gate-items.sh" <<'STUB'
+#!/usr/bin/env bash
+printf 'items %s\n' "$*" >> "${ITEMS_LOG:?}"
+printf 'uncleared item: sq/mutants-equivalent.toml\n'
+exit "${MOCK_ITEMS_EXIT:-1}"
+STUB
+    chmod +x "${MOCK_GIT_SHOW_TOPLEVEL}/scripts/mutation-gate-items.sh"
+    export ITEMS_LOG="${BATS_TEST_TMPDIR}/items.log"
+    export MOCK_CARGO_LOG="${BATS_TEST_TMPDIR}/cargo.log"
+    cat > "${BATS_TEST_TMPDIR}/trap-bin/cosmic-ray" <<'STUB'
+#!/usr/bin/env bash
+printf 'cosmic-ray %s\n' "$*" >> "${TRAP_LOG:?}"
+STUB
+    chmod +x "${BATS_TEST_TMPDIR}/trap-bin/cosmic-ray"
+    export TRAP_LOG="${BATS_TEST_TMPDIR}/trap.log"
+    export PATH="${BATS_TEST_TMPDIR}/trap-bin:${PATH}"
+}
+
+assert_no_mutants_run() {
+    [ ! -e "${TRAP_LOG}" ]
+    [ ! -e "${MOCK_CARGO_LOG}" ]
+}
+
+@test "items: an item-relevant push with a PR prints the items with --pr and exits 0" {
+    items_fixture
+    export MOCK_GIT_DIFF_NAMES="sq/mutants-equivalent.toml"
+    export MOCK_GH_OUTPUT="123"
+    run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"uncleared item: sq/mutants-equivalent.toml"* ]]
+    grep -q "^items base123 abc123 --pr 123$" "${ITEMS_LOG}"
+    grep -q "^gh pr view feat --json number --jq .number$" "${MOCK_CALLS_FILE}"
+    assert_no_mutants_run
+}
+
+@test "items: gh failing runs the items without --pr and says to sign after opening the PR" {
+    items_fixture
+    export MOCK_GIT_DIFF_NAMES="sq/mutants-equivalent.toml"
+    export MOCK_GH_EXIT_PR_VIEW=1
+    run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"no PR yet: sign after opening it"* ]]
+    grep -q "^items base123 abc123$" "${ITEMS_LOG}"
+    assert_no_mutants_run
+}
+
+@test "items: a non-numeric gh answer is treated as no PR" {
+    items_fixture
+    export MOCK_GIT_DIFF_NAMES="sq/mutants-equivalent.toml"
+    export MOCK_GH_OUTPUT="not-a-number"
+    run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"no PR yet: sign after opening it"* ]]
+    grep -q "^items base123 abc123$" "${ITEMS_LOG}"
+}
+
+@test "items: an items script exiting 1 does not fail the push" {
+    items_fixture
+    export MOCK_GIT_DIFF_NAMES="sq/mutants-equivalent.toml"
+    export MOCK_ITEMS_EXIT=1
+    run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+}
+
+@test "items: an infra exit 3 prints a notice and does not fail the push" {
+    items_fixture
+    export MOCK_GIT_DIFF_NAMES="sq/mutants-equivalent.toml"
+    export MOCK_ITEMS_EXIT=3
+    run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"mutation gate items: exit 3; push continues"* ]]
+}
+
+@test "items: a usage exit 2 prints a notice and does not fail the push" {
+    items_fixture
+    export MOCK_GIT_DIFF_NAMES="sq/mutants-equivalent.toml"
+    export MOCK_ITEMS_EXIT=2
+    run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"mutation gate items: exit 2; push continues"* ]]
+}
+
+@test "items: a missing items script prints a notice and does not fail the push" {
+    items_fixture
+    rm -f "${MOCK_GIT_SHOW_TOPLEVEL}/scripts/mutation-gate-items.sh"
+    export MOCK_GIT_DIFF_NAMES="sq/mutants-equivalent.toml"
+    run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [[ "${output}" == *"mutation gate items: script not found; push continues"* ]]
+}
+
+@test "items: an unrelated push prints nothing and never calls the items script or gh pr view" {
+    items_fixture
+    export MOCK_GIT_DIFF_NAMES="README.md"
+    run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [[ "${output}" != *"item"* ]]
+    [ ! -e "${ITEMS_LOG}" ]
+    assert_no_match "^gh pr view"
+}
+
+@test "items: a deletion push never calls the items script" {
+    items_fixture
+    export MOCK_GIT_DIFF_NAMES="sq/mutants-equivalent.toml"
+    run bash "${PG_HOOK}" <<< "refs/heads/feat ${ZEROS} refs/heads/feat abc123"
+    [ "$status" -eq 0 ]
+    [ ! -e "${ITEMS_LOG}" ]
+}
+
+@test "items: each item-relevant path shape triggers the listing" {
+    items_fixture
+    local p
+    for p in sq/cosmic-ray.toml sq/sq-rs/.cargo/mutants.toml sq/sq-rs/src/main.rs \
+        .github/workflows/sq-py.yml scripts/mutation-pr-run.sh scripts/mutation_gate_items.py \
+        scripts/cosmic_ray_prune.py .github/mutation-gate-allowed-signers \
+        tests/fixtures/mutation_weakening/case.json Makefile sq/Makefile; do
+        rm -f "${ITEMS_LOG}"
+        export MOCK_GIT_DIFF_NAMES="${p}"
+        run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+        [ "$status" -eq 0 ] || { printf 'status %s for %s\n%s\n' "${status}" "${p}" "${output}" >&2; return 1; }
+        [ -e "${ITEMS_LOG}" ] || { printf 'not triggered by %s\n' "${p}" >&2; return 1; }
+    done
+}
+
+@test "items: a Cargo.toml-only push does not trigger the listing" {
+    items_fixture
+    export MOCK_GIT_DIFF_NAMES="sq/sq-rs/Cargo.toml"
+    run bash "${PG_HOOK}" <<< "refs/heads/feat abc123 refs/heads/feat abc456"
+    [ "$status" -eq 0 ]
+    [ ! -e "${ITEMS_LOG}" ]
+}
