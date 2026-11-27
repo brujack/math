@@ -231,7 +231,7 @@ class PinnedTooling(unittest.TestCase):
         )
         for mod in sorted(needed):
             self.assertIn(
-                dist_for.get(mod, mod) + "==", pip, f"{mod} not pip-installed"
+                f"{dist_for.get(mod, mod)}==", pip, f"{mod} not pip-installed"
             )
 
     def test_cargo_mutants_pinned_with_no_fallback(self):

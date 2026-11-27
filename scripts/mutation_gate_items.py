@@ -10,8 +10,8 @@ PR files are written only with `git show <sha>:<path>` into a scratch tree outsi
 repo; every tool subprocess (`run_tool`) runs in a fresh empty directory with a scrubbed
 environment, and `git` calls read objects from the repo with GIT_* stripped;
 `cosmic-ray init` runs through its console script on a config this script generates.
-The only code imported besides the standard library is the base checkout's own
-`cosmic_ray_prune.py` (this file's directory).
+Besides the standard library it imports only the pinned PyYAML and the base checkout's
+own `cosmic_ray_prune.py` (this file's directory).
 
 Usage: mutation_gate_items.py <base-sha> <head-sha> [--repo <dir>]
 Exit codes: 0 no items, 1 red (items listed; only the operator's admin merge clears
