@@ -149,3 +149,35 @@ first appears on the gate-file PR after this one.
 - **N1.** `scripts/mutation-gate-items.sh` is unchanged, and `scripts/mutation_gate_items.py` changes only in the text `run()` returns.
 - **N2.** Branch protection is unchanged: `strict` stays `false`, and the required contexts, their app ids and `enforce_admins` are as before.
 - **N3.** No new workflow file is added, and `auto-merge.yml` and `scripts/ci-gate.sh` are unchanged.
+
+## Multi-Lens Review
+
+Reviewed at commit: `cca4296` (round 1); re-run at `1f94d62` (round 2), `09f5e03` (round 3) and
+`57d965d` (round 4, risk lens scoped to Design item 2, Known limits and R4-R7, V1, V2).
+
+### Round 1 (`cca4296`, design: strict protection plus a `ci-gate.sh` behind check)
+
+- **Goal-fit.** Finding: the `base.sha` rule was wrong (an `edited` run on the same head, 46055972031, carried master's tip), V2 could not tell the new design from the old, and the `ci-gate.sh` behind read changed no verdict while adding a fail-closed path. Assumption: a behind PR reports `mergeable_state` `behind`, not `blocked`.
+- **Ergonomics.** Finding: under strict, 29 of the last 40 merged PRs had a master commit land while open (180 commits, mostly direct docs commits), so most PRs would need `gh pr update-branch` and a full CI rerun; Renovate does not rebase behind PRs (#238). Assumption: behind PRs are rare or refreshed by someone other than the operator.
+- **Risk.** Finding: same `base.sha` correction; any operator-made event re-judges with `base.ref`, so strict is one option, not the only cheap one; strict binds only non-admin merges. Assumption: Renovate rebases held PRs under strict.
+- **Adversarial Spec Review.** N/A — spec has no comparison/evaluator/ambiguous-criteria trigger.
+- Disposition: operator chose "Re-judge step, drop strict (Recommended)".
+
+### Round 2 (`1f94d62`, design: close and reopen every open PR after the gate merge)
+
+- **Goal-fit.** Finding: no case fails if nobody performs the step, and the instruction lives where the merging operator does not look. Assumption: the authoring session is still running when the operator admin-merges.
+- **Ergonomics.** Finding: a reopen re-fires every workflow (16 runs on #238) and restarts in-flight `mutation-pr`; `edited` is cheaper; no actor named; V1's PR would self-merge unless a draft. Assumption: no in-flight auto-merge merges during the gap.
+- **Risk.** Finding: the step runs after the merge, so an auto-merge job already polling (up to 90 minutes) or a `labeled` bot PR merges on the old result first. Assumption: nothing merges between the gate merge and the re-judge.
+- Disposition: operator chose "Draft-first (Recommended)".
+
+### Round 3 (`09f5e03`, design: draft-first with a reminder line on any `gate` item)
+
+- **Goal-fit.** Finding: the reminder would fire on about 18% of gate-file PRs but helps only when the items script changes; a `mutation-pr` tightening is never re-judged; V1 and R5 case 2 could pass vacuously. Assumption: the merging operator opens the items log first.
+- **Ergonomics.** Finding: nothing records which PRs were drafted, and an agent marking its own draft ready mid-hold re-runs the old gate. Assumption: Renovate leaves an operator-drafted PR as a draft.
+- **Risk.** Finding: V1 waited for `HEAD is now at`, which a `ref: master` checkout never prints (verified on run 45877030669); the restore set was unrecorded; pre-push shows the reminder to agents. Assumption: the `reopened` payload of a fresh PR stays stale after a master commit.
+- Disposition: operator chose "Keep draft-first, add gate-hold label".
+
+### Round 4 (`57d965d`, scoped risk lens)
+
+- **Risk.** Finding: the items gate omitted `scripts/cosmic_ray_prune.py`, which the script loads with `_load_sibling` and uses in item computation; R5 had a positive case for one path only; a non-draft PR opened during the hold is uncovered. Fixed in `44e4923` (four paths, a `_load_sibling` drift check, a case per path, draft before label, new known limit). Assumption: Renovate does not mark an operator-drafted PR ready during the hold (unmeasured; listed in Known limits).
+- Disposition:
