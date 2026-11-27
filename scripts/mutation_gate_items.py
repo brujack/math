@@ -18,6 +18,7 @@ red in CI).
 """
 
 import argparse
+import bisect
 import difflib
 import fnmatch
 import hashlib
@@ -693,6 +694,474 @@ def collect_rust_exclusions(ctx: Context) -> list[Item]:
     return items
 
 
+# --- Rust hidden-code items (R24, R34) -----------------------------------------------
+
+HIDDEN_KIND = "rust-hidden"
+RUST_SRC_RE = re.compile(r"^([^/]+/[^/]+-rs)/(src/.+\.rs)$")
+RAW_STR_RE = re.compile(r'(?:br|cr|r)(#*)"')
+PLAIN_STR_RE = re.compile(r'[bc]?"')
+NUM_RE = re.compile(r"\d\w*(?:\.\d\w*)?")
+IDENT_RE = re.compile(r"[^\W\d]\w*")
+SKIP_RE = re.compile(r"(?<!\w)mutants::skip(?!\w)")
+OPENERS = {"(": ")", "[": "]", "{": "}"}
+CLOSERS = frozenset(OPENERS.values())
+# Keywords that make a macro argument an expression with behaviour, not data.
+EXPRESSION_KEYWORDS = frozenset(
+    {"as", "match", "if", "else", "loop", "while", "for", "in", "let", "return"}
+    | {"break", "continue", "move", "unsafe", "async", "await", "yield", "fn", "impl"}
+)
+CONTAINER_KEYWORDS = frozenset({"mod", "impl", "trait"})
+CONTAINER_PREV = frozenset(
+    {"}", "{", ";", "]", ")", "pub", "unsafe", "default", "auto"}
+)
+ARG_LITERALS = frozenset({"str", "num", "char"})
+CALLABLE_PREV = frozenset({"ident", "num", "str", "char"})
+
+
+@dataclass(frozen=True)
+class RustTok:
+    """`kind` is ident, num, str, char, life or punct (`::` is one punct)."""
+
+    kind: str
+    text: str
+
+
+def _skip_block_comment(text: str, i: int) -> int:
+    """Index after the (nested) block comment opening at `i`; end of text if unclosed."""
+    depth = 0
+    while i < len(text):
+        if text.startswith("/*", i):
+            depth, i = depth + 1, i + 2
+        elif text.startswith("*/", i):
+            depth, i = depth - 1, i + 2
+            if depth == 0:
+                return i
+        else:
+            i += 1
+    return i
+
+
+def _skip_quoted(text: str, i: int, quote: str) -> int:
+    """Index after the quoted literal whose opening quote sits at `i`."""
+    i += 1
+    while i < len(text) and text[i] != quote:
+        i += 2 if text[i] == "\\" else 1
+    return min(i + 1, len(text))
+
+
+def _lex_string(text: str, i: int) -> tuple[RustTok, int] | None:
+    raw = RAW_STR_RE.match(text, i)
+    if raw:
+        closing = '"' + raw.group(1)
+        end = text.find(closing, raw.end())
+        stop = len(text) if end < 0 else end + len(closing)
+        return RustTok("str", text[i:stop]), stop
+    plain = PLAIN_STR_RE.match(text, i)
+    if plain:
+        stop = _skip_quoted(text, plain.end() - 1, '"')
+        return RustTok("str", text[i:stop]), stop
+    if text.startswith("b'", i):
+        stop = _skip_quoted(text, i + 1, "'")
+        return RustTok("char", text[i:stop]), stop
+    return None
+
+
+def _lex_quote(text: str, i: int) -> tuple[RustTok, int]:
+    """A char literal (`'a'`, `'\\n'`) or a lifetime (`'a`) starting at the `'` at `i`."""
+    if text.startswith("\\", i + 1) or text.startswith("'", i + 2):
+        stop = _skip_quoted(text, i, "'")
+        return RustTok("char", text[i:stop]), stop
+    word = IDENT_RE.match(text, i + 1)
+    stop = word.end() if word else i + 1
+    return RustTok("life", text[i:stop]), stop
+
+
+def _lex_word(text: str, i: int) -> tuple[RustTok, int] | None:
+    for kind, pattern in (("num", NUM_RE), ("ident", IDENT_RE)):
+        found = pattern.match(text, i)
+        if found:
+            return RustTok(kind, found.group()), found.end()
+    return None
+
+
+def _lex_one(text: str, i: int) -> tuple[RustTok | None, int]:
+    """The token starting at `i` (None for a comment or whitespace) and the next index."""
+    if text.startswith("//", i):
+        end = text.find("\n", i)
+        return None, len(text) if end < 0 else end
+    if text.startswith("/*", i):
+        return None, _skip_block_comment(text, i)
+    if text[i].isspace():
+        return None, i + 1
+    for lexer in (_lex_string, _lex_word):
+        lexed = lexer(text, i)
+        if lexed:
+            return lexed
+    if text[i] == "'":
+        return _lex_quote(text, i)
+    width = 2 if text.startswith("::", i) else 1
+    return RustTok("punct", text[i : i + width]), i + width
+
+
+def rust_tokens(text: str) -> list[RustTok]:
+    """Rust tokens of `text` without comments or whitespace; strings stay one token."""
+    toks: list[RustTok] = []
+    i = 0
+    while i < len(text):
+        tok, i = _lex_one(text, i)
+        if tok is not None:
+            toks.append(tok)
+    return toks
+
+
+def _match(toks: list[RustTok], i: int) -> int:
+    """Index of the delimiter closing the one at `i` (last token when unbalanced)."""
+    depth = 0
+    for j in range(i, len(toks)):
+        if toks[j].kind != "punct":
+            continue
+        if toks[j].text in OPENERS:
+            depth += 1
+        elif toks[j].text in CLOSERS:
+            depth -= 1
+            if depth == 0:
+                return j
+    return len(toks) - 1
+
+
+def _texts(toks: list[RustTok], start: int, end: int) -> list[str]:
+    return [t.text for t in toks[start:end]]
+
+
+def _attr_end(toks: list[RustTok], i: int) -> int:
+    """Index after the attribute whose `#` sits at `i`; `i` when it is not one."""
+    j = i + 1
+    if j < len(toks) and toks[j].text == "!":
+        j += 1
+    if j < len(toks) and toks[j].text == "[":
+        return _match(toks, j) + 1
+    return i
+
+
+def _item_end(toks: list[RustTok], i: int) -> int:
+    """Index after the item starting at `i`: its `;`, or its braces' close."""
+    while i < len(toks) and toks[i].text == "#" and _attr_end(toks, i) > i:
+        i = _attr_end(toks, i)
+    while i < len(toks):
+        text = toks[i].text if toks[i].kind == "punct" else ""
+        if text == ";":
+            return i + 1
+        if text == "{":
+            return _match(toks, i) + 1
+        i = _match(toks, i) + 1 if text in ("(", "[") else i + 1
+    return len(toks)
+
+
+CFG_TEST = ["cfg", "(", "test", ")"]
+
+
+def _cfg_test_attr(toks: list[RustTok], i: int) -> tuple[bool, int]:
+    """(is it `#[cfg(test)]` or `#![cfg(test)]`, index after the attribute)."""
+    end = _attr_end(toks, i)
+    inner = toks[i + 1].text == "!" if i + 1 < len(toks) else False
+    body = _texts(toks, i + (3 if inner else 2), end - 1)
+    return end > i and body == CFG_TEST, end
+
+
+def test_mask(toks: list[RustTok]) -> list[bool]:
+    """True for every token inside an item gated by `#[cfg(test)]` (R24 exempts them).
+
+    `#![cfg(test)]` gates the whole file. Only the exact `cfg(test)` form counts:
+    `cfg_attr(test, ...)` and `cfg(not(test))` keep their code examined.
+    """
+    mask = [False] * len(toks)
+    i = 0
+    while i < len(toks):
+        gated, after = _cfg_test_attr(toks, i) if toks[i].text == "#" else (False, i)
+        if not gated:
+            i += 1
+            continue
+        stop = len(toks) if toks[i + 1].text == "!" else _item_end(toks, after)
+        mask[i:stop] = [True] * (stop - i)
+        i = stop
+    return mask
+
+
+def _is_macro_call(toks: list[RustTok], i: int) -> bool:
+    return (
+        toks[i].kind == "ident"
+        and i + 2 < len(toks)
+        and toks[i + 1].text == "!"
+        and toks[i + 2].text in OPENERS
+        and toks[i + 2].kind == "punct"
+    )
+
+
+def _is_macro_rules(toks: list[RustTok], i: int) -> bool:
+    return (
+        toks[i].text == "macro_rules" and i + 1 < len(toks) and toks[i + 1].text == "!"
+    )
+
+
+def _arg_ok(prev: RustTok | None, tok: RustTok, nxt: RustTok | None) -> bool:
+    """One macro-argument token against the allow-set (R24).
+
+    Allowed: literals (a format string is one), identifiers other than expression
+    keywords, `::` paths, `,`, `.` as field or method access (a dot is access only
+    between a value and an ident or number, so `..` never is), `(`/`)` only as the call
+    parens after an identifier, and `&` only as a prefix: first in the arguments or right
+    after `,`, `(` or another prefix `&`. After a value `&` is the binary operator.
+    Everything else is behaviour that cargo-mutants may not see (operators, `match`,
+    braces, `=>`, `?`, `;`, `[`, `-1`) and fails closed.
+    """
+    if tok.kind in ARG_LITERALS:
+        return True
+    if tok.kind == "ident":
+        return tok.text not in EXPRESSION_KEYWORDS
+    if tok.kind != "punct":
+        return False
+    if tok.text in (",", "::", ")"):
+        return True
+    if tok.text == ".":
+        value = prev is not None and (prev.kind in CALLABLE_PREV or prev.text == ")")
+        return value and nxt is not None and nxt.kind in ("ident", "num")
+    if tok.text == "(":
+        return prev is not None and prev.kind == "ident"
+    if tok.text == "&":
+        return prev is None or prev.text in (",", "(", "&")
+    return False
+
+
+def _args_ok(toks: list[RustTok], start: int, end: int) -> bool:
+    """Whether every token of `toks[start:end]` is allowed; nested calls judge themselves."""
+    prev: RustTok | None = None
+    j = start
+    while j < end:
+        if _is_macro_call(toks, j):
+            j = _match(toks, j + 2) + 1
+            prev = toks[j - 1]
+            continue
+        nxt = toks[j + 1] if j + 1 < end else None
+        if not _arg_ok(prev, toks[j], nxt):
+            return False
+        prev = toks[j]
+        j += 1
+    return True
+
+
+def _joined(toks: list[RustTok], start: int, end: int) -> str:
+    """Tokens joined by single spaces: spelling, comments and layout do not change it."""
+    return " ".join(_texts(toks, start, end))
+
+
+def _enclosing_attr(toks: list[RustTok], i: int) -> tuple[int, int]:
+    """Token range of the `#[...]` holding token `i`, or just `(i, i + 1)`.
+
+    Walks outwards past unmatched openers such as the `(` of `cfg_attr(`.
+    """
+    depth = 0
+    for j in range(i, -1, -1):
+        text = toks[j].text if toks[j].kind == "punct" else ""
+        if text in CLOSERS:
+            depth += 1
+        elif text in OPENERS and depth:
+            depth -= 1
+        elif text == "[" and j > 0 and toks[j - 1].text in ("#", "!"):
+            return j - 1, _match(toks, j) + 1
+    return i, i + 1
+
+
+def _flatten_tokens(toks: list[RustTok]) -> tuple[str, list[int]]:
+    """Tokens as one string (whitespace and comments gone) and each token's offset.
+
+    String and char literals become `S`, so a mention in a literal never matches;
+    adjacent word tokens keep one space so `xmutants` cannot pose as `mutants`.
+    """
+    flat = ""
+    starts: list[int] = []
+    for tok in toks:
+        piece = "S" if tok.kind in ("str", "char") else tok.text
+        if (
+            flat
+            and tok.kind in ("ident", "num")
+            and (flat[-1].isalnum() or flat[-1] == "_")
+        ):
+            flat += " "
+        starts.append(len(flat))
+        flat += piece
+    return flat, starts
+
+
+def _skip_texts(toks: list[RustTok], mask: list[bool]) -> list[str]:
+    """Attributes naming `mutants::skip` in any spelling (whitespace/comments removed)."""
+    flat, starts = _flatten_tokens(toks)
+    found = []
+    for m in SKIP_RE.finditer(flat):
+        k = bisect.bisect_right(starts, m.start()) - 1
+        if not mask[k]:
+            first, last = _enclosing_attr(toks, k)
+            found.append(_joined(toks, first, last))
+    return found
+
+
+def _macro_texts(toks: list[RustTok], mask: list[bool]) -> list[str]:
+    found = []
+    for i in range(len(toks)):
+        if mask[i]:
+            continue
+        if _is_macro_rules(toks, i):
+            found.append(_joined(toks, i, min(i + 3, len(toks))))
+        if not _is_macro_call(toks, i):
+            continue
+        close = _match(toks, i + 2)
+        if not _args_ok(toks, i + 3, close):
+            found.append(_joined(toks, i, close + 1))
+    return found
+
+
+def hidden_texts(text: str) -> list[str]:
+    """Normalised texts of the hidden-code occurrences in `text`, outside test modules."""
+    toks = rust_tokens(text)
+    mask = test_mask(toks)
+    return sorted(_skip_texts(toks, mask) + _macro_texts(toks, mask))
+
+
+def _container_label(toks: list[RustTok], i: int, body: int) -> str:
+    return toks[i + 1].text if toks[i].text == "mod" else _joined(toks, i, body)
+
+
+def _containers(toks: list[RustTok]) -> list[tuple[int, int, str]]:
+    """(open, close, label) of every `mod`, `impl` and `trait` body."""
+    found = []
+    for i, tok in enumerate(toks):
+        before = toks[i - 1].text if i else ";"
+        if tok.kind != "ident" or tok.text not in CONTAINER_KEYWORDS:
+            continue
+        if before not in CONTAINER_PREV:
+            continue
+        end = _item_end(toks, i)
+        body = next((j for j in range(i, end) if toks[j].text == "{"), None)
+        if body is not None and toks[end - 1].text == "}":
+            found.append((body, end - 1, _container_label(toks, i, body)))
+    return found
+
+
+def _is_test_fn(toks: list[RustTok], i: int) -> bool:
+    """Whether the `fn` at `i` carries a `#[test]` or `#[cfg(test)]` attribute."""
+    j = i - 1
+    while j >= 0 and toks[j].text in ("pub", "const", "async", "unsafe", ")", "extern"):
+        j -= 1
+    while j >= 0 and toks[j].text == "]":
+        first, _ = _enclosing_attr(toks, j - 1)
+        if _texts(toks, first, j + 1)[2:-1] in (["test"], CFG_TEST):
+            return True
+        j = first - 1
+    return False
+
+
+def _has_body(toks: list[RustTok], i: int) -> bool:
+    end = _item_end(toks, i)
+    return toks[end - 1].text == "}"
+
+
+def function_ids(text: str) -> set[tuple[str, ...]]:
+    """(container labels..., name) of each non-test function with a body in `text`."""
+    toks = rust_tokens(text)
+    mask = test_mask(toks)
+    containers = _containers(toks)
+    found = set()
+    for i, tok in enumerate(toks[:-1]):
+        if mask[i] or tok.text != "fn" or toks[i + 1].kind != "ident":
+            continue
+        if _is_test_fn(toks, i) or not _has_body(toks, i):
+            continue
+        path = tuple(lbl for lo, hi, lbl in containers if lo < i < hi)
+        found.add((*path, toks[i + 1].text))
+    return found
+
+
+def _function_item(crate: str, file: str, ident: tuple[str, ...]) -> Item:
+    return Item(crate, HIDDEN_KIND, (crate, file, "fn " + "::".join(ident)))
+
+
+def _head_listed_functions(
+    ctx: Context, crate: str
+) -> tuple[set[tuple[str, str]], Item | None]:
+    """(file, function) pairs with a mutant in the head `--no-config` listing."""
+    root = ctx.scratch / f"{crate.replace('/', '_')}-head"
+    try:
+        tree = ctx.materialise_tree(ctx.head, crate, root)
+    except NotRegularError as exc:
+        return set(), _rust_marker(crate, "tree-not-regular", exc.blob)
+    listing = _list_mutants(tree, True)
+    if listing is None:
+        manifest = f"{crate}/Cargo.toml"
+        return set(), _rust_marker(
+            crate, "list-failed", ctx.blob_id(ctx.head, manifest)
+        )
+    return {
+        (str(m.get("file", "")), (m.get("function") or {}).get("function_name") or "")
+        for m in listing
+    }, None
+
+
+def _text_at(ctx: Context, sha: str, path: str) -> str:
+    return ctx.show(sha, path) or ""
+
+
+def _hidden_for_file(
+    ctx: Context, crate: str, file: str
+) -> tuple[list[Item], set[tuple[str, ...]]]:
+    """Added hidden-code items of one file, and its functions new in the head."""
+    path = f"{crate}/{file}"
+    head = _text_at(ctx, ctx.head, path)
+    base = _text_at(ctx, ctx.base, path)
+    remaining = hidden_texts(base)
+    items = []
+    for text in hidden_texts(head):
+        if text in remaining:
+            remaining.remove(text)
+        else:
+            items.append(Item(crate, HIDDEN_KIND, (crate, file, text)))
+    return items, function_ids(head) - function_ids(base)
+
+
+def _hidden_for_crate(ctx: Context, crate: str) -> list[Item]:
+    files = sorted(
+        m.group(2)
+        for p in ctx.changed
+        if (m := RUST_SRC_RE.match(p)) and m.group(1) == crate
+    )
+    items: list[Item] = []
+    new_functions: dict[str, set[tuple[str, ...]]] = {}
+    for file in files:
+        added, fresh = _hidden_for_file(ctx, crate, file)
+        items += added
+        if fresh:
+            new_functions[file] = fresh
+    if not new_functions:
+        return items
+    listed, marker = _head_listed_functions(ctx, crate)
+    if marker is not None:
+        return [*items, marker]
+    for file, fresh in new_functions.items():
+        items += [
+            _function_item(crate, file, ident)
+            for ident in sorted(fresh)
+            if (file, ident[-1]) not in listed
+        ]
+    return items
+
+
+def collect_rust_hidden(ctx: Context) -> list[Item]:
+    crates = sorted({m.group(1) for p in ctx.changed if (m := RUST_SRC_RE.match(p))})
+    items: list[Item] = []
+    for crate in crates:
+        if ctx.wants(crate):
+            items += _hidden_for_crate(ctx, crate)
+    return items
+
+
 # --- Gate items (R25) ----------------------------------------------------------------
 
 
@@ -896,6 +1365,7 @@ register("python-config", collect_python_config)
 register("python-equivalent", collect_python_equivalents)
 register("gate", collect_gate)
 register(RUST_KIND, collect_rust_exclusions)
+register(HIDDEN_KIND, collect_rust_hidden)
 
 
 # --- Clearance and CLI (R26) ---------------------------------------------------------
