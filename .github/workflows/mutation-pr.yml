@@ -139,8 +139,15 @@ jobs:
           BASE_SHA: ${{ needs.mutation-py-plan.outputs.base }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PLANNED: ${{ matrix.planned }}
         run: |
-          make -C "${DIR}" mutants-weakening BASE="${BASE_SHA}" MUTANT_SHARD="${K}/${N}" PR="${PR}" HEAD_SHA="${HEAD_SHA}"
+          # The planner's job count for this slice. A slice of 0 jobs (K=0, or
+          # K < n) leaves the shard tool an empty session, which it rejects.
+          if [ "${PLANNED}" = "0" ]; then
+            printf 'empty slice: nothing planned for %s shard %s/%s\n' "${DIR}" "${K}" "${N}" | tee -a "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          make -C "${DIR}" mutants-weakening BASE="${BASE_SHA}" MUTANT_SHARD="${K}/${N}" PLANNED="${PLANNED}" PR="${PR}" HEAD_SHA="${HEAD_SHA}"
 
       - name: Upload unit status
         if: always() && matrix.mode != 'weakening'

@@ -1735,8 +1735,9 @@ class PrPyJobTests(unittest.TestCase):
         self.assertIn("outputs.units", include)
         text = yaml.safe_dump(pr_jobs()["mutation-py"]["steps"])
         used = set(re.findall(r"matrix\.(\w+)", text))
-        self.assertEqual(used, {"dir", "k", "n", "mode"})
-        self.assertTrue(used <= set(units[0]))
+        # `planned` exists only on weakening rows; an absent matrix key reads as "".
+        self.assertEqual(used, {"dir", "k", "n", "mode", "planned"})
+        self.assertTrue(used - {"planned"} <= set(units[0]))
 
     def test_checkout_full_depth_and_python_314(self):
         steps = job_steps("mutation-py")
@@ -2253,6 +2254,7 @@ class PrWeakeningWiringTests(unittest.TestCase):
                 "BASE_SHA": "${{ needs.mutation-py-plan.outputs.base }}",
                 "PR": "${{ github.event.pull_request.number }}",
                 "HEAD_SHA": "${{ github.event.pull_request.head.sha }}",
+                "PLANNED": "${{ matrix.planned }}",
             },
         )
         run = step["run"]
@@ -2263,9 +2265,58 @@ class PrWeakeningWiringTests(unittest.TestCase):
             'MUTANT_SHARD="${K}/${N}"',
             'PR="${PR}"',
             'HEAD_SHA="${HEAD_SHA}"',
+            'PLANNED="${PLANNED}"',
         ):
             self.assertIn(arg, run)
         self.assertNotIn("mutants-diff", run)
+
+    def run_weakening(self, planned):
+        step = named_step("mutation-py", "Run weakening shard")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            bindir = root / "bin"
+            bindir.mkdir()
+            calls = root / "calls"
+            make = bindir / "make"
+            make.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$CALLS"\n')
+            make.chmod(0o755)
+            summary = root / "summary"
+            summary.touch()
+            env = {
+                "PATH": f"{bindir}:{os.environ['PATH']}",
+                "CALLS": str(calls),
+                "DIR": "sq",
+                "K": "3",
+                "N": "10",
+                "BASE_SHA": "abc123",
+                "PR": "7",
+                "HEAD_SHA": "def456",
+                "PLANNED": planned,
+                "GITHUB_STEP_SUMMARY": str(summary),
+            }
+            proc = run_block(step, root, env, ["-e"])
+            made = calls.read_text().splitlines() if calls.exists() else []
+            return proc, made, summary.read_text()
+
+    def test_weakening_shard_passes_the_planned_count_to_make(self):
+        proc, made, _ = self.run_weakening("14")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(len(made), 1)
+        self.assertIn("-C sq mutants-weakening", made[0])
+        self.assertIn("PLANNED=14", made[0])
+        self.assertIn("MUTANT_SHARD=3/10", made[0])
+
+    def test_empty_slice_skips_make_and_is_green(self):
+        proc, made, summary = self.run_weakening("0")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(made, [])
+        msg = "empty slice: nothing planned for sq shard 3/10"
+        self.assertIn(msg, proc.stdout)
+        self.assertIn(msg, summary)
+
+    def test_a_planned_count_of_one_still_runs(self):
+        _, made, _ = self.run_weakening("1")
+        self.assertEqual(len(made), 1)
 
     def test_diff_rows_keep_the_changed_line_path(self):
         step = named_step("mutation-py", "Run mutants on changed lines")
