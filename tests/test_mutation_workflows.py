@@ -1355,10 +1355,6 @@ class MutationPrPermissionsTests(unittest.TestCase):
                 self.assertNotIn("write", perms.values(), name)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 # --- mutation-pr.yml: Python jobs and the aggregator (slice 8) ---------------
 
 PR_JOB_IDS = {
@@ -2363,3 +2359,7 @@ class PrWeakeningWiringTests(unittest.TestCase):
             step["env"]["PY_TEST_DIRS"],
             "${{ needs.mutation-py-plan.outputs.py_test_dirs }}",
         )
+
+
+if __name__ == "__main__":
+    unittest.main()

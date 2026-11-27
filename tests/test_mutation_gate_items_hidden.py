@@ -460,10 +460,6 @@ class MovedCodeTest(HiddenFixtureCase):
         self.assertEqual(self.texts(), ["dbg ! ( a * b )"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 PROC_MACRO_MANIFEST = (
     '[package]\nname = "pm"\nversion = "0.1.0"\nedition = "2024"\n\n'
     "[lib]\nproc-macro = true\n"
@@ -558,3 +554,7 @@ class ProcMacroManifestTest(HiddenFixtureCase):
         found = self.manifest_items()
         self.assertEqual(len(found), 1)
         self.assertEqual(found[0].target, "zz/zz-macros")
+
+
+if __name__ == "__main__":
+    unittest.main()

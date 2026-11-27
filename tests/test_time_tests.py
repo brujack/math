@@ -78,10 +78,6 @@ class TestComputeSlow(unittest.TestCase):
         self.assertEqual(compute_slow({"a": 9999.0}, hist), [])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestFetchHistoricalErrorPath(unittest.TestCase):
     """fetch_historical had no tests at all and swallowed every exception.
 
@@ -205,3 +201,7 @@ class TestMainImportsModuleFromWorkingDirectory(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         assert metrics is not None
         self.assertEqual(metrics["stats"]["failed"], 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
