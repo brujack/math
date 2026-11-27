@@ -1,5 +1,6 @@
 """R21, R22, R25, R26, R34: items for the mutation-gate-items check (Python and gate)."""
 
+import ast
 import contextlib
 import importlib.util
 import io
@@ -515,6 +516,88 @@ class RunTest(ItemsCase):
         self.change_timeout("120.0")
         _, text = self.run_cli()
         self.assertNotIn("commit --allow-empty", text)
+
+
+class ItemsGateReminderTest(ItemsCase):
+    """R4, R5, N1: an items-gate file item gets the draft-and-label hold line."""
+
+    def test_each_items_gate_file_adds_the_hold_line_before_operator_line(
+        self,
+    ) -> None:
+        paths = (
+            "scripts/mutation_gate_items.py",
+            "scripts/mutation-gate-items.sh",
+            ".github/workflows/mutation-gate-items.yml",
+            "scripts/cosmic_ray_prune.py",
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                self.git("reset", "-q", "--hard", self.base)
+                self.write(path, "x\n")
+                self.commit(f"change {path}")
+                code, text = self.run_cli()
+                lines = text.split("\n")
+                self.assertEqual(code, 1)
+                self.assertEqual(text.count(mgi.ITEMS_GATE_LINE), 1)
+                self.assertEqual(lines[-1], mgi.OPERATOR_LINE)
+                self.assertEqual(lines[-2], mgi.ITEMS_GATE_LINE)
+                self.assertTrue(lines[-3].startswith("uncleared item: "))
+
+    def test_other_gate_file_has_no_hold_line(self) -> None:
+        self.write(
+            ".github/workflows/mutation-pr.yml",
+            MUTATION_PR.format(sha=SHA_OLD, version="v1").replace("tool: x", "tool: y"),
+        )
+        self.commit("change tool")
+        code, text = self.run_cli()
+        self.assertEqual(code, 1)
+        self.assertIn(
+            "uncleared item: gate gate .github/workflows/mutation-pr.yml", text
+        )
+        self.assertNotIn(mgi.ITEMS_GATE_LINE, text)
+
+    def test_non_gate_item_has_no_hold_line(self) -> None:
+        path = self.repo / "sq" / "cosmic-ray.toml"
+        self.write(
+            "sq/cosmic-ray.toml",
+            re.sub(r"timeout = [0-9.]+", "timeout = 120.0", path.read_text()),
+        )
+        self.commit("timeout")
+        code, text = self.run_cli()
+        self.assertEqual(code, 1)
+        self.assertIn("uncleared item: sq python-config", text)
+        self.assertNotIn(mgi.ITEMS_GATE_LINE, text)
+
+    def test_no_items_stays_green(self) -> None:
+        self.write("README", "z\n")
+        self.commit("docs")
+        self.assertEqual(self.run_cli(), (0, "mutation-gate-items: no uncleared items"))
+
+    def test_paths_cover_every_load_sibling_target(self) -> None:
+        tree = ast.parse((ROOT / "scripts" / "mutation_gate_items.py").read_text())
+        names: set[str] = set()
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "_load_sibling"
+            ):
+                self.assertEqual(len(node.args), 1)
+                self.assertEqual(node.keywords, [])
+                arg = node.args[0]
+                self.assertIsInstance(arg, ast.Constant)
+                assert isinstance(arg, ast.Constant)
+                self.assertIsInstance(arg.value, str)
+                names.add(str(arg.value))
+        self.assertEqual(
+            set(mgi.ITEMS_GATE_PATHS),
+            {
+                "scripts/mutation_gate_items.py",
+                "scripts/mutation-gate-items.sh",
+                ".github/workflows/mutation-gate-items.yml",
+            }
+            | {f"scripts/{n}.py" for n in names},
+        )
 
 
 class CliTest(ItemsCase):
