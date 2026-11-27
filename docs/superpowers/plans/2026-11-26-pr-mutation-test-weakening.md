@@ -738,7 +738,7 @@ model: sonnet
 tdd: not-applicable
 requirements: [R35]
 acceptance:
-  - cmd: python3 scripts/claude_md_budget.py
+  - cmd: python3 scripts/claude_md_budget.py HEAD
     exit_code: 0
   - cmd: '[ "$(wc -c < CLAUDE.md)" -le 30000 ]'
     exit_code: 0
