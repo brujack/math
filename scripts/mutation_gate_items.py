@@ -719,7 +719,9 @@ def collect_rust_exclusions(ctx: Context) -> list[Item]:
 # --- Rust hidden-code items (R24, R34) -----------------------------------------------
 
 HIDDEN_KIND = "rust-hidden"
-RUST_FILE_RE = re.compile(r"^([^/]+/[^/]+-rs)/(.+\.rs)$")
+# Every crate `.rs` file except the crate's own tests/, benches/ and examples/ trees:
+# cargo-mutants never mutates those, and a `#[path]` into them is already an item.
+RUST_FILE_RE = re.compile(r"^([^/]+/[^/]+-rs)/(?!(?:tests|benches|examples)/)(.+\.rs)$")
 RAW_STR_RE = re.compile(r'(?:br|cr|r)(#*)"')
 PLAIN_STR_RE = re.compile(r'[bc]?"')
 NUM_RE = re.compile(r"\d\w*(?:\.\d\w*)?")

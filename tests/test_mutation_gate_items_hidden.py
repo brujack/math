@@ -367,15 +367,21 @@ class HiddenItemsTest(HiddenFixtureCase):
         self.edit("README.md", "x\n")
         self.assertEqual(self.hidden(), [])
 
-    def test_every_crate_rs_file_is_scanned_not_only_src(self) -> None:
-        for rel in ("tests/probe.rs", "build.rs", "benches/b.rs", "examples/e.rs"):
+    def test_crate_rs_files_outside_src_are_scanned_except_test_trees(self) -> None:
+        text = "fn t(a: u32) { assert_eq!(a + 1, 2); }\n"
+        for rel, scanned in (
+            ("build.rs", True),
+            ("src/bin/x.rs", True),
+            ("tests/x.rs", False),
+            ("benches/b.rs", False),
+            ("examples/e.rs", False),
+        ):
             with self.subTest(file=rel):
                 self.setUp()
-                self.edit(rel, "fn t() { dbg!(a * b); }\n")
+                self.edit(rel, text)
                 found = self.hidden()
-                self.assertEqual(
-                    [(i.key[1], i.key[2]) for i in found], [(rel, "dbg ! ( a * b )")]
-                )
+                expected = [(rel, "assert_eq ! ( a + 1 , 2 )")] if scanned else []
+                self.assertEqual([(i.key[1], i.key[2]) for i in found], expected)
 
     def test_new_function_rule_covers_src_only(self) -> None:
         self.edit("tests/probe.rs", "fn helper() -> u32 {\n    1\n}\n")
