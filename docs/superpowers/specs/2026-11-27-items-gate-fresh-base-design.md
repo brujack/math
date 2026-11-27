@@ -61,10 +61,11 @@ master commit is passed as BASE.
    - **Before** the admin merge, the operator takes every other open non-draft PR and runs
      `gh pr ready --undo <n>`, then `gh pr edit <n> --add-label gate-hold`. Drafting first
      means the `labeled` auto-merge run always finds a draft and holds:
-     - Auto-merge holds drafts.
-     - `gh pr merge` refuses a draft, so an auto-merge job already polling (up to 90 minutes)
-       cannot merge one on its old items result. A bot PR labelled `automerge-ok` is held the
-       same way.
+     - The label fires a `labeled` auto-merge run, whose `cancel-in-progress` cancels any
+       auto-merge job already polling (up to 90 minutes); the new run finds a draft and holds.
+     - As a backup, `gh pr merge` refuses a draft, so a job that escapes the cancel still
+       cannot merge on its old items result. A bot PR labelled `automerge-ok` is held the same
+       way.
      - The label records exactly which PRs were converted, so the restore step never touches a
        PR that was a draft all along, such as an agent's unfinished work.
    - **After** the merge, the operator runs `gh pr ready <n>` and
@@ -106,6 +107,10 @@ first appears on the gate-file PR after this one.
 - Marking a PR ready cancels its old auto-merge run through `cancel-in-progress`. An old job
   already past `ci-gate.sh` could still call `gh pr merge` in the seconds before the cancel
   lands.
+- A `uses:` pin bump to `mutation-gate-items.yml` is not an item (`only_uses_bumps`), so it
+  changes the items gate's runtime with no red check, no reminder and no hold. The workflow
+  also installs a floating `stable` Rust toolchain, so `cargo mutants --list` output can change
+  with no repository change at all.
 - A non-draft PR opened during the hold, such as a new Renovate PR, is judged by the old gate,
   is never labelled, and can auto-merge before the admin merge lands.
 - How Renovate treats a PR the operator drafted is unmeasured: if it marks the PR ready again
@@ -119,13 +124,20 @@ first appears on the gate-file PR after this one.
     direct docs commits.
   - Under strict, each of those PRs would need `gh pr update-branch` and a full CI rerun, and
     `mutation-pr` alone can take 60 minutes.
-  - Renovate does not rebase a PR that falls behind: #238 saw 56 master commits with no
-    Renovate push between its scheduled push and the operator's reopen.
+  - Renovate does not rebase a PR that falls behind: #238's base fell 53 commits behind master
+    (`git rev-list --count 19cdee3..33e09a2`) with no Renovate push before the operator's
+    reopen.
   - All of that pays to close a window that opens only when a gate-file PR merges.
 - **Close and reopen every open PR.**
   - After the merge, it is too late: an in-flight auto-merge job can merge first.
   - Before the merge, it works but re-fires every workflow on reopen (16 runs on #238) and
     restarts in-flight `mutation-pr` runs. Draft-first re-runs only items and auto-merge.
+- **A `gate-hold` guard in the auto-merge job.** Its hold step could refuse to merge any PR
+  while `gh pr list --label gate-hold` is non-empty, and go red if that query fails. That one
+  check would also cover the agent rule, a PR opened mid-hold and Renovate un-drafting a PR,
+  and it fails closed. It is not taken because it edits `auto-merge.yml` (N3), flips the
+  restore order (labels off first, then ready), and leaves any PR readied mid-hold needing a
+  manual re-ready. It is the next step if the procedure is ever skipped in practice.
 - **Re-judge with a body edit (`edited`).** It re-runs only the items check, but nothing holds
   a polling auto-merge job in the meantime.
 - **Run master's items script inside the auto-merge job before `gh pr merge`.** This closes
@@ -141,10 +153,10 @@ first appears on the gate-file PR after this one.
 - **R2.** The gate step's `run` is exactly `scripts/mutation-gate-items.sh "$(git rev-parse HEAD)" "${HEAD_SHA}"`, its `env` holds `HEAD_SHA: ${{ github.event.pull_request.head.sha }}` and no `BASE_SHA`, and the workflow's set of `run` commands is otherwise unchanged.
 - **R3.** `tests/test_mutation_gate_items_workflow.py` asserts R1 and R2: the checkout ref equals `${{ github.event.pull_request.base.ref }}`, the allow-listed run set contains the R2 line in place of `scripts/mutation-gate-items.sh "${BASE_SHA}" "${HEAD_SHA}"`, the gate step's env has no `BASE_SHA`, and `base.sha` does not occur in the workflow text.
 - **R4.** When any item has target `gate` and a path among `scripts/mutation_gate_items.py`, `scripts/mutation-gate-items.sh`, `.github/workflows/mutation-gate-items.yml` and `scripts/cosmic_ray_prune.py`, `run()` in `scripts/mutation_gate_items.py` returns exit 1 with the line `operator: this PR changes the items gate; before the admin merge, run gh pr ready --undo <n> and then gh pr edit <n> --add-label gate-hold for every other open non-draft PR; after it, run gh pr ready <n> and gh pr edit <n> --remove-label gate-hold for each PR in gh pr list --label gate-hold.` exactly once, after the last `uncleared item:` line and before the existing operator line; for any other set of items that line is absent; item computation is unchanged.
-- **R5.** `tests/test_mutation_gate_items.py` asserts R4: for each of the four items-gate paths, a change to that path alone yields exit 1 and the line once, between the last `uncleared item:` line and the operator line; the items-gate path set equals `scripts/mutation_gate_items.py`, `scripts/mutation-gate-items.sh` and `.github/workflows/mutation-gate-items.yml` plus `scripts/<name>.py` for every `_load_sibling("<name>")` call in `scripts/mutation_gate_items.py`; a changed `.github/workflows/mutation-pr.yml` alone yields exit 1, an `uncleared item: gate` line and no such line; a change yielding only a non-`gate` item yields exit 1, an `uncleared item:` line and no such line; a change yielding no items returns exit 0 and `mutation-gate-items: no uncleared items`.
-- **R6.** Root `CLAUDE.md`'s `mutation-gate-items.yml` line states that the script runs from `base.ref` (master's tip), that around an items-gate admin merge every other open non-draft PR is drafted and labelled `gate-hold` before the merge and readied and unlabelled after it, and that an agent never marks a PR ready while `gh pr list --label gate-hold` lists any PR; the file stays at or under 30,000 bytes.
-- **R7.** `docs/adr/0048-pr-mutation-gates-see-test-weakening.md` gains a line dated 2026-11-27 recording that the items job runs the script from `base.ref`, the reason (math#238's `reopened` payload carried a base 53 commits behind master while an `edited` payload on the same head carried master's tip), the `gate-hold` procedure, and that a tightening of other gate files is not re-judged; `docs/superpowers/README.md` drops the P1 Backlog row "mutation gate: items job runs the gate script from the PR's stale `base.sha`".
-- **V1.** After merge, open a throwaway docs-only PR as a draft and record its API `base.sha`. Land a direct docs commit on master, then confirm `gh api repos/brujack/math/pulls/<n> --jq .base.sha` still equals the recorded value (otherwise record V1 as inconclusive and say so). Close and reopen the PR; it stays a draft, so auto-merge holds it. In the `reopened` items run's log, the line after `git log -1 --format=%H` equals master's tip at run time, not the recorded `base.sha`, and the run passes. Then close the PR and delete its branch.
+- **R5.** `tests/test_mutation_gate_items.py` asserts R4: for each of the four items-gate paths, a change to that path alone yields exit 1 and the line once, between the last `uncleared item:` line and the operator line; the items-gate path set equals `scripts/mutation_gate_items.py`, `scripts/mutation-gate-items.sh` and `.github/workflows/mutation-gate-items.yml` plus `scripts/<name>.py` for every `_load_sibling("<name>")` call in `scripts/mutation_gate_items.py`, found with `ast`, and every `_load_sibling` call takes a single string literal; a changed `.github/workflows/mutation-pr.yml` alone yields exit 1, an `uncleared item: gate` line and no such line; a change yielding only a non-`gate` item yields exit 1, an `uncleared item:` line and no such line; a change yielding no items returns exit 0 and `mutation-gate-items: no uncleared items`.
+- **R6.** Root `CLAUDE.md`'s `mutation-gate-items.yml` line states that the script runs from `base.ref` (master's tip) and that an agent never marks a PR ready while `gh pr list --label gate-hold` lists any PR, and points to ADR-0048 for the hold procedure; its `repro scripts/mutation-gate-items.sh <base> <head>` clause moves to ADR-0048 to make room; the file stays at or under 30,000 bytes.
+- **R7.** `docs/adr/0048-pr-mutation-gates-see-test-weakening.md` gains a line dated 2026-11-27 recording that the items job runs the script from `base.ref`, the reason (math#238's `reopened` payload carried a base 53 commits behind master while an `edited` payload on the same head carried master's tip), the `gate-hold` procedure (draft then label before the admin merge; ready then unlabel after it), the repro `scripts/mutation-gate-items.sh <base> <head>`, and that a tightening of other gate files is not re-judged; `docs/superpowers/README.md` drops the P1 Backlog row "mutation gate: items job runs the gate script from the PR's stale `base.sha`".
+- **V1.** After merge, open a throwaway docs-only PR as a draft and record its API `base.sha`. Land a direct docs commit on master, then confirm `gh api repos/brujack/math/pulls/<n> --jq .base.sha` still equals the recorded value (otherwise record V1 as inconclusive and say so). Close and reopen the PR; it stays a draft, so auto-merge holds it. In the `reopened` items run's log, the line after `git log -1 --format=%H` equals master's tip at run time, not the recorded `base.sha`, and the run passes. The run log does not show the `reopened` payload's base, so if GitHub refreshed it on reopen, V1 shows only that the checkout is master's tip, not that `base.ref` was needed; record V1 as a smoke test in that case. Then close the PR and delete its branch.
 - **V2.** After merge, `gh label list --search gate-hold` shows the `gate-hold` label (create it with `gh label create gate-hold` if absent).
 - **N1.** `scripts/mutation-gate-items.sh` is unchanged, and `scripts/mutation_gate_items.py` changes only in the text `run()` returns.
 - **N2.** Branch protection is unchanged: `strict` stays `false`, and the required contexts, their app ids and `enforce_admins` are as before.
@@ -181,3 +193,23 @@ Reviewed at commit: `cca4296` (round 1); re-run at `1f94d62` (round 2), `09f5e03
 
 - **Risk.** Finding: the items gate omitted `scripts/cosmic_ray_prune.py`, which the script loads with `_load_sibling` and uses in item computation; R5 had a positive case for one path only; a non-draft PR opened during the hold is uncovered. Fixed in `44e4923` (four paths, a `_load_sibling` drift check, a case per path, draft before label, new known limit). Assumption: Renovate does not mark an operator-drafted PR ready during the hold (unmeasured; listed in Known limits).
 - Disposition:
+
+## External Review
+
+### Round 1 (reviewed at `83a0147`)
+
+Report: [round1.md](2026-11-27-items-gate-fresh-base-design.external-review/round1.md)
+
+#### Author response
+
+| finding | disposition | evidence | reviewer verdict | operator (Step 9) |
+| ------- | ----------- | -------- | ---------------- | ----------------- |
+| F1.1 | Fixed | R6 now keeps only `base.ref` and the agent rule inline, points to ADR-0048 for the hold procedure, and moves the repro clause there; R7 records the repro and the procedure. `wc -c < CLAUDE.md` prints `29996`. | unjudged | |
+| F1.2 | Fixed | Rejected alternatives gains the auto-merge `gate-hold` guard and why N3 wins; Design item 2 now names the `labeled` run's `cancel-in-progress` as the main hold and draft refusal as the backup (`auto-merge.yml:17`). | unjudged | |
+| F1.3 | Fixed | Known limits gains the `uses:` pin-bump exemption (`only_uses_bumps`, `scripts/mutation_gate_items.py:1376`, used at 1403) and the floating `stable` toolchain (`mutation-gate-items.yml:49`). | unjudged | |
+| F1.4 | Fixed | V1 now says that if the reopen refreshed the payload, V1 is recorded as a smoke test. | unjudged | |
+| F1.5 | Fixed | R5 now derives the set with `ast` and asserts every `_load_sibling` call takes a single string literal. | unjudged | |
+| F1.6 | Fixed | Rejected alternatives now says 53, with `git rev-list --count 19cdee3..33e09a2`. | unjudged | |
+| F1.7 | Rebutted | The Round 4 disposition is the operator's to record at Step 9; the assistant never authors a disposition. | unjudged | |
+
+Stopped: reviewer recommended stopping in round 1
