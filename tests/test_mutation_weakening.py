@@ -725,6 +725,11 @@ def is_base(command: str) -> bool:
     return "compare-wrapper" in command
 
 
+def base_only_kills(command: str, timeout: float) -> WorkResult:
+    """The base runner kills every mutant; the head tests never do."""
+    return result("killed") if is_base(command) else result("survived")
+
+
 class ReplayCase(FixtureCase):
     def setup_replay(
         self, jobs: dict[str, str], planned: int | None = None, extra: int = 0
@@ -777,7 +782,7 @@ class TestReplayVerdicts(ReplayCase):
 
     def test_killed_by_base_is_weakened_with_exact_block(self) -> None:
         fx = self.setup_replay({"j1": "survived"})
-        code, out, fake = self.run_replay(lambda c, t: result("killed", "x"))
+        code, out, fake = self.run_replay(base_only_kills)
         self.assertEqual(1, code)
         expected = (
             "weakened: 1 mutants killed by base tests survive head tests\n"
@@ -883,7 +888,9 @@ class TestReplayVerdicts(ReplayCase):
 
         def script(command: str, timeout: float) -> WorkResult:
             calls.append(command)
-            return result("killed") if len(calls) == 1 else result("survived")
+            if len(calls) <= 3:
+                return result("killed") if is_base(command) else result("survived")
+            return result("survived")
 
         code, out, _ = self.run_replay(script)
         self.assertEqual(1, code)
@@ -944,7 +951,7 @@ class TestTimeoutRerun(ReplayCase):
         self.assertFalse(is_base(fake.calls[1][0]))
         self.assertTrue(is_base(fake.calls[2][0]))
 
-    def test_head_also_kills_at_double_is_not_counted(self) -> None:
+    def test_head_also_kills_at_double_is_flaky(self) -> None:
         self.setup_replay({"j1": "survived"})
 
         def script(command: str, timeout: float) -> WorkResult:
@@ -953,9 +960,9 @@ class TestTimeoutRerun(ReplayCase):
             return result("killed", "timeout")
 
         code, out, _ = self.run_replay(script)
-        self.assertEqual((0, ""), (code, out))
+        self.assertEqual((0, f"flaky: {MUL_ADD}@0\n"), (code, out))
 
-    def test_base_survives_at_double_is_not_counted(self) -> None:
+    def test_base_survives_at_double_is_flaky(self) -> None:
         self.setup_replay({"j1": "survived"})
 
         def script(command: str, timeout: float) -> WorkResult:
@@ -964,7 +971,7 @@ class TestTimeoutRerun(ReplayCase):
             return result("survived")
 
         code, out, _ = self.run_replay(script)
-        self.assertEqual((0, ""), (code, out))
+        self.assertEqual((0, f"flaky: {MUL_ADD}@0\n"), (code, out))
 
     def test_rerun_failure_is_replay_failed(self) -> None:
         self.setup_replay({"j1": "survived"})
@@ -994,9 +1001,102 @@ class TestTimeoutRerun(ReplayCase):
         )
         self.assertNotIn("weakened", out)
 
-    def test_ordinary_kill_does_not_rerun(self) -> None:
+    def test_ordinary_kill_confirms_at_the_same_timeout(self) -> None:
         self.setup_replay({"j1": "survived"})
-        _, _, fake = self.run_replay(lambda c, t: result("killed", "FAIL"))
+        _, _, fake = self.run_replay(base_only_kills)
+        self.assertEqual([30.0, 30.0, 30.0], [t for _, t in fake.calls])
+
+
+class TestConfirmation(ReplayCase):
+    """Every base kill is replayed once more under both arms (R14)."""
+
+    def scripted(self, *steps: str):
+        """A mutate script answering call n with steps[n]: 'kill' or 'survive'."""
+        calls: list[str] = []
+
+        def script(command: str, timeout: float) -> WorkResult:
+            step = steps[len(calls)]
+            calls.append(command)
+            return result("killed" if step == "kill" else "survived")
+
+        return script
+
+    def test_kill_twice_head_survives_twice_is_weakened(self) -> None:
+        self.setup_replay({"j1": "survived"})
+        script = self.scripted("kill", "survive", "kill")
+        code, out, fake = self.run_replay(script)
+        self.assertEqual(1, code)
+        self.assertTrue(out.startswith("weakened: 1 mutants"))
+        self.assertNotIn("flaky", out)
+        self.assertEqual(
+            [True, False, True], [is_base(command) for command, _ in fake.calls]
+        )
+        self.assertEqual([30.0, 30.0, 30.0], [t for _, t in fake.calls])
+
+    def test_base_kills_then_survives_is_flaky_and_green(self) -> None:
+        self.setup_replay({"j1": "survived"})
+        code, out, _ = self.run_replay(self.scripted("kill", "survive", "survive"))
+        self.assertEqual((0, f"flaky: {MUL_ADD}@0\n"), (code, out))
+
+    def test_head_survives_then_kills_is_flaky(self) -> None:
+        self.setup_replay({"j1": "survived"})
+        code, out, _ = self.run_replay(self.scripted("kill", "kill", "kill"))
+        self.assertEqual((0, f"flaky: {MUL_ADD}@0\n"), (code, out))
+
+    def test_flaky_mutant_is_not_counted_beside_a_weakened_one(self) -> None:
+        self.setup_replay({"j1": "survived", "j2": "survived"})
+        steps = ("kill", "survive", "survive", "kill", "survive", "kill")
+        code, out, _ = self.run_replay(self.scripted(*steps))
+        self.assertEqual(1, code)
+        self.assertIn(f"flaky: {MUL_ADD}@0\n", out)
+        self.assertIn("weakened: 1 mutants", out)
+        self.assertIn(f"JOB={MUL_ADD}@1\n", out)
+
+    def test_timeout_kill_confirms_at_double_timeout(self) -> None:
+        self.setup_replay({"j1": "survived"})
+
+        def script(command: str, timeout: float) -> WorkResult:
+            if timeout == 30.0:
+                return result("killed", "timeout")
+            return result("killed") if is_base(command) else result("survived")
+
+        code, out, fake = self.run_replay(script)
+        self.assertEqual(1, code)
+        self.assertIn("weakened: 1 mutants", out)
+        self.assertEqual([30.0, 60.0, 60.0], [t for _, t in fake.calls])
+
+    def test_runner_fault_on_confirmation_is_replay_failed(self) -> None:
+        self.setup_replay({"j1": "survived"})
+        calls: list[str] = []
+
+        def script(command: str, timeout: float) -> WorkResult:
+            calls.append(command)
+            if len(calls) == 3:
+                verdict_of(command).write_text("fault:runner exit 3")
+            return result("killed" if is_base(command) else "survived")
+
+        code, out, _ = self.run_replay(script)
+        self.assertEqual(1, code)
+        self.assertIn("replay failed: runner fault\n  mutant ", out)
+        self.assertNotIn("weakened", out)
+
+    def test_head_failure_on_confirmation_is_replay_failed(self) -> None:
+        self.setup_replay({"j1": "survived"})
+        calls: list[str] = []
+
+        def script(command: str, timeout: float) -> WorkResult:
+            calls.append(command)
+            if len(calls) == 2:
+                return result("incompetent")
+            return result("killed")
+
+        code, out, _ = self.run_replay(script)
+        self.assertEqual(1, code)
+        self.assertIn("replay failed: incompetent", out)
+
+    def test_base_survival_is_not_confirmed(self) -> None:
+        self.setup_replay({"j1": "survived"})
+        _, _, fake = self.run_replay(lambda c, t: result("survived"))
         self.assertEqual(1, len(fake.calls))
 
 

@@ -328,6 +328,7 @@ class Arm:
 class Verdict:
     failure: str | None = None
     weakened: bool = False
+    flaky: bool = False
 
 
 @dataclass
@@ -335,6 +336,7 @@ class Tally:
     replayed: int = 0
     failures: list[tuple[str, str]] = field(default_factory=list)
     weakened: list[Survivor] = field(default_factory=list)
+    flaky: list[Survivor] = field(default_factory=list)
     ran: int = 0
     survivors: int = 0
 
@@ -428,16 +430,19 @@ class Replayer:
         arm = arm_from_result(result)
         return self.verdict_problem(arm) if base else arm
 
-    def timeout_rerun(self, survivor: Survivor) -> Verdict:
-        """R14: a base kill by timeout counts only if, at twice the timeout, the base
-        runner still kills it and the head tests do not."""
-        longer = self.timeout * TIMEOUT_RERUN_FACTOR
+    def confirm(self, survivor: Survivor, timed_out: bool) -> Verdict:
+        """R14: replay a base kill once more under the head tests and the base runner (at
+        twice the timeout after a timeout kill). It is a weakening only if the base kills
+        again and the head survives again; any disagreement is flaky, not counted."""
+        longer = self.timeout * (TIMEOUT_RERUN_FACTOR if timed_out else 1)
         head = self.run_arm(survivor, self.head_command, longer)
         base = self.run_arm(survivor, self.base_command, longer, base=True)
         failure = head.failure or base.failure
         if failure:
             return Verdict(failure=failure)
-        return Verdict(weakened=base.killed and not head.killed)
+        if base.killed and not head.killed:
+            return Verdict(weakened=True)
+        return Verdict(flaky=True)
 
     def judge(self, survivor: Survivor) -> Verdict:
         base = self.run_arm(survivor, self.base_command, self.timeout, base=True)
@@ -445,9 +450,7 @@ class Replayer:
             return Verdict(failure=base.failure)
         if not base.killed:
             return Verdict()
-        if base.timed_out:
-            return self.timeout_rerun(survivor)
-        return Verdict(weakened=True)
+        return self.confirm(survivor, base.timed_out)
 
     def replay(self, survivors: Iterable[Survivor]) -> Tally:
         tally = Tally()
@@ -461,6 +464,8 @@ class Replayer:
             tally.replayed += 1
             if verdict.weakened:
                 tally.weakened.append(survivor)
+            if verdict.flaky:
+                tally.flaky.append(survivor)
         return tally
 
 
@@ -520,6 +525,8 @@ def report_replay(args: argparse.Namespace, tally: Tally) -> int:
     for failure, job_id in tally.failures:
         print(f"replay failed: {failure}")
         print(f"  mutant {job_id}")
+    for survivor in tally.flaky:
+        print(f"flaky: {survivor.mutant_key}")
     if tally.weakened:
         print_weakened(tally, subdir, args.base)
     line = completeness_line(tally.ran, args.planned, tally.replayed, tally.survivors)
