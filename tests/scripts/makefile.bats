@@ -1461,9 +1461,10 @@ case "$1" in
         exit "${STUB_BASELINE_RC:-0}" ;;
     init)
         # The real init creates the session; later steps and the copy-back depend on it.
-        printf 'I' > cosmic-ray-session.sqlite
+        printf 'I' > "${3:-cosmic-ray-session.sqlite}"
         exit "${STUB_INIT_RC:-0}" ;;
     exec)
+        printf 'exec hashseed=%s dontwrite=%s pythonpath=%s\n' "${PYTHONHASHSEED}" "${PYTHONDONTWRITEBYTECODE}" "${PYTHONPATH}" >> "${CALLS}.env"
         # A killed test never drops its tempfile dir; it must land under TMPDIR, not /tmp.
         if [ -n "${STUB_EXEC_LEAK}" ]; then mkdir "${TMPDIR}/tmpLEAK" && printf x > "${TMPDIR}/tmpLEAK/fib_1e5.txt"; fi
         [ -n "${STUB_EXEC_MUTATE}" ] && printf 'MUTATED\n' >> fib.py
@@ -1493,6 +1494,29 @@ STUB
 #!/bin/bash
 printf 'python3 %s ulimit=%s\n' "$*" "$(ulimit -v)" >> "${CALLS}"
 case "$*" in
+    *mutation_hypothesis_profile*)
+        case "$2" in
+            write) mkdir -p "$3" && : > "$3/sitecustomize.py" ;;
+            preflight)
+                if [ -n "${STUB_PREFLIGHT_RC}" ]; then printf 'hypothesis profile not active (hypothesis 9.9.9)\n' >&2; exit "${STUB_PREFLIGHT_RC}"; fi ;;
+        esac
+        exit 0 ;;
+    *mutation_weakening*)
+        printf '%s %s\n' "$2" "$*" >> "${CALLS}.weak"
+        {
+            printf '%s tmpdir=%s hashseed=%s dontwrite=%s pythonpath=%s\n' "$2" "${TMPDIR}" "${PYTHONHASHSEED}" "${PYTHONDONTWRITEBYTECODE}" "${PYTHONPATH}"
+        } >> "${CALLS}.weakenv"
+        if [ "$2" = judge ]; then
+            # The copy as judge sees it: the file names it holds and the directory's own name.
+            ls -A "$4" | tr '\n' ' ' > "${BATS_TEST_TMPDIR}/judge-ls"
+            printf '%s\n' "$4" > "${BATS_TEST_TMPDIR}/judge-dir"
+            [ "${STUB_JUDGE_RC:-0}" = 3 ] && printf 'no base test file: weakening check skipped\n'
+            exit "${STUB_JUDGE_RC:-0}"
+        fi
+        [ "${STUB_REPLAY_RC:-0}" != 0 ] && printf 'weakened: 1 mutants killed by base tests survive head tests\n'
+        exit "${STUB_REPLAY_RC:-0}" ;;
+    *mutation_specs*) exit "${STUB_JOB_RC:-0}" ;;
+    *work_items*) printf '7\n'; exit 0 ;;
     *cosmic_ray_cell_status*)
         {
             printf 'pwd=%s\n' "${PWD}"
@@ -2393,4 +2417,192 @@ _pd_order() {
     STUB_CR_FAIL=1 run _pd_make -C "${PROJ}" mutants
     [ "${status}" -eq 2 ]
     [ "$(cat "${PROJ}/mutants-report.txt")" = "partial" ]
+}
+
+# mutants-weakening: the PR weakening check (R7, R31). The python3 stub answers the profile, judge,
+# replay and sqlite helpers; STUB_PREFLIGHT_RC, STUB_JUDGE_RC, STUB_REPLAY_RC and STUB_JOB_RC steer
+# them. The project directory is a throwaway git repository so "writes nothing tracked" is measured
+# by git, not assumed.
+_weak_setup() {
+    _py_stub_setup
+    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
+    unset BASE PR HEAD_SHA JOB PLANNED
+    BASE_SHA="$(printf 'a%.0s' {1..40})"
+    : > "${BATS_TEST_TMPDIR}/scripts/mutation_hypothesis_profile.py"
+    : > "${BATS_TEST_TMPDIR}/scripts/mutation_weakening.py"
+    : > "${BATS_TEST_TMPDIR}/scripts/cosmic_ray_prune.py"
+    cat > "${BATS_TEST_TMPDIR}/scripts/mutation-whole-module-diff.sh" <<'STUB'
+#!/bin/bash
+printf 'whole-diff %s %s\n' "$1" "$2" >> "${CALLS}"
+printf 'DIFF\n' > "$2"
+STUB
+    printf '.mutants-tmp/\ncosmic-ray-*.sqlite\n' > "${STUBDIR}/.gitignore"
+    : > "${CALLS}.weak"
+    git -C "${STUBDIR}" init -q
+    git -C "${STUBDIR}" add -- .gitignore Makefile fib.py test_fib.py cosmic-ray.toml mutants-equivalent.toml
+    git -C "${STUBDIR}" -c user.name=t -c user.email=t@example.com commit -q -m fixture
+}
+
+_weak_make() {
+    _py_make mutants-weakening BASE="${BASE_SHA}" "$@"
+}
+
+@test "make mutants-weakening without BASE errors before anything runs" {
+    _weak_setup
+    run _py_make mutants-weakening MUTANT_SHARD=0/2
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"BASE is required"* ]]
+    [ ! -s "${CALLS}" ]
+}
+
+@test "make mutants-weakening rejects a non-hex BASE, and needs exactly one of MUTANT_SHARD and JOB" {
+    _weak_setup
+    run _py_make mutants-weakening BASE='x;y' MUTANT_SHARD=0/2
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"BASE must be a lowercase hex sha"* ]]
+    run _weak_make
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"MUTANT_SHARD=<k>/<n> or JOB=<job id> is required"* ]]
+    run _weak_make MUTANT_SHARD=0/2 JOB=abc
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"mutually exclusive"* ]]
+    [ ! -s "${CALLS}" ]
+}
+
+@test "make mutants-weakening runs the head session and the python steps with the pinned environment" {
+    _weak_setup
+    run _weak_make MUTANT_SHARD=0/2
+    [ "${status}" -eq 0 ]
+    local exec_env judge_env profile
+    exec_env="$(grep '^exec hashseed=' "${CALLS}.env")"
+    [[ "${exec_env}" == "exec hashseed=0 dontwrite=1 pythonpath="*"/.mutants-tmp/weakening-"*"/profile" ]]
+    judge_env="$(grep '^judge ' "${CALLS}.weakenv")"
+    [[ "${judge_env}" == "judge tmpdir="*"/.mutants-tmp/weakening-"*"/tmp hashseed=0 dontwrite=1 pythonpath="*"/profile" ]]
+    # PYTHONPATH holds the profile directory alone: no colon-joined entry.
+    profile="${judge_env##*pythonpath=}"
+    [[ "${profile}" != *:* ]]
+    [ "$(grep -c 'ulimit=8388608' "${CALLS}")" -gt 0 ]
+    _assert_no_call '^python3 -[IES]'
+}
+
+@test "make mutants-weakening runs write, preflight, the diff, the head session, judge, then replay" {
+    _weak_setup
+    run _weak_make MUTANT_SHARD=1/4
+    [ "${status}" -eq 0 ]
+    local w p d e j r
+    w="$(_calls_line 'mutation_hypothesis_profile.py write')"
+    p="$(_calls_line 'mutation_hypothesis_profile.py preflight')"
+    d="$(_calls_line '^whole-diff ')"
+    e="$(_calls_line '^cosmic-ray exec ')"
+    j="$(_calls_line 'mutation_weakening.py judge')"
+    r="$(_calls_line 'mutation_weakening.py replay')"
+    [ -n "${w}" ] && [ -n "${p}" ] && [ -n "${d}" ] && [ -n "${e}" ] && [ -n "${j}" ] && [ -n "${r}" ]
+    [ "${w}" -lt "${p}" ]
+    [ "${p}" -lt "${d}" ]
+    [ "${d}" -lt "${e}" ]
+    [ "${e}" -lt "${j}" ]
+    [ "${j}" -lt "${r}" ]
+    grep -q -- '--after-head' <<<"$(sed -n "${j}p" "${CALLS}")"
+    grep -q -- "cosmic_ray_shard.py .* 1 4" "${CALLS}"
+    grep -q -- "--shard 1/4 --planned 7 --base ${BASE_SHA}" "${CALLS}"
+}
+
+@test "make mutants-weakening stops red at a failed preflight with its message, before the session" {
+    _weak_setup
+    STUB_PREFLIGHT_RC=1 run _weak_make MUTANT_SHARD=0/2
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"hypothesis profile not active (hypothesis 9.9.9)"* ]]
+    _assert_no_call '^cosmic-ray exec '
+    _assert_no_call 'mutation_weakening.py'
+    [ -z "$(ls -A "${STUBDIR}/.mutants-tmp")" ]
+}
+
+@test "make mutants-weakening stops green without replay when judge skips for no base test file" {
+    _weak_setup
+    STUB_JUDGE_RC=3 run _weak_make MUTANT_SHARD=0/2
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *"no base test file: weakening check skipped"* ]]
+    _assert_no_call 'mutation_weakening.py replay'
+}
+
+@test "make mutants-weakening is red without replay when judge exits 1 or 4" {
+    _weak_setup
+    local rc
+    for rc in 1 4; do
+        : > "${CALLS}"
+        STUB_JUDGE_RC="${rc}" run _weak_make MUTANT_SHARD=0/2
+        [ "${status}" -ne 0 ]
+        _assert_no_call 'mutation_weakening.py replay'
+    done
+}
+
+@test "make mutants-weakening is red when replay is, and passes its summary through" {
+    _weak_setup
+    STUB_REPLAY_RC=1 run _weak_make MUTANT_SHARD=0/2
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"weakened: 1 mutants killed by base tests survive head tests"* ]]
+}
+
+@test "make mutants-weakening still judges and replays after a red head session, and exits red" {
+    _weak_setup
+    STUB_STATUS_RC=1 run _weak_make MUTANT_SHARD=0/2
+    [ "${status}" -ne 0 ]
+    grep -q 'mutation_weakening.py judge' "${CALLS}"
+    grep -q 'mutation_weakening.py replay' "${CALLS}"
+}
+
+@test "make mutants-weakening JOB= trims the session to that job and replays one planned job" {
+    _weak_setup
+    run _weak_make JOB=abc123
+    [ "${status}" -eq 0 ]
+    _assert_no_call 'cosmic_ray_shard'
+    grep -qE 'python3 -c .*mutation_specs.* abc123$' "${CALLS}" || grep -q 'mutation_specs' "${CALLS}"
+    grep -q -- '--shard 0/1 --planned 1 ' "${CALLS}"
+}
+
+@test "make mutants-weakening JOB= is red when the job is not in the session" {
+    _weak_setup
+    STUB_JOB_RC=1 run _weak_make JOB=nosuchjob
+    [ "${status}" -ne 0 ]
+    _assert_no_call 'mutation_weakening.py replay'
+}
+
+@test "make mutants-weakening passes PR, HEAD_SHA and PLANNED to replay, and omits them when unset" {
+    _weak_setup
+    run _weak_make MUTANT_SHARD=0/2
+    [ "${status}" -eq 0 ]
+    _assert_no_call 'replay .*--pr '
+    _assert_no_call 'replay .*--head '
+    : > "${CALLS}"
+    run _weak_make MUTANT_SHARD=0/2 PR=12 HEAD_SHA=deadbeef PLANNED=5
+    [ "${status}" -eq 0 ]
+    grep -q -- 'replay .*--planned 5 .*--pr 12 --head deadbeef' "${CALLS}"
+}
+
+@test "make mutants-weakening runs every step on a copy named like the project directory" {
+    _weak_setup
+    run _weak_make MUTANT_SHARD=0/2
+    [ "${status}" -eq 0 ]
+    local copy
+    copy="$(cat "${BATS_TEST_TMPDIR}/judge-dir")"
+    [ "$(basename "${copy}")" = fib ]
+    [[ "${copy}" == "${STUBDIR}/.mutants-tmp/weakening-"*"/fib" ]]
+    [ "$(cat "${BATS_TEST_TMPDIR}/judge-ls")" = "cosmic-ray.toml fib.py mutants-equivalent.toml test_fib.py " ]
+}
+
+@test "make mutants-weakening leaves the tracked directory and its ignored files untouched" {
+    _weak_setup
+    run _weak_make MUTANT_SHARD=0/2
+    [ "${status}" -eq 0 ]
+    [ -z "$(git -C "${STUBDIR}" status --porcelain --ignored .)" ]
+    [ "$(cat "${STUBDIR}/fib.py")" = ORIGINAL ]
+}
+
+@test "make mutants-clean removes the work directory a killed weakening run left" {
+    _weak_setup
+    mkdir -p "${STUBDIR}/.mutants-tmp/weakening-1.AbCdEf/fib"
+    : > "${STUBDIR}/.mutants-tmp/weakening-1.AbCdEf/fib/head.sqlite"
+    run _py_make mutants-clean
+    [ "${status}" -eq 0 ]
+    [ ! -e "${STUBDIR}/.mutants-tmp" ]
 }

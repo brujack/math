@@ -1,4 +1,4 @@
-.PHONY: run lint test coverage mutants mutants-baseline mutants-diff-plan mutants-diff mutants-report mutants-clean clean
+.PHONY: run lint test coverage mutants mutants-baseline mutants-diff-plan mutants-diff mutants-weakening mutants-report mutants-clean clean
 
 # Set only when ruff answers --version, so a ruff that is on PATH but not runnable is skipped, not an Error 127.
 RUFF := $(shell ruff --version >/dev/null 2>&1 && command -v ruff)
@@ -73,7 +73,9 @@ export DIFF_ABS STATUS_OUT_ABS SURVIVORS_OUT_ABS
 # their tempfile dirs would otherwise leak; here cleanup removes them with the scratch copy.
 MUTANTS_BODY = $(MUTANTS_CAP); \
 	  proj="$$(pwd)"; \
-	  if [ "$$MODE" != plan ]; then rm -f "$$SESSION" "$$SESSION-journal" "$$REPORT" || exit 1; fi; \
+	  out="$${OUT_DIR:-$$proj}"; sp="$$SESSION"; rp="$$REPORT"; \
+	  if [ -n "$${OUT_DIR}" ]; then sp="$$OUT_DIR/$$SESSION"; rp="$$OUT_DIR/$$REPORT"; fi; \
+	  if [ "$$MODE" != plan ]; then rm -f "$$sp" "$$sp-journal" "$$rp" || exit 1; fi; \
 	  mkdir -p "$$proj/.mutants-tmp" || exit 1; \
 	  work="$$(mktemp -d "$$proj/.mutants-tmp/$$WORK-amicable.XXXXXX")" || exit 1; \
 	  cleanup() { \
@@ -81,10 +83,10 @@ MUTANTS_BODY = $(MUTANTS_CAP); \
 	    ok=1; \
 	    if [ "$$MODE" != plan ]; then \
 	      if [ -f "$$work/amicable/$$SESSION" ]; then \
-	        cp -- "$$work/amicable/$$SESSION"* "$$proj/" || ok=; \
+	        cp -- "$$work/amicable/$$SESSION"* "$$out/" || ok=; \
 	      fi; \
 	      if [ -f "$$work/amicable/$$REPORT" ]; then \
-	        cp -- "$$work/amicable/$$REPORT" "$$proj/" || ok=; \
+	        cp -- "$$work/amicable/$$REPORT" "$$out/" || ok=; \
 	      fi; \
 	    fi; \
 	    if [ -n "$$ok" ]; then rm -rf -- "$$work"; \
@@ -113,12 +115,15 @@ MUTANTS_BODY = $(MUTANTS_CAP); \
 	    if [ -n "$${bad}" ]; then printf "error: MUTANT_SHARD must be k/n, got %s\n" "$${MUTANT_SHARD}" >&2; exit 1; fi; \
 	    python3 ../scripts/cosmic_ray_shard.py "$$SESSION" "$$(printf %s "$${MUTANT_SHARD}" | cut -d/ -f1)" "$$(printf %s "$${MUTANT_SHARD}" | cut -d/ -f2)" || exit 1; \
 	  fi; \
+	  if [ -n "$${MUTANT_JOB}" ]; then \
+	    python3 -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute(\"DELETE FROM mutation_specs WHERE job_id != ?\",(sys.argv[2],)); c.execute(\"DELETE FROM work_items WHERE job_id != ?\",(sys.argv[2],)); c.commit(); n=c.execute(\"SELECT count(*) FROM work_items\").fetchone()[0]; sys.exit(None if n==1 else \"error: JOB \"+sys.argv[2]+\" is not a job of this session\")" "$$SESSION" "$${MUTANT_JOB}" || exit 64; \
+	  fi; \
 	  cosmic-ray exec cosmic-ray.toml "$$SESSION" || exit 1; \
 	  cr-report "$$SESSION" --show-output --show-diff > "$$REPORT" || exit 1; \
 	  cr-report "$$SESSION" | tail -5; \
-	  cp -- "$$SESSION" "$$REPORT" "$$proj/" || exit 1; \
+	  cp -- "$$SESSION" "$$REPORT" "$$out/" || exit 1; \
 	  cd "$$proj" || exit 1; \
-	  set -- "$$SESSION" "$${CELL_LABEL}"; \
+	  set -- "$$sp" "$${CELL_LABEL}"; \
 	  if [ "$$MODE" = full ]; then \
 	    if [ -n "$${STATUS_OUT}" ]; then set -- "$$@" --out "$${STATUS_OUT}"; fi; \
 	    if [ -n "$${SURVIVORS_OUT}" ]; then set -- "$$@" --survivors "$${SURVIVORS_OUT}"; fi; \
@@ -152,6 +157,58 @@ mutants-diff:
 	@$(DIFF_GUARD)
 	@$(MAKE) --no-print-directory mutants-baseline
 	@env MODE=exec WORK=mutants-diff SESSION=cosmic-ray-diff-session.sqlite REPORT=mutants-diff-report.txt bash -c '$(MUTANTS_BODY)'
+
+# The PR weakening check (R7, R31): the head session is the mutants-diff exec path fed the whole-module
+# diff (its job set equals the planner's), then judge and replay run on a per-run copy. Everything
+# lives under .mutants-tmp/weakening-<pid>.*, removed on exit, so nothing in the tracked tree is
+# written (N5). The head session writes into the copy through OUT_DIR, and MUTANT_JOB (from JOB)
+# trims it to one job before exec (exit 64 when the job is absent, which stops the run). A red head session does not stop the judge and replay, whose
+# summary is still wanted; the target exits non-zero when any step is red.
+#   BASE (hex sha) and exactly one of MUTANT_SHARD=<k>/<n> or JOB=<job id> are required;
+#   PLANNED (default: the head session's job count, or 1 for JOB), PR and HEAD_SHA are optional.
+WEAKENING_GUARD = if [ -z "$$BASE" ]; then printf "error: BASE is required: BASE=<merge-base sha>\n" >&2; exit 1; fi; \
+	  case "$$BASE" in *[!0-9a-f]*) printf "error: BASE must be a lowercase hex sha, got %s\n" "$$BASE" >&2; exit 1 ;; esac; \
+	  case "$$HEAD_SHA" in *[!0-9a-f]*) printf "error: HEAD_SHA must be a lowercase hex sha, got %s\n" "$$HEAD_SHA" >&2; exit 1 ;; esac; \
+	  case "$$PR$$PLANNED" in *[!0-9]*) printf "error: PR and PLANNED must be decimal numbers\n" >&2; exit 1 ;; esac; \
+	  case "$$JOB" in *[!0-9a-zA-Z-]*) printf "error: JOB must hold only letters, digits and -, got %s\n" "$$JOB" >&2; exit 1 ;; esac; \
+	  if [ -z "$$MUTANT_SHARD" ] && [ -z "$$JOB" ]; then printf "error: MUTANT_SHARD=<k>/<n> or JOB=<job id> is required\n" >&2; exit 1; fi; \
+	  if [ -n "$$MUTANT_SHARD" ] && [ -n "$$JOB" ]; then printf "error: MUTANT_SHARD and JOB are mutually exclusive\n" >&2; exit 1; fi
+
+WEAKENING_BODY = $(MUTANTS_CAP); \
+	  proj="$$(pwd)"; \
+	  repo="$$(cd .. && pwd)" || exit 1; \
+	  mkdir -p "$$proj/.mutants-tmp" || exit 1; \
+	  w="$$(mktemp -d "$$proj/.mutants-tmp/weakening-$$$$.XXXXXX")" || exit 1; \
+	  cleanup() { trap "" TERM HUP INT; rm -rf -- "$$w"; }; \
+	  trap cleanup EXIT; trap "exit 143" TERM; trap "exit 129" HUP; \
+	  copy="$$w/amicable"; \
+	  mkdir "$$copy" "$$w/tmp" "$$w/profile" "$$w/out" "$$w/work" || exit 1; \
+	  cp -- amicable.py test_amicable.py cosmic-ray.toml "$$copy/" || exit 1; \
+	  if [ -f mutants-equivalent.toml ]; then cp -- mutants-equivalent.toml "$$copy/" || exit 1; fi; \
+	  export TMPDIR="$$w/tmp" PYTHONHASHSEED=0 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$$w/profile"; \
+	  python3 ../scripts/mutation_hypothesis_profile.py write "$$w/profile" || exit 1; \
+	  python3 ../scripts/mutation_hypothesis_profile.py preflight "$$w/profile" || exit 1; \
+	  bash ../scripts/mutation-whole-module-diff.sh "$$proj" "$$w/whole.diff" || exit 1; \
+	  red=0; \
+	  env MODE=exec WORK=weakening SESSION=head.sqlite REPORT=head-report.txt OUT_DIR="$$w/out" DIFF_ABS="$$w/whole.diff" bash -c "$$HEAD_BODY"; hrc=$$?; \
+	  if [ "$$hrc" -eq 64 ]; then exit 1; fi; \
+	  if [ "$$hrc" -ne 0 ]; then red=1; fi; \
+	  if [ ! -f "$$w/out/head.sqlite" ]; then printf "error: the head session left no session file\n" >&2; exit 1; fi; \
+	  python3 ../scripts/mutation_weakening.py judge --dir "$$copy" --base "$$BASE" --work "$$w/work" --after-head --repo "$$repo"; rc=$$?; \
+	  case "$$rc" in 0) ;; 3) exit "$$red" ;; *) exit 1 ;; esac; \
+	  if [ -n "$${PLANNED}" ]; then planned="$$PLANNED"; \
+	  elif [ -n "$${MUTANT_JOB}" ]; then planned=1; \
+	  else planned="$$(python3 -c "import sqlite3,sys; print(sqlite3.connect(sys.argv[1]).execute(\"SELECT count(*) FROM work_items\").fetchone()[0])" "$$w/out/head.sqlite")" || exit 1; fi; \
+	  set -- --dir "$$copy" --session "$$w/out/head.sqlite" --shard "$${MUTANT_SHARD:-0/1}" --planned "$$planned" --base "$$BASE" --work "$$w/work" --repo "$$repo"; \
+	  if [ -n "$${PR}" ]; then set -- "$$@" --pr "$$PR"; fi; \
+	  if [ -n "$${HEAD_SHA}" ]; then set -- "$$@" --head "$$HEAD_SHA"; fi; \
+	  python3 ../scripts/mutation_weakening.py replay "$$@" || exit 1; \
+	  exit "$$red"
+
+mutants-weakening:
+	@$(WEAKENING_GUARD)
+	@$(MAKE) --no-print-directory mutants-baseline
+	@env MUTANT_JOB="$$JOB" HEAD_BODY='$(MUTANTS_BODY)' bash -c '$(WEAKENING_BODY)'
 
 mutants-report:
 	@cr-report cosmic-ray-session.sqlite --show-output --show-diff > mutants-report.txt
