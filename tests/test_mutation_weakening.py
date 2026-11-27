@@ -1,9 +1,12 @@
 """Tests for scripts/mutation_weakening.py judge (R8, R12, R17), over temp git repos."""
 
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import pathlib
+import shlex
 import shutil
 import signal
 import subprocess
@@ -12,6 +15,15 @@ import tempfile
 import time
 import unittest
 from unittest import mock
+
+from cosmic_ray.work_db import WorkDB, use_db
+from cosmic_ray.work_item import (
+    MutationSpec,
+    TestOutcome,
+    WorkerOutcome,
+    WorkItem,
+    WorkResult,
+)
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "mutation_weakening.py"
@@ -623,6 +635,462 @@ class TestInfrastructure(FixtureCase):
             )
             with mock.patch("builtins.print"):
                 self.assertEqual(4, weakening.judge(args))
+
+
+SIGNERS = ".github/mutation-gate-allowed-signers"
+MUL_ADD = "core/ReplaceBinaryOperator_Mul_Add"
+STRONG_TEST = (
+    "import unittest\n\nfrom sq import square\n\n\n"
+    "class T(unittest.TestCase):\n"
+    "    def test_a(self):\n        self.assertEqual(9, square(3))\n"
+)
+WEAK_TEST = (
+    "import unittest\n\nfrom sq import square\n\n\n"
+    "class T(unittest.TestCase):\n"
+    "    def test_a(self):\n        self.assertEqual(4, square(2))\n"
+)
+DIFF = "--- sq.py\n+++ sq.py\n@@ -1,2 +1,2 @@\n-    return x * x\n+    return x + x"
+
+
+def make_session(
+    path: pathlib.Path, jobs: dict[str, str], planned_extra: int = 0
+) -> None:
+    """A real cosmic-ray sqlite session: job id -> test outcome ('survived'/'killed')."""
+    with use_db(str(path), WorkDB.Mode.create) as db:
+        for number, (job_id, outcome) in enumerate(jobs.items()):
+            spec = MutationSpec(
+                module_path=pathlib.Path("sq.py"),
+                operator_name=MUL_ADD,
+                occurrence=number,
+                start_pos=(2, 11),
+                end_pos=(2, 16),
+            )
+            db.add_work_item(WorkItem.single(job_id, spec))
+            db.set_result(
+                job_id,
+                WorkResult(
+                    worker_outcome=WorkerOutcome.NORMAL,
+                    test_outcome=TestOutcome(outcome),
+                    diff=DIFF,
+                    output="",
+                ),
+            )
+        for number in range(planned_extra):
+            db.add_work_item(
+                WorkItem.single(
+                    f"pending-{number}",
+                    MutationSpec(pathlib.Path("sq.py"), MUL_ADD, 0, (2, 11), (2, 16)),
+                )
+            )
+
+
+def sentinel_of(command: str) -> pathlib.Path:
+    parts = shlex.split(command)
+    return pathlib.Path(parts[parts.index("--sentinel") + 1])
+
+
+def result(test: str | None, output: str = "", worker: str = "normal") -> WorkResult:
+    return WorkResult(
+        worker_outcome=WorkerOutcome(worker),
+        test_outcome=TestOutcome(test) if test else None,
+        output=output,
+        diff="",
+    )
+
+
+class FakeMutate:
+    """A mutate_and_test seam: `script(command, timeout)` returns a WorkResult."""
+
+    def __init__(self, script) -> None:
+        self.script = script
+        self.calls: list[tuple[str, float]] = []
+
+    def __call__(self, mutations, command, timeout):
+        self.calls.append((command, timeout))
+        return self.script(command, timeout)
+
+
+def is_base(command: str) -> bool:
+    return "compare-wrapper" in command
+
+
+class ReplayCase(FixtureCase):
+    def setup_replay(
+        self, jobs: dict[str, str], planned: int | None = None, extra: int = 0
+    ):
+        fx = self.standard(WEAK_TEST, WEAK_TEST)
+        fx.work.mkdir(parents=True, exist_ok=True)
+        session = self.scratch() / "session.sqlite"
+        make_session(session, jobs, extra)
+        self.session = session
+        self.fx = fx
+        self.planned = len(jobs) + extra if planned is None else planned
+        return fx
+
+    def argv(self, *extra: str) -> list[str]:
+        return [
+            "replay",
+            "--dir",
+            str(self.fx.head_dir),
+            "--session",
+            str(self.session),
+            "--shard",
+            "1/2",
+            "--planned",
+            str(self.planned),
+            "--base",
+            self.fx.base,
+            "--work",
+            str(self.fx.work),
+            "--repo",
+            str(self.fx.repo),
+            *extra,
+        ]
+
+    def run_replay(self, script, *extra: str) -> tuple[int, str, FakeMutate]:
+        fake = FakeMutate(script)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            code = weakening.main(self.argv(*extra), fake)
+        return code, out.getvalue(), fake
+
+
+class TestReplayVerdicts(ReplayCase):
+    def test_base_survives_is_green(self) -> None:
+        self.setup_replay({"j1": "survived"})
+        code, out, fake = self.run_replay(lambda c, t: result("survived"))
+        self.assertEqual((0, ""), (code, out))
+        self.assertEqual(1, len(fake.calls))
+
+    def test_killed_by_base_is_weakened_with_exact_block(self) -> None:
+        fx = self.setup_replay({"j1": "survived"})
+        code, out, fake = self.run_replay(lambda c, t: result("killed", "x"))
+        self.assertEqual(1, code)
+        expected = (
+            "weakened: 1 mutants killed by base tests survive head tests\n"
+            "j1\n"
+            f"  operator: {MUL_ADD}\n"
+            "  occurrence: 0\n"
+            f"{DIFF}\n"
+            f"  repro: make -C sq mutants-weakening BASE={fx.base} JOB=j1\n"
+        )
+        self.assertEqual(expected, out)
+        self.assertEqual(30.0, fake.calls[0][1])
+        self.assertTrue(is_base(fake.calls[0][0]))
+
+    def test_killed_block_includes_clearance_command_with_pr(self) -> None:
+        self.setup_replay({"j1": "survived"})
+        code, out, _ = self.run_replay(lambda c, t: result("killed"), "--pr", "7")
+        self.assertEqual(1, code)
+        self.assertIn("Mutation-Gate-Reviewed: #7 sq: <reason>", out)
+        self.assertIn("<key from .github/mutation-gate-allowed-signers>", out)
+
+    def test_head_killed_jobs_are_not_replayed(self) -> None:
+        self.setup_replay({"j1": "killed", "j2": "survived"})
+        code, _, fake = self.run_replay(lambda c, t: result("survived"))
+        self.assertEqual(0, code)
+        self.assertEqual(1, len(fake.calls))
+
+    def test_incompetent_is_replay_failed(self) -> None:
+        self.setup_replay({"j1": "survived"})
+        code, out, _ = self.run_replay(lambda c, t: result("incompetent"))
+        self.assertEqual(1, code)
+        self.assertIn("replay failed: incompetent\n  job j1\n", out)
+
+    def test_no_test_worker_outcome_is_replay_failed(self) -> None:
+        self.setup_replay({"j1": "survived"})
+        code, out, _ = self.run_replay(lambda c, t: result(None, worker="no-test"))
+        self.assertEqual(1, code)
+        self.assertIn("replay failed: no-test\n  job j1\n", out)
+
+    def test_exception_is_replay_failed(self) -> None:
+        self.setup_replay({"j1": "survived"})
+
+        def boom(command: str, timeout: float) -> WorkResult:
+            raise RuntimeError("boom")
+
+        code, out, _ = self.run_replay(boom)
+        self.assertEqual(1, code)
+        self.assertIn("replay failed: exception\n  job j1\n", out)
+
+    def test_runner_fault_is_never_a_kill(self) -> None:
+        self.setup_replay({"j1": "survived"})
+
+        def fault(command: str, timeout: float) -> WorkResult:
+            sentinel_of(command).write_text("3")
+            return result("killed")
+
+        code, out, _ = self.run_replay(fault)
+        self.assertEqual(1, code)
+        self.assertIn("replay failed: runner fault\n  job j1\n", out)
+        self.assertNotIn("weakened", out)
+
+    def test_stale_sentinel_does_not_poison_next_job(self) -> None:
+        self.setup_replay({"j1": "survived", "j2": "survived"})
+        calls: list[str] = []
+
+        def script(command: str, timeout: float) -> WorkResult:
+            calls.append(command)
+            if len(calls) == 1:
+                sentinel_of(command).write_text("3")
+            return result("survived")
+
+        code, out, _ = self.run_replay(script)
+        self.assertEqual(1, code)
+        self.assertEqual(1, out.count("replay failed"))
+        self.assertIn(
+            "shard incomplete: ran 2 of 2 jobs, replayed 1 of 2 survivors", out
+        )
+
+
+class TestTimeoutRerun(ReplayCase):
+    def test_base_timeout_head_survives_at_double_is_counted(self) -> None:
+        self.setup_replay({"j1": "survived"})
+
+        def script(command: str, timeout: float) -> WorkResult:
+            if timeout == 30.0:
+                return result("killed", "timeout")
+            return result("killed") if is_base(command) else result("survived")
+
+        code, out, fake = self.run_replay(script)
+        self.assertEqual(1, code)
+        self.assertIn("weakened: 1 mutants", out)
+        timeouts = [t for _, t in fake.calls]
+        self.assertEqual([30.0, 60.0, 60.0], timeouts)
+        self.assertIn("python3 -m unittest test_sq", fake.calls[1][0])
+        self.assertFalse(is_base(fake.calls[1][0]))
+        self.assertTrue(is_base(fake.calls[2][0]))
+
+    def test_head_also_kills_at_double_is_not_counted(self) -> None:
+        self.setup_replay({"j1": "survived"})
+
+        def script(command: str, timeout: float) -> WorkResult:
+            if timeout == 30.0:
+                return result("killed", "timeout")
+            return result("killed", "timeout")
+
+        code, out, _ = self.run_replay(script)
+        self.assertEqual((0, ""), (code, out))
+
+    def test_base_survives_at_double_is_not_counted(self) -> None:
+        self.setup_replay({"j1": "survived"})
+
+        def script(command: str, timeout: float) -> WorkResult:
+            if timeout == 30.0:
+                return result("killed", "timeout")
+            return result("survived")
+
+        code, out, _ = self.run_replay(script)
+        self.assertEqual((0, ""), (code, out))
+
+    def test_rerun_failure_is_replay_failed(self) -> None:
+        self.setup_replay({"j1": "survived"})
+
+        def script(command: str, timeout: float) -> WorkResult:
+            if timeout == 30.0:
+                return result("killed", "timeout")
+            return result("incompetent")
+
+        code, out, _ = self.run_replay(script)
+        self.assertEqual(1, code)
+        self.assertIn("replay failed: incompetent", out)
+
+    def test_ordinary_kill_does_not_rerun(self) -> None:
+        self.setup_replay({"j1": "survived"})
+        _, _, fake = self.run_replay(lambda c, t: result("killed", "FAIL"))
+        self.assertEqual(1, len(fake.calls))
+
+
+class TestCompleteness(ReplayCase):
+    def test_skipped_job_is_shard_incomplete(self) -> None:
+        self.setup_replay({"j1": "survived"}, planned=2)
+        code, out, _ = self.run_replay(lambda c, t: result("survived"))
+        self.assertEqual(1, code)
+        self.assertEqual(
+            "shard incomplete: ran 1 of 2 jobs, replayed 1 of 1 survivors\n", out
+        )
+
+    def test_job_without_result_is_not_counted_as_ran(self) -> None:
+        self.setup_replay({"j1": "survived"}, extra=1)
+        code, out, _ = self.run_replay(lambda c, t: result("survived"))
+        self.assertEqual(1, code)
+        self.assertIn("ran 1 of 2 jobs", out)
+
+    def test_planned_slice_with_no_survivors_is_green(self) -> None:
+        self.setup_replay({"j1": "killed", "j2": "killed"})
+        code, out, fake = self.run_replay(lambda c, t: result("survived"))
+        self.assertEqual((0, "", []), (code, out, fake.calls))
+
+    def test_more_jobs_than_planned_is_incomplete(self) -> None:
+        self.setup_replay({"j1": "killed", "j2": "killed"}, planned=1)
+        code, out, _ = self.run_replay(lambda c, t: result("survived"))
+        self.assertEqual(1, code)
+        self.assertIn("ran 2 of 1 jobs", out)
+
+
+class TestClearance(ReplayCase):
+    def test_cleared_dir_skips_replay_and_exempts_count(self) -> None:
+        self.setup_replay({"j1": "survived"})
+        with mock.patch.object(weakening, "clearing_commit", return_value="abc123"):
+            code, out, fake = self.run_replay(
+                lambda c, t: result("killed"), "--pr", "7"
+            )
+        self.assertEqual((0, "cleared by Mutation-Gate-Reviewed abc123\n"), (code, out))
+        self.assertEqual([], fake.calls)
+
+    def test_cleared_dir_still_checks_jobs_ran(self) -> None:
+        self.setup_replay({"j1": "survived"}, planned=3)
+        with mock.patch.object(weakening, "clearing_commit", return_value="abc123"):
+            code, out, fake = self.run_replay(
+                lambda c, t: result("killed"), "--pr", "7"
+            )
+        self.assertEqual(1, code)
+        self.assertIn("cleared by Mutation-Gate-Reviewed abc123\n", out)
+        self.assertIn(
+            "shard incomplete: ran 1 of 3 jobs, replayed 0 of 0 survivors", out
+        )
+        self.assertEqual([], fake.calls)
+
+    def test_pr_absent_makes_no_clearance_lookup(self) -> None:
+        self.setup_replay({"j1": "survived"})
+        with mock.patch.object(
+            weakening, "clearance_module", side_effect=AssertionError("looked up")
+        ):
+            code, out, _ = self.run_replay(lambda c, t: result("survived"))
+        self.assertEqual((0, ""), (code, out))
+
+    def test_lookup_uses_base_signers_pr_dir_and_head(self) -> None:
+        fx = self.setup_replay({"j1": "survived"})
+        key = "sk-ssh-ed25519@openssh.com AAAAKEY comment"
+        (fx.repo / ".github").mkdir()
+        (fx.repo / SIGNERS).write_text(f"# c\n\nop {key}\n")
+        git(fx.repo, "add", SIGNERS)
+        git(fx.repo, "commit", "-q", "-m", "signers")
+        fx.base = git(fx.repo, "rev-parse", "HEAD")
+        seen: dict[str, object] = {}
+
+        def cleared(repo, base, head, pr, directory, signers):
+            seen.update(
+                base=base, head=head, pr=pr, dir=directory, signers=signers.read_text()
+            )
+
+        module = mock.Mock(cleared_for_dir=cleared, remedy_command=lambda *a: "REMEDY")
+        with mock.patch.object(weakening, "clearance_module", return_value=module):
+            code, out, _ = self.run_replay(lambda c, t: result("killed"), "--pr", "9")
+        self.assertEqual(1, code)
+        self.assertEqual(
+            {
+                "base": fx.base,
+                "head": git(fx.repo, "rev-parse", "HEAD"),
+                "pr": 9,
+                "dir": "sq",
+                "signers": f"# c\n\nop {key}\n",
+            },
+            seen,
+        )
+        self.assertTrue(out.endswith("REMEDY\n"))
+
+    def test_first_signer_key(self) -> None:
+        text = '# c\n\nop namespaces="git" sk-ssh-ed25519@openssh.com AAAA x\n'
+        self.assertEqual(
+            "sk-ssh-ed25519@openssh.com AAAA", weakening.first_signer_key(text)
+        )
+        self.assertEqual(weakening.SIGNERS_PLACEHOLDER, weakening.first_signer_key(""))
+        self.assertEqual(
+            weakening.SIGNERS_PLACEHOLDER, weakening.first_signer_key(None)
+        )
+
+
+class TestReplayUsage(ReplayCase):
+    def test_bad_shard_is_usage_error(self) -> None:
+        self.setup_replay({"j1": "survived"})
+        argv = self.argv()
+        argv[argv.index("--shard") + 1] = "x"
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(
+                2, weakening.main(argv, FakeMutate(lambda c, t: result("survived")))
+            )
+
+    def test_missing_session_is_red(self) -> None:
+        self.setup_replay({"j1": "survived"})
+        self.session = self.scratch() / "absent.sqlite"
+        code, out, _ = self.run_replay(lambda c, t: result("survived"))
+        self.assertEqual(1, code)
+        self.assertIn("replay failed: session unreadable", out)
+
+    def test_merge_base_without_timeout_is_red(self) -> None:
+        self.setup_replay({"j1": "survived"})
+        toml_path = self.fx.repo / "sq" / "cosmic-ray.toml"
+        toml_path.write_text(toml(timeout="0"))
+        git(self.fx.repo, "add", "-A")
+        git(self.fx.repo, "commit", "-q", "-m", "t")
+        self.fx.base = git(self.fx.repo, "rev-parse", "HEAD")
+        code, out, fake = self.run_replay(lambda c, t: result("survived"))
+        self.assertEqual(1, code)
+        self.assertIn("no positive numeric timeout", out)
+        self.assertEqual([], fake.calls)
+
+
+class TestRealMutateAndTest(FixtureCase):
+    """The wrapper's exit mapping under the real cosmic_ray.mutating.mutate_and_test."""
+
+    def prepare(self, base_test: str) -> ReplayCase:
+        case = ReplayCase()
+        fx = self.make(
+            {"sq.py": MODULE, "test_sq.py": base_test, "cosmic-ray.toml": toml()},
+            {"sq.py": MODULE, "test_sq.py": WEAK_TEST, "cosmic-ray.toml": toml()},
+        )
+        fx.work.mkdir(parents=True, exist_ok=True)
+        session = self.scratch() / "session.sqlite"
+        make_session(session, {"j1": "survived"})
+        case.fx, case.session, case.planned = fx, session, 1
+        self.assertEqual(0, fx.judge().returncode)
+        return case
+
+    def replay(self, case: ReplayCase) -> tuple[int, str]:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = weakening.main(case.argv())
+        return code, out.getvalue()
+
+    def test_base_kill_is_weakened(self) -> None:
+        case = self.prepare(STRONG_TEST)
+        code, out = self.replay(case)
+        self.assertEqual(1, code)
+        self.assertIn(
+            "weakened: 1 mutants killed by base tests survive head tests", out
+        )
+        self.assertEqual(MODULE, (case.fx.head_dir / "sq.py").read_text())
+
+    def test_base_survival_is_green(self) -> None:
+        case = self.prepare(WEAK_TEST)
+        self.assertEqual((0, ""), self.replay(case))
+
+    def test_runner_exit_3_is_runner_fault_not_kill(self) -> None:
+        case = self.prepare(STRONG_TEST)
+        (case.fx.work / "base-sig.json").write_text("not json")
+        code, out = self.replay(case)
+        self.assertEqual(1, code)
+        self.assertIn("replay failed: runner fault\n  job j1\n", out)
+        self.assertNotIn("weakened", out)
+
+    def test_wrapper_maps_exit_codes(self) -> None:
+        fx = self.make({"sq.py": MODULE}, {"sq.py": MODULE})
+        stub = fx.tmp / "stub_runner.py"
+        stub.write_text("import sys\nsys.exit(int(sys.argv[3]))\n")
+        for code, want, fault in (
+            (0, 0, False),
+            (1, 1, False),
+            (2, 3, True),
+            (3, 3, True),
+        ):
+            sentinel = fx.tmp / f"sentinel-{code}"
+            args = weakening.build_parser().parse_args(
+                ["compare-wrapper", "--sentinel", str(sentinel), "sig", str(code)]
+            )
+            with mock.patch.object(weakening, "RUNNER", stub):
+                self.assertEqual(want, weakening.compare_wrapper(args), code)
+            self.assertEqual(fault, sentinel.exists(), code)
 
 
 if __name__ == "__main__":
