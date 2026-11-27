@@ -1462,8 +1462,26 @@ case "$1" in
     init)
         # The real init creates the session; later steps and the copy-back depend on it.
         printf 'I' > "${3:-cosmic-ray-session.sqlite}"
+        # A session with a fresh random job id per init, as the real init creates.
+        if [ -n "${STUB_INIT_SQL}" ]; then
+            /usr/bin/python3 - "${3:-cosmic-ray-session.sqlite}" <<'PY'
+import sqlite3, sys, uuid
+c = sqlite3.connect(sys.argv[1])
+c.execute("DROP TABLE IF EXISTS mutation_specs")
+c.execute("CREATE TABLE mutation_specs (job_id TEXT, operator_name TEXT, occurrence INT)")
+c.execute("CREATE TABLE IF NOT EXISTS work_items (job_id TEXT)")
+for op, occ in (("core/NumberReplacer", 0), ("core/NumberReplacer", 3), ("core/ReplaceBinaryOperator_Add_Sub", 3)):
+    j = uuid.uuid4().hex
+    c.execute("INSERT INTO mutation_specs VALUES (?,?,?)", (j, op, occ))
+    c.execute("INSERT INTO work_items VALUES (?)", (j,))
+c.commit()
+PY
+        fi
         exit "${STUB_INIT_RC:-0}" ;;
     exec)
+        if [ -n "${STUB_INIT_SQL}" ]; then
+            /usr/bin/python3 -c 'import sqlite3,sys; print(*[tuple(r) for r in sqlite3.connect(sys.argv[1]).execute("SELECT operator_name,occurrence,job_id FROM mutation_specs")])' head.sqlite >> "${CALLS}.rows"
+        fi
         printf 'exec hashseed=%s dontwrite=%s pythonpath=%s\n' "${PYTHONHASHSEED}" "${PYTHONDONTWRITEBYTECODE}" "${PYTHONPATH}" >> "${CALLS}.env"
         # A killed test never drops its tempfile dir; it must land under TMPDIR, not /tmp.
         if [ -n "${STUB_EXEC_LEAK}" ]; then mkdir "${TMPDIR}/tmpLEAK" && printf x > "${TMPDIR}/tmpLEAK/fib_1e5.txt"; fi
@@ -1515,7 +1533,9 @@ case "$*" in
         fi
         [ "${STUB_REPLAY_RC:-0}" != 0 ] && printf 'weakened: 1 mutants killed by base tests survive head tests\n'
         exit "${STUB_REPLAY_RC:-0}" ;;
-    *mutation_specs*) exit "${STUB_JOB_RC:-0}" ;;
+    *mutation_specs*)
+        [ -n "${STUB_INIT_SQL}" ] && exec /usr/bin/python3 "$@"
+        exit "${STUB_JOB_RC:-0}" ;;
     *work_items*) printf '7\n'; exit 0 ;;
     *cosmic_ray_cell_status*)
         {
@@ -2463,7 +2483,7 @@ _weak_make() {
     run _weak_make
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"MUTANT_SHARD=<k>/<n> or JOB=<job id> is required"* ]]
-    run _weak_make MUTANT_SHARD=0/2 JOB=abc
+    run _weak_make MUTANT_SHARD=0/2 JOB=a@1
     [ "${status}" -ne 0 ]
     [[ "${output}" == *"mutually exclusive"* ]]
     [ ! -s "${CALLS}" ]
@@ -2553,16 +2573,16 @@ _weak_make() {
 
 @test "make mutants-weakening JOB= trims the session to that job and replays one planned job" {
     _weak_setup
-    run _weak_make JOB=abc123
+    run _weak_make JOB=core/NumberReplacer@3
     [ "${status}" -eq 0 ]
     _assert_no_call 'cosmic_ray_shard'
-    grep -qE 'python3 -c .*mutation_specs.* abc123$' "${CALLS}" || grep -q 'mutation_specs' "${CALLS}"
+    grep -q 'mutation_specs' "${CALLS}"
     grep -q -- '--shard 0/1 --planned 1 ' "${CALLS}"
 }
 
 @test "make mutants-weakening JOB= is red when the job is not in the session" {
     _weak_setup
-    STUB_JOB_RC=1 run _weak_make JOB=nosuchjob
+    STUB_JOB_RC=1 run _weak_make JOB=core/NumberReplacer@99
     [ "${status}" -ne 0 ]
     _assert_no_call 'mutation_weakening.py replay'
 }
@@ -2605,4 +2625,42 @@ _weak_make() {
     run _py_make mutants-clean
     [ "${status}" -eq 0 ]
     [ ! -e "${STUBDIR}/.mutants-tmp" ]
+}
+
+@test "make mutants-weakening JOB=<operator>@<occurrence> selects the same mutant across fresh inits with new job ids" {
+    _weak_setup
+    export STUB_INIT_SQL=1
+    run _weak_make JOB=core/NumberReplacer@3
+    [ "${status}" -eq 0 ]
+    run _weak_make JOB=core/NumberReplacer@3
+    [ "${status}" -eq 0 ]
+    [ "$(wc -l < "${CALLS}.rows")" -eq 2 ]
+    # Each run's session holds exactly the one mutant, and its random job id differs between inits.
+    local row1 row2
+    row1="$(sed -n 1p "${CALLS}.rows")"
+    row2="$(sed -n 2p "${CALLS}.rows")"
+    [[ "${row1}" == "('core/NumberReplacer', 3, '"* ]]
+    [[ "${row2}" == "('core/NumberReplacer', 3, '"* ]]
+    [[ "${row1}" != *"), ("* ]]
+    [ "${row1}" != "${row2}" ]
+}
+
+@test "make mutants-weakening JOB= naming no mutant of the session exits red with the message and does not replay" {
+    _weak_setup
+    export STUB_INIT_SQL=1
+    run _weak_make JOB=core/NumberReplacer@99
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *"error: JOB core/NumberReplacer@99 is not a mutant of this session"* ]]
+    _assert_no_call 'mutation_weakening.py'
+}
+
+@test "make mutants-weakening rejects a JOB that is not <operator>@<occurrence>" {
+    _weak_setup
+    local bad
+    for bad in abc123 'core/X@' '@3' 'a@b' 'a@1@2' 'a b@1' 'a;b@1'; do
+        run _weak_make JOB="${bad}"
+        [ "${status}" -ne 0 ]
+        [[ "${output}" == *"JOB must be <operator>@<occurrence>"* ]]
+    done
+    [ ! -s "${CALLS}" ]
 }

@@ -116,7 +116,7 @@ MUTANTS_BODY = $(MUTANTS_CAP); \
 	    python3 ../scripts/cosmic_ray_shard.py "$$SESSION" "$$(printf %s "$${MUTANT_SHARD}" | cut -d/ -f1)" "$$(printf %s "$${MUTANT_SHARD}" | cut -d/ -f2)" || exit 1; \
 	  fi; \
 	  if [ -n "$${MUTANT_JOB}" ]; then \
-	    python3 -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute(\"DELETE FROM mutation_specs WHERE job_id != ?\",(sys.argv[2],)); c.execute(\"DELETE FROM work_items WHERE job_id != ?\",(sys.argv[2],)); c.commit(); n=c.execute(\"SELECT count(*) FROM work_items\").fetchone()[0]; sys.exit(None if n==1 else \"error: JOB \"+sys.argv[2]+\" is not a job of this session\")" "$$SESSION" "$${MUTANT_JOB}" || exit 64; \
+	    python3 -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); o,n=sys.argv[2].rsplit(\"@\",1); ids=[r[0] for r in c.execute(\"SELECT job_id FROM mutation_specs WHERE operator_name=? AND occurrence=?\",(o,int(n)))]; len(ids)==1 or sys.exit(\"error: JOB \"+sys.argv[2]+\" is not a mutant of this session\"); c.execute(\"DELETE FROM mutation_specs WHERE job_id != ?\",(ids[0],)); c.execute(\"DELETE FROM work_items WHERE job_id != ?\",(ids[0],)); c.commit()" "$$SESSION" "$${MUTANT_JOB}" || exit 64; \
 	  fi; \
 	  cosmic-ray exec cosmic-ray.toml "$$SESSION" || exit 1; \
 	  cr-report "$$SESSION" --show-output --show-diff > "$$REPORT" || exit 1; \
@@ -170,7 +170,7 @@ WEAKENING_GUARD = if [ -z "$$BASE" ]; then printf "error: BASE is required: BASE
 	  case "$$BASE" in *[!0-9a-f]*) printf "error: BASE must be a lowercase hex sha, got %s\n" "$$BASE" >&2; exit 1 ;; esac; \
 	  case "$$HEAD_SHA" in *[!0-9a-f]*) printf "error: HEAD_SHA must be a lowercase hex sha, got %s\n" "$$HEAD_SHA" >&2; exit 1 ;; esac; \
 	  case "$$PR$$PLANNED" in *[!0-9]*) printf "error: PR and PLANNED must be decimal numbers\n" >&2; exit 1 ;; esac; \
-	  case "$$JOB" in *[!0-9a-zA-Z-]*) printf "error: JOB must hold only letters, digits and -, got %s\n" "$$JOB" >&2; exit 1 ;; esac; \
+	  case "$$JOB" in "") ;; *@*@* | @* | *@ | *@*[!0-9]* | *[!A-Za-z0-9_./:@-]*) printf "error: JOB must be <operator>@<occurrence>, e.g. core/NumberReplacer@3, got %s\n" "$$JOB" >&2; exit 1 ;; *@*) ;; *) printf "error: JOB must be <operator>@<occurrence>, got %s\n" "$$JOB" >&2; exit 1 ;; esac; \
 	  if [ -z "$$MUTANT_SHARD" ] && [ -z "$$JOB" ]; then printf "error: MUTANT_SHARD=<k>/<n> or JOB=<job id> is required\n" >&2; exit 1; fi; \
 	  if [ -n "$$MUTANT_SHARD" ] && [ -n "$$JOB" ]; then printf "error: MUTANT_SHARD and JOB are mutually exclusive\n" >&2; exit 1; fi
 
