@@ -444,7 +444,7 @@ _term_group_twice() {
     _probe_poll "${pid}"
     if ! _wait_for_file "${BATS_TEST_TMPDIR}/rm-started" 100; then
         _dump_group_state "${pid}"
-        kill -KILL -- "-${pid}" 2>/dev/null
+        kill -KILL -- "-${pid}" 2>/dev/null || true
         local ms=0
         wait "${pid}" 2>/dev/null || ms=$?
         sleep 3.2
@@ -1998,7 +1998,7 @@ _scratch_tmp() {
     # Once cleanup is inside its (stalled) copy-back, a second TERM must not abort it.
     if ! _wait_for_file "${BATS_TEST_TMPDIR}/cp-started" 50; then
         _dump_group_state "${pid}"
-        kill -KILL -- "-${pid}" 2>/dev/null
+        kill -KILL -- "-${pid}" 2>/dev/null || true
         local ms=0
         wait "${pid}" 2>/dev/null || ms=$?
         sleep 3.2

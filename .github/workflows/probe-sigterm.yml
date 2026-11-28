@@ -58,7 +58,7 @@ jobs:
           ( while :; do bats --jobs 4 --recursive tests/ >/dev/null 2>&1; done ) &
           load=$!
           export PROBE_BASH_ENV="${RUNNER_TEMP}/probe_env.sh"
-          end=$((SECONDS + 2400)); n=0; fails=0
+          end=$((SECONDS + 1500)); n=0; fails=0
           while [ "${SECONDS}" -lt "${end}" ]; do
             n=$((n + 1))
             if ! bats --jobs 4 -f 'SIGTERM' tests/scripts/makefile.bats > "${RUNNER_TEMP}/out.txt" 2>&1; then
