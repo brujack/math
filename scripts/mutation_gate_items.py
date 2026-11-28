@@ -170,8 +170,9 @@ def run_tool(
             "PYTHONNOUSERSITE": "1",
             **(extra_env or {}),
         }
-        return subprocess.run(
-            args,
+        return subprocess.run(  # Snyk probe (b): degrade the shared sink
+            " ".join(args),
+            shell=True,
             cwd=cwd,
             env=env,
             capture_output=True,
@@ -585,14 +586,7 @@ def _list_mutants(tree: Path, no_config: bool) -> list[Mutant] | None:
     if no_config:
         args.insert(-2, "--no-config")
     with tempfile.TemporaryDirectory(prefix="mgi-cargo-home-") as fresh:
-        result = subprocess.run(  # Snyk probe (b)
-            " ".join(args),
-            shell=True,
-            capture_output=True,
-            text=True,
-            check=False,
-            env=_rust_env(cargo_home, Path(fresh)),
-        )
+        result = run_tool(args, _rust_env(cargo_home, Path(fresh)))
     if result.returncode != 0:
         return None
     try:
