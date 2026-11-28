@@ -52,32 +52,47 @@ class SnykScanWorkflowTests(unittest.TestCase):
         self.assertEqual([s.get("id") for s in holders], ["scan"])
 
     def test_scan_step_run(self):
-        run = step_by_id("scan")["run"]
-        self.assertIn("set +e", run)
-        self.assertIn(
-            'snyk code test --sarif-file-output="${RUNNER_TEMP}/snyk.sarif"'
-            ' > "${RUNNER_TEMP}/snyk.txt"',
-            run,
+        lines = [
+            ln.strip() for ln in step_by_id("scan")["run"].splitlines() if ln.strip()
+        ]
+        self.assertEqual(
+            lines,
+            [
+                "set +e",
+                (
+                    'snyk code test --sarif-file-output="${RUNNER_TEMP}/snyk.sarif"'
+                    ' > "${RUNNER_TEMP}/snyk.txt"'
+                ),
+                "rc=$?",
+                'if [ "${rc}" -gt 1 ]; then',
+                'echo "::error::snyk-scan: scanner error (exit ${rc})"',
+                'cat "${RUNNER_TEMP}/snyk.txt"',
+                "exit 1",
+                "fi",
+                "exit 0",
+            ],
         )
-        self.assertIn('[ "${rc}" -gt 1 ]', run)
-        self.assertIn("::error::snyk-scan: scanner error (exit ${rc})", run)
-        self.assertIn("exit 1", run)
 
     def test_judge_step(self):
         step = step_by_name("Judge findings against the files this PR changes")
         self.assertEqual(
             step["if"], "${{ !cancelled() && steps.scan.outcome == 'success' }}"
         )
-        run = step["run"]
-        for needle in (
-            "set +e",
-            'python3 -I scripts/snyk_file_touch.py < "${RUNNER_TEMP}/snyk.sarif"',
-            "rc=$?",
-            "grep -v '^::error'",
-            "GITHUB_STEP_SUMMARY",
-            'exit "${rc}"',
-        ):
-            self.assertIn(needle, run)
+        lines = [ln.strip() for ln in step["run"].splitlines() if ln.strip()]
+        self.assertEqual(
+            lines,
+            [
+                "set +e",
+                (
+                    'python3 -I scripts/snyk_file_touch.py < "${RUNNER_TEMP}/snyk.sarif"'
+                    ' > "${RUNNER_TEMP}/judge.txt"'
+                ),
+                "rc=$?",
+                'cat "${RUNNER_TEMP}/judge.txt"',
+                'grep -v \'^::error\' "${RUNNER_TEMP}/judge.txt" >> "${GITHUB_STEP_SUMMARY}"',
+                'exit "${rc}"',
+            ],
+        )
 
     def test_no_snyk_policy_files_tracked(self):
         env = {k: v for k, v in os.environ.items() if k not in GIT_ENV_VARS}
