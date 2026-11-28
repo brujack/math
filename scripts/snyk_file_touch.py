@@ -12,6 +12,7 @@ import re
 import stat
 import subprocess
 import sys
+from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, TextIO
@@ -23,6 +24,11 @@ GIT_DIFF_ARGV = [
 ]  # fmt: skip
 GIT_LS_FILES_ARGV = ["git", "ls-files", "-z"]
 MANIFEST_PATH = ".snyk-files"
+COMPARED_EXTS = [".py", ".html", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".vue"]
+# Joined at runtime (not folded to a constant) so no source or .pyc holds the phrase.
+_PREFIX = "deep"
+_SUPPRESSION_WORDS = f"{_PREFIX}code ignore"
+_SUPPRESSION_RE = re.compile(_PREFIX + r"code\s+ignore", re.IGNORECASE)
 
 
 class JudgeError(Exception):
@@ -148,14 +154,125 @@ def _validate_runs(sarif: object) -> list[Any]:
     return runs
 
 
-def _header(touched: int, untouched: int, coverage: list[str]) -> str:
-    return f"snyk: {touched} touched, {untouched} untouched; " + ", ".join(coverage)
+def _header(touched: int, untouched: int, coverage_parts: list[str]) -> str:
+    return f"snyk: {touched} touched, {untouched} untouched; " + ", ".join(
+        coverage_parts
+    )
+
+
+def _coverage_entry(entry: Any) -> tuple[str, int]:
+    """Validate one `properties.coverage` entry; JudgeError when malformed."""
+    if not isinstance(entry, dict):
+        raise JudgeError("SARIF coverage entry is not an object")
+    lang, files = entry.get("lang"), entry.get("files")
+    if not isinstance(lang, str):
+        raise JudgeError("SARIF coverage entry has a non-string lang")
+    if isinstance(files, bool) or not isinstance(files, int) or files < 0:
+        raise JudgeError("SARIF coverage entry files is not a non-negative integer")
+    return lang, files
+
+
+def _coverage(runs: list[Any]) -> tuple[dict[str, int], set[str]]:
+    """Analysed-file counts per lang summed over all runs, and the SUPPORTED langs."""
+    files: dict[str, int] = {}
+    supported: set[str] = set()
+    for run in runs:
+        for entry in run["properties"]["coverage"]:
+            lang, count = _coverage_entry(entry)
+            files[lang] = files.get(lang, 0) + count
+            if entry.get("type") == "SUPPORTED":
+                supported.add(lang)
+    return files, supported
+
+
+def _ext(path: str) -> str:
+    return os.path.splitext(path)[1]
+
+
+def _eligible(checkout: Checkout, exts: list[str]) -> list[str]:
+    """Tracked regular non-empty files of a compared extension, `ls-files` order."""
+    wanted = set(exts)
+    eligible = []
+    for path in checkout.tracked:
+        if _ext(path) not in wanted:
+            continue
+        size = checkout.size_of(path)
+        if size is not None and size > 0:
+            eligible.append(path)
+    return eligible
+
+
+def _mismatch_lines(
+    exts: list[str], analysed: Mapping[str, int], tracked_count: Mapping[str, int],
+    changed: frozenset[str],
+) -> list[str]:  # fmt: skip
+    lines = []
+    for ext in exts:
+        a, b = analysed.get(ext, 0), tracked_count.get(ext, 0)
+        if a != b:
+            hit = sorted(p for p in changed if _ext(p) == ext)
+            lines.append(
+                f"snyk-scan: Snyk analysed {a} {ext} files but {b} non-empty ones "
+                "are tracked; a file is hidden from the scan "
+                f"(changed {ext} files: {', '.join(hit) if hit else 'none'})"
+            )
+    return lines
+
+
+def _counts_toward_presence(res: Any, tracked: set[str]) -> bool:
+    """False for a result touched by an untracked, unusable or whitespace path."""
+    uris = _decoded_uris(res)
+    first = uris[0]
+    if first is not None and any(c.isspace() for c in first):
+        return False
+    return all(u is not None and u in tracked for u in uris)
+
+
+def _presence_lines(
+    results: list[Any],
+    tracked: set[str],
+    manifest: Mapping[str, int],
+    changed: frozenset[str],
+) -> list[str]:
+    counts: dict[str, int] = {}
+    for res in results:
+        if _counts_toward_presence(res, tracked):
+            path = _first_uri(res)
+            if path is not None:
+                counts[path] = counts.get(path, 0) + 1
+    lines = []
+    for path in sorted(set(counts) | set(manifest)):
+        m, n = counts.get(path, 0), manifest.get(path, 0)
+        if m != n:
+            line = f"snyk-scan: {path} has {m} results; {MANIFEST_PATH} says {n}"
+            if path not in changed:
+                line += (
+                    " (file unchanged by this PR: Snyk drift, a master-side change,"
+                    " or an effect of this PR's edits elsewhere)"
+                )
+            lines.append(line)
+    return lines
+
+
+def _suppression_lines(eligible: list[str], checkout: Checkout) -> list[str]:
+    lines = []
+    for path in eligible:
+        try:
+            text = checkout.read_text(path)
+        except OSError as exc:
+            raise JudgeError(f"cannot read {path}: {exc}") from exc
+        if _SUPPRESSION_RE.search(text):
+            lines.append(
+                f"snyk-scan: {path} contains an inline Snyk suppression "
+                f"({_SUPPRESSION_WORDS})"
+            )
+    return lines
 
 
 def judge(
     sarif: object, checkout: Checkout, manifest: Mapping[str, int]
 ) -> tuple[list[str], int]:
-    """Return stdout lines and exit code 0/1 (Task 1: touch decision only)."""
+    """Return stdout lines and exit code 0 (clean) or 1 (any finding or check)."""
     runs = _validate_runs(sarif)
     tracked = set(checkout.tracked)
     results = [res for run in runs for res in run["results"]]
@@ -164,14 +281,22 @@ def judge(
         for res in results
         if _is_touched(res, checkout, tracked)
     ]
-    # Task 2 supplies the coverage parts (and the manifest checks that use `manifest`).
-    lines = [_header(len(touched), len(results) - len(touched), [])]
-    lines.extend(touched)
-    if not touched:
+    analysed, supported = _coverage(runs)
+    exts = COMPARED_EXTS + sorted(supported - set(COMPARED_EXTS))
+    eligible = _eligible(checkout, exts)
+    tracked_count = Counter(_ext(p) for p in eligible)
+    parts = [f"coverage {e} {analysed.get(e, 0)}/{tracked_count[e]}" for e in exts]
+    mismatches = _mismatch_lines(exts, analysed, tracked_count, checkout.changed)
+    presence = _presence_lines(results, tracked, manifest, checkout.changed)
+    suppressed = _suppression_lines(eligible, checkout)
+    lines = [_header(len(touched), len(results) - len(touched), parts)]
+    lines += touched + mismatches + presence + suppressed
+    if not (touched or mismatches or presence or suppressed):
         return lines, 0
     lines.append(
         f"::error::snyk-scan: {len(touched)} finding(s) in files this PR changes; "
-        "0 coverage mismatch(es); 0 presence difference(s); 0 suppression(s)"
+        f"{len(mismatches)} coverage mismatch(es); {len(presence)} presence "
+        f"difference(s); {len(suppressed)} suppression(s)"
     )
     return lines, 1
 
