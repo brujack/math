@@ -73,6 +73,12 @@ The red check is the hold, as with an items-gate red. There is no draft step and
 - **The empty-file rule was measured once,** on a 0-byte file. A whitespace-only file is unmeasured; if Snyk skips it, the check goes red, which is noisy but safe.
 - Rejected: a function-scope touch (`ast`, one hop), blind to module-level guards; excluding `tests/**` with `.snyk`; code-level sanitisers (none cleared a finding, #259); Snyk organisation ignores (outside the repo, invisible in review); `--severity-threshold=high` (green on a new MEDIUM Command Injection); removing `snyk-scan` (ai-config `ci-021` requires it); branch protection instead of `needs` (it would also block admin merges during a Snyk outage); a count ratchet (blind to degradation at an existing finding).
 
+## Verification
+
+- V1, math#264 (run 46161864735): `snyk: 3 touched, 14 untouched; coverage .py 121/121, coverage .html 1/1`, the 3 `scripts/mutation_gate_items.py` results touched, 0 presence differences, `auto-merge` skipped.
+- V2 (amended), math#266: a comment-only edit to `scripts/zeta_results.py` printed its 4 results as `touched:`, `auto-merge` skipped.
+- V3, math#265 and math#263: changed no flagged file, `snyk-scan` green, merged by the `auto-merge` job.
+
 ## Quota
 
 The Snyk Code test usage and limit are recorded here after merge (spec V4).
