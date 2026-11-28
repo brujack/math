@@ -187,6 +187,7 @@ class TestInstallActionPins(unittest.TestCase):
                 "mutation-gate-items.yml",
                 "mutation-pr.yml",
                 "mutation-testing.yml",
+                "probe-sigterm.yml",  # PROBE (never merged)
             },
             sorted(names),
         )

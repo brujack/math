@@ -1,0 +1,78 @@
+# PROBE (never merged): repeats the SIGTERM bats tests under load on GitHub runners with bash
+# xtrace on every shell make starts, to catch why the cleanup trap is skipped (Backlog P1 row).
+name: probe-sigterm
+on:
+  pull_request:
+    branches:
+      - master
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install bats-core
+        run: sudo apt-get install -y bats parallel
+      - name: Install shellcheck (pinned)
+        env:
+          SC_VER: "0.11.0"
+          SC_SHA256: "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
+        run: |
+          curl -fsSL -o /tmp/sc.tar.xz \
+            "https://github.com/koalaman/shellcheck/releases/download/v${SC_VER}/shellcheck-v${SC_VER}.linux.x86_64.tar.xz"
+          echo "${SC_SHA256}  /tmp/sc.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/sc.tar.xz -C /tmp
+          sudo install -m755 "/tmp/shellcheck-v${SC_VER}/shellcheck" /usr/local/bin/shellcheck
+          shellcheck --version | grep -q "version: ${SC_VER}"
+      - name: Install actionlint (pinned)
+        run: |
+          XDG_BIN_HOME="${RUNNER_TEMP}/bin" bash scripts/install-actionlint.sh
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+      - name: Install cargo-deny and cargo-mutants
+        uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2.90.4
+        with:
+          tool: cargo-deny@0.20.2,cargo-mutants@27.1.0
+          fallback: none
+      - name: Probe
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          cat > "${RUNNER_TEMP}/probe_env.sh" <<'PROBE'
+          if [ -n "${PROBE_TRACE_DIR:-}" ] && [ -d "${PROBE_TRACE_DIR}" ]; then
+            exec {__probe_fd}>>"${PROBE_TRACE_DIR}/x.$$"
+            BASH_XTRACEFD=${__probe_fd}
+            PS4='+${EPOCHREALTIME} $$ ${BASH_SOURCE##*/}:${LINENO} '
+            set -x
+          fi
+          PROBE
+          export PROBE_ARTIFACTS="${RUNNER_TEMP}/artifacts"
+          mkdir -p "${PROBE_ARTIFACTS}"
+          ( while :; do bats --jobs 4 --recursive tests/ >/dev/null 2>&1; done ) &
+          load=$!
+          export PROBE_BASH_ENV="${RUNNER_TEMP}/probe_env.sh"
+          end=$((SECONDS + 1500)); n=0; fails=0
+          while [ "${SECONDS}" -lt "${end}" ]; do
+            n=$((n + 1))
+            if ! bats --jobs 4 -f 'SIGTERM' tests/scripts/makefile.bats > "${RUNNER_TEMP}/out.txt" 2>&1; then
+              fails=$((fails + 1))
+              grep -E '^not ok|wait failed|timed out' "${RUNNER_TEMP}/out.txt" || true
+              cp "${RUNNER_TEMP}/out.txt" "${PROBE_ARTIFACTS}/out-${n}.txt"
+            fi
+          done
+          kill "${load}" 2>/dev/null || true
+          printf 'probe shard %s: iterations=%s failures=%s\n' "${SHARD}" "${n}" "${fails}" | tee -a "${GITHUB_STEP_SUMMARY}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: probe-sigterm-${{ matrix.shard }}
+          path: ${{ runner.temp }}/artifacts
+          if-no-files-found: ignore
+          retention-days: 3
