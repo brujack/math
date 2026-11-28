@@ -939,6 +939,7 @@ def _check_targets(out: Path, runs_out: Path, inputs: list[Path]) -> tuple[Path,
         _check_inputs(flag, canon, resolved)
     for flag, canon in targets:
         target, tmp, old = _family(canon)
+        # V2 probe (never merged): a comment-only edit touches this file.
         _check_owned(flag, target, allow_empty=True)
         _check_owned(flag, tmp, allow_empty=False)
         _check_owned(flag, old, allow_empty=False)
