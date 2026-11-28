@@ -197,10 +197,13 @@ class TouchDecision(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertTrue(lines[1].endswith("[changed: none] [untracked uri: ?]"))
 
-    def test_flow_step_without_uri_is_ignored(self) -> None:
-        steps: list[dict[str, Any]] = [{"location": {}}]
-        doc = sarif(result("a.py", codeFlows=[{"threadFlows": [{"locations": steps}]}]))
-        self.assertEqual(judge(doc)[1], 0)
+    def test_flow_step_without_uri_is_touched(self) -> None:
+        for step in ({"location": {}}, {}, {"location": {"physicalLocation": {}}}):
+            with self.subTest(step=step):
+                flows = [{"threadFlows": [{"locations": [step]}]}]
+                lines, code = judge(sarif(result("a.py", codeFlows=flows)))
+                self.assertEqual(code, 1)
+                self.assertTrue(lines[1].endswith("[changed: none] [untracked uri: ?]"))
 
     def test_changed_lists_each_path_once(self) -> None:
         doc = sarif(result("a.py", codeFlows=flow("a.py", "b.py", "b.py")))
@@ -231,11 +234,17 @@ class FailureModes(unittest.TestCase):
 
     def test_non_list_shapes(self) -> None:
         bad_flows = [{"threadFlows": 1}, {"threadFlows": [{"locations": 1}]}]
-        cases: list[dict[str, Any]] = [
+        cases: list[Any] = [
             result("a.py", codeFlows=1),
             result("a.py", locations=1),
             result("a.py", codeFlows=[bad_flows[0]]),
             result("a.py", codeFlows=[bad_flows[1]]),
+        ]
+        cases += [
+            result("a.py", codeFlows=["b.py"]),
+            result("a.py", codeFlows=[{"threadFlows": [["x"]]}]),
+            result("a.py", codeFlows=[{"threadFlows": [{"locations": ["x"]}]}]),
+            "not a dict",
         ]
         for res in cases:
             with self.subTest(res=res), self.assertRaises(sft.JudgeError):
@@ -346,6 +355,7 @@ class Main(unittest.TestCase):
                 "stdin": json.dumps(sarif()),
                 "manifest": PermissionError("denied"),
             },
+            "huge integer": {"stdin": "1" * 5000},
             "deep nesting": {"stdin": "[" * 100000},
             "git failure": {
                 "stdin": json.dumps(sarif()),

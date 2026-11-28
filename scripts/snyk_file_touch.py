@@ -73,8 +73,14 @@ def _text(value: Any) -> str:
     return "?" if value is None else str(value)
 
 
+def _require_dict(obj: Any, what: str) -> None:
+    if not isinstance(obj, dict):
+        raise JudgeError(f"SARIF object holding {what} is not an object")
+
+
 def _list_at(obj: Any, key: str) -> list[Any]:
     """The list under `key`: [] when absent, JudgeError when present but not a list."""
+    _require_dict(obj, key)
     value = _dig(obj, key, default=_MISSING)
     if value is _MISSING:
         return []
@@ -94,14 +100,13 @@ def _first_uri(res: Any) -> str | None:
 
 
 def _decoded_uris(res: Any) -> list[str | None]:
-    """The first-location uri, then every code-flow step uri that is present."""
+    """The first-location uri, then every code-flow step uri (None when unusable)."""
     uris = [_first_uri(res)]
     for code_flow in _list_at(res, "codeFlows"):
         for thread in _list_at(code_flow, "threadFlows"):
             for step in _list_at(thread, "locations"):
-                raw = _dig(step, "location", *_LOC_URI, default=_MISSING)
-                if raw is not _MISSING:
-                    uris.append(_decode(raw))
+                _require_dict(step, "a code-flow step")
+                uris.append(_decode(_dig(step, "location", *_LOC_URI)))
     return uris
 
 
@@ -208,8 +213,10 @@ def _split_nul(raw: bytes) -> list[str]:
 def _read_sarif(stdin: TextIO) -> object:
     try:
         return json.load(stdin)
-    except (json.JSONDecodeError, RecursionError) as exc:
-        raise JudgeError(f"stdin is not JSON: {type(exc).__name__}") from exc
+    except json.JSONDecodeError as exc:
+        raise JudgeError(f"stdin is not JSON: {exc}") from exc
+    except ValueError as exc:
+        raise JudgeError(f"stdin is not usable JSON: {type(exc).__name__}") from exc
 
 
 def _read_manifest(read_manifest: Callable[[], str]) -> dict[str, int]:
