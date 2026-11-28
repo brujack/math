@@ -400,3 +400,57 @@ Findings:
 
 Assumption: a new taint path to an existing sink yields a result whose coordinates land on the PR's lines. math#261 (a) was the only evidence, and it was confounded. Settle it with an unconfounded probe before merge.
 Disposition: Addressed. The operator chose "File-touch + probe first (Recommended)". math#262 then measured three things: coverage `.py` 35 under `.snyk`, an empty file skipped, and a cross-file caller giving a result in its own file. Revision 4 judges by file, moves the guard into the items gate's `GATE_FILES`, runs `python3 -I`, and checks coverage per extension on non-empty files.
+
+### Round 4
+
+Reviewed at commit: `fe89565` (revision 4, file-touch). Fresh lenses; earlier rounds framed as history.
+
+#### Goal-Fit
+
+Finding: revision 4 is worth building, and the cheaper path fails. Extending the items gate to cover the flagged paths would have caught neither incident: math#250 and #252 added new files, and the items gate runs from `base.ref`. File-touch covers a new file with a finding by construction.
+
+Two smaller findings:
+- **V1 passes on nothing.** The implementing PR edits `scripts/mutation_gate_items.py`, so its 3 results must be touched and the `auto-merge` job skipped.
+- **R10's `35/35` replay drops `scripts/probe_empty.py` because the file is missing on disk, not because it is empty.**
+
+The "0 added operator merges" figure rests on a 2-day history.
+Assumption: a PR that only changes a helper in file A, used by a source and sink in an unchanged file B, gets a result whose flow names A. Unmeasured.
+Disposition:
+
+#### Ergonomics
+
+Finding: **R7's `tests/` exclusion is root-only, but Snyk excludes `tests/**` at any depth.**
+- Evidence from `.rs`: 69 tracked, 1 of them empty, 5 under root `tests/` and 14 under nested `*/tests/`.
+- sarif1 reports 68. sarif4 reports 49, which is 68 − 5 − 14. A root-only exclusion would give 63.
+
+The first nested `foo/tests/x.py` wedges every later PR red, and the remedy text points at `.dcignore` or `.snyk`. Also V1 is vacuous, and R10 depends on the live checkout. The mismatch line cannot name the hidden file; printing the PR's changed paths for that extension would help. Red rate: on the last 60 merged PRs, file-touch adds none. Both checks go red together on edits to `scripts/mutation_*.py`, and one admin merge clears both.
+Assumption: the any-depth semantics measured on `.rs` also hold for `.py`.
+Disposition:
+
+#### Risk
+
+Finding:
+- **F1:** a SARIF `uri` that is not a raw git path is silently untouched. A percent-encoded space or non-ASCII name, or a future `./` or `file://` form, leaves it untouched. Fix: any location or flow `uri` not in `git ls-files` counts as touched, which fails closed.
+- **F2:** the same nested-`tests/` wedge as above, with the same `.rs` arithmetic.
+- **F3:** V1 is vacuous.
+- **F4:** R10 cannot pass as written, because emptiness is read from a disk that the stubbed fixture does not populate.
+- **F5:** the judge step's status capture is unpinned. Under `bash -e`, `python3 … > judge.txt; rc=$?` aborts before printing. Pin `set +e`.
+
+Checked clean:
+- `python3 -I` isolation, probed with a planted `json.py`;
+- the `GATE_FILES` exact-match path to `uncleared item: gate`;
+- `-z` path output;
+- submodule gitlinks.
+Assumption: SARIF `uri` equals git's raw path for every filename. F1's rule makes it moot.
+Disposition:
+
+#### Adversarial Spec Review (comparison/judge designs only)
+
+Findings:
+- **F1: a worsening edit can make a file's results disappear.** In sarif1 to sarif3 (math#261), `scripts/mutation_gate_items.py` went from 3 results to 2: `00ab70` vanished when the sink degraded, and only its siblings kept the file touched. A single-result file losing its result reads green. Fix: a committed per-file count list, `.snyk-files`, as a `GATE_FILES` entry. It is red when result-bearing files or their counts differ. That also turns engine drift red instead of silent. It reads no fingerprints, and it is stable on the axis #260 and #261 measured.
+- **F2:** percent-encoded `uri`, as in Risk F1. Fix: `unquote`, then fail closed on a `uri` outside the tracked set.
+- **F3:** `.snyk` makes `tests/` invisible to both checks. Today nothing runs or imports `tests/*.py` as a tool. Either drop the exclusion or name it in Known limits.
+
+Recall: V2 push 1 cannot fail under file-touch. Missing probes are a single-result file under `shell=True` and a taint-losing refactor, plus an encoded filename.
+Assumption: a worsening edit leaves at least one result touching a changed file. #261 already shows one result vanishing. `.snyk-files` makes the assumption moot.
+Disposition:
