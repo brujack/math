@@ -1,0 +1,5 @@
+# Snyk probe: exclude test code from Snyk Code.
+version: v1.25.0
+exclude:
+  code:
+    - tests/**

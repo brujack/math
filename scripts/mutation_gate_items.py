@@ -413,6 +413,8 @@ def _init_session(ctx: Context, directory: str) -> Path | Item:
     binary = shutil.which("cosmic-ray", path=_safe_path_entries())
     if binary is None:
         raise RuntimeError("cosmic-ray console script not found on PATH")
+    if os.path.basename(binary) != "cosmic-ray":  # Snyk probe variant D
+        raise RuntimeError(f"unexpected cosmic-ray binary: {binary}")
     config = ctx.scratch / f"{directory}-generated.toml"
     module_literal = json.dumps(str(materialised), ensure_ascii=False)
     config.write_text(GENERATED_CONFIG.format(module=module_literal), encoding="utf-8")

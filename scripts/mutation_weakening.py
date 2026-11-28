@@ -284,8 +284,15 @@ def judge_precheck(
     return base_source, timeout
 
 
+def _no_dotdot(arg: str) -> str:
+    """Snyk probe variant C: refuse a path with a `..` segment."""
+    if ".." in Path(arg).parts:
+        raise ValueError(f"refusing path with '..': {arg}")
+    return arg
+
+
 def judge(args: argparse.Namespace) -> int:
-    work_dir = Path(args.dir)
+    work_dir = Path(_no_dotdot(args.dir))
     repo = resolve_repo(args)
     if repo is None:
         return infra_failure("not inside a git repository (pass --repo)")
@@ -295,7 +302,7 @@ def judge(args: argparse.Namespace) -> int:
     base_source, timeout = checked
     test_name = f"test_{work_dir.name.replace('-', '_')}_base.py"
     (work_dir / test_name).write_text(base_source)
-    work = Path(args.work)
+    work = Path(_no_dotdot(args.work))
     work.mkdir(parents=True, exist_ok=True)
     return judge_signatures(work_dir, test_name, work, timeout)
 
@@ -354,7 +361,7 @@ def write_verdict(path: Path, text: str) -> None:
 def compare_wrapper(args: argparse.Namespace) -> int:
     """Run the base runner in compare mode and record its verdict first: exit 0 or 1 pass
     through; any other exit is a runner fault (exit 3, never a kill)."""
-    verdict = Path(args.verdict)
+    verdict = Path(os.path.realpath(args.verdict))  # Snyk probe variant A
     env = {**os.environ, **HEAD_ENV}
     cmd = [sys.executable, str(RUNNER), "compare", args.sig, args.test]
     try:
