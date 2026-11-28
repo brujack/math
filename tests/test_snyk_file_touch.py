@@ -923,6 +923,66 @@ class RealTree(unittest.TestCase):
         )
 
 
+FIXTURES = ROOT / "tests" / "fixtures" / "snyk"
+
+
+class Replay(unittest.TestCase):
+    def test_replay_262(self) -> None:
+        sarif = json.loads((FIXTURES / "sarif-262.json").read_text(encoding="utf-8"))
+        uris = {
+            u
+            for run in sarif["runs"]
+            for res in run["results"]
+            for u in sft._decoded_uris(res)
+            if u is not None
+        }
+        checkout = sft.Checkout(
+            frozenset({"scripts/pip_audit_advisory.py"}),
+            tuple(sorted(uris)),
+            lambda _p: 1,
+            lambda _p: "",
+        )
+        lines, code = sft.judge(sarif, checkout, {})
+        touched = [ln for ln in lines if ln.startswith("touched:")]
+        self.assertEqual(len(touched), 1)
+        self.assertTrue(
+            touched[0].startswith(
+                "touched: warning python/CommandInjection "
+                "scripts/pip_audit_advisory.py:147 "
+            ),
+            touched[0],
+        )
+        self.assertEqual(code, 1)
+
+    def test_replay_d3ef01e(self) -> None:
+        sarif = json.loads(
+            (FIXTURES / "sarif-d3ef01e.json").read_text(encoding="utf-8")
+        )
+        sizes: dict[str, int] = {}
+        tsv = (FIXTURES / "files-d3ef01e.tsv").read_text(encoding="utf-8")
+        for row in tsv.splitlines():
+            size, path = row.split("\t", 1)
+            sizes[path] = int(size)
+        checkout = sft.Checkout(
+            frozenset(),
+            tuple(sizes),
+            sizes.get,
+            lambda _p: "",
+        )
+        manifest = {
+            "scripts/mutation_gate_items.py": 3,
+            "scripts/mutation_weakening.py": 8,
+            "scripts/zeta_results.py": 4,
+            "tests/test_mutation_weakening.py": 1,
+            "tests/test_mutation_weakening_e2e.py": 1,
+        }
+        lines, code = sft.judge(sarif, checkout, manifest)
+        self.assertIn("coverage .py 118/118, coverage .html 1/1", lines[0])
+        self.assertIn("0 touched, 17 untouched", lines[0])
+        self.assertFalse([ln for ln in lines if "snyk-scan:" in ln], lines)
+        self.assertEqual(code, 0)
+
+
 def subprocess_output(argv: list[str], env: dict[str, str]) -> bytes:
     return subprocess.run(
         argv, cwd=ROOT, env=env, capture_output=True, check=True
