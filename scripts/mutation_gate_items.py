@@ -61,6 +61,20 @@ OPERATOR_LINE = (
     "mutation-gate-items: these need the operator's review; "
     "only the operator merges this PR (admin override)."
 )
+# The script, its wrapper, its workflow and every `_load_sibling` target.
+ITEMS_GATE_PATHS = (
+    "scripts/mutation_gate_items.py",
+    "scripts/mutation-gate-items.sh",
+    ".github/workflows/mutation-gate-items.yml",
+    "scripts/cosmic_ray_prune.py",
+)
+ITEMS_GATE_LINE = (
+    "operator: this PR changes the items gate; before the admin merge, run "
+    "gh pr ready --undo <n> and then gh pr edit <n> --add-label gate-hold "
+    "for every other open non-draft PR; after it, run gh pr ready <n> and "
+    "gh pr edit <n> --remove-label gate-hold for each PR in "
+    "gh pr list --label gate-hold."
+)
 GATE_FILES = (
     ".github/workflows/mutation-pr.yml",
     ".github/workflows/mutation-gate-items.yml",
@@ -1552,7 +1566,12 @@ def run(repo: Path, base: str, head: str) -> tuple[int, str]:
     if not items:
         return 0, "mutation-gate-items: no uncleared items"
     lines = [f"uncleared item: {i.target} {i.kind} {' | '.join(i.key)}" for i in items]
-    return 1, "\n".join([*lines, OPERATOR_LINE])
+    extra = (
+        [ITEMS_GATE_LINE]
+        if any(i.target == "gate" and i.key[0] in ITEMS_GATE_PATHS for i in items)
+        else []
+    )
+    return 1, "\n".join([*lines, *extra, OPERATOR_LINE])
 
 
 def _parser() -> argparse.ArgumentParser:

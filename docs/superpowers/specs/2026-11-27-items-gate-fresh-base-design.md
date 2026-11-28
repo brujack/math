@@ -214,3 +214,33 @@ Report: [round1.md](2026-11-27-items-gate-fresh-base-design.external-review/roun
 | F1.7 | Rebutted | The Round 4 disposition is the operator's to record at Step 9; the assistant never authors a disposition. | unjudged | approved 2026-11-27 ("spec approved") |
 
 Stopped: reviewer recommended stopping in round 1
+
+## Amendments
+
+- finding R6 (2026-11-27, reviewer both): DIFFERS — The CLAUDE.md line drops the repro clause and points to ADR-0048, but the ADR diff adds no `scripts/mutation-gate-items.sh <base> <head>` text (its new line only says the items repro is under `## Repro commands`, a section the diff does not touch), so the move is not shown; the line also says `script from base.ref` without stating it is master's tip. Agent/gate-hold rule and size (line shrinks 413 to 410 bytes) are fine.
+- R6 -> Root `CLAUDE.md`'s `mutation-gate-items.yml` line states that the script runs from `base.ref` and that agents never `gh pr ready` while a PR has the `gate-hold` label, and points to ADR-0048 for the hold procedure; its `repro scripts/mutation-gate-items.sh <base> <head>` clause is dropped because ADR-0048's `## Repro commands` already lists that repro; the file stays at or under 30,000 bytes. — `base.ref` is always master's tip by the `branches: [master]` filter and the repro was already in the ADR, so the 4-byte headroom went to the rule an agent needs before reading any file.
+- finding R7 (2026-11-27, reviewer both): DIFFERS — The dated 2026-11-27 ADR line records base.ref, the math#238 reopened/edited reason, the draft-then-label / ready-then-unlabel gate-hold procedure and the not-re-judged caveat, and the P1 Backlog row is removed, but the line does not record the repro `scripts/mutation-gate-items.sh <base> <head>`; it only refers to `## Repro commands`, which this diff does not change.
+- R7 -> `docs/adr/0048-pr-mutation-gates-see-test-weakening.md` gains a line dated 2026-11-27 recording that the items job runs the script from `base.ref`, the reason (math#238's `reopened` payload carried a base 53 commits behind master while an `edited` payload on the same head carried master's tip), the `gate-hold` procedure (draft then label before the admin merge; ready then unlabel after it), that a tightening of other gate files is not re-judged, and a pointer to the existing items repro under `## Repro commands`; `docs/superpowers/README.md` drops the P1 Backlog row "mutation gate: items job runs the gate script from the PR's stale `base.sha`". — the repro `scripts/mutation-gate-items.sh <base-sha> <head-sha>` already sits in `## Repro commands`, so the dated line points to it instead of repeating it.
+
+## Spec alignment (2026-11-27)
+
+- spec: docs/superpowers/specs/2026-11-27-items-gate-fresh-base-design.md
+- anchor: 3cc5cf045e3e1b6e0370905dfb20905cfd85f23d
+- in scope: R1, R2, R3, R4, R5, R6, R7
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+| R6 | both | DIFFERS | The CLAUDE.md line drops the repro clause and points to ADR-0048, but the ADR diff adds no `scripts/mutation-gate-items.sh <base> <head>` text (its new line only says the items repro is under `## Repro commands`, a section the diff does not touch), so the move is not shown; the line also says `script from base.ref` without stating it is master's tip. Agent/gate-hold rule and size (line shrinks 413 to 410 bytes) are fine. | - R6 -> Root `CLAUDE.md`'s `mutation-gate-items.yml` line states that the script runs from `base.ref` and that agents never `gh pr ready` while a PR has the `gate-hold` label, and points to ADR-0048 for the hold procedure; its `repro scripts/mutation-gate-items.sh <base> <head>` clause is dropped because ADR-0048's `## Repro commands` already lists that repro; the file stays at or under 30,000 bytes. — `base.ref` is always master's tip by the `branches: [master]` filter and the repro was already in the ADR, so the 4-byte headroom went to the rule an agent needs before reading any file. |
+| R7 | both | DIFFERS | The dated 2026-11-27 ADR line records base.ref, the math#238 reopened/edited reason, the draft-then-label / ready-then-unlabel gate-hold procedure and the not-re-judged caveat, and the P1 Backlog row is removed, but the line does not record the repro `scripts/mutation-gate-items.sh <base> <head>`; it only refers to `## Repro commands`, which this diff does not change. | - R7 -> `docs/adr/0048-pr-mutation-gates-see-test-weakening.md` gains a line dated 2026-11-27 recording that the items job runs the script from `base.ref`, the reason (math#238's `reopened` payload carried a base 53 commits behind master while an `edited` payload on the same head carried master's tip), the `gate-hold` procedure (draft then label before the admin merge; ready then unlabel after it), that a tightening of other gate files is not re-judged, and a pointer to the existing items repro under `## Repro commands`; `docs/superpowers/README.md` drops the P1 Backlog row "mutation gate: items job runs the gate script from the PR's stale `base.sha`". — the repro `scripts/mutation-gate-items.sh <base-sha> <head-sha>` already sits in `## Repro commands`, so the dated line points to it instead of repeating it. |
+
+### Reviewed
+
+- none
+
+### Verifications
+
+- V1: no evidence recorded
+- V2: no evidence recorded
