@@ -26,7 +26,7 @@ scope: PR1
 ### Judge contract (exact strings, R5-R9)
 
 - Commands, fixed argv: `["git", "-c", "core.quotePath=false", "diff", "--name-only", "-z", "--no-renames", "HEAD^1", "HEAD"]` and `["git", "ls-files", "-z"]`. Any non-zero exit: exit 2.
-- Compared extensions: `.py .html .js .mjs .cjs .ts .tsx .jsx .vue` in that order, then any other `lang` of a coverage entry with `type` `SUPPORTED`, sorted. Extension of a path is `os.path.splitext(path)[1]`. Coverage `files` per extension is summed over all runs' entries; no entry counts 0. Tracked count: `git ls-files` paths with that extension that are regular files (`os.lstat`, `stat.S_ISREG`) with size > 0.
+- Compared extensions: `.py .html .js .mjs .cjs .ts .tsx .jsx .vue` in that order, then any other `lang` of a coverage entry with `type` `SUPPORTED`, sorted. Extension of a path is `os.path.splitext(path)[1]`. Coverage `files` per extension is summed over all runs' entries whose `type` is `SUPPORTED`; no such entry counts 0 (a `NOT_SUPPORTED` or typeless entry analysed nothing). Tracked count: `git ls-files` paths with that extension that are regular files (`os.lstat`, `stat.S_ISREG`) with size > 0.
 - Header: `snyk: <t> touched, <u> untouched; ` + `", ".join(f"coverage {ext} {a}/{b}")`. `u` = total results over all runs minus `t`.
 - Touched line: `touched: <level> <ruleId> <uri>:<startLine> — <message.text> [changed: <paths or none>]`, then ` [untracked uri: <uri>]` for each untracked decoded uri. `<uri>` is the decoded first-location uri. Missing field: `?`.
 - Mismatch line: `snyk-scan: Snyk analysed <a> <ext> files but <b> non-empty ones are tracked; a file is hidden from the scan (changed <ext> files: <comma list or none>)`.
@@ -296,6 +296,11 @@ and fails on any failure except `snyk-scan`; `secret-scan` and `auto-merge` are 
 ```
 
 - [ ] Edit, run gates, commit.
+
+## Execution amendments
+
+- 2026-11-28, Task 1 review: `judge(sarif, checkout: Checkout, manifest)` with frozen `Checkout(changed: frozenset[str], tracked: tuple[str, ...], size_of, read_text)` replaces the six-parameter signature (ruff PLR0913). A missing or non-string uri at any location or flow step counts as touched (`?`, `[untracked uri: ?]`); a non-list or non-dict where SARIF requires one, `ValueError` or `RecursionError` from the JSON load, and any `OSError` reading `.snyk-files` exit 2.
+- 2026-11-28, Task 2 review: coverage sums only `SUPPORTED` entries (contract line above); a malformed coverage entry exits 2.
 
 ## Orchestrator steps
 
