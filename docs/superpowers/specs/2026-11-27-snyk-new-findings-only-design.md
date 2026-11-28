@@ -2,6 +2,7 @@
 
 - **Date:** 2026-11-27
 - **Backlog row:** none. Raised in session after math#255, when every PR's `snyk-scan` was red.
+- **Approved:** 2026-11-28
 - **Related:** ADR-0016 (advisory scans), ADR-0037 (pinned downloads), ADR-0048 (items gate, operator-only merges), `tests/test_snyk_cli_pinned.py`
 - **Revision:** 6. Round 4 reviewed revision 4 at `fe89565`. Round 5 reviewed revision 5 at `6308713`, which added the presence list. Revision 6 drops `.snyk`, labels drift, and reds on inline suppressions. Earlier judges, each refuted on measured data (see Rejected alternatives):
   - revision 1, `f8ded91`: identity diff against `HEAD^1`;
@@ -300,14 +301,12 @@ Disposition: Addressed. The operator chose "Baseline + ci-gate blocks (Recommend
 
 Finding: a red result is hard to act on. Both scans print every finding in human format, about 34 blocks above the one-line verdict. The `new:` line uses SARIF terms (`note`, `python/PT`), while the log says `[LOW] Path Traversal`. It also drops `message.text`, the source-to-sink sentence a reader needs to judge the finding. And no action is stated for a red result: sanitisers do not work (math#259), and org ignores are excluded (N3). Fix: add `message.text`, emit a `::warning file=,line=::` annotation per new finding, send scan stdout to a file, and write the disposition procedure ("judge, record in the PR body, merge") into the ADR and knowledge entry. Red should be rare: 2 of the last 40 master commits added subprocess or file-I/O code under `scripts/`.
 Assumption: `identity` survives an edit inside the function that holds a known finding (a statement added between source and sink, or a local variable renamed), not only a line shift. If false, the busiest files re-flag their known findings as new. This is settled by a throwaway-PR probe.
-Disposition:
-
+Disposition: operator approved 2026-11-28 ("Approved"), as suggested: Addressed by revisions 4 to 6.
 #### Risk
 
 Finding: a SARIF run without a `results` array reads as zero findings and passes green. R8 misses this. The SARIF spec says absent `results` means the tool produced none, while `[]` means it found nothing. Fix: exit 2 on a run lacking a `results` array, optionally also on no `properties.coverage` entry with `isSupported: true` and `files > 0`, and add an R9 case. Second: the step runs under `bash -e`, and the head scan always exits 1. So the obvious `snyk ...; rc=$?` aborts before `rc` is read (probed: `bash -e -c 'false; rc=$?; echo reached'` printed nothing), and R10's text pin would pass that broken code. Fix: R4 should require `set +e`, as `claude-md-budget` already does. Also not raised: `SNYK_TOKEN` should be scoped to the two `snyk` calls rather than the PR-controlled script.
 Assumption: a base scan from `${RUNNER_TEMP}/base` (another path, a git worktree) yields the same `identity` values for unchanged findings as a head scan from `$GITHUB_WORKSPACE`. The identities are UUIDv4, which suggests server-side assignment possibly keyed on project or path. math#260 measured two runs at the same path only. If false, every known finding is new, and the job is red on every PR again. This is settled by scanning one tree at both paths in one job.
-Disposition:
-
+Disposition: operator approved 2026-11-28 ("Approved"), as suggested: Addressed by revisions 4 to 6.
 #### Adversarial Spec Review (comparison/judge designs only)
 
 Trigger: the design is a judge (known vs new).
@@ -331,8 +330,7 @@ Reviewed at commit: `381f3ae` (revision 2). Fresh lenses; round 1 framed as hist
 
 Finding: revision 2 gives the signal a consumer. `allow_auto_merge` is `false` and 54 of the last 60 merges ran through the `auto-merge` job, so a red `needs` blocks every automatic merge. But R8 makes the judge write `GITHUB_STEP_SUMMARY` from Python, and R7 opens two CLI paths. math#163 (`2fd5efa`) found Snyk flags the first pattern as Path Traversal and ignores inline suppressions, and master flags the second 8 times. So the judge will report 1 to 3 findings on itself, and V1's "15 accepted" is wrong. Fix: print to stdout only, have the shell append to the summary, and use repo-anchored constant paths. A premise error too: `snyk-scan` was not green until math#250. It was red on #150, #158 and #162, and green on #170 through #249. That is earlier red that nobody read, which strengthens the case.
 Assumption: Snyk's server-side engine keeps `identity` and `"1"` stable for unchanged code over weeks. All evidence spans about 2 hours on one day. Settled by re-scanning `d3ef01e` a week or more later.
-Disposition:
-
+Disposition: operator approved 2026-11-28 ("Approved"), as suggested: Addressed by revisions 4 to 6.
 #### Ergonomics
 
 Finding: engine drift turns every open PR red at once, including Renovate, docs-only and workflow-only PRs. The output names files the PR never touched, and agents follow "copy the `baseline:` line" into operator-only merges. A re-run does not help, because it reuses the old merge ref, so every PR needs a new event. Fix: mark each line "in this PR's diff" or "not in this PR's diff", say "likely engine drift" when none are, and add drift to Known limits.
@@ -343,8 +341,7 @@ Secondary findings:
 
 Estimated cost: about 2 operator merges a month from new code, and 0 of 2 historical edits touched a flagged flow.
 Assumption: the same engine-drift stability as goal-fit.
-Disposition:
-
+Disposition: operator approved 2026-11-28 ("Approved"), as suggested: Addressed by revisions 4 to 6.
 #### Risk
 
 Finding:
@@ -354,8 +351,7 @@ Finding:
 - **V4 passes on no measurement**, because a skipped compare step is green.
 - **Minor:** `if: always()` spends quota on cancelled runs (use `!cancelled()`), and R2 and R9 disagree on whether a reason is required.
 Assumption: the same engine-drift stability.
-Disposition:
-
+Disposition: operator approved 2026-11-28 ("Approved"), as suggested: Addressed by revisions 4 to 6.
 #### Adversarial Spec Review (comparison/judge designs only)
 
 Findings:
@@ -386,8 +382,7 @@ Simpler and stronger alternative, **file-touch**: red when the PR changes any li
 
 Premise verified: flow-touch, or file-touch, would have turned math#250 and #252 red, because both added their files. The R10 replay of math#261 is exact: 6 touched, 12 untouched.
 Assumption: with the new `.snyk`, SARIF coverage `.py` drops excluded files to 35. That is unmeasured; every SARIF so far came from a run without `.snyk`. Settle it with a pre-PR probe.
-Disposition:
-
+Disposition: operator approved 2026-11-28 ("Approved"), as suggested: Addressed by revisions 4 to 6.
 #### Ergonomics
 
 Finding: reds are rare. A replay of the last 40 first-parent commits on d3ef01e found only #250 and #252 touched, the commits that added the code. #253 and #255 touched nothing.
@@ -396,8 +391,7 @@ Finding: reds are rare. A replay of the last 40 first-parent commits on d3ef01e 
 - **Minor:** about 10 error annotations per step may be capped (unverified). Emit one `::error` line with a count.
 
 Assumption: the same `.snyk` coverage figure of 35.
-Disposition:
-
+Disposition: operator approved 2026-11-28 ("Approved"), as suggested: Addressed by revisions 4 to 6.
 #### Risk
 
 Finding:
@@ -408,8 +402,7 @@ Finding:
 - **F5:** coverage checks `.py` only, but Snyk also analyses `.html`.
 
 Assumption: the `.snyk` coverage formula, including empty files.
-Disposition:
-
+Disposition: operator approved 2026-11-28 ("Approved"), as suggested: Addressed by revisions 4 to 6.
 #### Adversarial Spec Review (comparison/judge designs only)
 
 Findings:
@@ -436,8 +429,7 @@ Two smaller findings:
 
 The "0 added operator merges" figure rests on a 2-day history.
 Assumption: a PR that only changes a helper in file A, used by a source and sink in an unchanged file B, gets a result whose flow names A. Unmeasured.
-Disposition:
-
+Disposition: operator approved 2026-11-28 ("Approved"), as suggested: Addressed by revisions 4 to 6.
 #### Ergonomics
 
 Finding: **R7's `tests/` exclusion is root-only, but Snyk excludes `tests/**` at any depth.**
@@ -446,8 +438,7 @@ Finding: **R7's `tests/` exclusion is root-only, but Snyk excludes `tests/**` at
 
 The first nested `foo/tests/x.py` wedges every later PR red, and the remedy text points at `.dcignore` or `.snyk`. Also V1 is vacuous, and R10 depends on the live checkout. The mismatch line cannot name the hidden file; printing the PR's changed paths for that extension would help. Red rate: on the last 60 merged PRs, file-touch adds none. Both checks go red together on edits to `scripts/mutation_*.py`, and one admin merge clears both.
 Assumption: the any-depth semantics measured on `.rs` also hold for `.py`.
-Disposition:
-
+Disposition: operator approved 2026-11-28 ("Approved"), as suggested: Addressed by revisions 4 to 6.
 #### Risk
 
 Finding:
@@ -463,8 +454,7 @@ Checked clean:
 - `-z` path output;
 - submodule gitlinks.
 Assumption: SARIF `uri` equals git's raw path for every filename. F1's rule makes it moot.
-Disposition:
-
+Disposition: operator approved 2026-11-28 ("Approved"), as suggested: Addressed by revisions 4 to 6.
 #### Adversarial Spec Review (comparison/judge designs only)
 
 Findings:
@@ -514,12 +504,12 @@ Report: [round1.md](2026-11-27-snyk-new-findings-only-design.external-review/rou
 
 | finding | disposition | evidence | reviewer verdict | operator (Step 9) |
 | ------- | ----------- | -------- | ---------------- | ----------------- |
-| F1.1 | Fixed | Inline suppressions and R7: pattern `re.compile(r"deepcode\s+ignore", re.I)`, whose source lacks the phrase; R10: runtime-built fixtures, whitespace variant, and a case that the real tree reports 0 | unjudged | |
-| F1.2 | Fixed | Label now reads "Snyk drift, a master-side change, or an effect of this PR's edits elsewhere" (design, R8); red procedure treats an unchanged-file difference as drift only when another open PR or an empty probe PR shows it, else judges at source; Known limits helper row updated | unjudged | |
-| F1.3 | Fixed | Red procedure and the drift Known-limits row state each held PR needs a new event (push, reopen, label) because a re-run reuses the old merge ref | unjudged | |
-| F1.4 | Fixed | R11 names `tests/test_snyk_scan_workflow.py`; V1 requires equal counts, with `a` = 121 for three new `.py` files | unjudged | |
-| F1.5 | Fixed | Red procedure: a whitespace path is touched on every PR; rename the file | unjudged | |
-| F1.6 | Fixed | V2 push 1 labelled a mechanism check that cannot fail by design; V4 now states its decision (below 2x monthly runs adds a quota wedge to Known limits) | unjudged | |
+| F1.1 | Fixed | Inline suppressions and R7: pattern `re.compile(r"deepcode\s+ignore", re.I)`, whose source lacks the phrase; R10: runtime-built fixtures, whitespace variant, and a case that the real tree reports 0 | unjudged | approved 2026-11-28 ("Approved") |
+| F1.2 | Fixed | Label now reads "Snyk drift, a master-side change, or an effect of this PR's edits elsewhere" (design, R8); red procedure treats an unchanged-file difference as drift only when another open PR or an empty probe PR shows it, else judges at source; Known limits helper row updated | unjudged | approved 2026-11-28 ("Approved") |
+| F1.3 | Fixed | Red procedure and the drift Known-limits row state each held PR needs a new event (push, reopen, label) because a re-run reuses the old merge ref | unjudged | approved 2026-11-28 ("Approved") |
+| F1.4 | Fixed | R11 names `tests/test_snyk_scan_workflow.py`; V1 requires equal counts, with `a` = 121 for three new `.py` files | unjudged | approved 2026-11-28 ("Approved") |
+| F1.5 | Fixed | Red procedure: a whitespace path is touched on every PR; rename the file | unjudged | approved 2026-11-28 ("Approved") |
+| F1.6 | Fixed | V2 push 1 labelled a mechanism check that cannot fail by design; V4 now states its decision (below 2x monthly runs adds a quota wedge to Known limits) | unjudged | approved 2026-11-28 ("Approved") |
 
 Stopped: reviewer recommended stopping in round 1
 
