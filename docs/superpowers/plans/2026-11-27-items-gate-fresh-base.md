@@ -1,5 +1,7 @@
 # Items Gate Fresh Base Implementation Plan
 
+> **Status: DONE** (math#255, ffd01fd)
+
 spec: docs/superpowers/specs/2026-11-27-items-gate-fresh-base-design.md
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
