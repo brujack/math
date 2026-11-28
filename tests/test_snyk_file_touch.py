@@ -315,6 +315,102 @@ class UnusablePredicate(unittest.TestCase):
                     self.assertEqual(path, sft._first_uri(res))
 
 
+class LineBreakEscaping(unittest.TestCase):
+    """Text from SARIF or git must not start a new log line (workflow commands)."""
+
+    def _assert_one_line_each(self, lines: list[str]) -> None:
+        for line in lines:
+            self.assertNotIn("\n", line)
+            self.assertNotIn("\r", line)
+        for line in lines[:-1]:
+            self.assertFalse(line.startswith("::"), line)
+        self.assertTrue(lines[-1].startswith("::error::"), lines[-1])
+
+    def test_message_line_breaks_are_escaped(self) -> None:
+        for raw, shown in (
+            ("m\n::warning::x", "m\\n::warning::x"),
+            ("m\r::warning::x", "m\\r::warning::x"),
+            ("m\r\n::warning::x", "m\\r\\n::warning::x"),
+        ):
+            with self.subTest(raw=raw):
+                doc = sarif(result("a.py", message={"text": raw}))
+                lines, code = judge(doc, changed={"a.py"})
+                self.assertEqual(code, 1)
+                self._assert_one_line_each(lines)
+                self.assertIn(f" \u2014 {shown} [changed", lines[1])
+
+    def test_level_and_rule_line_breaks_are_escaped(self) -> None:
+        doc = sarif(result("a.py", level="e\n::notice::l", ruleId="r\n::notice::r"))
+        lines, _ = judge(doc, changed={"a.py"})
+        self._assert_one_line_each(lines)
+        self.assertTrue(
+            lines[1].startswith("touched: e\\n::notice::l r\\n::notice::r ")
+        )
+
+    def test_uri_line_break_is_escaped_in_untracked_and_location(self) -> None:
+        lines, code = judge(sarif(result("a.py%0A::notice::y")))
+        self.assertEqual(code, 1)
+        self._assert_one_line_each(lines)
+        self.assertIn("a.py\\n::notice::y:3", lines[1])
+        self.assertTrue(lines[1].endswith("[untracked uri: a.py\\n::notice::y]"))
+
+    def test_changed_path_line_break_is_escaped(self) -> None:
+        name = "a\n::notice::c.py"
+        lines, code = judge(
+            sarif(result("a%0A::notice::c.py")), changed={name}, tracked=[name]
+        )
+        self.assertEqual(code, 1)
+        self._assert_one_line_each(lines)
+        self.assertIn("[changed: a\\n::notice::c.py]", lines[1])
+
+    def test_presence_path_line_break_is_escaped(self) -> None:
+        name = "p\n::notice::q.py"
+        lines, code = judge(sarif(), tracked=[name], manifest={name: 1})
+        self.assertEqual(code, 1)
+        self._assert_one_line_each(lines)
+        self.assertTrue(lines[1].startswith("snyk-scan: p\\n::notice::q.py has 0"))
+
+    def test_suppression_path_line_break_is_escaped(self) -> None:
+        name = "s\n::notice::t.py"
+        fs = Fs(size_of=lambda _p: 1, read_text=lambda _p: SUPPRESSION)
+        lines, code = judge(sarif(), tracked=[name], manifest={}, fs=fs)
+        self.assertEqual(code, 1)
+        self._assert_one_line_each(lines)
+        self.assertTrue(
+            any(ln.startswith("snyk-scan: s\\n::notice::t.py contains") for ln in lines)
+        )
+
+    def test_coverage_lang_line_break_is_escaped(self) -> None:
+        doc = {
+            "runs": [
+                {
+                    "results": [],
+                    "properties": {"coverage": [coverage(".x\n::notice::z", 1)]},
+                }
+            ]
+        }
+        lines, code = judge(doc, tracked=[])
+        self.assertEqual(code, 1)
+        self._assert_one_line_each(lines)
+
+    def test_stderr_reason_line_break_is_escaped(self) -> None:
+        def unreadable(_path: str) -> str:
+            raise OSError("boom")
+
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = sft.main(
+                io.StringIO(json.dumps(sarif())),
+                lambda argv: b"" if argv == DIFF_ARGV else b"p\n::notice::q.py\0",
+                lambda: "",
+                lambda _p: 1,
+                unreadable,
+            )
+        self.assertEqual(code, 2)
+        self.assertEqual(len(err.getvalue().splitlines()), 1)
+        self.assertIn("p\\n::notice::q.py", err.getvalue())
+
+
 class FailureModes(unittest.TestCase):
     def test_not_a_dict(self) -> None:
         for bad in ([], "x", None, {}, {"runs": []}, {"runs": "x"}):

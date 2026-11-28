@@ -42,6 +42,9 @@ class SnykScanWorkflowTests(unittest.TestCase):
         for step in job["steps"]:
             self.assertNotIn("continue-on-error", step, step.get("name"))
 
+    def test_job_permissions_are_read_only(self):
+        self.assertEqual(load_jobs()["snyk-scan"]["permissions"], {"contents": "read"})
+
     def test_checkout_fetches_two_commits(self):
         checkout = snyk_steps()[0]
         self.assertTrue(checkout["uses"].startswith("actions/checkout@"))

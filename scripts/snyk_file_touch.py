@@ -75,6 +75,12 @@ def _dig(obj: Any, *keys: str | int, default: Any = None) -> Any:
     return obj
 
 
+def _esc(value: str) -> str:
+    """Make line breaks visible so SARIF or git text cannot start a new log line
+    (a smuggled `::warning::` workflow command)."""
+    return value.replace("\r", "\\r").replace("\n", "\\n")
+
+
 def _text(value: Any) -> str:
     return "?" if value is None else str(value)
 
@@ -297,6 +303,7 @@ def judge(
     suppressed = _suppression_lines(eligible, checkout)
     lines = [_header(len(touched), len(results) - len(touched), parts)]
     lines += touched + mismatches + presence + suppressed
+    lines = [_esc(line) for line in lines]  # one choke point for every printed value
     if not (touched or mismatches or presence or suppressed):
         return lines, 0
     lines.append(
@@ -377,7 +384,7 @@ def main(
         )
         lines, code = judge(sarif, checkout, manifest)
     except (JudgeError, UnicodeDecodeError) as exc:
-        print(f"snyk_file_touch: {exc}", file=sys.stderr)
+        print(_esc(f"snyk_file_touch: {exc}"), file=sys.stderr)
         return 2
     for line in lines:
         print(line)
