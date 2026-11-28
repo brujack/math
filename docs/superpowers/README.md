@@ -71,7 +71,7 @@ Master status index for all specs and implementation plans in this directory.
 | 2026-11-24 | [zeta-results-page](plans/2026-11-24-zeta-results-page.md)                                                   | [spec](specs/2026-11-24-zeta-results-page-design.md)                                                                              | Done (math#250; deployed from dae0593)                                    |
 | 2026-11-26 | [pr-mutation-test-weakening](plans/2026-11-26-pr-mutation-test-weakening.md)                                 | [spec](specs/2026-11-26-pr-mutation-test-weakening-design.md)                                                                     | Done (math#252)                                                           |
 | 2026-11-27 | [items-gate-fresh-base](plans/2026-11-27-items-gate-fresh-base.md) | [spec](specs/2026-11-27-items-gate-fresh-base-design.md) | Done (math#255) |
-| 2026-11-28 | [snyk-file-touch](plans/2026-11-28-snyk-file-touch.md) | [spec](specs/2026-11-27-snyk-new-findings-only-design.md) | In Progress |
+| 2026-11-28 | [snyk-file-touch](plans/2026-11-28-snyk-file-touch.md) | [spec](specs/2026-11-27-snyk-new-findings-only-design.md) | Done (math#264) |
 | 2026-10-31 | [shared-push-content-gate](plans/2026-10-31-shared-push-content-gate.md)                                     | ai-config `2026-10-30-shared-push-content-gate-design.md` (cross-repo)                                                            | Done                                                                      |
 
 ---

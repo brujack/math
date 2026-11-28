@@ -1,5 +1,7 @@
 # snyk-scan file-touch judge Implementation Plan
 
+> **Status: DONE** (math#264, 34bf4cb)
+
 spec: docs/superpowers/specs/2026-11-27-snyk-new-findings-only-design.md
 scope: PR1
 
