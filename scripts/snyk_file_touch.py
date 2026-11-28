@@ -60,7 +60,7 @@ class Checkout:
     """What the judge knows about the merge ref's working tree."""
 
     changed: frozenset[str]
-    tracked: tuple[str, ...]  # `git ls-files` order, which Task 2's output follows
+    tracked: tuple[str, ...]  # `git ls-files` order; suppression lines follow it
     size_of: Callable[[str], int | None]
     read_text: Callable[[str], str]
 
@@ -116,14 +116,21 @@ def _decoded_uris(res: Any) -> list[str | None]:
     return uris
 
 
-def _is_touched(res: Any, checkout: Checkout, tracked: set[str]) -> bool:
-    first = _first_uri(res)
-    if first is not None and any(c.isspace() for c in first):
+def _unusable(res: Any, tracked: set[str]) -> bool:
+    """True when a result cannot be counted under one tracked path: its first uri
+    is missing or holds whitespace, or any uri (location or flow step) is missing
+    or untracked."""
+    uris = _decoded_uris(res)
+    first = uris[0]
+    if first is None or any(c.isspace() for c in first):
         return True
-    return any(
-        u is None or u in checkout.changed or u not in tracked
-        for u in _decoded_uris(res)
-    )
+    return any(u is None or u not in tracked for u in uris)
+
+
+def _is_touched(res: Any, checkout: Checkout, tracked: set[str]) -> bool:
+    if _unusable(res, tracked):
+        return True
+    return any(u in checkout.changed for u in _decoded_uris(res))
 
 
 def _touched_line(res: Any, checkout: Checkout, tracked: set[str]) -> str:
@@ -222,13 +229,10 @@ def _mismatch_lines(
 
 
 def _presence_path(res: Any, tracked: set[str]) -> str | None:
-    """The path a result counts under; None when an untracked, unusable or
-    whitespace path made it touched instead."""
-    uris = _decoded_uris(res)
-    first = uris[0]
-    if first is None or any(c.isspace() for c in first):
+    """The path a result counts under; None when `_unusable` made it touched."""
+    if _unusable(res, tracked):
         return None
-    return first if all(u is not None and u in tracked for u in uris) else None
+    return _first_uri(res)
 
 
 def _presence_lines(

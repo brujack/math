@@ -287,6 +287,34 @@ class TouchDecision(unittest.TestCase):
         self.assertTrue(lines[1].endswith("[changed: a.py, b.py]"))
 
 
+class UnusablePredicate(unittest.TestCase):
+    def test_presence_path_is_none_exactly_when_unusable(self) -> None:
+        tracked = {"a.py", "b.py", "c d.py"}
+        bad_step = flow("a.py")
+        bad_step[0]["threadFlows"][0]["locations"][0]["location"]["physicalLocation"][
+            "artifactLocation"
+        ]["uri"] = 7
+        cases: list[tuple[dict[str, Any], bool]] = [
+            (result("a.py"), False),
+            (result("a.py", codeFlows=flow("a.py", "b.py")), False),
+            (result("c%20d.py"), True),
+            (result("a.py", codeFlows=flow("c d.py")), False),
+            (result("ghost.py"), True),
+            (result("a.py", codeFlows=flow("ghost.py")), True),
+            (result("a.py", codeFlows=bad_step), True),
+            (result(None), True),
+            (result(5), True),
+            ({}, True),
+        ]
+        for res, unusable in cases:
+            with self.subTest(res=res):
+                self.assertIs(sft._unusable(res, tracked), unusable)
+                path = sft._presence_path(res, tracked)
+                self.assertEqual(path is None, unusable)
+                if not unusable:
+                    self.assertEqual(path, sft._first_uri(res))
+
+
 class FailureModes(unittest.TestCase):
     def test_not_a_dict(self) -> None:
         for bad in ([], "x", None, {}, {"runs": []}, {"runs": "x"}):
