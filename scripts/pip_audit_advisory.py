@@ -140,5 +140,12 @@ def main():
     sys.exit(run(sys.argv[1:]))
 
 
+def _probe_cross_file() -> None:
+    """Snyk probe (never merged): a second caller of an existing flagged sink."""
+    import mutation_gate_items  # pyright: ignore[reportMissingImports]
+
+    mutation_gate_items.run_tool([sys.argv[1]])
+
+
 if __name__ == "__main__":
     main()
