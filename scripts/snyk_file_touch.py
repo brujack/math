@@ -215,7 +215,7 @@ def _read_sarif(stdin: TextIO) -> object:
         return json.load(stdin)
     except json.JSONDecodeError as exc:
         raise JudgeError(f"stdin is not JSON: {exc}") from exc
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         raise JudgeError(f"stdin is not usable JSON: {type(exc).__name__}") from exc
 
 
