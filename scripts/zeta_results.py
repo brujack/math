@@ -8,6 +8,10 @@ SVGs and the static `index.html`, swap the site in atomically and copy each
 run's `out.txt` and `err.txt` (binary path reduced) beside it.
 """
 
+# SARIF probe: shift lines (never merged).
+#
+#
+
 import argparse
 import html
 import io

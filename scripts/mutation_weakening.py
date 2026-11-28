@@ -31,6 +31,10 @@ Anything else (a wrapper crash, usage error or import error leaves no file) is
 `replay failed: runner fault`, so an infrastructure fault is never counted as a kill.
 """
 
+# SARIF probe: shift lines (never merged).
+#
+#
+
 import argparse
 import contextlib
 import json

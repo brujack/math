@@ -18,6 +18,10 @@ Exit codes: 0 no items, 1 red (items listed; only the operator's admin merge cle
 them), 2 usage, 3 infrastructure error (still red in CI).
 """
 
+# SARIF probe: shift lines (never merged).
+#
+#
+
 import argparse
 import bisect
 import difflib
