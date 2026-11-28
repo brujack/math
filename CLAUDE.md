@@ -157,7 +157,7 @@ Exclude equivalent mutants via the crate's `.cargo/mutants.toml` `exclude_re` re
 
 Project workflows run on PRs to `master` only; the pre-push hook gates branch pushes locally; a build job depends on its test job (`needs: [test]`). → ai-config/docs/knowledge/math-ci.md § Workflow table
 Workflows are `<project>-py.yml` (job `test`) and `<project>-rs.yml` (`test` → build + artifact), `release-<project>-rs.yml` (manual dispatch), plus `auto-merge.yml`, `mutation-pr.yml`, `mutation-gate-items.yml`, `mutation-testing.yml`, `mutation-testing-python.yml`, `gmp-cache.yml`, `cargo-deny.yml`, `scripts.yml` (`git ls-files .github/workflows/`). → ai-config/docs/knowledge/math-ci.md § Workflow table
-`auto-merge.yml` runs secret-scan (`.gitleaks.toml` extends defaults, `tests/test_gitleaks_config.py`), bash-coverage and claude-md-budget (gated), then ci-gate (polls required checks, merges on pass; a draft PR is held green and the `ready_for_review` run merges), then snyk-scan (advisory, not gated); `scripts.yml` runs `bats --jobs 8 --recursive tests/`. → ai-config/docs/knowledge/math-ci.md § Workflow table
+`auto-merge.yml` runs secret-scan (`.gitleaks.toml` extends defaults, `tests/test_gitleaks_config.py`), bash-coverage and claude-md-budget (gated), then ci-gate (polls required checks, merges on pass; a draft PR is held green and the `ready_for_review` run merges); `scripts.yml` runs `bats --jobs 8 --recursive tests/`. → ai-config/docs/knowledge/math-ci.md § Workflow table
 
 Crate jobs restore the GMP/MPFR build (`gmp-mpfr-sys`) read-only from `actions/cache`, failing open to a cold build via `scripts/gmp-cache-key.sh`; only `gmp-cache.yml` saves it (weekly on master), so dispatch it after a `gmp-mpfr-sys` bump on master (ADR-0034).
 
@@ -200,7 +200,7 @@ The instrumented set is derived from `git ls-files 'scripts/*.sh' '*/install_dep
 The `bash-coverage` job in `auto-merge.yml` gates at `FLOOR=24`, defined once in that step and set from CI's own measurement on `ubuntu-latest`, never a local run. → ai-config/docs/knowledge/math-ci.md § Bash coverage floor
 The floor is a regression ratchet over the reachable quarter of the denominator, not a quality bar. → ai-config/docs/knowledge/math-ci.md § Bash coverage floor
 
-`scripts/ci-gate.sh <PR>` waits for each `.github/required-status-checks` context, polls the check-runs API (latest run per workflow and check name; ignores check-runs from `workflow_dispatch` and `schedule` runs) and fails on any non-advisory failure (`snyk-scan` is advisory; `secret-scan` and `auto-merge` are self-checks); tested via `tests/scripts/ci_gate.bats`. → ai-config/docs/knowledge/math-ci.md § Auto-merge gate
+`scripts/ci-gate.sh <PR>` waits for each `.github/required-status-checks` context, polls the check-runs API (latest run per workflow and check name; ignores check-runs from `workflow_dispatch` and `schedule` runs) and fails on any failure except `snyk-scan`; `secret-scan` and `auto-merge` are self-checks; tested via `tests/scripts/ci_gate.bats`. → ai-config/docs/knowledge/math-ci.md § Auto-merge gate
 
 Every Rust test is bounded to 45 s (nextest `[profile.default]` `slow-timeout = { period = "15s", terminate-after = 3 }`, inherited by `ci`) and every `coverage` job to `timeout-minutes: 30` (`tests/test_rust_ci_jobs.py`); both come from the templates.
 Every `<crate>-rs.yml` runs `make test` with `NEXTEST_PROFILE: ci` (JUnit in `target/nextest/ci/junit.xml`) and publishes `test-metrics-<crate>-rs` via `scripts/test_metrics.py`, which needs `pip install defusedxml==0.7.1` (step `Install Python dependencies`, `if: always()`) immediately before `Generate test metrics`, or CI fails with `ModuleNotFoundError`. → ai-config/docs/knowledge/math-ci.md § test_metrics.py in Rust workflows
@@ -214,7 +214,7 @@ Project workflows are paths-filtered (`scripts.yml`: root `Makefile`, any workfl
 
 `continue-on-error` is allowed only on the allow-list in `tests/test_workflow_continue_on_error.py`, each entry with its reason; pip-audit stays advisory (ADR-0016) through `scripts/pip_audit_advisory.py`, which warns on findings and fails when no audit ran.
 
-**snyk-scan** runs `snyk code test` (SAST) against the Python and Rust source. It is advisory — not in `needs` for `auto-merge`. Requires `SNYK_TOKEN` in repository secrets.
+**snyk-scan** (`needs` of `auto-merge`, ADR-0049, `SNYK_TOKEN`): `scripts/snyk_file_touch.py` fails it on a finding in a file the PR changes, a coverage mismatch, a `.snyk-files` presence difference or an inline suppression.
 
 A new project gets `.github/workflows/<project>.yml` triggered only by `pull_request: branches: [master]` (no `push:`) with `paths:`, a `test` job and a `build` job (`needs: [test]`) uploading an artifact, plus a README badge `badge.svg?event=pull_request` at the top and in the CI column. → ai-config/docs/knowledge/math-ci.md § Adding a new project workflow
 
