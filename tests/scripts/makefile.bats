@@ -370,8 +370,8 @@ _probe_dir() {
 _probe_poll() {
     [ -n "${PROBE_BASH_ENV:-}" ] || return 0
     (
-        local k
-        for k in $(seq 1 150); do
+        local _
+        for _ in $(seq 1 150); do
             printf '@%s\n' "${EPOCHREALTIME}"
             ps -e -o pid=,ppid=,sid=,stat=,args= 2>/dev/null | awk -v s="$1" '$3 == s'
             sleep 0.02
