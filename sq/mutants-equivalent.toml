@@ -1,0 +1,7 @@
+[[equivalent]]
+operator = "core/ReplaceComparisonOperator_GtE_Gt"
+function = "refuse_large_run"
+line = "if LARGE_RUN_THRESHOLD is not None and size >= LARGE_RUN_THRESHOLD and not yes:"
+col = 47
+above = "\"\"\"Exit 1 naming --yes when size needs confirmation and --yes is absent.\"\"\""
+reason = "V4 probe (math PR mutation gate): throwaway entry, never merged."
