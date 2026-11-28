@@ -1609,27 +1609,27 @@ if __name__ == "__main__":
 
 
 # Snyk probe (a): copy of _init_session.
-def _probe_dup_init_session(ctx: Context, directory: str) -> Path | Item:
-    """`cosmic-ray init` on the head module with a generated config.
+def _probe_dup_init_session(ctx: Context, dir_name: str) -> Path | Item:
+    """`cosmic-ray init` on the head mod_path with a generated cfg_path.
 
-    An Item (module-not-regular) when the head module is missing or not a regular file:
-    a symlinked module would otherwise yield no jobs and hide every new entry.
+    An Item (mod_path-not-regular) when the head mod_path is missing or not a regular file:
+    a symlinked mod_path would otherwise yield no jobs and hide every new entry.
     """
-    module = f"{directory}/{directory.replace('-', '_')}.py"
+    mod_path = f"{dir_name}/{dir_name.replace('-', '_')}.py"
     try:
-        materialised = ctx.materialise(ctx.head, module, ctx.scratch / "head")
-    except NotRegularError as exc:
-        return _equivalent_marker(directory, "module-not-regular", exc.blob)
-    if materialised is None:
-        return _equivalent_marker(directory, "module-not-regular", DELETED)
-    binary = shutil.which("cosmic-ray", path=_safe_path_entries())
-    if binary is None:
+        mat_file = ctx.materialise(ctx.head, mod_path, ctx.scratch / "head")
+    except NotRegularError as err:
+        return _equivalent_marker(dir_name, "mod_path-not-regular", err.blob)
+    if mat_file is None:
+        return _equivalent_marker(dir_name, "mod_path-not-regular", DELETED)
+    exe = shutil.which("cosmic-ray", path=_safe_path_entries())
+    if exe is None:
         raise RuntimeError("cosmic-ray console script not found on PATH")
-    config = ctx.scratch / f"{directory}-generated.toml"
-    module_literal = json.dumps(str(materialised), ensure_ascii=False)
-    config.write_text(GENERATED_CONFIG.format(module=module_literal), encoding="utf-8")
-    session = ctx.scratch / f"{directory}-session.sqlite"
-    result = run_tool([binary, "init", str(config), str(session)])
-    if result.returncode != 0:
-        raise RuntimeError(f"cosmic-ray init failed for {directory}: {result.stderr}")
-    return session
+    cfg_path = ctx.scratch / f"{dir_name}-generated.toml"
+    mod_lit = json.dumps(str(mat_file), ensure_ascii=False)
+    cfg_path.write_text(GENERATED_CONFIG.format(mod_path=mod_lit), encoding="utf-8")
+    sess_db = ctx.scratch / f"{dir_name}-sess_db.sqlite"
+    proc = run_tool([exe, "init", str(cfg_path), str(sess_db)])
+    if proc.returncode != 0:
+        raise RuntimeError(f"cosmic-ray init failed for {dir_name}: {proc.stderr}")
+    return sess_db
