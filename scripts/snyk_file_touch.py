@@ -13,7 +13,7 @@ import stat
 import subprocess
 import sys
 from collections import Counter
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, TextIO
 from urllib.parse import unquote
@@ -24,7 +24,7 @@ GIT_DIFF_ARGV = [
 ]  # fmt: skip
 GIT_LS_FILES_ARGV = ["git", "ls-files", "-z"]
 MANIFEST_PATH = ".snyk-files"
-COMPARED_EXTS = [".py", ".html", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".vue"]
+COMPARED_EXTS = (".py", ".html", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".vue")
 # Joined at runtime (not folded to a constant) so no source or .pyc holds the phrase.
 _PREFIX = "deep"
 _SUPPRESSION_WORDS = f"{_PREFIX}code ignore"
@@ -173,14 +173,14 @@ def _coverage_entry(entry: Any) -> tuple[str, int]:
 
 
 def _coverage(runs: list[Any]) -> tuple[dict[str, int], set[str]]:
-    """Analysed-file counts per lang summed over all runs, and the SUPPORTED langs."""
+    """Analysed-file counts per lang, summed over all runs from SUPPORTED entries only."""
     files: dict[str, int] = {}
     supported: set[str] = set()
     for run in runs:
         for entry in run["properties"]["coverage"]:
             lang, count = _coverage_entry(entry)
-            files[lang] = files.get(lang, 0) + count
-            if entry.get("type") == "SUPPORTED":
+            if entry.get("type") == "SUPPORTED":  # fail closed: others count 0
+                files[lang] = files.get(lang, 0) + count
                 supported.add(lang)
     return files, supported
 
@@ -189,7 +189,7 @@ def _ext(path: str) -> str:
     return os.path.splitext(path)[1]
 
 
-def _eligible(checkout: Checkout, exts: list[str]) -> list[str]:
+def _eligible(checkout: Checkout, exts: Sequence[str]) -> list[str]:
     """Tracked regular non-empty files of a compared extension, `ls-files` order."""
     wanted = set(exts)
     eligible = []
@@ -203,9 +203,11 @@ def _eligible(checkout: Checkout, exts: list[str]) -> list[str]:
 
 
 def _mismatch_lines(
-    exts: list[str], analysed: Mapping[str, int], tracked_count: Mapping[str, int],
+    exts: list[str],
+    analysed: Mapping[str, int],
+    tracked_count: Mapping[str, int],
     changed: frozenset[str],
-) -> list[str]:  # fmt: skip
+) -> list[str]:
     lines = []
     for ext in exts:
         a, b = analysed.get(ext, 0), tracked_count.get(ext, 0)
@@ -219,13 +221,14 @@ def _mismatch_lines(
     return lines
 
 
-def _counts_toward_presence(res: Any, tracked: set[str]) -> bool:
-    """False for a result touched by an untracked, unusable or whitespace path."""
+def _presence_path(res: Any, tracked: set[str]) -> str | None:
+    """The path a result counts under; None when an untracked, unusable or
+    whitespace path made it touched instead."""
     uris = _decoded_uris(res)
     first = uris[0]
-    if first is not None and any(c.isspace() for c in first):
-        return False
-    return all(u is not None and u in tracked for u in uris)
+    if first is None or any(c.isspace() for c in first):
+        return None
+    return first if all(u is not None and u in tracked for u in uris) else None
 
 
 def _presence_lines(
@@ -236,10 +239,9 @@ def _presence_lines(
 ) -> list[str]:
     counts: dict[str, int] = {}
     for res in results:
-        if _counts_toward_presence(res, tracked):
-            path = _first_uri(res)
-            if path is not None:
-                counts[path] = counts.get(path, 0) + 1
+        path = _presence_path(res, tracked)
+        if path is not None:
+            counts[path] = counts.get(path, 0) + 1
     lines = []
     for path in sorted(set(counts) | set(manifest)):
         m, n = counts.get(path, 0), manifest.get(path, 0)
@@ -282,7 +284,7 @@ def judge(
         if _is_touched(res, checkout, tracked)
     ]
     analysed, supported = _coverage(runs)
-    exts = COMPARED_EXTS + sorted(supported - set(COMPARED_EXTS))
+    exts = [*COMPARED_EXTS, *sorted(supported - set(COMPARED_EXTS))]
     eligible = _eligible(checkout, exts)
     tracked_count = Counter(_ext(p) for p in eligible)
     parts = [f"coverage {e} {analysed.get(e, 0)}/{tracked_count[e]}" for e in exts]

@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -91,7 +91,11 @@ def coverage(lang: str, files: Any, kind: str = "SUPPORTED") -> dict[str, Any]:
 
 
 def _expected_counts(doc: Any, tracked: list[str]) -> dict[str, int]:
-    """Per-path result counts (tracked, whitespace-free first uri) for an aligned manifest."""
+    """Default manifest for tests that do not care about presence.
+
+    This only aligns the manifest with the results so unrelated assertions stay
+    quiet; it is not an oracle for the judge's presence logic.
+    """
     counts: dict[str, int] = {}
     try:
         for each_run in doc["runs"]:
@@ -106,7 +110,14 @@ def _expected_counts(doc: Any, tracked: list[str]) -> dict[str, int]:
     return counts
 
 
-EMPTY_FS = (lambda _p: 0, lambda _p: "")
+class Fs(NamedTuple):
+    """The two filesystem callbacks of a Checkout, passed by keyword."""
+
+    size_of: Callable[[str], int | None]
+    read_text: Callable[[str], str]
+
+
+EMPTY_FS = Fs(size_of=lambda _p: 0, read_text=lambda _p: "")
 
 
 def judge(
@@ -114,11 +125,16 @@ def judge(
     changed: set[str] | None = None,
     tracked: list[str] | None = None,
     manifest: Mapping[str, int] | None = None,
-    fs: tuple[Callable[[str], int | None], Callable[[str], str]] = EMPTY_FS,
+    fs: Fs = EMPTY_FS,
 ) -> tuple[list[str], int]:
     """Judge with every tracked file empty and a manifest that matches the results."""
     files = tracked if tracked is not None else ["a.py", "b.py", "c d.py"]
-    checkout = sft.Checkout(frozenset(changed or set()), tuple(files), *fs)
+    checkout = sft.Checkout(
+        changed=frozenset(changed or set()),
+        tracked=tuple(files),
+        size_of=fs.size_of,
+        read_text=fs.read_text,
+    )
     if manifest is None:
         manifest = _expected_counts(doc, files)
     return sft.judge(doc, checkout, manifest)
@@ -476,7 +492,13 @@ class Coverage(unittest.TestCase):
     ) -> tuple[list[str], int]:
         doc = {"runs": [{"results": [], "properties": {"coverage": cov}}]}
         sizes = sizes if sizes is not None else dict.fromkeys(tracked, 1)
-        return judge(doc, changed, tracked, {}, (_sizes(sizes), lambda _p: ""))
+        return judge(
+            doc,
+            changed,
+            tracked,
+            {},
+            Fs(size_of=_sizes(sizes), read_text=lambda _p: ""),
+        )
 
     def test_equal_counts_are_clean(self) -> None:
         lines, code = self._judge([coverage(".py", 2)], ["a.py", "b.py"])
@@ -547,6 +569,51 @@ class Coverage(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("analysed 1 .rb files but 2 non-empty", lines[1])
 
+    def test_not_supported_entry_counts_zero(self) -> None:
+        lines, code = self._judge(
+            [coverage(".py", 3, "NOT_SUPPORTED")], ["a.py", "b.py", "c.py"]
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(lines[0], header(0, 0, py="0/3"))
+        self.assertIn("analysed 0 .py files but 3 non-empty", lines[1])
+
+    def test_entry_without_type_counts_zero(self) -> None:
+        entry = {"lang": ".py", "files": 1}
+        lines, code = self._judge([entry], ["a.py"])
+        self.assertEqual(code, 1)
+        self.assertEqual(lines[0], header(0, 0, py="0/1"))
+
+    def test_not_supported_entry_adds_no_extra_extension(self) -> None:
+        lines, code = self._judge([coverage(".rb", 1, "NOT_SUPPORTED")], [])
+        self.assertEqual((lines, code), ([header(0, 0)], 0))
+
+    def test_not_supported_entry_beside_supported_one_is_ignored(self) -> None:
+        cov = [coverage(".py", 2), coverage(".py", 5, "NOT_SUPPORTED")]
+        lines, code = self._judge(cov, ["a.py", "b.py"])
+        self.assertEqual((lines, code), ([header(0, 0, py="2/2")], 0))
+
+    def test_analysed_above_tracked_lists_changed_file(self) -> None:
+        lines, code = self._judge(
+            [coverage(".py", 3)], ["a.py", "b.py"], changed={"a.py", "n.js"}
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            lines[1],
+            "snyk-scan: Snyk analysed 3 .py files but 2 non-empty ones are tracked; "
+            "a file is hidden from the scan (changed .py files: a.py)",
+        )
+
+    def test_analysed_below_tracked_with_no_changed_file(self) -> None:
+        lines, code = self._judge(
+            [coverage(".py", 1)], ["a.py", "b.py"], changed={"n.js"}
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            lines[1],
+            "snyk-scan: Snyk analysed 1 .py files but 2 non-empty ones are tracked; "
+            "a file is hidden from the scan (changed .py files: none)",
+        )
+
     def test_counts_sum_over_runs(self) -> None:
         doc = {
             "runs": [
@@ -559,7 +626,10 @@ class Coverage(unittest.TestCase):
             None,
             ["a.py", "b.py", "c.py"],
             {},
-            (_sizes({"a.py": 1, "b.py": 1, "c.py": 1}), lambda _p: ""),
+            Fs(
+                size_of=_sizes({"a.py": 1, "b.py": 1, "c.py": 1}),
+                read_text=lambda _p: "",
+            ),
         )
         self.assertEqual((lines, code), ([header(0, 0, py="3/3")], 0))
 
@@ -627,6 +697,29 @@ class Presence(unittest.TestCase):
             lines[1].startswith("snyk-scan: a.py has 0 results; .snyk-files says 3 (")
         )
 
+    def test_changed_file_count_up_has_no_label(self) -> None:
+        lines, code = self._judge(
+            [result("a.py"), result("a.py")], {"a.py": 1}, changed={"a.py"}
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("snyk-scan: a.py has 2 results; .snyk-files says 1", lines)
+
+    def test_changed_file_count_down_has_no_label(self) -> None:
+        lines, code = self._judge([result("a.py")], {"a.py": 2}, changed={"a.py"})
+        self.assertEqual(code, 1)
+        self.assertIn("snyk-scan: a.py has 1 results; .snyk-files says 2", lines)
+
+    def test_changed_file_appearing_has_no_label(self) -> None:
+        lines, code = self._judge([result("b.py")], {}, changed={"b.py"})
+        self.assertEqual(code, 1)
+        self.assertIn("snyk-scan: b.py has 1 results; .snyk-files says 0", lines)
+
+    def test_flow_step_without_uri_is_not_counted(self) -> None:
+        flows = [{"threadFlows": [{"locations": [{"location": {}}]}]}]
+        lines, code = self._judge([result("a.py", codeFlows=flows)], {})
+        self.assertEqual(code, 1)
+        self.assertFalse(any("results; .snyk-files" in ln for ln in lines))
+
     def test_changed_file_has_no_label(self) -> None:
         lines, code = self._judge([], {"a.py": 3}, changed={"a.py"})
         self.assertEqual(code, 1)
@@ -689,7 +782,13 @@ class Suppression(unittest.TestCase):
                 }
             ]
         }
-        return judge(doc, None, files, {}, (_sizes(sizes), lambda p: texts.get(p, "")))
+        return judge(
+            doc,
+            None,
+            files,
+            {},
+            Fs(size_of=_sizes(sizes), read_text=lambda p: texts.get(p, "")),
+        )
 
     def test_matches_in_any_case_and_whitespace(self) -> None:
         variants = [
