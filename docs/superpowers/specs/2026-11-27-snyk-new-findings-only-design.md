@@ -3,7 +3,7 @@
 - **Date:** 2026-11-27
 - **Backlog row:** none. Raised in session after math#255, when every PR's `snyk-scan` was red.
 - **Related:** ADR-0016 (advisory scans), ADR-0037 (pinned downloads), ADR-0048 (items gate, operator-only merges), `tests/test_snyk_cli_pinned.py`
-- **Revision:** 5 (round 4 reviewed revision 4 at `fe89565`; revision 5 adds the presence list and the round-4 fail-closed fixes). Earlier judges, each refuted on measured data (see Rejected alternatives):
+- **Revision:** 6. Round 4 reviewed revision 4 at `fe89565`. Round 5 reviewed revision 5 at `6308713`, which added the presence list. Revision 6 drops `.snyk`, labels drift, and reds on inline suppressions. Earlier judges, each refuted on measured data (see Rejected alternatives):
   - revision 1, `f8ded91`: identity diff against `HEAD^1`;
   - revision 2, `381f3ae`: baseline keyed on identity plus fingerprint `"1"`;
   - revision 3, `1c4114c`: flow-touch.
@@ -36,8 +36,8 @@ The scan reports 17 findings on master `d3ef01e`, each read at source in this se
 | 2 | `tests/test_mutation_weakening_e2e.py:127`, `tests/test_mutation_weakening.py:159` | various | test code |
 
 Both `scripts/mutation_*.py` files already match the items gate's `GATE_SCRIPT_GLOBS`, so
-every edit to them is already an operator merge. Of the existing findings, only the 4 in
-`scripts/zeta_results.py` are outside any gate.
+every edit to them is already an operator merge. Of the existing findings, the 4 in
+`scripts/zeta_results.py` and the 2 in `tests/` are outside any gate.
 
 ### What was measured
 
@@ -91,8 +91,7 @@ The PR's changed files are the paths printed by
 - with `--no-renames`, a move lists both its old and its new path.
 
 A result is **touched** when its location's `uri`, or the `uri` of any step in its codeFlows,
-is a changed file. Each `uri` is percent-decoded first. A result with any `uri` that does not decode to a path in `git ls-files` also counts as touched, and is printed with `[untracked uri: <uri>]`. So a future change in Snyk's path form fails closed rather than leaving every result untouched. Untouched results never turn the job red. That is how the 15 existing
-findings stay green without a baseline. No fingerprint and no line number is read.
+is a changed file. Each `uri` is percent-decoded first. A result with any `uri` that does not decode to a path in `git ls-files` also counts as touched, and is printed with `[untracked uri: <uri>]`. So a future change in Snyk's path form fails closed rather than leaving every result untouched. A result whose decoded location path contains whitespace also counts as touched, because `.snyk-files` cannot name it. An untouched result turns the job red only through the presence list below. That is how the 17 existing findings stay green: there is no per-finding baseline. No fingerprint and no line number is read.
 
 Effects:
 - A new file with a finding is touched.
@@ -104,24 +103,30 @@ Effects:
 
 ### The presence list
 
-A tracked file, `.snyk-files`, records how many results Snyk reports per file, counted by each result's location `uri`. Each line is `<path> <count>`; blank and `#` lines are ignored. At bootstrap it holds `scripts/mutation_gate_items.py 3`, `scripts/mutation_weakening.py 8` and `scripts/zeta_results.py 4` (math#262 SARIF, under the new `.snyk`). Any difference between the head SARIF's per-file counts and the list is red: a file gaining a result, losing one, appearing or vanishing. This closes the case file-touch alone misses. In math#261, `scripts/mutation_gate_items.py` went from 3 results to 2 under a worsening edit, and a file whose only result vanished would read green. It also turns a server-side engine change that adds or drops results red instead of silent. `.snyk-files` is a `GATE_FILES` entry, so updating it is an operator merge. A count change is already red, so on history it adds no merges.
+A tracked file, `.snyk-files`, records how many results Snyk reports per file, counted by each result's location `uri`. Each line is `<path> <count>`; blank and `#` lines are ignored. Counts are keyed by the percent-decoded location path. Results that count as touched because their path is untracked, or contains whitespace, are left out. At bootstrap it holds `scripts/mutation_gate_items.py 3`, `scripts/mutation_weakening.py 8`, `scripts/zeta_results.py 4`, `tests/test_mutation_weakening.py 1` and `tests/test_mutation_weakening_e2e.py 1`. These are the math#260 run-1 SARIF of master `d3ef01e`, which had no `.snyk`. Any difference between the head SARIF's per-file counts and the list is red: a file gaining a result, losing one, appearing or vanishing. This closes the case file-touch alone misses. In math#261, `scripts/mutation_gate_items.py` went from 3 results to 2 under a worsening edit, and a file whose only result vanished would read green. It also turns a server-side engine change that adds or drops results red instead of silent. Such drift is red on every open PR at once, until the operator merges a list update. A difference in a file the PR did not change is printed with `(file unchanged by this PR: likely Snyk drift)`. `.snyk-files` is a `GATE_FILES` entry, so updating it is an operator merge. Outside drift, a count change is already red through file-touch, so on history it adds no merges.
+
+### No `.snyk`
+
+The repo carries no `.snyk`, so every tracked file is scanned, `tests/` included. Excluding `tests/**` was measured to work in math#262, but round 5 showed it is a hole. A PR could put a sink under any `tests/` directory and call it from an unflagged script. Snyk would then never see the sink, and all three checks would stay green. A static import check cannot close this, because scripts already load modules dynamically: `importlib` in `scripts/mutation_gate_items.py` and `scripts/cli_contract.py`, and `sys.path.insert(os.getcwd())` in `scripts/mutation_base_runner.py`. The 2 test findings join the presence list instead. Of 83 tracked test files, 2 hold findings.
+
+### Inline suppressions
+
+The judge is red when any tracked, non-empty file with a compared extension contains `deepcode ignore`, matched case-insensitively. Snyk documents that comment form as an inline suppression. Whether this CLI honours it is unmeasured. If it does, a suppressed result would vanish from the SARIF and slip past every other check. Refusing the comment outright makes the question moot. Today no tracked file contains it.
 
 ### The coverage check
 
-Snyk silently skips a file hidden by `.snyk`, by a `.dcignore` at any depth, by a size limit
+Snyk silently skips a file hidden by an added `.snyk`, by a `.dcignore` at any depth, by a size limit
 or by a server-side flag. One count covers all of these routes. For each extension in
 `.py`, `.html`, `.js`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.jsx` and `.vue`, and for any other
 extension that `properties.coverage` lists as `SUPPORTED`, the coverage `files` value must
-equal the number of tracked, non-empty files with that extension that have no `tests` path segment at any depth. Snyk applies `.snyk`'s `tests/**` at any depth. That was measured on `.rs`: 69 tracked, 1 empty, 5 under root `tests/` and 14 under nested `*/tests/`, against coverage 49 with `.snyk` and 68 without. A missing
-coverage entry counts as 0. Any difference is red, with both numbers printed. On master with
-the new `.snyk`, the measured values are `.py` 35 and `.html` 1.
+equal the number of tracked, non-empty files with that extension. A missing coverage entry counts as 0. Any difference is red, with both numbers printed. On master `d3ef01e`, with no `.snyk`, the measured values are `.py` 118 analysed against 118 tracked and non-empty, and `.html` 1. Snyk skipping empty files was measured twice: once on the `.py` probe file in math#262, and once on `.rs`, where 69 files are tracked, 1 is empty, and coverage was 68.
 
 ### Guarded paths
 
-`.snyk`, `.snyk-files` and `scripts/snyk_file_touch.py` are added to `GATE_FILES` in
+`.snyk-files` and `scripts/snyk_file_touch.py` are added to `GATE_FILES` in
 `scripts/mutation_gate_items.py`. `mutation-gate-items` is a required check, runs from
 `base.ref`, and turns red with `uncleared item:` on any edit to a listed path. A PR therefore
-cannot weaken the judge or the exclusion and still merge automatically. `auto-merge.yml` is
+cannot weaken the judge or the list and still merge automatically. Adding a `.snyk` or a `.dcignore` needs no gate entry, because the coverage check turns it red. `auto-merge.yml` is
 already a gate item, because it declares `secret-scan`.
 
 ### `scripts/snyk_file_touch.py`
@@ -130,18 +135,19 @@ already a gate item, because it declares `secret-scan`.
   fixed-argv commands:
   - `git -c core.quotePath=false diff --name-only -z --no-renames HEAD^1 HEAD`;
   - `git ls-files -z`.
-  It reads the constant path `.snyk-files`, stats tracked files only to test emptiness, and writes only to stdout and stderr.
+  It reads the constant path `.snyk-files`, and reads tracked files of the compared extensions only to test emptiness and to search for `deepcode ignore`. It writes only to stdout and stderr.
 - **Invocation.** The job runs it as `python3 -I`, so a PR-added `scripts/json.py` cannot
   shadow the standard library.
 - **Header.** `snyk: <t> touched, <u> untouched; coverage <ext> <a>/<b>[, …]`, where `<a>/<b>`
   is analysed over tracked.
 - **Each touched result,** in SARIF order: `touched: <level> <ruleId> <uri>:<startLine> — <message.text> [changed: <file>[, …]]`.
-- **Each coverage mismatch:** `snyk-scan: Snyk analysed <a> <ext> files but <b> non-empty ones are tracked outside tests/; a file is hidden from the scan (changed <ext> files: <list or none>)`.
-- **Each presence difference:** `snyk-scan: <path> has <m> results; .snyk-files says <n>`.
-- **On exit 1,** one final `::error::snyk-scan: <t> finding(s) in files this PR changes; <m> coverage mismatch(es); <p> presence difference(s)`.
+- **Each coverage mismatch:** `snyk-scan: Snyk analysed <a> <ext> files but <b> non-empty ones are tracked; a file is hidden from the scan (changed <ext> files: <list or none>)`.
+- **Each presence difference:** `snyk-scan: <path> has <m> results; .snyk-files says <n>`, with ` (file unchanged by this PR: likely Snyk drift)` appended when `<path>` is not a changed file.
+- **Each suppression:** `snyk-scan: <path> contains an inline Snyk suppression (deepcode ignore)`.
+- **On exit 1,** one final `::error::snyk-scan: <t> finding(s) in files this PR changes; <m> coverage mismatch(es); <p> presence difference(s); <s> suppression(s)`.
 - **Missing fields** print `?`.
 - **Exit codes:**
-  - 0 when nothing is touched, coverage matches and presence matches;
+  - 0 when nothing is touched, coverage and presence match, and no suppression is found;
   - 1 otherwise;
   - 2, with `snyk_file_touch: <reason>` on stderr, when stdin is not JSON, there is no non-empty
     `runs`, a run lacks `results` or `properties.coverage`, `.snyk-files` is missing or has a malformed or repeated line, or a git command fails.
@@ -178,13 +184,16 @@ The red check is the hold, as with an items-gate red. There is no draft step and
 - **Touched finding.** Judge it at source, including the guards in that file. Fix a real
   defect. For a false positive, write the judgment in the PR body. The operator then
   admin-merges. Each PR that touches the file is judged again; nothing is remembered.
-- **Coverage mismatch.** Find the skipped file. Revert a `.dcignore` or `.snyk` change. An
+- **Coverage mismatch.** Find the skipped file. Revert an added `.dcignore` or `.snyk`. An
   empty file that should hold code gets its code. A size limit or a Snyk-side cause goes to
   the operator.
-- **Presence difference.** A new or worsened finding is already touched; judge it as above. A finding that vanished is judged too: a real fix updates `.snyk-files`, and a worsening edit that hid the finding is reverted. Every `.snyk-files` update is an operator merge.
+- **Presence difference in a changed file.** A new or worsened finding is already touched; judge it as above. A finding that vanished is judged too: a real fix updates `.snyk-files`, and a worsening edit that hid the finding is reverted.
+- **Presence difference in an unchanged file** (`likely Snyk drift`). The PR did not cause it. Report it on the PR, and do not edit `.snyk-files` in an unrelated PR. The operator judges the drift and merges one list update, which unblocks every PR.
+- **Inline suppression.** Remove the comment. A false positive is judged in the PR body instead.
+- Every `.snyk-files` update is an operator merge.
 - **Scanner error.** Re-run. If Snyk is down, the operator admin-merges.
 
-The implementing PR adds `scripts/snyk_file_touch.py` and `.snyk`, and changes
+The implementing PR adds `scripts/snyk_file_touch.py` and `.snyk-files`, and changes
 `scripts/mutation_gate_items.py`. It is therefore an items-gate PR, and the operator's admin
 merge is its review.
 
@@ -197,8 +206,9 @@ merge is its review.
   - the red procedure;
   - the Known limits.
 - **`CLAUDE.md`:**
-  - The `snyk-scan` line says the job is a `needs` of `auto-merge`, and reds on a finding in
-    a file the PR changes or on a coverage mismatch.
+  - The `snyk-scan` line says the job is a `needs` of `auto-merge`. It reds on a finding in a
+    file the PR changes, on a coverage mismatch, on a `.snyk-files` presence difference, or on an
+    inline suppression.
   - That line names `scripts/snyk_file_touch.py` and ADR-0049.
   - That line drops the claim that Rust is scanned.
   - The `auto-merge.yml` line and the ci-gate line stop calling `snyk-scan` advisory.
@@ -215,7 +225,8 @@ merge is its review.
   workflows are items-gate holds; Makefile edits are not.
 - **No memory.** Every edit to `scripts/zeta_results.py` needs an operator judgment. On
   history, that file had 1 commit, the one that created it.
-- **Code under any `tests/` directory is unscanned.** `.snyk` excludes it and the coverage count skips it. Today nothing runs or imports `tests/*.py` as a tool.
+- **Snyk drift blocks every PR.** A server-side change that adds or drops a result in any file turns every open PR red. That includes Renovate and workflow-only PRs. It lasts until the operator merges a `.snyk-files` update. The drift label names the cause, but how often drift happens is unmeasured: three scans on 2026-11-28 gave equal per-file counts.
+- **Test files are judged like code.** A new test file whose code Snyk flags goes red, and so does an edit to the 2 flagged test files. Each is an operator merge.
 - **A helper change in another file.** If a PR changes only a helper in file A, used by a source and sink in unchanged file B, the new result's flow may not name A. Snyk would then report it in B as a new result, which the presence list turns red. If instead Snyk merges it into an existing result, nothing is red. Unmeasured.
 - **A compensating swap.** A PR could hide one file and add a file Snyk counts that R7 does not, such as an upper-case extension. That needs deliberate evasion, and Snyk's case handling is unmeasured.
 - **Snyk outage, quota or a fork PR** turns the job red, which fails closed. The operator
@@ -234,6 +245,7 @@ merge is its review.
   `-diff` attributes, renames and quoted paths.
 - **A function-scope touch (`ast`, one hop).** More code, and it is still blind to module-level
   guards, MARKER for example.
+- **Excluding `tests/**` with `.snyk`** (revisions 1 to 5). It hides any sink placed under a `tests/` directory from all three checks.
 - **Code-level sanitisers.** None cleared a finding (#259).
 - **Snyk organisation ignores.** They live outside the repo, are invisible in review, and
   need an auth an agent cannot complete.
@@ -245,29 +257,29 @@ merge is its review.
 
 ## Requirements
 
-- **R1.** `[PR1]` A root `.snyk` contains exactly the lines `version: v1.25.0`, `exclude:`, `  code:` and `    - tests/**`, optionally preceded by `#` comment lines.
+- **R1.** `[PR1]` No `.snyk` and no `.dcignore` file is tracked anywhere in the repo.
 - **R2.** `[PR1]` In `.github/workflows/auto-merge.yml`: `snyk-scan` has no `continue-on-error`; the `auto-merge` job's `needs` contains `snyk-scan`; the `Install Snyk CLI` step is unchanged; and `snyk-scan`'s `actions/checkout` sets `fetch-depth: 2`. `tests/test_workflow_continue_on_error.py` no longer allow-lists `snyk-scan`.
 - **R3.** `[PR1]` The scan step has `id: scan` and is the only step with `SNYK_TOKEN`. Under `set +e` it runs `snyk code test --sarif-file-output="${RUNNER_TEMP}/snyk.sarif"` with stdout redirected to `${RUNNER_TEMP}/snyk.txt`. On an exit status above 1 it prints `::error::snyk-scan: scanner error (exit <status>)` and the contents of `snyk.txt`, then exits 1; otherwise it exits 0.
 - **R4.** `[PR1]` A judge step without `SNYK_TOKEN`, with `if: ${{ !cancelled() && steps.scan.outcome == 'success' }}`, runs under `set +e` `python3 -I scripts/snyk_file_touch.py < "${RUNNER_TEMP}/snyk.sarif" > "${RUNNER_TEMP}/judge.txt"`, saves the status in `rc`, prints `judge.txt`, appends it minus lines starting `::error` to `$GITHUB_STEP_SUMMARY`, and exits with `rc`.
-- **R5.** `[PR1]` `scripts/snyk_file_touch.py` takes no arguments, reads the SARIF from stdin and the constant path `.snyk-files`, runs no command other than `git -c core.quotePath=false diff --name-only -z --no-renames HEAD^1 HEAD` and `git ls-files -z`, and opens no file for writing.
-- **R6.** `[PR1]` The script percent-decodes every location and codeFlow step `uri`, and marks a result touched when any decoded `uri` of its first location or of any step in any of its codeFlows' threadFlows equals a path from the diff command, or is not a path printed by `git ls-files -z`; the latter is printed as `[untracked uri: <uri>]` on its `touched:` line.
-- **R7.** `[PR1]` For each extension in `.py`, `.html`, `.js`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.jsx` and `.vue`, and any other extension a `properties.coverage` entry with `type` `SUPPORTED` lists, the script compares the coverage `files` value (0 when no entry exists) with the number of `git ls-files -z` paths that have that extension, have no path segment equal to `tests`, and are non-empty regular files on disk; any inequality is a coverage mismatch.
-- **R8.** `[PR1]` The script prints `snyk: <t> touched, <u> untouched; coverage <ext> <a>/<b>` for each compared extension, comma-separated. For each touched result in SARIF order it prints `touched: <level> <ruleId> <uri>:<startLine> — <message.text> [changed: <comma-separated changed paths on that result>]`. For each mismatch it prints `snyk-scan: Snyk analysed <a> <ext> files but <b> non-empty ones are tracked outside tests/; a file is hidden from the scan (changed <ext> files: <list or none>)`. For each presence difference it prints `snyk-scan: <path> has <m> results; .snyk-files says <n>`. On exit 1 it prints a final `::error::snyk-scan: <t> finding(s) in files this PR changes; <m> coverage mismatch(es); <p> presence difference(s)`. Missing fields print `?`. It exits 0 when nothing is touched and coverage and presence match, and 1 otherwise.
+- **R5.** `[PR1]` `scripts/snyk_file_touch.py` takes no arguments, reads the SARIF from stdin, the constant path `.snyk-files`, and tracked files of the compared extensions (for emptiness and the suppression search), runs no command other than `git -c core.quotePath=false diff --name-only -z --no-renames HEAD^1 HEAD` and `git ls-files -z`, and opens no file for writing.
+- **R6.** `[PR1]` The script percent-decodes every location and codeFlow step `uri`, and marks a result touched when any decoded `uri` of its first location or of any step in any of its codeFlows' threadFlows equals a path from the diff command or is not a path printed by `git ls-files -z` (printed as `[untracked uri: <uri>]` on its `touched:` line), or when its decoded location path contains whitespace.
+- **R7.** `[PR1]` For each extension in `.py`, `.html`, `.js`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.jsx` and `.vue`, and any other extension a `properties.coverage` entry with `type` `SUPPORTED` lists, the script compares the coverage `files` value (0 when no entry exists) with the number of `git ls-files -z` paths that have that extension and are non-empty regular files on disk; any inequality is a coverage mismatch. Any such file whose content contains `deepcode ignore` (case-insensitive) is a suppression.
+- **R8.** `[PR1]` The script prints `snyk: <t> touched, <u> untouched; coverage <ext> <a>/<b>` for each compared extension, comma-separated. For each touched result in SARIF order it prints `touched: <level> <ruleId> <uri>:<startLine> — <message.text> [changed: <comma-separated changed paths on that result>]`. For each mismatch it prints `snyk-scan: Snyk analysed <a> <ext> files but <b> non-empty ones are tracked; a file is hidden from the scan (changed <ext> files: <list or none>)`. For each presence difference (counts keyed by decoded location path, excluding results touched for an untracked or whitespace path) it prints `snyk-scan: <path> has <m> results; .snyk-files says <n>`, appending ` (file unchanged by this PR: likely Snyk drift)` when `<path>` is not a changed path. For each suppression it prints `snyk-scan: <path> contains an inline Snyk suppression (deepcode ignore)`. On exit 1 it prints a final `::error::snyk-scan: <t> finding(s) in files this PR changes; <m> coverage mismatch(es); <p> presence difference(s); <s> suppression(s)`. Missing fields print `?`. It exits 0 when all four counts are 0, and 1 otherwise.
 - **R9.** `[PR1]` The script exits 2 and prints `snyk_file_touch: <reason>` to stderr when stdin is not valid JSON, has no non-empty `runs` list, has a run without a `results` array or without `properties.coverage`, when `.snyk-files` is missing or has a line that is not `<path> <non-negative integer>` or repeats a path, or when either git command exits non-zero.
-- **R10.** `[PR1]` `tests/test_snyk_file_touch.py`, with git calls, the `.snyk-files` read and the emptiness stat all stubbed, covers: no touched result; a touched location; a touched flow step in a second file only; an added file; a deleted file; a renamed file listed under both paths; a percent-encoded `uri`; a `uri` outside the tracked set; a result in a second run; a coverage mismatch in each direction; an empty tracked file excluded; a file under a nested `tests/` excluded; a missing coverage entry counted as 0; presence equal, a count up, a count down, a file appearing and a file vanishing; and each R9 exit-2 case. It also replays committed fixtures `tests/fixtures/snyk/sarif-262.json` and `tests/fixtures/snyk/files-262.tsv` (`<size>\t<path>` per tracked file of the math#262 tree) and asserts that exactly the result at `scripts/pip_audit_advisory.py:147` is touched when the changed paths are `scripts/pip_audit_advisory.py` alone, and that coverage reads `.py 35/35`.
+- **R10.** `[PR1]` `tests/test_snyk_file_touch.py`, with git calls, the `.snyk-files` read and file reads and stats all stubbed, covers: no touched result; a touched location; a touched flow step in a second file only; an added file; a deleted file; a renamed file listed under both paths; a percent-encoded `uri`; a `uri` outside the tracked set; a whitespace path; a result in a second run; a coverage mismatch in each direction; an empty tracked file excluded; a missing coverage entry counted as 0; presence equal, a count up, a count down, a file appearing and a file vanishing, each with and without the drift label; a suppression comment in upper and lower case; and each R9 exit-2 case. It also replays committed fixtures: `tests/fixtures/snyk/sarif-262.json` with changed paths `scripts/pip_audit_advisory.py` alone, asserting exactly the result at `scripts/pip_audit_advisory.py:147` is touched; and `tests/fixtures/snyk/sarif-d3ef01e.json` (math#260 run 1) with `tests/fixtures/snyk/files-d3ef01e.tsv` (`<size>\t<path>` per tracked file of `d3ef01e`), asserting coverage `.py 118/118` and `.html 1/1` and no presence difference against the R16 list.
 - **R11.** `[PR1]` A workflow test pins R2 to R4: the `needs` entry and the absent `continue-on-error`; `fetch-depth: 2`; `SNYK_TOKEN` on exactly one step; the scan step's `set +e`, command, stdout redirect and exit-above-1 branch; and the judge step's `if:`, `set +e`, `python3 -I` stdin invocation, `rc` capture and summary filter.
-- **R12.** `[PR1]` `GATE_FILES` in `scripts/mutation_gate_items.py` contains `.snyk`, `.snyk-files` and `scripts/snyk_file_touch.py`; a test in `tests/test_mutation_gate_items.py` shows an edit to each yields an `uncleared item: gate` line.
+- **R12.** `[PR1]` `GATE_FILES` in `scripts/mutation_gate_items.py` contains `.snyk-files` and `scripts/snyk_file_touch.py`; a test in `tests/test_mutation_gate_items.py` shows an edit to each yields an `uncleared item: gate` line.
 - **R13.** `[PR1]` `docs/adr/0049-*.md` records the decision, the evidence from math#250 and math#259 to #262, the three refuted judges, the red procedure and the Known limits, with a row in `docs/adr/README.md`.
-- **R14.** `[PR1]` `CLAUDE.md`'s `snyk-scan` line says the job is a `needs` of `auto-merge`, fails on a finding in a file the PR changes or on a coverage mismatch, and names `scripts/snyk_file_touch.py` and ADR-0049. No CLAUDE.md line calls `snyk-scan` advisory or says it scans Rust. `CLAUDE.md` stays at or under 30000 bytes.
+- **R14.** `[PR1]` `CLAUDE.md`'s `snyk-scan` line says the job is a `needs` of `auto-merge` and fails on a finding in a file the PR changes, a coverage mismatch, a `.snyk-files` presence difference or an inline suppression, and names `scripts/snyk_file_touch.py` and ADR-0049. No CLAUDE.md line calls `snyk-scan` advisory or says it scans Rust. `CLAUDE.md` stays at or under 30000 bytes.
 - **R15.** `[PR1]` A P3 Backlog row records removing `snyk-scan` from `ADVISORY_CHECKS` in `scripts/ci-gate.sh` and its `tests/scripts/ci_gate.bats` cases.
-- **R16.** `[PR1]` A root `.snyk-files` holds exactly the lines `scripts/mutation_gate_items.py 3`, `scripts/mutation_weakening.py 8` and `scripts/zeta_results.py 4`, optionally preceded by `#` comment lines, plus a line for `scripts/snyk_file_touch.py` only if V1 shows results located there.
-- **V1.** On the implementing PR the judge prints exactly the 3 `scripts/mutation_gate_items.py` results as `touched:` (plus any located in `scripts/snyk_file_touch.py`), coverage `.py 36/36` and `.html 1/1`, and no presence difference beyond results in `scripts/snyk_file_touch.py`; `snyk-scan` is red, the `auto-merge` job is skipped, and `mutation-gate-items` is red. If coverage is unequal or any other line appears, the PR is not merged and the spec is amended.
+- **R16.** `[PR1]` A root `.snyk-files` holds exactly the lines `scripts/mutation_gate_items.py 3`, `scripts/mutation_weakening.py 8`, `scripts/zeta_results.py 4`, `tests/test_mutation_weakening.py 1` and `tests/test_mutation_weakening_e2e.py 1`, optionally preceded by `#` comment lines, plus one line per new file of the implementing PR in which V1 shows results.
+- **V1.** On the implementing PR the judge prints exactly the 3 `scripts/mutation_gate_items.py` results as `touched:`, plus any located in the PR's new files. It prints coverage `.py 120/120` and `.html 1/1`, no suppression, and no presence difference beyond the PR's new files. `snyk-scan` is red, the `auto-merge` job is skipped, and `mutation-gate-items` is red. If any other line appears, the PR is not merged and the spec is amended.
 - **V2.** After merge, open a throwaway draft PR with two pushes: **Push 1** deletes the `_check_owned(flag, target, allow_empty=True)` call in `scripts/zeta_results.py`. It must print `touched:` for the 4 zeta results, and the `auto-merge` job must be skipped. **Push 2** reverts push 1 and adds `scripts/probe_new.py` (`subprocess.run(sys.argv[1], shell=True)`) plus `scripts/.dcignore` naming it. It must print a `.py` coverage mismatch. Close the PR afterwards.
-- **V3.** On a later PR that changes no flagged file, the judge prints `snyk: 0 touched, <u> untouched` with `u` at least 15, coverage equal for every extension, and the `auto-merge` job runs.
+- **V3.** On a later PR that changes no flagged file, the judge prints `snyk: 0 touched, <u> untouched` with `u` at least 17, coverage equal for every extension, and the `auto-merge` job runs.
 - **V4.** The operator reads the Snyk organisation's Code test usage and limit and records them in ADR-0049.
 - **N1.** No change to `scripts/ci-gate.sh`, `tests/scripts/ci_gate.bats` or `.github/required-status-checks`.
-- **N2.** No edit to the 15 existing findings' source files aimed at clearing or reshaping a finding; R12's `GATE_FILES` entries are the only change to a flagged file.
-- **N3.** No Snyk organisation ignores and no `snyk ignore` calls.
+- **N2.** No edit to the 17 existing findings' source files aimed at clearing or reshaping a finding; R12's `GATE_FILES` entries are the only change to a flagged file.
+- **N3.** No Snyk organisation ignores, no `snyk ignore` calls, and no inline `deepcode ignore` comments.
 - **N4.** No third-party Python dependency for `scripts/snyk_file_touch.py`, and no `actions/setup-python` step in `snyk-scan`.
 - **N5.** No second Snyk scan per run, and no use of SARIF `fingerprints` or line numbers in the touch decision.
 
@@ -462,3 +474,31 @@ Findings:
 Recall: V2 push 1 cannot fail under file-touch. Missing probes are a single-result file under `shell=True` and a taint-losing refactor, plus an encoded filename.
 Assumption: a worsening edit leaves at least one result touching a changed file. #261 already shows one result vanishing. `.snyk-files` makes the assumption moot.
 Disposition: Addressed. The operator chose "Add .snyk-files (Recommended)" for F1 and "Keep, name in limits (Recommended)" for F3. Revision 5 adds `.snyk-files` (R16, R8, R9), percent-decodes and fails closed on an untracked `uri` (F2, R6), and names `tests/` in Known limits.
+
+### Round 5 (scoped)
+
+Reviewed at commit: `6308713` (revision 5). Scoped to the text changed since `74161ac`; Risk and Adversarial only, because round 4 left the file-touch design standing.
+
+#### Risk
+
+Finding: presence is compared repo-wide, so engine drift reddens every open PR until an operator merges a `.snyk-files` update. That is the wedge revision 2 was rejected for, and it went unstated. Neither Known limits nor the red procedure handled it: the procedure called every presence difference "already touched", which is false for drift. Two unchanged lines also contradicted the presence list: "Untouched results never turn the job red" and R14's description of the `CLAUDE.md` line. The presence key was undefined (raw or decoded path, whitespace).
+
+Checked and right:
+- The R16 bootstrap counts (3/8/4, plus the #262 probe's 1 in `pip_audit_advisory.py`).
+- Bootstrap ordering.
+- R7's any-depth `tests` arithmetic on the #262 tree.
+- R4's `set +e`.
+
+Assumption: per-file counts stay stable for unchanged code across Snyk engine updates. Unmeasured beyond one day.
+Disposition: Addressed. The operator chose "Repo-wide, drift branch (Recommended)". Revision 6 adds the drift label, a Known-limits row with the blast radius, the drift branch in the red procedure, the decoded and no-whitespace presence key, and the corrected design line and R14.
+
+#### Adversarial Spec Review (comparison/judge designs only)
+
+Findings:
+- **Hole A (definite): a sink placed under any `tests/` directory and called from an unflagged script is green on all three checks.** `.snyk` hides the sink, and R7 skips `tests` too. The Known-limits line "Today nothing runs or imports `tests/*.py`" described the present state, not a guard.
+- **Replay of #261 through all three conditions:** each is red on its own.
+- **Presence false positives:** counts equal across sarif1, sarif2 and sarif4.
+- **The same-file swap is caught**, and the cross-file guard case narrows: #262 shows Snyk names helper files in flows.
+
+Assumption: inline `# deepcode ignore` comments do not drop results from the CLI SARIF. Unmeasured; math#163 holds no such measurement.
+Disposition: Addressed. The operator chose "Drop .snyk entirely (Recommended)". Revision 6 has no `.snyk` (R1), scans and counts `tests/`, and adds the 2 test findings to `.snyk-files`. It also makes the suppression assumption moot: any tracked `deepcode ignore` is red (R7, R8, N3).
