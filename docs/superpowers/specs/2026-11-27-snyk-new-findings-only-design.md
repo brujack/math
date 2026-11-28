@@ -177,3 +177,40 @@ library.
 - **N2.** No code changes to the 15 known findings' source files to placate Snyk.
 - **N3.** No Snyk organisation ignores and no `snyk ignore` calls.
 - **N4.** No third-party Python dependency for `scripts/snyk_new_findings.py`, and no `actions/setup-python` step in `snyk-scan`.
+
+## Multi-Lens Review
+
+Reviewed at commit: `f8ded91` (Step 7 self-review commit, before Step 8 dispatch)
+
+### Goal-Fit
+
+Finding: the job's output has no consumer, and the repo's history shows that missing consumer is the real failure. `snyk-scan` was green on every run until math#250, where it went red listing exactly the 4 new `zeta_results.py` findings. That is the output this spec aims for. Auto-merge merged math#250 at 18:33:59Z, two minutes after the second red (`gh pr checks 250`: `snyk-scan fail`; merged by `app/github-actions`; verified by the author). `scripts/ci-gate.sh` lists `snyk-scan` in `ADVISORY_CHECKS`, `auto-merge` does not need it, and no ai-config skill reads it. Reads-it test: it changes no decision, and its output survives only in the run log. The `HEAD^1` base also erases the signal itself: once a finding merges, every later PR calls it known, and nothing records that it was let through. Simpler path: commit an identity baseline file. That means one scan, no worktree and no `.snyk` swap, and adding to the baseline shows in the PR diff. Pair the baseline with a consumer: ci-gate blocking on `n>0`, or the `gate-hold` label. Empty measurement: a head SARIF of `{"runs":[{"results":[]}]}` yields `0 known, 0 new` and exit 0.
+Assumption: Snyk accepts about 2x the current Snyk Code test volume (168 auto-merge runs in 30 days) without a cap turning scans into exit 2. This is settled by the Snyk org's usage page.
+Disposition:
+
+### Ergonomics
+
+Finding: a red result is hard to act on. Both scans print every finding in human format, about 34 blocks above the one-line verdict. The `new:` line uses SARIF terms (`note`, `python/PT`), while the log says `[LOW] Path Traversal`. It also drops `message.text`, the source-to-sink sentence a reader needs to judge the finding. And no action is stated for a red result: sanitisers do not work (math#259), and org ignores are excluded (N3). Fix: add `message.text`, emit a `::warning file=,line=::` annotation per new finding, send scan stdout to a file, and write the disposition procedure ("judge, record in the PR body, merge") into the ADR and knowledge entry. Red should be rare: 2 of the last 40 master commits added subprocess or file-I/O code under `scripts/`.
+Assumption: `identity` survives an edit inside the function that holds a known finding (a statement added between source and sink, or a local variable renamed), not only a line shift. If false, the busiest files re-flag their known findings as new. This is settled by a throwaway-PR probe.
+Disposition:
+
+### Risk
+
+Finding: a SARIF run without a `results` array reads as zero findings and passes green. R8 misses this. The SARIF spec says absent `results` means the tool produced none, while `[]` means it found nothing. Fix: exit 2 on a run lacking a `results` array, optionally also on no `properties.coverage` entry with `isSupported: true` and `files > 0`, and add an R9 case. Second: the step runs under `bash -e`, and the head scan always exits 1. So the obvious `snyk ...; rc=$?` aborts before `rc` is read (probed: `bash -e -c 'false; rc=$?; echo reached'` printed nothing), and R10's text pin would pass that broken code. Fix: R4 should require `set +e`, as `claude-md-budget` already does. Also not raised: `SNYK_TOKEN` should be scoped to the two `snyk` calls rather than the PR-controlled script.
+Assumption: a base scan from `${RUNNER_TEMP}/base` (another path, a git worktree) yields the same `identity` values for unchanged findings as a head scan from `$GITHUB_WORKSPACE`. The identities are UUIDv4, which suggests server-side assignment possibly keyed on project or path. math#260 measured two runs at the same path only. If false, every known finding is new, and the job is red on every PR again. This is settled by scanning one tree at both paths in one job.
+Disposition:
+
+### Adversarial Spec Review (comparison/judge designs only)
+
+Trigger: the design is a judge (known vs new).
+
+- F1: all 17 identities are UUIDv4, not content hashes. Their equivalence relation is Snyk's and opaque, and refactor-tolerant tracking is a false-negative source for a diff gate. Known limits covers identity drift (errs red) but not identity over-matching (errs green).
+- F2: degradation at a known site is invisible. Turning `mutation_gate_items.py:420` into `subprocess.run(" ".join(cmd), shell=True)` likely keeps `identity`, so the finding stays known. A `level` or `ruleId` change at a matched identity is ignored too.
+- F3: replacing a known flow with a different flow in the same function may inherit its identity. This is unmeasured.
+- F4: set semantics. Two head results sharing one identity both count as known. A `Counter` subtraction is free and fails closed.
+- F5: the policy swap covers only `.snyk`. Snyk Code also honours `.gitignore` and `.dcignore` (unverified here), so a PR could hide its new file that way.
+- Recall: R9 uses synthetic SARIF, and V2 is the easiest case (a new file), so false-negative rate is unmeasured. Cheapest added V: on one throwaway PR, (a) copy the function holding a known finding (expect 1 new) and (b) degrade the known site in place (expect at least 1 new).
+- Tangential: SARIF coverage shows `.rs` `NOT_SUPPORTED` (68 files), so CLAUDE.md's "against the Python and Rust source" is wrong.
+
+Assumption: equal `identity` means the same vulnerability, not a similar one nearby. Probes (a) and (b) above confirm or refute it.
+Disposition:
