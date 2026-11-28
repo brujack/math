@@ -82,6 +82,9 @@ GATE_FILES = (
     # editing either file changes what auto-merge waits for.
     ".github/required-status-checks",
     "scripts/ci-gate.sh",
+    # The Snyk file-touch judge and its supported-extension list decide whether auto-merge is gated on findings.
+    ".snyk-files",
+    "scripts/snyk_file_touch.py",
 )
 GATE_SCRIPT_GLOBS = (
     "scripts/mutation-*.sh",

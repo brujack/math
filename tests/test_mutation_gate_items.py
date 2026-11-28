@@ -571,6 +571,19 @@ class ItemsGateReminderTest(ItemsCase):
         )
         self.assertNotIn(mgi.ITEMS_GATE_LINE, text)
 
+    def _assert_gate_item(self, path: str) -> None:
+        self.write(path, "changed\n")
+        self.commit(f"change {path}")
+        code, text = self.run_cli()
+        self.assertEqual(code, 1)
+        self.assertIn(f"uncleared item: gate gate {path}", text)
+
+    def test_snyk_judge_files_are_gate_items_snyk_files(self) -> None:
+        self._assert_gate_item(".snyk-files")
+
+    def test_snyk_judge_files_are_gate_items_judge_script(self) -> None:
+        self._assert_gate_item("scripts/snyk_file_touch.py")
+
     def test_non_gate_item_has_no_hold_line(self) -> None:
         path = self.repo / "sq" / "cosmic-ray.toml"
         self.write(
