@@ -32,9 +32,7 @@ DIFF_ARGV = [
 LS_ARGV = ["git", "ls-files", "-z"]
 
 
-def result(
-    uri: str | None = "a.py", line: int | None = 3, **extra: Any
-) -> dict[str, Any]:
+def result(uri: Any = "a.py", line: int | None = 3, **extra: Any) -> dict[str, Any]:
     out: dict[str, Any] = {
         "ruleId": "py/Sqli",
         "level": "error",
@@ -70,14 +68,13 @@ def judge(
     changed: set[str] | None = None,
     tracked: list[str] | None = None,
 ) -> tuple[list[str], int]:
-    return sft.judge(
-        doc,
-        changed or set(),
-        tracked if tracked is not None else ["a.py", "b.py", "c d.py"],
-        {},
+    checkout = sft.Checkout(
+        frozenset(changed or set()),
+        tuple(tracked if tracked is not None else ["a.py", "b.py", "c d.py"]),
         lambda _p: 1,
         lambda _p: "",
     )
+    return sft.judge(doc, checkout, {})
 
 
 class TouchDecision(unittest.TestCase):
@@ -129,6 +126,7 @@ class TouchDecision(unittest.TestCase):
             sarif(result("old.py")), changed={"old.py", "new.py"}, tracked=["new.py"]
         )
         self.assertEqual(old[1], 1)
+        self.assertTrue(old[0][1].endswith("[changed: old.py] [untracked uri: old.py]"))
         new = judge(
             sarif(result("new.py")), changed={"old.py", "new.py"}, tracked=["new.py"]
         )
@@ -168,28 +166,41 @@ class TouchDecision(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(lines[0], "snyk: 1 touched, 1 untouched; ")
 
-    def test_missing_fields_print_question_mark(self) -> None:
-        lines, code = judge(sarif({}), changed=set())
-        self.assertEqual(code, 0)
-        self.assertEqual(lines, ["snyk: 0 touched, 1 untouched; "])
-        lines, code = judge(
-            sarif(
-                {
-                    "locations": [
-                        {"physicalLocation": {"artifactLocation": {"uri": "ghost.py"}}}
-                    ]
-                }
-            )
-        )
+    def test_missing_fields_print_question_mark_and_fail_closed(self) -> None:
+        lines, code = judge(sarif({}))
         self.assertEqual(code, 1)
-        self.assertTrue(
-            lines[1].startswith("touched: ? ? ghost.py:? — ? [changed: none]")
+        self.assertEqual(lines[0], "snyk: 1 touched, 0 untouched; ")
+        self.assertEqual(
+            lines[1],
+            "touched: ? ? ?:? \u2014 ? [changed: none] [untracked uri: ?]",
         )
 
-    def test_missing_location_is_unjudgeable_as_untouched(self) -> None:
-        # No uri at all: nothing to compare, so it is counted untouched.
-        lines, code = judge(sarif(result(None)))
-        self.assertEqual((lines[0], code), ("snyk: 0 touched, 1 untouched; ", 0))
+    def test_missing_first_uri_is_touched(self) -> None:
+        for res in (result(None), {"locations": []}, {"locations": [{}]}):
+            with self.subTest(res=res):
+                lines, code = judge(sarif(res))
+                self.assertEqual(code, 1)
+                self.assertTrue(lines[1].endswith("[untracked uri: ?]"))
+
+    def test_non_string_first_uri_is_touched(self) -> None:
+        lines, code = judge(sarif(result(5)))
+        self.assertEqual(code, 1)
+        self.assertIn(" ?:3 ", lines[1])
+        self.assertTrue(lines[1].endswith("[untracked uri: ?]"))
+
+    def test_non_string_flow_uri_is_touched(self) -> None:
+        bad = flow("a.py")
+        bad[0]["threadFlows"][0]["locations"][0]["location"]["physicalLocation"][
+            "artifactLocation"
+        ]["uri"] = 7
+        lines, code = judge(sarif(result("a.py", codeFlows=bad)))
+        self.assertEqual(code, 1)
+        self.assertTrue(lines[1].endswith("[changed: none] [untracked uri: ?]"))
+
+    def test_flow_step_without_uri_is_ignored(self) -> None:
+        steps: list[dict[str, Any]] = [{"location": {}}]
+        doc = sarif(result("a.py", codeFlows=[{"threadFlows": [{"locations": steps}]}]))
+        self.assertEqual(judge(doc)[1], 0)
 
     def test_changed_lists_each_path_once(self) -> None:
         doc = sarif(result("a.py", codeFlows=flow("a.py", "b.py", "b.py")))
@@ -217,6 +228,18 @@ class FailureModes(unittest.TestCase):
                 judge({"runs": [{"results": [], "properties": props}]})
         with self.assertRaises(sft.JudgeError):
             judge({"runs": [{"results": []}]})
+
+    def test_non_list_shapes(self) -> None:
+        bad_flows = [{"threadFlows": 1}, {"threadFlows": [{"locations": 1}]}]
+        cases: list[dict[str, Any]] = [
+            result("a.py", codeFlows=1),
+            result("a.py", locations=1),
+            result("a.py", codeFlows=[bad_flows[0]]),
+            result("a.py", codeFlows=[bad_flows[1]]),
+        ]
+        for res in cases:
+            with self.subTest(res=res), self.assertRaises(sft.JudgeError):
+                judge(sarif(res))
 
     def test_run_not_a_dict(self) -> None:
         with self.assertRaises(sft.JudgeError):
@@ -314,6 +337,16 @@ class Main(unittest.TestCase):
                 "stdin": json.dumps(sarif()),
                 "manifest": "a.py 1\na.py 1\n",
             },
+            "int codeFlows": {"stdin": json.dumps(sarif(result(codeFlows=1)))},
+            "int locations": {"stdin": json.dumps(sarif(result(locations=1)))},
+            "int threadFlows": {
+                "stdin": json.dumps(sarif(result(codeFlows=[{"threadFlows": 1}])))
+            },
+            "unreadable manifest": {
+                "stdin": json.dumps(sarif()),
+                "manifest": PermissionError("denied"),
+            },
+            "deep nesting": {"stdin": "[" * 100000},
             "git failure": {
                 "stdin": json.dumps(sarif()),
                 "diff": sft.JudgeError("git failed"),
@@ -326,6 +359,26 @@ class Main(unittest.TestCase):
                 self.assertEqual(out, "")
                 self.assertTrue(err.startswith("snyk_file_touch: "), err)
                 self.assertTrue(err.endswith("\n"))
+
+
+class UndecodableStdin(io.StringIO):
+    def read(self, size: int | None = -1) -> str:
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+
+class StdinDecode(unittest.TestCase):
+    def test_undecodable_stdin_exits_2(self) -> None:
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = sft.main(
+                UndecodableStdin(),
+                lambda _a: b"",
+                lambda: "",
+                lambda _p: 1,
+                lambda _p: "",
+            )
+        self.assertEqual(code, 2)
+        self.assertTrue(err.getvalue().startswith("snyk_file_touch: "))
 
 
 class Source(unittest.TestCase):
