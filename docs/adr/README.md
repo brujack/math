@@ -52,3 +52,4 @@ Repo-specific decisions for the `math` repository. Cross-cutting decisions (CI t
 | [0046](0046-shard-the-rust-mutation-runs.md) | Shard the Rust mutation runs | 2026-11-24 | Accepted |
 | [0047](0047-zeta-results-page-on-gh-pages.md) | Publish the zeta results page on gh-pages from a local generator | 2026-11-25 | Accepted |
 | [0048](0048-pr-mutation-gates-see-test-weakening.md) | PR mutation gates see test weakening | 2026-11-26 | Accepted |
+| [0049](0049-snyk-scan-blocks-on-changed-files.md) | snyk-scan blocks auto-merge when a PR changes a file that holds a finding | 2026-11-28 | Accepted |

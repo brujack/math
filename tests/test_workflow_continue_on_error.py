@@ -21,9 +21,6 @@ ACTIONS_DIR = REPO_ROOT / ".github" / "actions"
 
 # (workflow file, job id, step id or name, or None for the job itself) -> reason
 ALLOWED = {
-    ("auto-merge.yml", "snyk-scan", None): (
-        "advisory SAST, not in the auto-merge gate (CLAUDE.md); a finding must not block"
-    ),
     ("mutation-testing.yml", "notify", "dl"): (
         "the artifact is absent when the mutants job died early; notify reads "
         "steps.dl.outcome and the breadcrumb to report that cause"
@@ -138,7 +135,6 @@ class TestContinueOnErrorAllowList(unittest.TestCase):
     def test_sites_scan_sees_jobs_and_steps(self):
         # Positive control: an empty scan would pass both tests above.
         sites = continue_on_error_sites()
-        self.assertIn(("auto-merge.yml", "snyk-scan", None), sites)
         self.assertIn(("mutation-testing.yml", "notify", "dl"), sites)
 
     def test_scan_reaches_composite_actions(self):

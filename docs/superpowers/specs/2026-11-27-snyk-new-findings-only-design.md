@@ -513,3 +513,39 @@ Report: [round1.md](2026-11-27-snyk-new-findings-only-design.external-review/rou
 
 Stopped: reviewer recommended stopping in round 1
 
+
+## Amendments
+
+- finding R7 (2026-11-28, PR1, reviewer B): DIFFERS — For the nine named extensions the requirement compares the coverage entry's `files` value (0 only when no entry exists), but _coverage counts only entries with type SUPPORTED, so a present non-SUPPORTED entry for e.g. `.py` is read as 0 rather than its `files` value; extension list, non-empty-regular-file count (lstat S_ISREG, size>0) and the case-insensitive `deep`+`code\s+ignore` regex (phrase absent from source) otherwise match.
+- R7 -> For each extension in `.py`, `.html`, `.js`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.jsx` and `.vue`, and any other extension a `properties.coverage` entry with `type` `SUPPORTED` lists, the script compares the summed `files` value of that extension's `SUPPORTED` coverage entries (0 when there is none) with the number of `git ls-files -z` paths that have that extension and are non-empty regular files on disk; any inequality is a coverage mismatch. Any such file whose content matches `re.compile(r"deepcode\s+ignore", re.I)` is a suppression; the script's own source does not contain the phrase `deepcode ignore`. — a NOT_SUPPORTED or typeless entry analysed nothing, so counting it would let a mislabelled language mask a hidden file (fail closed; Task 2 review ruling, plan Execution amendments).
+- finding R8 (2026-11-28, PR1, reviewer B): DIFFERS — All line formats match the requirement verbatim except the touched line, which prints `[changed: none]` when no changed path is on the result (e.g. touched only for an untracked or whitespace uri) where the requirement specifies a comma-separated list of changed paths with no `none` fallback (unlike the mismatch line, whose `list or none` the spec does state).
+- R8 reviewed: `[changed: none]` is the empty case of the comma-separated list; a result touched only for an untracked or whitespace path has no changed path, and printing `none` (as the mismatch line does) keeps the bracket from reading as a truncated line.
+- finding R9 (2026-11-28, PR1, reviewer both): DIFFERS — parse_manifest (scripts/snyk_file_touch.py:278) skips blank and whitespace-only lines (pinned by test_parses_and_skips_blank_and_comments and test_whitespace_only_line_is_skipped) instead of exiting 2 for a line that is not `<path> <non-negative integer>`; all other listed exit-2 cases match.
+- R9 reviewed: blank and `#` lines are not data lines; the spec's Design § The presence list says "blank and `#` lines are ignored", and R16 allows `#` comment lines; every data line that is not `<path> <non-negative integer>`, an indented comment included, still exits 2.
+
+## Spec alignment (2026-11-28, PR1)
+
+- spec: docs/superpowers/specs/2026-11-27-snyk-new-findings-only-design.md
+- anchor: 0bce591287ee673b932f901b58c5cf2df9488408
+- in scope: R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16
+- out of scope: none
+
+### Findings
+
+| ID | Reviewer | Verdict | Reason | Amendment |
+| --- | --- | --- | --- | --- |
+| R7 | B | DIFFERS | For the nine named extensions the requirement compares the coverage entry's `files` value (0 only when no entry exists), but _coverage counts only entries with type SUPPORTED, so a present non-SUPPORTED entry for e.g. `.py` is read as 0 rather than its `files` value; extension list, non-empty-regular-file count (lstat S_ISREG, size>0) and the case-insensitive `deep`+`code\\s+ignore` regex (phrase absent from source) otherwise match. | - R7 -> For each extension in `.py`, `.html`, `.js`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.jsx` and `.vue`, and any other extension a `properties.coverage` entry with `type` `SUPPORTED` lists, the script compares the summed `files` value of that extension's `SUPPORTED` coverage entries (0 when there is none) with the number of `git ls-files -z` paths that have that extension and are non-empty regular files on disk; any inequality is a coverage mismatch. Any such file whose content matches `re.compile(r"deepcode\\s+ignore", re.I)` is a suppression; the script's own source does not contain the phrase `deepcode ignore`. — a NOT_SUPPORTED or typeless entry analysed nothing, so counting it would let a mislabelled language mask a hidden file (fail closed; Task 2 review ruling, plan Execution amendments). |
+| R8 | B | DIFFERS | All line formats match the requirement verbatim except the touched line, which prints `[changed: none]` when no changed path is on the result (e.g. touched only for an untracked or whitespace uri) where the requirement specifies a comma-separated list of changed paths with no `none` fallback (unlike the mismatch line, whose `list or none` the spec does state). | - R8 reviewed: `[changed: none]` is the empty case of the comma-separated list; a result touched only for an untracked or whitespace path has no changed path, and printing `none` (as the mismatch line does) keeps the bracket from reading as a truncated line. |
+| R9 | both | DIFFERS | parse_manifest (scripts/snyk_file_touch.py:278) skips blank and whitespace-only lines (pinned by test_parses_and_skips_blank_and_comments and test_whitespace_only_line_is_skipped) instead of exiting 2 for a line that is not `<path> <non-negative integer>`; all other listed exit-2 cases match. | - R9 reviewed: blank and `#` lines are not data lines; the spec's Design § The presence list says "blank and `#` lines are ignored", and R16 allows `#` comment lines; every data line that is not `<path> <non-negative integer>`, an indented comment included, still exits 2. |
+
+### Reviewed
+
+- R8 reviewed: `[changed: none]` is the empty case of the comma-separated list; a result touched only for an untracked or whitespace path has no changed path, and printing `none` (as the mismatch line does) keeps the bracket from reading as a truncated line.
+- R9 reviewed: blank and `#` lines are not data lines; the spec's Design § The presence list says "blank and `#` lines are ignored", and R16 allows `#` comment lines; every data line that is not `<path> <non-negative integer>`, an indented comment included, still exits 2.
+
+### Verifications
+
+- V1: pending: runs on the implementing PR CI (judge log)
+- V2: pending: after merge
+- V3: pending: after merge
+- V4: pending: operator reads Snyk quota after merge

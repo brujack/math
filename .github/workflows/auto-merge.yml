@@ -52,9 +52,12 @@ jobs:
 
   snyk-scan:
     runs-on: ubuntu-latest
-    continue-on-error: true
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 2
 
       - name: Install Snyk CLI
         # Pinned and checksum-verified before it runs with SNYK_TOKEN (ci-002), as
@@ -72,9 +75,31 @@ jobs:
           snyk --version | grep -qx "${SNYK_VER}"
 
       - name: Run Snyk Code scan
+        id: scan
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        run: snyk code test
+        run: |
+          set +e
+          snyk code test --sarif-file-output="${RUNNER_TEMP}/snyk.sarif" > "${RUNNER_TEMP}/snyk.txt"
+          rc=$?
+          if [ "${rc}" -gt 1 ]; then
+            echo "::error::snyk-scan: scanner error (exit ${rc})"
+            cat "${RUNNER_TEMP}/snyk.txt"
+            exit 1
+          fi
+          exit 0
+
+      # Fails only on a finding in a file this PR changes, a coverage mismatch,
+      # a .snyk-files presence difference or an inline suppression (ADR-0049).
+      - name: Judge findings against the files this PR changes
+        if: ${{ !cancelled() && steps.scan.outcome == 'success' }}
+        run: |
+          set +e
+          python3 -I scripts/snyk_file_touch.py < "${RUNNER_TEMP}/snyk.sarif" > "${RUNNER_TEMP}/judge.txt"
+          rc=$?
+          cat "${RUNNER_TEMP}/judge.txt"
+          grep -v '^::error' "${RUNNER_TEMP}/judge.txt" >> "${GITHUB_STEP_SUMMARY}"
+          exit "${rc}"
 
   bash-coverage:
     runs-on: ubuntu-latest
@@ -212,7 +237,7 @@ jobs:
           exit 1
 
   auto-merge:
-    needs: [secret-scan, bash-coverage, claude-md-budget]
+    needs: [secret-scan, bash-coverage, claude-md-budget, snyk-scan]
     runs-on: ubuntu-latest
     permissions:
       actions: read

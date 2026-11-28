@@ -1,0 +1,6 @@
+# Per-file Snyk Code result counts; source: math#260 run-1 SARIF of master d3ef01e.
+scripts/mutation_gate_items.py 3
+scripts/mutation_weakening.py 8
+scripts/zeta_results.py 4
+tests/test_mutation_weakening.py 1
+tests/test_mutation_weakening_e2e.py 1
