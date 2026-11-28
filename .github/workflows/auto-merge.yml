@@ -74,7 +74,15 @@ jobs:
       - name: Run Snyk Code scan
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        run: snyk code test
+        run: snyk code test --sarif-file-output="${RUNNER_TEMP}/snyk.sarif"
+
+      - name: Upload SARIF (probe)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: snyk-sarif
+          path: ${{ runner.temp }}/snyk.sarif
+          retention-days: 1
 
   bash-coverage:
     runs-on: ubuntu-latest
