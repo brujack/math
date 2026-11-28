@@ -170,6 +170,19 @@ class TouchDecision(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertTrue(lines[1].endswith("[changed: b.py]"))
 
+    def test_flow_step_in_second_code_flow_only(self) -> None:
+        doc = sarif(result("a.py", codeFlows=flow("a.py") + flow("b.py")))
+        lines, code = judge(doc, changed={"b.py"})
+        self.assertEqual(code, 1)
+        self.assertTrue(lines[1].endswith("[changed: b.py]"))
+
+    def test_flow_step_in_second_thread_flow_only(self) -> None:
+        threads = flow("a.py")[0]["threadFlows"] + flow("b.py")[0]["threadFlows"]
+        doc = sarif(result("a.py", codeFlows=[{"threadFlows": threads}]))
+        lines, code = judge(doc, changed={"b.py"})
+        self.assertEqual(code, 1)
+        self.assertTrue(lines[1].endswith("[changed: b.py]"))
+
     def test_added_file_is_changed(self) -> None:
         lines, code = judge(sarif(result("b.py")), changed={"b.py"})
         self.assertEqual(code, 1)
@@ -313,6 +326,11 @@ class FailureModes(unittest.TestCase):
             with self.subTest(res=res), self.assertRaises(sft.JudgeError):
                 judge(sarif(res))
 
+    def test_second_run_is_validated_too(self) -> None:
+        bad = {"runs": [run([]), {"properties": {"coverage": []}}]}
+        with self.assertRaises(sft.JudgeError):
+            judge(bad)
+
     def test_run_not_a_dict(self) -> None:
         with self.assertRaises(sft.JudgeError):
             judge({"runs": ["x"]})
@@ -334,6 +352,13 @@ class ParseManifest(unittest.TestCase):
     def test_repeated_path(self) -> None:
         with self.assertRaises(sft.JudgeError):
             sft.parse_manifest("a.py 1\na.py 2\n")
+
+    def test_whitespace_only_line_is_skipped(self) -> None:
+        self.assertEqual(sft.parse_manifest("   \n\t\na.py 1\n"), {"a.py": 1})
+
+    def test_indented_comment_is_malformed(self) -> None:
+        with self.assertRaises(sft.JudgeError):
+            sft.parse_manifest("  # x\n")
 
 
 class Main(unittest.TestCase):
@@ -384,11 +409,61 @@ class Main(unittest.TestCase):
         self.assertEqual(sft.GIT_DIFF_ARGV, DIFF_ARGV)
         self.assertEqual(sft.GIT_LS_FILES_ARGV, LS_ARGV)
 
-    def test_nul_split_ignores_trailing_empty(self) -> None:
+    def test_nul_separated_paths_are_split(self) -> None:
         code, _, _, _ = self._main(
             json.dumps(sarif(result("b.py"))), diff=b"a.py\0b.py\0", ls=b"a.py\0b.py\0"
         )
         self.assertEqual(code, 1)
+
+    def test_trailing_nul_adds_no_empty_tracked_path(self) -> None:
+        code, out, _, _ = self._main(json.dumps(sarif(result(""))))
+        self.assertEqual(code, 1)
+        self.assertIn("[untracked uri: ]", out)
+
+    def test_undecodable_git_path_exits_2(self) -> None:
+        code, out, err, _ = self._main(json.dumps(sarif()), ls=b"\xff.py\0")
+        self.assertEqual((code, out), (2, ""))
+        self.assertTrue(err.startswith("snyk_file_touch: "), err)
+
+    def test_exit_2_messages(self) -> None:
+        good = json.dumps(sarif())
+        cases = [
+            ("invalid json", {"stdin": "{nope"}, "stdin is not JSON"),
+            ("no runs", {"stdin": '{"runs": []}'}, "SARIF has no runs"),
+            ("huge integer", {"stdin": "1" * 5000}, "stdin is not usable JSON"),
+            (
+                "missing manifest",
+                {"stdin": good, "manifest": FileNotFoundError("x")},
+                ".snyk-files is missing",
+            ),
+            (
+                "directory manifest",
+                {"stdin": good, "manifest": IsADirectoryError("x")},
+                ".snyk-files is unreadable",
+            ),
+            (
+                "unreadable manifest",
+                {"stdin": good, "manifest": PermissionError("x")},
+                ".snyk-files is unreadable",
+            ),
+            (
+                "malformed manifest",
+                {"stdin": good, "manifest": "garbage\n"},
+                "malformed line",
+            ),
+            (
+                "second run invalid",
+                {"stdin": json.dumps({"runs": [run([]), {"properties": {}}]})},
+                "SARIF run has no results list",
+            ),
+        ]
+        for name, kwargs, expected in cases:
+            with self.subTest(name):
+                code, out, err, _ = self._main(**kwargs)
+                self.assertEqual((code, out), (2, ""))
+                self.assertTrue(
+                    err.startswith("snyk_file_touch: ") and expected in err, err
+                )
 
     def test_exit_2_cases(self) -> None:
         cases = {
@@ -417,6 +492,11 @@ class Main(unittest.TestCase):
             "unreadable manifest": {
                 "stdin": json.dumps(sarif()),
                 "manifest": PermissionError("denied"),
+            },
+            "second run invalid": {
+                "stdin": json.dumps(
+                    {"runs": [run([]), {"properties": {"coverage": []}}]}
+                )
             },
             "huge integer": {"stdin": "1" * 5000},
             "deep nesting": {"stdin": "[" * 100000},
@@ -476,6 +556,19 @@ class RealGit(unittest.TestCase):
     def test_default_run_git_missing_binary(self) -> None:
         with self.assertRaises(sft.JudgeError):
             sft.default_run_git(["no-such-binary-xyz"])
+
+    def test_default_run_git_non_executable_binary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            prog = Path(tmp) / "prog"
+            prog.write_text("#!/bin/sh\n", encoding="utf-8")
+            prog.chmod(0o644)
+            with self.assertRaises(sft.JudgeError) as ctx:
+                sft.default_run_git([str(prog)])
+        self.assertIn("cannot run", str(ctx.exception))
+
+    def test_default_run_git_returns_stdout_only(self) -> None:
+        argv = ["sh", "-c", "echo out; echo err >&2"]
+        self.assertEqual(sft.default_run_git(argv), b"out\n")
 
 
 def _sizes(table: dict[str, int | None]) -> Callable[[str], int | None]:
