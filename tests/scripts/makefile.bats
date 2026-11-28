@@ -359,6 +359,32 @@ STUB
     chmod +x "$1/rm"
 }
 
+# PROBE (never merged): with PROBE_BASH_ENV set, every bash make starts sources it and xtraces
+# into PROBE_TRACE_DIR; _probe_poll snapshots the session after the first TERM; _probe_keep copies
+# the trace dir to PROBE_ARTIFACTS on a failed wait. All three are no-ops without PROBE_BASH_ENV.
+_probe_dir() {
+    PROBE_TRACE_DIR="${BATS_TEST_TMPDIR}/ptrace"
+    mkdir -p "${PROBE_TRACE_DIR}"
+    export PROBE_TRACE_DIR
+}
+_probe_poll() {
+    [ -n "${PROBE_BASH_ENV:-}" ] || return 0
+    (
+        local k
+        for k in $(seq 1 150); do
+            printf '@%s\n' "${EPOCHREALTIME}"
+            ps -e -o pid=,ppid=,sid=,stat=,args= 2>/dev/null | awk -v s="$1" '$3 == s'
+            sleep 0.02
+        done
+    ) > "${PROBE_TRACE_DIR}/ps.log" 2>&1 &
+}
+_probe_keep() {
+    [ -n "${PROBE_ARTIFACTS:-}" ] || return 0
+    printf 'reason=%s make_status=%s\n' "$1" "$2" > "${PROBE_TRACE_DIR}/verdict"
+    cp -r "${PROBE_TRACE_DIR}" "${PROBE_ARTIFACTS}/${BATS_TEST_NUMBER}-$$-${RANDOM}"
+    cp "${BATS_TEST_TMPDIR}/calls" "${BATS_TEST_TMPDIR}/rm-log" "${PROBE_ARTIFACTS}/" 2>/dev/null || true
+}
+
 # On a timed-out wait, prints every process still in session $1 (the setsid'd make) with its
 # signal dispositions, so a failure in CI shows which process held up and whether TERM was
 # ignored, blocked or caught there. Diagnostic only; always returns 0.
@@ -403,7 +429,8 @@ _term_group_twice() {
     local dir="$1" pid
     shift
     rm -f "${BATS_TEST_TMPDIR}/hang-ready" "${BATS_TEST_TMPDIR}/rm-started" "${BATS_TEST_TMPDIR}/rm-log"
-    setsid env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -C "${dir}" "$@" >/dev/null 2>&1 </dev/null &
+    _probe_dir
+    setsid env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS BASH_ENV="${PROBE_BASH_ENV:-}" make -C "${dir}" "$@" >/dev/null 2>"${PROBE_TRACE_DIR}/make.err" </dev/null &
     pid=$!
     if ! _wait_for_file "${BATS_TEST_TMPDIR}/hang-ready" 100; then
         _dump_group_state "${pid}"
@@ -412,11 +439,16 @@ _term_group_twice() {
         printf 'wait failed: stub never reached hang-ready\n' >&2
         return 1
     fi
+    printf '@%s first TERM\n' "${EPOCHREALTIME}" > "${PROBE_TRACE_DIR}/events"
     kill -TERM -- "-${pid}"
+    _probe_poll "${pid}"
     if ! _wait_for_file "${BATS_TEST_TMPDIR}/rm-started" 100; then
         _dump_group_state "${pid}"
         kill -KILL -- "-${pid}" 2>/dev/null
-        wait "${pid}" 2>/dev/null || true
+        local ms=0
+        wait "${pid}" 2>/dev/null || ms=$?
+        sleep 3.2
+        _probe_keep rm-started "${ms}"
         printf 'wait failed: cleanup rm never started after first TERM\n' >&2
         return 1
     fi
@@ -1947,7 +1979,8 @@ _scratch_tmp() {
     _py_stub_setup
     _scratch_tmp
     rm -f "${BATS_TEST_TMPDIR}/exec-ready" "${BATS_TEST_TMPDIR}/cp-started"
-    TMPDIR="${SCRATCH_T}" STUB_EXEC_HANG=1 STUB_CP_SLOW=1 setsid env -u MAKEFLAGS -u MAKELEVEL make -C "${STUBDIR}" mutants >/dev/null 2>&1 </dev/null &
+    _probe_dir
+    TMPDIR="${SCRATCH_T}" STUB_EXEC_HANG=1 STUB_CP_SLOW=1 setsid env -u MAKEFLAGS -u MAKELEVEL BASH_ENV="${PROBE_BASH_ENV:-}" make -C "${STUBDIR}" mutants >/dev/null 2>"${PROBE_TRACE_DIR}/make.err" </dev/null &
     local pid=$! i
     for i in $(seq 1 100); do
         [ -e "${BATS_TEST_TMPDIR}/exec-ready" ] && break
@@ -1961,11 +1994,15 @@ _scratch_tmp() {
         return 1
     fi
     kill -TERM -- "-${pid}"
+    _probe_poll "${pid}"
     # Once cleanup is inside its (stalled) copy-back, a second TERM must not abort it.
     if ! _wait_for_file "${BATS_TEST_TMPDIR}/cp-started" 50; then
         _dump_group_state "${pid}"
         kill -KILL -- "-${pid}" 2>/dev/null
-        wait "${pid}" 2>/dev/null || true
+        local ms=0
+        wait "${pid}" 2>/dev/null || ms=$?
+        sleep 3.2
+        _probe_keep cp-started "${ms}"
         printf 'wait failed: copy-back never started (cp-started) after first TERM\n' >&2
         return 1
     fi
