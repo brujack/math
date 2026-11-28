@@ -82,7 +82,8 @@ GATE_FILES = (
     # editing either file changes what auto-merge waits for.
     ".github/required-status-checks",
     "scripts/ci-gate.sh",
-    # The Snyk file-touch judge and its supported-extension list decide whether auto-merge is gated on findings.
+    # The snyk-scan judge and its presence list (ADR-0049): editing either changes what
+    # blocks auto-merge.
     ".snyk-files",
     "scripts/snyk_file_touch.py",
 )
