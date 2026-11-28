@@ -331,3 +331,53 @@ Findings:
 
 Assumption: Snyk's single reported codeFlow per result includes the lines a degrading edit touches. Settled by a probe that degrades a line only a non-representative caller passes through.
 Disposition: Addressed. F1 was verified by the author (`f306d8` and `f5e20d` kept `"1"`). The operator chose "Flow-touch, no fingerprints (Recommended)": revision 3 drops the baseline and every fingerprint, judges by whether the PR's diff touches a result's location or flow, and adds the coverage count (F2) and guarded judge path (F4).
+
+### Round 3
+
+Reviewed at commit: `1c4114c` (revision 3, flow-touch). Fresh lenses; earlier rounds framed as history.
+
+#### Goal-Fit
+
+Finding: the guards that make the 15 findings safe are not flow steps. Snyk does not model them (math#259).
+- In the zeta flows, no step falls in `_check_owned` (903-916), its calls (942-944), `_has_marker`, `_check_symlinks`, `_check_inputs` or `_canonical`'s refusals (863-870). Deleting line 943 gave 0 touched in the replay, and so did gutting `_check_owned`.
+- A PR can turn a tolerated finding into a live defect and stay green.
+
+Simpler and stronger alternative, **file-touch**: red when the PR changes any line of a file holding a result's location or any flow step. On measured history it adds 0 operator merges: the flagged files were touched after landing only by #253 and #255, both already items-gate merges.
+
+Premise verified: flow-touch, or file-touch, would have turned math#250 and #252 red, because both added their files. The R10 replay of math#261 is exact: 6 touched, 12 untouched.
+Assumption: with the new `.snyk`, SARIF coverage `.py` drops excluded files to 35. That is unmeasured; every SARIF so far came from a run without `.snyk`. Settle it with a pre-PR probe.
+Disposition:
+
+#### Ergonomics
+
+Finding: reds are rare. A replay of the last 40 first-parent commits on d3ef01e found only #250 and #252 touched, the commits that added the code. #253 and #255 touched nothing.
+- **`gate-hold` is overloaded.** The items gate's sweep (`ITEMS_GATE_LINE`) would un-draft and un-label snyk-held PRs. The draft-plus-label step adds nothing, because the red `needs` already holds the merge. Fix: mirror the items gate, where the red check is the hold, with no draft and no label.
+- It also confirms the off-flow guard gap and the startLine-only gap.
+- **Minor:** about 10 error annotations per step may be capped (unverified). Emit one `::error` line with a count.
+
+Assumption: the same `.snyk` coverage figure of 35.
+Disposition:
+
+#### Risk
+
+Finding:
+- **F1: the guarded-path check runs inside the PR's own judge**, so an edit can delete it and stay green. `.snyk` and the judge must go into the items gate's `GATE_FILES` (run from `base.ref`, required).
+- **F2: stdlib shadowing.** A PR-added `scripts/json.py` replaces the judge's parser (probed). Run it with `python3 -I`.
+- **F3: diff parsing fails open.** A `.gitattributes` `*.py -diff` turns a new file into `Binary files … differ` with no hunk. A `git mv` out of `tests/` shows no hunks. Quoted non-ASCII paths and paths with spaces fail to map.
+- **F4: likely wedge.** `.rs` coverage reads 68 against 69 tracked, and the only empty `.rs` file is the likely reason. If Snyk skips empty files, an empty `__init__.py` reads as hidden.
+- **F5:** coverage checks `.py` only, but Snyk also analyses `.html`.
+
+Assumption: the `.snyk` coverage formula, including empty files.
+Disposition:
+
+#### Adversarial Spec Review (comparison/judge designs only)
+
+Findings:
+- **Off-flow guards, confirmed with concrete green PRs:** delete line 942; change line 912 to `if allow_empty:`; drop the cwd check at 869.
+- **Multi-line regions:** the step 926-929 misses an edit at 928, which drops `_canonical` on `--runs-out`.
+- **The items gate already holds most findings.** `GATE_SCRIPT_GLOBS` covers `scripts/mutation_*.py`, so 11 of the 15 findings already sit behind operator merges, and flow-touch's marginal value is the 4 zeta findings, which is exactly where the guard gap bites.
+- **Cross-file flows:** all 17 flows stay within one file, so whether a new caller in another file yields a result is unknown.
+- **Recall:** R10 replays only known cases. Add offline fixture cases for 942, 912 and 928.
+
+Assumption: a new taint path to an existing sink yields a result whose coordinates land on the PR's lines. math#261 (a) was the only evidence, and it was confounded. Settle it with an unconfounded probe before merge.
+Disposition:
