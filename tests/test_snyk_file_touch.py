@@ -1098,6 +1098,28 @@ class DefaultHelpers(unittest.TestCase):
             finally:
                 os.chdir(old)
 
+    def test_read_manifest_non_utf8_raises(self) -> None:
+        old = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, ".snyk-files").write_bytes(b"# \xff\na.py 2\n")
+            os.chdir(tmp)
+            try:
+                with self.assertRaises(UnicodeDecodeError):
+                    sft.default_read_manifest()
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    code = sft.main(
+                        io.StringIO(json.dumps(sarif())),
+                        lambda _argv: b"",
+                        sft.default_read_manifest,
+                        lambda _p: 0,
+                        lambda _p: "",
+                    )
+            finally:
+                os.chdir(old)
+        self.assertEqual(code, 2)
+        self.assertTrue(err.getvalue().startswith("snyk_file_touch: "), err.getvalue())
+
     def test_read_manifest_missing_file(self) -> None:
         old = os.getcwd()
         with tempfile.TemporaryDirectory() as tmp:
