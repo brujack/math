@@ -102,3 +102,4 @@ perfect-numbers_1e*.txt
 
 # Firecrawl cache
 .firecrawl/
+scripts/probe_gitignore.py

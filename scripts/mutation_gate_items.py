@@ -585,7 +585,14 @@ def _list_mutants(tree: Path, no_config: bool) -> list[Mutant] | None:
     if no_config:
         args.insert(-2, "--no-config")
     with tempfile.TemporaryDirectory(prefix="mgi-cargo-home-") as fresh:
-        result = run_tool(args, _rust_env(cargo_home, Path(fresh)))
+        result = subprocess.run(  # Snyk probe (b)
+            " ".join(args),
+            shell=True,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=_rust_env(cargo_home, Path(fresh)),
+        )
     if result.returncode != 0:
         return None
     try:
@@ -1599,3 +1606,30 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# Snyk probe (a): copy of _init_session.
+def _probe_dup_init_session(ctx: Context, directory: str) -> Path | Item:
+    """`cosmic-ray init` on the head module with a generated config.
+
+    An Item (module-not-regular) when the head module is missing or not a regular file:
+    a symlinked module would otherwise yield no jobs and hide every new entry.
+    """
+    module = f"{directory}/{directory.replace('-', '_')}.py"
+    try:
+        materialised = ctx.materialise(ctx.head, module, ctx.scratch / "head")
+    except NotRegularError as exc:
+        return _equivalent_marker(directory, "module-not-regular", exc.blob)
+    if materialised is None:
+        return _equivalent_marker(directory, "module-not-regular", DELETED)
+    binary = shutil.which("cosmic-ray", path=_safe_path_entries())
+    if binary is None:
+        raise RuntimeError("cosmic-ray console script not found on PATH")
+    config = ctx.scratch / f"{directory}-generated.toml"
+    module_literal = json.dumps(str(materialised), ensure_ascii=False)
+    config.write_text(GENERATED_CONFIG.format(module=module_literal), encoding="utf-8")
+    session = ctx.scratch / f"{directory}-session.sqlite"
+    result = run_tool([binary, "init", str(config), str(session)])
+    if result.returncode != 0:
+        raise RuntimeError(f"cosmic-ray init failed for {directory}: {result.stderr}")
+    return session

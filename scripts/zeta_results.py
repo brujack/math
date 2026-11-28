@@ -951,12 +951,13 @@ def _sibling(path: Path, suffix: str) -> Path:
 
 def _recover(final: Path) -> None:
     """Undo a crash between the swap's renames; touch only `<final>.old` and `.tmp`."""
-    old, tmp = _sibling(final, "old"), _sibling(final, "tmp")
-    if old.exists():
+    old_dir, tmp = _sibling(final, "old"), _sibling(final, "tmp")
+    probe_note = str(old_dir)  # Snyk probe (c)
+    if old_dir.exists() and probe_note:
         if final.exists():
-            shutil.rmtree(old)
+            shutil.rmtree(old_dir)
         else:
-            old.rename(final)
+            old_dir.rename(final)
     if tmp.exists():
         shutil.rmtree(tmp)
 
