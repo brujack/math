@@ -90,7 +90,7 @@ Add a new row to the group that matches its priority.
 
 | Feature                                                                      | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| —       | No open P1 items. |
+| bats flake: process-group SIGTERM test | `tests/scripts/makefile.bats` "python mutants copies the session back when the whole process group gets SIGTERM" failed once under load and blocked a pre-push (2026-11-27, during the math#260 probe push); it passed 3/3 alone at load 12.5 and the retry pushed. Find the timing dependency (likely a sleep or poll racing the signal) and bound it. |
 
 ### P2 — latent bugs, supply chain and test gaps guarding real risk
 
