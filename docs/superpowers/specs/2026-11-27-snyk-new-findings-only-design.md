@@ -283,3 +283,52 @@ Trigger: the design is a judge (known vs new).
 
 Assumption: equal `identity` means the same vulnerability, not a similar one nearby. Probes (a) and (b) above confirm or refute it.
 Disposition: Addressed. Measured in math#261; probe (b) confirmed F2 (identity kept at a degraded sink) and probe (d) confirmed F5 for `.dcignore`. The operator chose "1": key on identity plus fingerprint `"1"`; revision 2 also reds on `.snyk`/`.dcignore` changes and uses claim-once matching (F4).
+
+### Round 2
+
+Reviewed at commit: `381f3ae` (revision 2). Fresh lenses; round 1 framed as history.
+
+#### Goal-Fit
+
+Finding: revision 2 gives the signal a consumer. `allow_auto_merge` is `false` and 54 of the last 60 merges ran through the `auto-merge` job, so a red `needs` blocks every automatic merge. But R8 makes the judge write `GITHUB_STEP_SUMMARY` from Python, and R7 opens two CLI paths. math#163 (`2fd5efa`) found Snyk flags the first pattern as Path Traversal and ignores inline suppressions, and master flags the second 8 times. So the judge will report 1 to 3 findings on itself, and V1's "15 accepted" is wrong. Fix: print to stdout only, have the shell append to the summary, and use repo-anchored constant paths. A premise error too: `snyk-scan` was not green until math#250. It was red on #150, #158 and #162, and green on #170 through #249. That is earlier red that nobody read, which strengthens the case.
+Assumption: Snyk's server-side engine keeps `identity` and `"1"` stable for unchanged code over weeks. All evidence spans about 2 hours on one day. Settled by re-scanning `d3ef01e` a week or more later.
+Disposition:
+
+#### Ergonomics
+
+Finding: engine drift turns every open PR red at once, including Renovate, docs-only and workflow-only PRs. The output names files the PR never touched, and agents follow "copy the `baseline:` line" into operator-only merges. A re-run does not help, because it reuses the old merge ref, so every PR needs a new event. Fix: mark each line "in this PR's diff" or "not in this PR's diff", say "likely engine drift" when none are, and add drift to Known limits.
+Secondary findings:
+- Copying a `changed:` line's `baseline:` text duplicates the identity, which is R9 exit 2. The output should say "replace".
+- The judge accepts a reasonless or `?` reason.
+- No `gate-hold` instruction tells the operator a PR is waiting.
+
+Estimated cost: about 2 operator merges a month from new code, and 0 of 2 historical edits touched a flagged flow.
+Assumption: the same engine-drift stability as goal-fit.
+Disposition:
+
+#### Risk
+
+Finding:
+- **Fail-open: the policy pathspec is root-only.** `scripts/.dcignore` does not match `-- .snyk .dcignore` (probed). Whether a nested `.dcignore` hides a file is unmeasured.
+- **Fail-open: the judge script is unguarded.** The workflow edit is caught by the items gate (`auto-merge.yml` declares `secret-scan`), but `scripts/snyk_baseline.py` is not, so an agent can weaken it and merge green.
+- **Engine drift is an undocumented block on every merge**, and the `changed` class cannot tell drift from degradation.
+- **V4 passes on no measurement**, because a skipped compare step is green.
+- **Minor:** `if: always()` spends quota on cancelled runs (use `!cancelled()`), and R2 and R9 disagree on whether a reason is required.
+Assumption: the same engine-drift stability.
+Disposition:
+
+#### Adversarial Spec Review (comparison/judge designs only)
+
+Findings:
+- **F1 (load-bearing, verified by the author): `"1"` is a lossy sketch, not a flow hash.** It is a fixed 16 segments for flows of 8 to 56 steps, segment values recur, and small edits flip a subset of segments.
+  - On math#261 data, `f306d8` passes through the degraded `shell=True` sink. Its flow gained a step (`154, 174, 174, 173`) and `priorityScore` rose from 368 to 373, but `"1"` stayed byte-equal, so it is judged accepted.
+  - `f5e20d`, whose flow and sink sit inside the edited `_recover`, also kept `"1"`.
+  - The spec's claim that (b) changed `"1"` holds only for `236272`.
+- **F2:** the policy check is root-only. The fix: red when SARIF coverage `.py` files differ from `git ls-files '*.py' ':!tests/**'`, which held exactly on master (118). That one check covers nested `.dcignore`, `.snyk`, size limits and flag drift.
+- **F3:** probe (a) did not show "one result per sink". It was confounded with (b). Master has 3 results on sink 173. Deleting a stale line is self-service green even when the PR changed that flow.
+- **F4:** the judge and workflow paths are unguarded.
+- **Minor:** `"0"` matched 2 of 17 in math#260, not 4. `level` and `ruleId` should be compared on a match.
+- **Recall:** V2 replays only known-good cases. A fixture replay of sarif1 against sarif3 catches F1 offline. Fix: a **flow-touch** rule. A result is red when its location or any codeFlow step lies in a new-side hunk of `git diff -U0 HEAD^1 HEAD`.
+
+Assumption: Snyk's single reported codeFlow per result includes the lines a degrading edit touches. Settled by a probe that degrades a line only a non-representative caller passes through.
+Disposition:
