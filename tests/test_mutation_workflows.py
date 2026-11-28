@@ -284,7 +284,9 @@ class PipLineTests(unittest.TestCase):
 
 
 PR_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "mutation-pr.yml"
-TAIKI_USES = "taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39"
+# Prefix only: the 40-hex pin and its single version live in test_tool_pins.py, so a
+# Renovate bump of the action does not break this structural test.
+TAIKI_USES = "taiki-e/install-action@"
 RS_RUN_STEP = "Run Rust mutants on one shard"
 CANARY_STEP = "Gate canary (amicable-rs)"
 CANARY_FILE = "amicable/amicable-rs/src/lib.rs"
