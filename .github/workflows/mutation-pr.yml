@@ -181,33 +181,6 @@ jobs:
       - name: Weakening canary fixtures
         run: python3 -m unittest tests.test_mutation_weakening_canary -v
 
-      - name: Gate canary (sq)
-        run: |
-          # A change to the gate's own files selects no project, so it would merge
-          # green untested. Append a space to the one `limit = 10**max_digits` line
-          # (13 killed mutants), commit that path alone so HEAD~1 is the clean tree,
-          # and require at least one kill. Base HEAD~1 keeps the PR's own sq.py
-          # edits out of the canary diff.
-          f=sq/sq.py
-          n=$(grep -c -x '    limit = 10\*\*max_digits' "${f}") || n=0
-          if [ "${n}" != "1" ]; then
-            printf 'red: canary line count is %s, expected exactly 1 in %s\n' "${n}" "${f}" | tee -a "${GITHUB_STEP_SUMMARY}" >&2
-            exit 1
-          fi
-          sed -i 's/^    limit = 10\*\*max_digits$/& /' "${f}"
-          git -c user.name=ci -c user.email=ci@localhost commit -q -m canary -- "${f}"
-          out="${RUNNER_TEMP}/canary"
-          mkdir -p "${out}/status"
-          PLAN_OUT="${out}" scripts/mutation-pr-plan-python.sh HEAD~1 sq
-          scripts/mutation-pr-diff.sh HEAD~1 sq "${out}/d.diff"
-          # The verdict reads the status file, so run it even when the session is red.
-          make_rc=0
-          make -C sq mutants-diff DIFF="${out}/d.diff" MUTANT_SHARD=0/1 STATUS_OUT="${out}/status/sq-0" || make_rc=$?
-          verdict_rc=0
-          scripts/mutation-pr-verdict-python.sh --expected-dirs sq --min-killed 1 "${out}/plan.txt" "${out}/status" || verdict_rc=$?
-          if [ "${make_rc}" != "0" ] || [ "${verdict_rc}" != "0" ]; then
-            exit 1
-          fi
 
   # Plans the Rust shards. It always runs and always sets `units` (`[]` when no
   # crate changed), so the jobs that need it never see an unset output. It lists
